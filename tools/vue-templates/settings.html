@@ -481,11 +481,19 @@
             </section>
 
             <section class="set-group" data-group="data">
-              <h2 class="set-group-h">数据与同步</h2>
+              <h2 class="set-group-h">数据与备份</h2>
 
-              <div class="card card-surface" data-nav="sync">
-                <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与同步</h2>
+              <!-- 数据、快照恢复、设置导出与云同步收在同一张卡里：
+                  它们共用同一份状态和同一个撤销点，分三张卡只会让人找不到「刚才那份备份」。 -->
+              <div class="card card-surface" data-nav="backup">
+                <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与备份</h2>
                 <div class="kcols">
+                  <div class="krow">
+                    <span class="kicon"><span v-html="icFolderDoc"></span></span>
+                    <span class="kn">备份健康</span>
+                    <span class="dir-name">{{ backupInfo }}</span>
+                    <button class="ghost mini wide" :disabled="backupBusy.refresh" @click="refreshBackupCenter">刷新</button>
+                  </div>
                   <div class="krow">
                     <span class="kicon"><span v-html="icFolder"></span></span>
                     <span class="kn">数据文件</span>
@@ -508,15 +516,29 @@
                   <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
                   <span class="hint sm">{{ dataMsg }}</span>
                 </div>
+                <div class="krow tight">
+                  <button class="ghost" :disabled="backupBusy.create" @click="createBackup">立即留一份快照</button>
+                  <button class="ghost" :disabled="backupBusy.verify" @click="verifyBackup">校验全部快照</button>
+                  <span class="hint sm">{{ backupMsg }}</span>
+                </div>
+                <!-- 快照列表来自 /backup/status：预览差异与一键恢复都在这里，不再往下载目录丢 JSON -->
+                <div ref="backupListEl"></div>
+                <label class="plabel" style="margin-top:var(--sp-16)">设置</label>
+                <div class="krow tight">
+                  <button class="ghost" @click="exportSetup"><span class="ic" data-icon="download" data-size="13"></span> 导出设置</button>
+                  <button class="ghost" @click="pickImportSetup"><span class="ic" data-icon="upload" data-size="13"></span> 导入设置</button>
+                  <button class="ghost danger" @click="resetSetup" title="清空密钥等全部设置">恢复默认</button>
+                  <input type="file" ref="impSetFileEl" accept=".json,application/json" style="display:none" @change="onImportSetupFile">
+                </div>
                 <label class="plabel" style="margin-top:var(--sp-16)">云同步（WebDAV）</label>
                 <div class="krow">
                   <span class="kicon"><span v-html="icLink"></span></span>
-                  <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">
+                  <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" :placeholder="cloudUrlHint" :title="cloudUrlHint" style="flex:1">
                 </div>
                 <div class="krow">
                   <span class="kicon"><span v-html="icKey"></span></span>
-                  <input id="cloudUser" v-model="cloudUser" @change="saveCloud" placeholder="账号（邮箱）" style="flex:1">
-                  <input id="cloudPass" type="password" v-model="cloudPass" @change="saveCloud" placeholder="应用密码" style="flex:1">
+                  <input id="cloudUser" v-model="cloudUser" @change="saveCloud" placeholder="账号 / 邮箱（留空用 .env）" style="flex:1">
+                  <input id="cloudPass" type="password" v-model="cloudPass" @change="saveCloud" placeholder="应用密码（留空用 .env）" style="flex:1">
                 </div>
                 <div class="krow tight">
                   <button class="ghost" @click="cloudBusy.test ? cloudAbort('test') : cloudCall('test')">{{ cloudBusy.test ? '中止这次' : '测试连接' }}</button>
@@ -535,8 +557,6 @@
                 </div>
                 <!-- 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 -->
                 <div ref="cloudConflictsEl"></div>
-                <!-- 备份：每次云端覆盖本机之前留的那一份，可一键恢复 -->
-                <div id="cloudBackups" ref="cloudBackupsEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="prompts">
@@ -555,16 +575,6 @@
                 <div ref="promptRecentEl" class="prompt-recent"></div>
               </div>
 
-              <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
-              <div class="card card-surface" data-nav="backup">
-                <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
-                <div class="krow tight">
-                  <button class="ghost" @click="exportSetup"><span class="ic" data-icon="download" data-size="13"></span> 导出设置</button>
-                  <button class="ghost" @click="pickImportSetup"><span class="ic" data-icon="upload" data-size="13"></span> 导入设置</button>
-                  <button class="ghost danger" @click="resetSetup" title="清空密钥等全部设置">恢复默认</button>
-                  <input type="file" ref="impSetFileEl" accept=".json,application/json" style="display:none" @change="onImportSetupFile">
-                </div>
-              </div>
             </section>
 
             <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，

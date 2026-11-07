@@ -367,11 +367,16 @@ window.AiGen = {
   },
   b64FromBuf(buf) { const b = new Uint8Array(buf); let s = ''; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s); },
   _entry(prov, o) {
-    return { kind: 'asset', id: o.assetId || o.id, assetId: o.assetId || '', genId: o.genId || '', status: 'done',
+    const e = { kind: 'asset', id: o.assetId || o.id, assetId: o.assetId || '', genId: o.genId || '', status: 'done',
       type: o.type, provider: prov.id, providerName: 'AI 生成 · ' + (prov.displayName || prov.name || ''),
       prompt: o.prompt || '', format: o.format || '', duration: o.duration || null,
       ts: new Date().toISOString(), src: o.src || assetSrc(o.assetId),
       dl: o.dl || assetDl(o.assetId) };
+    /* `o.mustSave` 由调用方给（导演台的关键帧走这一份）：生成完成那条事件带它，
+       AssetLocal 就知道这是「刚生成的产物」，不受「产物自动存本机」开关管。
+       缺省不挂这个字段 —— 工作台那些调用方的条目形状照旧。 */
+    if (o.mustSave) e.mustSave = true;
+    return e;
   },
   /* 图片一出结果就通知自动镜像（不再等某个列表页加载 AssetLib）：投事件这一件事不在这里，
      `_entry` 出来的条目直接交给 `AssetLocal.announce` 归一化并投（四个生产点都只调那一条，
@@ -451,7 +456,7 @@ window.AiGen = {
          「一次出 3 张候选」会变成「一次出 1 张、另外 2 张永远看不见」，
          而界面已经写了「正在出第 2、3 张」。 */
       if (ids.length && (ids.length >= want || (p && p.done))) {
-        const list = ids.slice(0, want).map(a => this._entry(prov, { assetId: a, genId: id, type: '图片', prompt: prompt, format: fmt }));
+        const list = ids.slice(0, want).map(a => this._entry(prov, { assetId: a, genId: id, type: '图片', prompt: prompt, format: fmt, mustSave: !!o.mustSave }));
         window.AssetLocal.announce(list);
         return Object.assign(list[0], { entries: list });
       }
@@ -459,6 +464,7 @@ window.AiGen = {
          否则拿到的是过期就 403 的签名地址。 */
       if (p && p.url) {
         const one = this._entry(prov, { id: id, genId: id, type: '图片', prompt: prompt, format: fmt,
+          mustSave: !!o.mustSave,
           src: Api.mediaSrc(p.url), dl: '/fetch?url=' + encodeURIComponent(p.url) + '&dl=1' });
         window.AssetLocal.announce(one);
         return Object.assign(one, { entries: [one] });

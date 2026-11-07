@@ -2,7 +2,7 @@
 /* 本机资产「一份本体 + 双身份」的读写全链路判据（隔离实例）。
    跑法：node tests/e2e/local-chain.cjs
    覆盖的都是「搬错了就再也找不回」的那几件事：
-     · 落点：本体在 <库根>\<类型>\<规范名>.<ext>，账在 .data\local-assets\（库根与账分家）；
+     · 落点：本体在 <库根>\<类型>\<规范名>__la_xxx.<ext>，账在 .data\local-assets\（库根与账分家）；
      · 身份：每条带 fid（<dev>:<ino>，同盘改名/挪目录还认得）与采样签名（<字节数>:<头尾 1MB 的 sha1 前 16 位>，
        换盘、跨卷拷贝、被同步盘重写一遍也还认得内容）；
      · 认回：用户改名 → 三级认回（相对路径 → fid → 签名）并把新路径写回账；
@@ -74,17 +74,23 @@ async function main() {
     say('POST /local-assets 回 id', !!idA, JSON.stringify(a.json && { id: a.json.id, url: a.json.url, file: a.json.file }));
     const rowA = ledger(DATA).find(x => x.id === idA);
     say('账在 .<探针>/local-assets', !!rowA, '');
-    say('本体落在 图片\\ 且用规范名', rowA && /^图片[\\/]/.test(rowA.file) && /开场镜头-候选1\.png$/.test(rowA.file), rowA && rowA.file);
+    /* 规范名后面带一枚可移植尾标 `__la_xxx`：换机器只拷文件、不搬索引时按它复原同一枚号。 */
+    say('本体落在 图片\\ 且用规范名', rowA && /^图片[\\/]/.test(rowA.file) && /开场镜头-候选1\.png$/.test(String(rowA.file).replace(/__la_[a-z0-9]+/i, '')), rowA && rowA.file);
+    say('文件名带着可移植本机号', rowA && /开场镜头-候选1__/.test(rowA.file) && new RegExp('__' + idA + '\\.png$').test(rowA.file),
+      rowA && rowA.file + ' / ' + idA);
     say('落在库根之下', rowA && fs.existsSync(path.join(LIB, rowA.file)), rowA && path.join(LIB, rowA.file));
     say('带 fid（同盘改名挪目录靠它）', rowA && !!rowA.fid && /^\d+:\d+$/.test(String(rowA.fid)), rowA && rowA.fid);
     say('带采样签名（<字节数>:<16 位十六进制>）', rowA && /^\d+:[0-9a-f]{16}$/.test(String(rowA.sig)), rowA && rowA.sig);
     const g1 = await bytesOf('/asset/' + idA);
     say('GET /asset/<id> 字节原样读得到', g1.status === 200 && g1.buf.equals(png('')), '状态 ' + g1.status + ' · ' + g1.buf.length + '/' + png('').length + ' 字节');
 
-    /* ② 同名再来一份：不覆盖，加 -2 */
+    /* ② 同名再来一份：不覆盖。文件名带着各自的本机号，同名也天然落成两份
+       （`-2` 那道闸留给「同一枚号被重存一次」的边角），判据看的是两份字节都在、各归各的号。 */
     const a2 = await mirror('开场镜头-候选1.png', 'x', { prompt: '第二张' });
     const rowB = ledger(DATA).find(x => x.id === (a2.json || {}).id);
-    say('同名不覆盖，落 -2', rowB && /-2\.png$/.test(rowB.file), rowB && rowB.file);
+    say('同名不覆盖：两份字节各在自己号下', rowA && rowB && rowB.file !== rowA.file
+      && fs.existsSync(path.join(LIB, rowA.file)) && fs.existsSync(path.join(LIB, rowB.file))
+      && rowB.file.includes(rowB.id), rowA && rowB && rowA.file + ' / ' + rowB.file);
 
     /* ③ 用户改名 → fid 命中认回，并把新路径写回账 */
     const before = rowA.file;
@@ -220,6 +226,39 @@ async function main() {
     say('中段不同的两份字节不被并成一张卡', !!r1 && !!r2 && r1.id !== r2.id && r1.sig !== r2.sig,
       JSON.stringify([r1 && r1.sig, r2 && r2.sig]));
     say('它们各自落在 视频\\', r1 && r2 && /^视频[\\/]/.test(r1.file) && /^视频[\\/]/.test(r2.file), JSON.stringify([r1 && r1.file, r2 && r2.file]));
+
+    /* ⑫ 项目文件导入：新机器只拷视频文件、不搬索引，按包里的旧 la_ 号把盘上那份认回来。 */
+    const B_MOVED = png('moved');
+    fs.writeFileSync(path.join(LIB, '视频', '换机器拷来的旧素材.mp4'), B_MOVED);
+    const rb = await post('/local-assets/rebind', { items: [{ id: 'la_from_other_pc',
+      name: '旧机器上的名字.mp4', file: path.join('视频', '换机器拷来的旧素材.mp4'),
+      bytes: B_MOVED.length, format: 'mp4', assetId: 'asset_other_pc', taskId: 'job_other_pc',
+      upstream: 'https://cdn.example.com/results/other_pc.mp4?sig=1' }] });
+    say('重绑端点按旧号回了那一行', rb.status === 200 && rb.json && rb.json.bound === 1
+      && rb.json.rows[0] && rb.json.rows[0].id === 'la_from_other_pc', JSON.stringify(rb.json));
+    const gOld = await bytesOf('/asset/la_from_other_pc');
+    say('只拷文件也能按旧号取回字节', gOld.status === 200 && gOld.buf.equals(B_MOVED), '状态 ' + gOld.status);
+    say('重绑没复制第二份字节', fs.readdirSync(path.join(LIB, '视频')).filter(x => /换机器拷来的旧素材/.test(x)).length === 1, '');
+
+    /* ⑬ 资产库 / 工作台点「存回本机」：盘上那份还在就只补索引，一个字节都不重下。
+       探针给的是一条根本取不到的外链 —— 认盘没命中就一定会 500，绿了就说明压根没去下载。 */
+    fs.writeFileSync(path.join(LIB, '视频', '盘上早就有的那段__la_e2erec.mp4'), png('e2erec'));
+    await req('/assets-usage');                  // 作废磁盘快照
+    const recog = await post('/local-assets/from-url', {
+      url: 'https://cdn.example.com/never-fetched.mp4', name: '盘上早就有的那段.mp4',
+      format: 'mp4', mime: 'video/mp4',
+      meta: { upstream: 'https://cdn.example.com/never-fetched.mp4',
+        /* 认盘要「名字 + 字节数」两条线索：只给名字会把同一镜头重做的那一版认成旧片。 */
+        byteLength: png('e2erec').length,
+        detail: { asset: 'asset_e2erec', task: 'job_e2erec' } },
+    });
+    say('盘上已有字节：回 200 且判成只补索引', recog.status === 200 && recog.json && recog.json.recognized === true
+      && recog.json.reused === true, recog.status + ' ' + String(recog.text).slice(0, 160));
+    say('回的是文件名里那一枚号', recog.json && recog.json.id === 'la_e2erec', recog.json && recog.json.id);
+    const recRow = ledger(DATA).find(x => x.id === 'la_e2erec');
+    say('平台身份补进账、没有第二份字节', !!recRow && recRow.assetId === 'asset_e2erec'
+      && fs.readdirSync(path.join(LIB, '视频')).filter(x => /盘上早就有的那段/.test(x)).length === 1,
+      JSON.stringify(recRow && { id: recRow.id, assetId: recRow.assetId, file: recRow.file }));
   } catch (e) {
     say('判据跑通', false, ((e && e.code) ? e.code + ' ' : '') + ((e && e.message) || e));
   } finally {

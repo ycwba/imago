@@ -2,7 +2,7 @@
 /* 覆盖前那一份备份的判据（「最少 10 分钟」那一句）。
    跑法：`node tests/fs-atomic.cjs`。只在系统临时目录里写，不碰 `.data` 与库根。
 
-   这一条为什么值得单独守着：备份是**唯一那份**。`server/fs-atomic.js` 的 writeJsonWithBak
+   这一条为什么值得单独守着：备份是**唯一那份**。`server/data-hub.js` 的 writeJsonWithBak
    管的是 .data/asr.json 与 .data/search.json —— 里面装的是识别与搜索的密钥。少了窗口，
    「连错两次」之后连线索都没了；而窗口若只在某一路径上生效，同一个约定就变成两把尺子。
    这里钉的是那一份判据：换内容才留、留了至少 10 分钟、备份写不成就不许覆盖。 */
@@ -10,7 +10,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { writeJsonWithBak, backupBeforeOverwrite, bakFileOf, BAK_KEEP_MS } = require('../server/fs-atomic.js');
+const { writeJsonWithBak, backupBeforeOverwrite, bakFileOf, BAK_KEEP_MS } = require('../server/data-hub.js');
 
 let bad = 0, n = 0;
 function ok(name, cond, detail) {

@@ -197,8 +197,8 @@ const asrStore = {
   putJob: () => {}, job: () => null, patchJob: () => {}, removeJob: () => {},
   jobs: () => [], running: () => 0,
   /* browser-result 那一支用的三件：段落归一 / SRT 拼装 / 哈希去重，直接用真实现（纯函数，无副作用） */
-  normSegments: require(S.abs('server/asr-store.js')).normSegments,
-  toSrt: require(S.abs('server/asr-store.js')).toSrt,
+  normSegments: require(S.abs('server/data-hub.js')).normSegments,
+  toSrt: require(S.abs('server/data-hub.js')).toSrt,
   findByHash: () => null,
 };
 const searchStore = {
@@ -302,6 +302,7 @@ const FAKES = {
   localRoot: () => () => tmpDir('local'),
   localAssetFile: () => () => '',
   localAssetEntry: () => () => null,
+  applyAssetsIndex: () => () => {},
   localEntryByUpstream: () => () => null,
   localEntryByPlatformId: () => () => null,
   localFileFromEntry: () => () => '',
@@ -336,6 +337,9 @@ const FAKES = {
     return true;
   },
   localFillMissing: () => () => 0,
+  /* 「盘上已有字节 → 只补索引」那两条：冒烟里一律认不出 / 不重绑，落链照旧走下载。 */
+  adoptBodyByHint: () => () => null,
+  rebindBodies: () => items => ({ rows: [], bound: 0, total: Array.isArray(items) ? items.length : 0 }),
   whyNoSpace: () => () => null,
   /* --- 并发闸（形状抄 app.js：gate 一份对象、relayTake(gate, onSlot, opts) 当场给名额） --- */
   relayGateOf: () => p => ({
@@ -480,9 +484,9 @@ const MODULES = [
   { file: 'server/routes/search.js', factory: 'createSearchRoutes', fakes: { providers: () => ALL_PROVIDERS } },
   { file: 'server/routes/cache.js', factory: 'createCacheRoutes' },
   { file: 'server/routes/static.js', standalone: 'handleStatic' },
-  { file: 'server/data-store.js', factory: 'createDataStore', handler: 'handleData' },
-  { file: 'server/prompts-store.js', factory: 'createPromptsStore', handler: 'handlePrompts' },
-  { file: 'server/cloud-store.js', factory: 'createCloudStore', handler: 'handleCloud' },
+  /* 数据、备份、云同步、归档收成一份 data-hub：只剩一个注入点、一张用例表。
+     每条用例点名 handler，免得同一个 file 键写三遍互相覆盖（只有最后一份生效）。 */
+  { file: 'server/data-hub.js', factory: 'createDataHub' },
 ];
 
 /* /cache/{thumbs,slices} 的键就是「剥了签名的地址」本身 —— 带 `/` `?` `:` 与中文，
@@ -581,6 +585,8 @@ const HITS = {
       check: res => res.statusCode >= 400 ? '地址 .mp4 不该被声明连坐拒收，实际 ' + res.statusCode + ' ' + String(res.body || '').slice(0, 80) : '',
     },
     { url: '/local-assets', method: 'POST', body: JSON.stringify({ data: 'aGk=', name: 'a.png', mime: 'image/png' }) },
+    /* 项目文件导入时按旧 la_ 号重绑盘上的字节：只写账，不下载。 */
+    { url: '/local-assets/rebind', method: 'POST', body: JSON.stringify({ items: [{ id: 'la_old', name: 'a.mp4' }] }) },
     { url: '/local-assets/la_probe', method: 'DELETE' },
     { url: '/nope', expect: false },
   ],
@@ -659,16 +665,18 @@ const HITS = {
   'server/routes/static.js': [
     { url: '/' }, { url: '/web/app.js' }, { url: '/video.html' }, { url: '/.env' }, { url: '/nope.xyz' },
   ],
-  'server/data-store.js': [
-    { url: '/data' }, { url: '/data/sk_probe', method: 'PUT', body: JSON.stringify({ v: 1 }) },
-    { url: '/data/sk_probe' }, { url: '/data/bad%20key' },
-  ],
-  'server/prompts-store.js': [
-    { url: '/prompts' }, { url: '/prompts/find', method: 'POST', body: JSON.stringify({ ids: ['p1'] }) },
-  ],
-  'server/cloud-store.js': [
-    { url: '/cloud/status' },
-    { url: '/cloud/sync', method: 'POST', body: JSON.stringify({}) },
+  'server/data-hub.js': [
+    { url: '/data', handler: 'handleData' },
+    { url: '/data/sk_probe', method: 'PUT', body: JSON.stringify({ v: 1 }), handler: 'handleData' },
+    { url: '/data/sk_probe', handler: 'handleData' },
+    { url: '/data/bad%20key', handler: 'handleData' },
+    { url: '/prompts', handler: 'handlePrompts' },
+    { url: '/prompts/find', method: 'POST', body: JSON.stringify({ ids: ['p1'] }), handler: 'handlePrompts' },
+    { url: '/cloud/status', handler: 'handleCloud' },
+    { url: '/cloud/sync', method: 'POST', body: JSON.stringify({}), handler: 'handleCloud' },
+    { url: '/backup/status', handler: 'handleBackup' },
+    { url: '/backup/export', handler: 'handleBackup' },
+    { url: '/backup/verify', method: 'POST', body: '{}', handler: 'handleBackup' },
   ],
   /* /cache 是 ROUTE_TABLE 上唯一 `match: ANY` 的一条（它自己按 pathname 认家），
      而代理端那份持久缓存换端口 / 换浏览器 / 无痕窗口都只有这一份 —— 它坏了不报错，
@@ -809,7 +817,16 @@ function tableCheck(mod, handlers) {
   }
   const m = new RegExp('const\\s+(\\w+)\\s*=\\s*' + mod.factory + '\\s*\\(').exec(appSrc());
   if (!m) return { why: mod.factory + ' 的返回值没赋给变量（表判据读不出来，改成 `const x = createXRoutes({...})` 那种写法）' };
-  const miss = names.filter(n => !new RegExp('\\b' + m[1] + '\\.\\s*' + n + '\\s*\\(').test(block));
+  /* 表里可能写 `x.handleData(...)`，也可能先把返回值解构成 `const { handleData } = x;`
+     再在表里写裸名 —— 两种都算挂上了，只认前一种会把解构写法误报成 404。 */
+  const des = new RegExp('(?:const|let)\\s*\\{([^}]*)\\}\\s*=\\s*' + m[1] + '\\b').exec(appSrc());
+  const bare = new Set(String(des ? des[1] : '').split(',')
+    .map(s => s.trim().split(':').pop().trim()).filter(Boolean));
+  const miss = names.filter(n => {
+    if (new RegExp('\\b' + m[1] + '\\.\\s*' + n + '\\s*\\(').test(block)) return false;
+    if (bare.has(n) && new RegExp('\\b' + n + '\\s*\\(').test(block)) return false;
+    return true;
+  });
   return miss.length ? { why: m[1] + '.' + miss.join('/') + ' 不在分发表里（这条路由从表上走不到，页面点它就是个 404）' } : { why: '' };
 }
 async function _runHit(mod, wiring, handlerName, handler, hit) {

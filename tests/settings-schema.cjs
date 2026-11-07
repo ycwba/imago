@@ -125,5 +125,36 @@ ok('ui.js 先于 datasync.js 求值（壳里排在前面，或 datasync 走路�
   iUi >= 0 && (iDs > iUi || lazyDs),
   'ui.js=' + iUi + ' datasync.js=' + iDs + ' 按页补载=' + lazyDs);
 
+/* ---------- ⑦ 云同步三格与 .env 的「填写 / 留空 / 内置默认」三档口径 ----------
+   服务端 cloudCfg 的三档由 data-hub 判据守；这里守页面这一侧：默认地址只能由代理下发，
+   页面既不能预填、也不能把空串顶回默认地址，三格空值更不能当成「填了」带进请求头 ——
+   任何一样漏了，.env 里的值就永远用不上。 */
+const tpl = read('tools/vue-templates/settings.html');
+const hubSrc = read('server/data-hub.js');
+const cloudSrc = st.slice(st.indexOf('/* ---------- 云同步（WebDAV） ---------- */'),
+  st.indexOf('/* 归档目录不在正文里'));
+ok('云同步地址：本机没存过 / 存了空串都保持空（不预填默认地址）',
+  /const cloudUrl = ref\(''\);/.test(cloudSrc)
+  && /cloudUrl\.value = g\('url'\) \|\| '';/.test(cloudSrc)
+  && !/https:\/\/dav\.jianguoyun\.com/.test(cloudSrc),
+  '地址栏又自己预填了一份默认地址');
+ok('默认地址只有代理侧一份，且从 /cloud/status 下发',
+  (hubSrc.match(/const CLOUD_DEFAULT_URL = 'https:\/\/dav\.jianguoyun\.com\/dav\/imago\/';/g) || []).length === 1
+  && /defaultUrl: CLOUD_DEFAULT_URL/.test(hubSrc)
+  && /cloudDefaultUrl\.value = String\(d\.defaultUrl \|\| ''\)/.test(st),
+  '默认地址在页面里又写了一遍 / 状态接口没下发 / 页面没接');
+ok('地址格的点明三档语义（留空用 .env，都没填用默认）',
+  /const cloudUrlHint = computed\(/.test(cloudSrc) && /留空 = 用 \.env；都没填就用/.test(cloudSrc),
+  '输入提示没说明第三档，或写死在模板里');
+ok('云同步三格都只在非空时才带请求头（留空 = 用 .env）',
+  ["if (u) h['x-cloud-url']", "if (n) h['x-cloud-user']", "if (p) h['x-cloud-pass']"]
+    .every(s => cloudSrc.includes(s)),
+  '有哪一格空值也被当成填写发了出去');
+const cloudTpl = tpl.slice(tpl.indexOf('<input id="cloudUrl"'), tpl.indexOf('id="cloudKeys"'));
+ok('地址格 placeholder 绑到页面提示，另两格也点明「留空用 .env」',
+  /<input id="cloudUrl"[^>]*:placeholder="cloudUrlHint"/.test(cloudTpl)
+  && ['cloudUser', 'cloudPass'].every(id =>
+    /留空/.test((cloudTpl.match(new RegExp('<input id="' + id + '"[^>]*>')) || [''])[0])));
+
 console.log((fails ? '✗ ' : '✓ ') + total + ' 项，' + fails + ' 项未通过');
 process.exit(fails ? 1 : 0);

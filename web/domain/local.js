@@ -30,6 +30,12 @@
   function saveScope() { return on(K_SAVE_SCOPE, 'all') === 'new' ? 'new' : 'all'; }
   function wantSave(e, mode) {
     if (!e || e.kind !== 'asset' || e.localAsset) return false;
+    /* 「导演台刚生成的产物」一律存：这是 `announce` 打上的 `mustSave`（候选 / 关键帧等
+       自己这一轮花钱做出来的东西），不受「历史产物自动存本机」开关与「只存新生成的」边界管。
+       工作台不传这个标记 —— 那边仍听开关（见 pages/studio.js 的 announceMirror）。
+       开关管的是**历史产物与列表里的云端条目要不要补齐** —— 作品本身没落盘，导出项目文件、
+       换机器、剪辑回看全靠不住，不能让一个开关把它关掉。 */
+    if (e.mustSave) return true;
     if ((mode || saveScope()) !== 'new') return true;
     const since = saveSince();
     if (!since) return true;                                   // 从来没记过开启时刻 → 当作一直是开的
@@ -47,7 +53,9 @@
   const on = (k, def) => { try { const v = localStorage.getItem(k); return v == null ? def : v; } catch (e) { return def; } };
   /* 「产物存本机」开关的唯一谓词。设置页、侧栏、镜像队列与资产库列表都只问这一枚：
      手抄一份 `localStorage.getItem('sk_media_local') !== 'off'` 就是第二套默认值 ——
-     缺省那一边（没存过 = 开）漂了，表现是「界面说开着，队列一条不排」。 */
+     缺省那一边（没存过 = 开）漂了，表现是「界面说开着，队列一条不排」。
+     ⚠ 它只管**历史产物 / 列表里云端条目的补齐**：`announce` 打上 mustSave 的「导演台刚生成的产物」
+     一律存（见 wantSave / offer / scan 三处同一枚旗标）。开关关掉 ≠ 导演台新产物不落盘。 */
   function saveOn() { return on(K_SAVE, 'on') !== 'off'; }
   const preferLocal = () => on(K_PREFER, 'on') !== 'off';
   const showBadge = () => on(K_BADGE, 'on') !== 'off';
@@ -313,6 +321,16 @@
     return { id, format: String((row && row.format) || ''), name: String((row && row.name) || ''),
       bytes: Number((row && row.bytes) || 0), path: String((row && row.file) || '') };
   }
+  /* 项目文件导出时随包带走的「这一枚本机号对应哪份文件」。别名表还没就位时返回 null：
+     纯件那边仍会把号带上，代理按文件名里的可移植尾标一样认得回来。 */
+  function exportHintOf(u) {
+    const id = localAssetIdOf(u);
+    const row = id ? rows.get(id) : null;
+    if (!row) return null;
+    return { id: row.id, name: String(row.name || ''), file: String(row.file || ''),
+      bytes: Number(row.bytes) || 0, format: String(row.format || ''),
+      upstream: String(row.upstream || ''), assetId: String(row.assetId || ''), taskId: String(row.taskId || '') };
+  }
   /* 一条产物在本机别名表里的身份（合卡键）。**平台列表那一条**由 decorate 挂上 mirrorKey；
      **本机资产库那一条**（条目即资产，id 就是 la_xxx）自己就是一份文件，身份就是本机号。
      收藏 / 工作区里那条既没有 mirrorKey、又不是 la_xxx 的：按产物号 / 地址现算，
@@ -435,9 +453,9 @@
     try {
       while (queue.length) {
         const batch = queue.splice(0, CONCURRENCY);
-        /* 开关中途关掉：排队中的只留 force（用户亲手点「存回本机」的那批），
-           其余当场从在途账上摘掉，不再发新请求。 */
-        const live = batch.filter(j => saveOn() || j.force);
+        /* 开关中途关掉：排队中的只留 force（用户亲手点「存回本机」的那批）与
+           mustSave（导演台刚生成的产物），其余当场从在途账上摘掉，不再发新请求。 */
+        const live = batch.filter(j => saveOn() || j.force || j.mustSave);
         if (live.length !== batch.length) {
           batch.forEach(j => { if (live.indexOf(j) < 0) { queued.delete(j.k); INFOS.inFlight = Math.max(0, INFOS.inFlight - 1); } });
           infoChanged();
@@ -492,7 +510,7 @@ function info() {
 
   async function runOne(job) {
     const { k, url, ent } = job;
-    if (!saveOn() && !job.force) {
+    if (!saveOn() && !job.force && !job.mustSave) {
       queued.delete(k);
       INFOS.inFlight = Math.max(0, INFOS.inFlight - 1);
       infoChanged();
@@ -675,15 +693,18 @@ function info() {
       .forEach(k => { if (ent[k] != null) out[k] = ent[k]; });
     return Object.assign(out, { kind: 'asset', status: 'done' });
   };
-  function pendPut(k, url, ent, force) {
+  function pendPut(k, url, ent, force, mustSave) {
     if (!k || !url) return;
     const list = pendRead();
     const at = list.findIndex(x => x.k === k);
     const prev = at >= 0 ? list[at] : null;
     /* force = 用户当场按下的那颗「存回本机 / 自动下载」：tries 归零、死账一起清掉，
        这一条照实再试一次（清不掉的话 offer 在 dead 那一问就 return，按钮按下去一个字不回）。
-       非 force 那一路走不到这里 —— offer 先在 dead 那一问拦住了。 */
-    const rec = { k, url, ent: liteEnt(ent), tries: force ? 0 : (prev && prev.tries || 0), nextAt: force ? 0 : (prev && prev.nextAt || 0) };
+       非 force 那一路走不到这里 —— offer 先在 dead 那一问拦住了。
+       mustSave 单独留在清单顶层：`liteEnt` 只留平台身份，刷新之后回放还得知道
+       「这一条是刚生成的、开关关着也要接着存」。 */
+    const rec = { k, url, ent: liteEnt(ent), mustSave: !!mustSave,
+      tries: force ? 0 : (prev && prev.tries || 0), nextAt: force ? 0 : (prev && prev.nextAt || 0) };
     if (at >= 0) list[at] = rec; else list.push(rec);
     pendWrite(list);
     if (rec.nextAt > Date.now()) pendSkip.set(k, rec.nextAt);
@@ -723,17 +744,17 @@ function info() {
     if (pendReplayT) return;
     pendReplayT = setTimeout(async () => {
       pendReplayT = 0;
-      if (!saveOn()) return;
+      /* 开关关着也要走这一趟：清单里可能压着**刚生成的产物**（mustSave），
+         刷新 / 换页之后那一份照样要存回来。非 mustSave 的由 offer 自己按开关挡掉。 */
       /* 先等别名表：清单里几乎都是上一轮已经存过的条目，表没就位时「查不到」会被当成
          「没存过」，整份清单开机就重新排一遍。表这次取不回来也不丢 —— offer 会按住它们。 */
       await ready();
-      if (!saveOn()) return;
       const now = Date.now();
       const list = pendRead();
       list.forEach(x => { if (x.nextAt > now) pendSkip.set(x.k, x.nextAt); });
       list.forEach(x => {
         if (x.nextAt && x.nextAt > now) return;
-        offer(x.ent && x.ent.provider, x.ent, x.url, { fromPending: true });
+        offer(x.ent && x.ent.provider, x.ent, x.url, { fromPending: true, mustSave: !!x.mustSave });
       });
     }, 1200);
   }
@@ -759,7 +780,11 @@ function info() {
      opts.cb(err, {id})：只对 force 那一批有意义（见 runOne 上的 tell），后台自动镜像照旧静默。 */
   function offer(provId, ent, upstream, opts) {
     const o = opts || {};
-    if (!saveOn() && !o.force) return '';
+    /* `mustSave`：这一条是「生成完成」那条事件投下来的（导演台候选 / 关键帧）。
+       开关只管历史补齐，刚生成的产物一律落盘；`force` 是用户当场点的「存回本机」，
+       两者都绕过开关与「只存新生成的」边界，但只有 force 会清死账、给回执。 */
+    const mustSave = !!(o.mustSave || (ent && ent.mustSave));
+    if (!saveOn() && !o.force && !mustSave) return '';
     const raw0 = String(upstream || (ent && (ent.rawSrc || ent.raw)) || byteSrcOf(ent));
     /* 剥出内层外链再判协议：以前只收 https，于是「从收藏点自动下载」一条都排不上，
        而界面上一句回执都没有。
@@ -799,10 +824,10 @@ function info() {
     if (!o.force && (pendSkip.get(k) || 0) > Date.now()) return 'skip';
     if (queued.has(k)) return 'busy';
     queued.add(k);
-    pendPut(k, url, ent, o.force);
+    pendPut(k, url, ent, o.force, mustSave);
     INFOS.inFlight++;
     infoChanged();
-    queue.push({ k, url, ent: ent || {}, cb: o.cb, force: !!o.force });
+    queue.push({ k, url, ent: ent || {}, cb: o.cb, force: !!o.force, mustSave });
     pump();
     return 'queued';
   }
@@ -993,9 +1018,11 @@ function info() {
     return '';
   }
   function scan(entries) {
-    if (!saveOn()) return;
     (Array.isArray(entries) ? entries : [entries]).forEach(e => {
       if (!e) return;
+      /* 开关关着时只放行 `mustSave`（导演台刚生成的产物）：`wb:asset-done` 这一路的条目带它，
+         列表补存那一路不带 —— 把闸放在这一条上而不是整个 scan 头上，两种来源才分得开。 */
+      if (!saveOn() && !e.mustSave) return;
       /* 状态：列表接口的产物行常不带 status（按成事处理），任务行缺 status 是「还不知道」
          —— 后者由 kind 那一关挡掉了（kind!=='asset'）。所以 status 为空即可视为已完成。 */
       const st = String(e.status || '');
@@ -1024,6 +1051,10 @@ function info() {
     name: '', prompt: '', model: '', tier: '', res: '', ar: '',
     duration: null, credits: null, priceMicros: null, currency: '', priceText: '',
     gstatus: '', created: '', completed: '', ts: '', localAsset: '',
+    /* 生产者给的「这一条是导演台刚生成的，不受历史产物开关管」。`announce()` 是四个生成点的
+       唯一出口，导演台只在候选「刚出结果」与关键帧那两处置真；历史补扫与列表补存那两路为假。
+       缺省必须是 false：探针 / 老调用方投一条假地址时不该绕过开关去撞出站护栏。 */
+    mustSave: false,
   };
   const str = v => (v == null ? '' : String(v));
   function announceOne(e) {
@@ -1032,6 +1063,7 @@ function info() {
        再把显式 `undefined` 补成默认值 —— 缺省与「明确没有」在这一层是同一件事。 */
     const n = Object.assign({}, ANNOUNCE_SHAPE, e);
     for (const k of Object.keys(ANNOUNCE_SHAPE)) if (n[k] === undefined) n[k] = ANNOUNCE_SHAPE[k];
+    n.mustSave = !!n.mustSave;
     n.src = str(n.src || n.url);
     if (!n.src) return null;                                  // 没有地址 = 取不到字节，不投
     const isHttp = /^https?:/i.test(n.src);
@@ -1265,11 +1297,12 @@ function info() {
         if (e && e.key === K_PENDING) pendCache = null;
         if (e && e.key === K_SAVE) {
           if (!saveOn()) {
-            /* 关掉开关：排队中的（非手动 force）不再发；待镜像清单也清掉，
-               避免下次开开关时把用户已经不想存的那批一次性补下来。 */
+            /* 关掉开关：排队中的只留 force（用户当场点的）与 mustSave（刚生成的产物）；
+               待镜像清单也只清掉普通那批，避免下次开开关时把用户已经不想存的那批一次性补下来。
+               mustSave 那份清单必须留着 —— 刷新之后 replayPending 还要接着存。 */
             const drop = queue.splice(0);
-            drop.forEach(j => { if (!j.force) { queued.delete(j.k); INFOS.inFlight = Math.max(0, INFOS.inFlight - 1); } else queue.push(j); });
-            pendWrite([]);
+            drop.forEach(j => { if (!j.force && !j.mustSave) { queued.delete(j.k); INFOS.inFlight = Math.max(0, INFOS.inFlight - 1); } else queue.push(j); });
+            pendWrite(pendRead().filter(x => x.mustSave));
             held.clear();          // 按住的自动 offer 一并作废：开关关了，它们不该等表回来再排
             infoChanged();
           } else replayPending();
@@ -1319,6 +1352,8 @@ function info() {
     localAssetIdOf,
     /* FCPXML / 本地路径类出口用：地址 → { id, format, name, bytes, path }。 */
     localFileOf,
+    /* 项目文件导出用：地址 → 随包带走的本机素材线索（换机器时按它把旧号认回盘上那份）。 */
+    exportHintOf,
     /* 「本机 / 云端」的**唯一**判据（徽标、存回本机的范围、列表去重、助手的读数都读它）。
        页面不许自己拼 localAsset / hasLocalAddr / assetId —— 那三种形状各拼一遍，
        就会出现「卡片写着本机、存回本机却把它算进 N 条」这种自相矛盾的界面。

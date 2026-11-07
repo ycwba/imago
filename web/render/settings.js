@@ -437,7 +437,7 @@ class: "set-group",
 }
 const _hoisted_258 = {
 class: "card card-surface",
-"data-nav": "sync"
+"data-nav": "backup"
 }
 const _hoisted_259 = { class: "card-h" }
 const _hoisted_260 = ["innerHTML"]
@@ -445,138 +445,138 @@ const _hoisted_261 = { class: "kcols" }
 const _hoisted_262 = { class: "krow" }
 const _hoisted_263 = { class: "kicon" }
 const _hoisted_264 = ["innerHTML"]
-const _hoisted_265 = ["title"]
+const _hoisted_265 = { class: "dir-name" }
 const _hoisted_266 = ["disabled", "onClick"]
-const _hoisted_267 = ["onClick"]
-const _hoisted_268 = { class: "krow" }
-const _hoisted_269 = { class: "kicon" }
-const _hoisted_270 = ["innerHTML"]
-const _hoisted_271 = { class: "dir-name" }
+const _hoisted_267 = { class: "krow" }
+const _hoisted_268 = { class: "kicon" }
+const _hoisted_269 = ["innerHTML"]
+const _hoisted_270 = ["title"]
+const _hoisted_271 = ["disabled", "onClick"]
 const _hoisted_272 = ["onClick"]
-const _hoisted_273 = { class: "krow tight" }
-const _hoisted_274 = ["disabled", "onClick"]
-const _hoisted_275 = ["disabled", "onClick"]
-const _hoisted_276 = ["disabled", "onClick"]
-const _hoisted_277 = ["disabled", "onClick"]
-const _hoisted_278 = ["onChange"]
-const _hoisted_279 = { class: "hint sm" }
-const _hoisted_280 = { class: "krow" }
-const _hoisted_281 = { class: "kicon" }
-const _hoisted_282 = ["innerHTML"]
-const _hoisted_283 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_284 = { class: "krow" }
-const _hoisted_285 = { class: "kicon" }
-const _hoisted_286 = ["innerHTML"]
-const _hoisted_287 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_288 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_289 = { class: "krow tight" }
-const _hoisted_290 = ["onClick"]
+const _hoisted_273 = { class: "krow" }
+const _hoisted_274 = { class: "kicon" }
+const _hoisted_275 = ["innerHTML"]
+const _hoisted_276 = { class: "dir-name" }
+const _hoisted_277 = ["onClick"]
+const _hoisted_278 = { class: "krow tight" }
+const _hoisted_279 = ["disabled", "onClick"]
+const _hoisted_280 = ["disabled", "onClick"]
+const _hoisted_281 = ["disabled", "onClick"]
+const _hoisted_282 = ["disabled", "onClick"]
+const _hoisted_283 = ["onChange"]
+const _hoisted_284 = { class: "hint sm" }
+const _hoisted_285 = { class: "krow tight" }
+const _hoisted_286 = ["disabled", "onClick"]
+const _hoisted_287 = ["disabled", "onClick"]
+const _hoisted_288 = { class: "hint sm" }
+const _hoisted_289 = { ref: "backupListEl" }
+const _hoisted_290 = { class: "krow tight" }
 const _hoisted_291 = ["onClick"]
 const _hoisted_292 = ["onClick"]
 const _hoisted_293 = ["onClick"]
-const _hoisted_294 = { class: "crow" }
-const _hoisted_295 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_296 = {
+const _hoisted_294 = ["onChange"]
+const _hoisted_295 = { class: "krow" }
+const _hoisted_296 = { class: "kicon" }
+const _hoisted_297 = ["innerHTML"]
+const _hoisted_298 = ["onUpdate:modelValue", "onChange", "placeholder", "title"]
+const _hoisted_299 = { class: "krow" }
+const _hoisted_300 = { class: "kicon" }
+const _hoisted_301 = ["innerHTML"]
+const _hoisted_302 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_303 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_304 = { class: "krow tight" }
+const _hoisted_305 = ["onClick"]
+const _hoisted_306 = ["onClick"]
+const _hoisted_307 = ["onClick"]
+const _hoisted_308 = ["onClick"]
+const _hoisted_309 = { class: "crow" }
+const _hoisted_310 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_311 = {
 class: "crow",
 title: "只推不删"
 }
-const _hoisted_297 = ["onUpdate:modelValue", "onChange"]
-const _hoisted_298 = { class: "hint sm" }
-const _hoisted_299 = { class: "krow tight" }
-const _hoisted_300 = { class: "hint sm" }
-const _hoisted_301 = { ref: "cloudConflictsEl" }
-const _hoisted_302 = {
-id: "cloudBackups",
-ref: "cloudBackupsEl"
-}
-const _hoisted_303 = {
+const _hoisted_312 = ["onUpdate:modelValue", "onChange"]
+const _hoisted_313 = { class: "hint sm" }
+const _hoisted_314 = { class: "krow tight" }
+const _hoisted_315 = { class: "hint sm" }
+const _hoisted_316 = { ref: "cloudConflictsEl" }
+const _hoisted_317 = {
 class: "card card-surface",
 "data-nav": "prompts"
 }
-const _hoisted_304 = { class: "krow" }
-const _hoisted_305 = { class: "kicon" }
-const _hoisted_306 = ["innerHTML"]
-const _hoisted_307 = ["title"]
-const _hoisted_308 = { style: {"flex":"0 0 auto"} }
-const _hoisted_309 = { class: "krow tight" }
-const _hoisted_310 = ["disabled", "onClick"]
-const _hoisted_311 = ["onClick"]
-const _hoisted_312 = { class: "hint sm" }
-const _hoisted_313 = {
+const _hoisted_318 = { class: "krow" }
+const _hoisted_319 = { class: "kicon" }
+const _hoisted_320 = ["innerHTML"]
+const _hoisted_321 = ["title"]
+const _hoisted_322 = { style: {"flex":"0 0 auto"} }
+const _hoisted_323 = { class: "krow tight" }
+const _hoisted_324 = ["disabled", "onClick"]
+const _hoisted_325 = ["onClick"]
+const _hoisted_326 = { class: "hint sm" }
+const _hoisted_327 = {
 ref: "promptRecentEl",
 class: "prompt-recent"
 }
-const _hoisted_314 = {
-class: "card card-surface",
-"data-nav": "backup"
-}
-const _hoisted_315 = { class: "card-h" }
-const _hoisted_316 = ["innerHTML"]
-const _hoisted_317 = { class: "krow tight" }
-const _hoisted_318 = ["onClick"]
-const _hoisted_319 = ["onClick"]
-const _hoisted_320 = ["onClick"]
-const _hoisted_321 = ["onChange"]
-const _hoisted_322 = {
+const _hoisted_328 = {
 class: "set-group foldable",
 "data-group": "maint",
 "data-fold-key": "set_fold_maint"
 }
-const _hoisted_323 = { class: "fold-body" }
-const _hoisted_324 = {
+const _hoisted_329 = { class: "fold-body" }
+const _hoisted_330 = {
 class: "card card-surface",
 "data-nav": "env"
 }
-const _hoisted_325 = { class: "card-h" }
-const _hoisted_326 = ["innerHTML"]
-const _hoisted_327 = { ref: "sysRowsEl" }
-const _hoisted_328 = { class: "krow tight" }
-const _hoisted_329 = ["disabled", "onClick"]
-const _hoisted_330 = ["disabled", "onClick", "title"]
-const _hoisted_331 = { class: "hint sm" }
-const _hoisted_332 = {
+const _hoisted_331 = { class: "card-h" }
+const _hoisted_332 = ["innerHTML"]
+const _hoisted_333 = { ref: "sysRowsEl" }
+const _hoisted_334 = { class: "krow tight" }
+const _hoisted_335 = ["disabled", "onClick"]
+const _hoisted_336 = ["disabled", "onClick", "title"]
+const _hoisted_337 = { class: "hint sm" }
+const _hoisted_338 = {
 class: "card card-surface",
 "data-nav": "disk"
 }
-const _hoisted_333 = { class: "card-h" }
-const _hoisted_334 = ["innerHTML"]
-const _hoisted_335 = { ref: "usageRowsEl" }
-const _hoisted_336 = { class: "krow tight" }
-const _hoisted_337 = ["disabled", "onClick"]
-const _hoisted_338 = ["disabled", "onClick", "title"]
-const _hoisted_339 = { ref: "usageGoSlotEl" }
-const _hoisted_340 = { class: "hint sm" }
-const _hoisted_341 = {
+const _hoisted_339 = { class: "card-h" }
+const _hoisted_340 = ["innerHTML"]
+const _hoisted_341 = { ref: "usageRowsEl" }
+const _hoisted_342 = { class: "krow tight" }
+const _hoisted_343 = ["disabled", "onClick"]
+const _hoisted_344 = ["disabled", "onClick", "title"]
+const _hoisted_345 = { ref: "usageGoSlotEl" }
+const _hoisted_346 = { class: "hint sm" }
+const _hoisted_347 = {
 class: "card card-surface",
 "data-nav": "cache"
 }
-const _hoisted_342 = { class: "card-h" }
-const _hoisted_343 = ["innerHTML"]
-const _hoisted_344 = { class: "kcols" }
-const _hoisted_345 = { class: "krow tight" }
-const _hoisted_346 = ["disabled", "onClick"]
-const _hoisted_347 = { class: "krow tight" }
-const _hoisted_348 = ["disabled", "onClick"]
-const _hoisted_349 = { class: "krow tight" }
-const _hoisted_350 = ["disabled", "onClick"]
+const _hoisted_348 = { class: "card-h" }
+const _hoisted_349 = ["innerHTML"]
+const _hoisted_350 = { class: "kcols" }
 const _hoisted_351 = { class: "krow tight" }
 const _hoisted_352 = ["disabled", "onClick"]
-const _hoisted_353 = { ref: "histBoxEl" }
-const _hoisted_354 = {
+const _hoisted_353 = { class: "krow tight" }
+const _hoisted_354 = ["disabled", "onClick"]
+const _hoisted_355 = { class: "krow tight" }
+const _hoisted_356 = ["disabled", "onClick"]
+const _hoisted_357 = { class: "krow tight" }
+const _hoisted_358 = ["disabled", "onClick"]
+const _hoisted_359 = { ref: "histBoxEl" }
+const _hoisted_360 = {
 class: "hint sm cache-line",
 id: "cacheUsage"
 }
-const _hoisted_355 = {
+const _hoisted_361 = {
 class: "hint sm cache-line",
 id: "cacheMsg"
 }
-const _hoisted_356 = { class: "set-status" }
-const _hoisted_357 = { class: "set-pos" }
+const _hoisted_362 = { class: "set-status" }
+const _hoisted_363 = { class: "set-pos" }
 
 export function render(_ctx, _cache) {
 return (_openBlock(), _createElementBlock("div", _hoisted_1, [
 _createCommentVNode(" 统一页头（全站唯一一份 .phead）：以前标题在右栏那条连续文档的最上面，\n           往下一滚名字就没了。现在提到通栏顶部钉住；左边的目录轨与右边的文档各滚各的。 "),
-_cache[83] || (_cache[83] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">设置</h1></div><p class=\"phead-sub\"></p><div class=\"phead-acts\"></div></header>", 1)),
+_cache[84] || (_cache[84] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">设置</h1></div><p class=\"phead-sub\"></p><div class=\"phead-acts\"></div></header>", 1)),
 _createCommentVNode(" 左：目录轨（索引，不是另一套页面）。\n           点哪一行 → 右栏平滑滚到那一栏；右栏滚到哪一栏 → 轨上那一行亮起来。\n           轨上只放栏目标题，不摆当前值（值在右边那张卡里看）。 "),
 _createElementVNode("aside", _hoisted_2, [
 _cache[1] || (_cache[1] = _createElementVNode("div", { class: "set-rail-h" }, "目录", -1 /* CACHED */)),
@@ -1624,122 +1624,191 @@ onChange: _ctx.onImportSkillFile
 ])
 ]),
 _createElementVNode("section", _hoisted_257, [
-_cache[71] || (_cache[71] = _createElementVNode("h2", { class: "set-group-h" }, "数据与同步", -1 /* CACHED */)),
+_cache[72] || (_cache[72] = _createElementVNode("h2", { class: "set-group-h" }, "数据与备份", -1 /* CACHED */)),
+_createCommentVNode(" 数据、快照恢复、设置导出与云同步收在同一张卡里：\n                  它们共用同一份状态和同一个撤销点，分三张卡只会让人找不到「刚才那份备份」。 "),
 _createElementVNode("div", _hoisted_258, [
 _createElementVNode("h2", _hoisted_259, [
 _createElementVNode("span", {
 class: "card-ic",
 innerHTML: _ctx.icUpload
 }, null, 8 /* PROPS */, _hoisted_260),
-_cache[58] || (_cache[58] = _createTextVNode("数据与同步", -1 /* CACHED */))
+_cache[58] || (_cache[58] = _createTextVNode("数据与备份", -1 /* CACHED */))
 ]),
 _createElementVNode("div", _hoisted_261, [
 _createElementVNode("div", _hoisted_262, [
 _createElementVNode("span", _hoisted_263, [
-_createElementVNode("span", { innerHTML: _ctx.icFolder }, null, 8 /* PROPS */, _hoisted_264)
+_createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_264)
 ]),
-_cache[59] || (_cache[59] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
+_cache[59] || (_cache[59] = _createElementVNode("span", { class: "kn" }, "备份健康", -1 /* CACHED */)),
+_createElementVNode("span", _hoisted_265, _toDisplayString(_ctx.backupInfo), 1 /* TEXT */),
+_createElementVNode("button", {
+class: "ghost mini wide",
+disabled: _ctx.backupBusy.refresh,
+onClick: _ctx.refreshBackupCenter
+}, "刷新", 8 /* PROPS */, _hoisted_266)
+]),
+_createElementVNode("div", _hoisted_267, [
+_createElementVNode("span", _hoisted_268, [
+_createElementVNode("span", { innerHTML: _ctx.icFolder }, null, 8 /* PROPS */, _hoisted_269)
+]),
+_cache[60] || (_cache[60] = _createElementVNode("span", { class: "kn" }, "数据文件", -1 /* CACHED */)),
 _createElementVNode("span", {
 class: "dir-name",
 title: _ctx.dataInfoTitle
-}, _toDisplayString(_ctx.dataInfo), 9 /* TEXT, PROPS */, _hoisted_265),
+}, _toDisplayString(_ctx.dataInfo), 9 /* TEXT, PROPS */, _hoisted_270),
 _createElementVNode("button", {
 class: "ghost mini wide",
 disabled: _ctx.dataBusy.copy,
 onClick: _ctx.copyDataDir
-}, "复制路径", 8 /* PROPS */, _hoisted_266),
+}, "复制路径", 8 /* PROPS */, _hoisted_271),
 _createElementVNode("button", {
 class: "ghost mini wide",
 onClick: _ctx.reloadDataInfo
-}, "刷新", 8 /* PROPS */, _hoisted_267)
+}, "刷新", 8 /* PROPS */, _hoisted_272)
 ]),
-_createElementVNode("div", _hoisted_268, [
-_createElementVNode("span", _hoisted_269, [
-_createElementVNode("span", { innerHTML: _ctx.icClock }, null, 8 /* PROPS */, _hoisted_270)
+_createElementVNode("div", _hoisted_273, [
+_createElementVNode("span", _hoisted_274, [
+_createElementVNode("span", { innerHTML: _ctx.icClock }, null, 8 /* PROPS */, _hoisted_275)
 ]),
-_cache[60] || (_cache[60] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
-_createElementVNode("span", _hoisted_271, _toDisplayString(_ctx.persistInfo), 1 /* TEXT */),
+_cache[61] || (_cache[61] = _createElementVNode("span", { class: "kn" }, "浏览器存储", -1 /* CACHED */)),
+_createElementVNode("span", _hoisted_276, _toDisplayString(_ctx.persistInfo), 1 /* TEXT */),
 _withDirectives(_createElementVNode("button", {
 class: "ghost mini wide",
 onClick: _ctx.askPersist
-}, "申请持久化", 8 /* PROPS */, _hoisted_272), [
+}, "申请持久化", 8 /* PROPS */, _hoisted_277), [
 [_vShow, !_ctx.persistGranted]
 ])
 ])
 ]),
-_createElementVNode("div", _hoisted_273, [
+_createElementVNode("div", _hoisted_278, [
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.dataBusy.push,
 onClick: _ctx.pushData
-}, "↑ 本机 → 数据文件", 8 /* PROPS */, _hoisted_274),
+}, "↑ 本机 → 数据文件", 8 /* PROPS */, _hoisted_279),
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.dataBusy.pull,
 onClick: _ctx.pullData
-}, "↓ 数据文件 → 本机", 8 /* PROPS */, _hoisted_275),
+}, "↓ 数据文件 → 本机", 8 /* PROPS */, _hoisted_280),
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.dataBusy.exp,
 onClick: _ctx.exportAll
-}, [...(_cache[61] || (_cache[61] = [
+}, [...(_cache[62] || (_cache[62] = [
 _createElementVNode("span", {
 class: "ic",
 "data-icon": "download",
 "data-size": "13"
 }, null, -1 /* CACHED */),
 _createTextVNode(" 导出整包备份", -1 /* CACHED */)
-]))], 8 /* PROPS */, _hoisted_276),
+]))], 8 /* PROPS */, _hoisted_281),
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.dataBusy.imp,
 onClick: _ctx.pickImportAll
-}, [...(_cache[62] || (_cache[62] = [
+}, [...(_cache[63] || (_cache[63] = [
 _createElementVNode("span", {
 class: "ic",
 "data-icon": "upload",
 "data-size": "13"
 }, null, -1 /* CACHED */),
 _createTextVNode(" 导入整包备份", -1 /* CACHED */)
-]))], 8 /* PROPS */, _hoisted_277),
+]))], 8 /* PROPS */, _hoisted_282),
 _createElementVNode("input", {
 type: "file",
 ref: "impAllFileEl",
 accept: ".json,application/json",
 style: {"display":"none"},
 onChange: _ctx.onImportAllFile
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_278),
-_createElementVNode("span", _hoisted_279, _toDisplayString(_ctx.dataMsg), 1 /* TEXT */)
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_283),
+_createElementVNode("span", _hoisted_284, _toDisplayString(_ctx.dataMsg), 1 /* TEXT */)
 ]),
-_cache[65] || (_cache[65] = _createElementVNode("label", {
+_createElementVNode("div", _hoisted_285, [
+_createElementVNode("button", {
+class: "ghost",
+disabled: _ctx.backupBusy.create,
+onClick: _ctx.createBackup
+}, "立即留一份快照", 8 /* PROPS */, _hoisted_286),
+_createElementVNode("button", {
+class: "ghost",
+disabled: _ctx.backupBusy.verify,
+onClick: _ctx.verifyBackup
+}, "校验全部快照", 8 /* PROPS */, _hoisted_287),
+_createElementVNode("span", _hoisted_288, _toDisplayString(_ctx.backupMsg), 1 /* TEXT */)
+]),
+_createCommentVNode(" 快照列表来自 /backup/status：预览差异与一键恢复都在这里，不再往下载目录丢 JSON "),
+_createElementVNode("div", _hoisted_289, null, 512 /* NEED_PATCH */),
+_cache[68] || (_cache[68] = _createElementVNode("label", {
+class: "plabel",
+style: {"margin-top":"var(--sp-16)"}
+}, "设置", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_290, [
+_createElementVNode("button", {
+class: "ghost",
+onClick: _ctx.exportSetup
+}, [...(_cache[64] || (_cache[64] = [
+_createElementVNode("span", {
+class: "ic",
+"data-icon": "download",
+"data-size": "13"
+}, null, -1 /* CACHED */),
+_createTextVNode(" 导出设置", -1 /* CACHED */)
+]))], 8 /* PROPS */, _hoisted_291),
+_createElementVNode("button", {
+class: "ghost",
+onClick: _ctx.pickImportSetup
+}, [...(_cache[65] || (_cache[65] = [
+_createElementVNode("span", {
+class: "ic",
+"data-icon": "upload",
+"data-size": "13"
+}, null, -1 /* CACHED */),
+_createTextVNode(" 导入设置", -1 /* CACHED */)
+]))], 8 /* PROPS */, _hoisted_292),
+_createElementVNode("button", {
+class: "ghost danger",
+onClick: _ctx.resetSetup,
+title: "清空密钥等全部设置"
+}, "恢复默认", 8 /* PROPS */, _hoisted_293),
+_createElementVNode("input", {
+type: "file",
+ref: "impSetFileEl",
+accept: ".json,application/json",
+style: {"display":"none"},
+onChange: _ctx.onImportSetupFile
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_294)
+]),
+_cache[69] || (_cache[69] = _createElementVNode("label", {
 class: "plabel",
 style: {"margin-top":"var(--sp-16)"}
 }, "云同步（WebDAV）", -1 /* CACHED */)),
-_createElementVNode("div", _hoisted_280, [
-_createElementVNode("span", _hoisted_281, [
-_createElementVNode("span", { innerHTML: _ctx.icLink }, null, 8 /* PROPS */, _hoisted_282)
+_createElementVNode("div", _hoisted_295, [
+_createElementVNode("span", _hoisted_296, [
+_createElementVNode("span", { innerHTML: _ctx.icLink }, null, 8 /* PROPS */, _hoisted_297)
 ]),
 _withDirectives(_createElementVNode("input", {
 id: "cloudUrl",
 "onUpdate:modelValue": $event => ((_ctx.cloudUrl) = $event),
 onChange: _ctx.saveCloud,
-placeholder: "https://dav.jianguoyun.com/dav/ai-workbench/",
+placeholder: _ctx.cloudUrlHint,
+title: _ctx.cloudUrlHint,
 style: {"flex":"1"}
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_283), [
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_298), [
 [_vModelText, _ctx.cloudUrl]
 ])
 ]),
-_createElementVNode("div", _hoisted_284, [
-_createElementVNode("span", _hoisted_285, [
-_createElementVNode("span", { innerHTML: _ctx.icKey }, null, 8 /* PROPS */, _hoisted_286)
+_createElementVNode("div", _hoisted_299, [
+_createElementVNode("span", _hoisted_300, [
+_createElementVNode("span", { innerHTML: _ctx.icKey }, null, 8 /* PROPS */, _hoisted_301)
 ]),
 _withDirectives(_createElementVNode("input", {
 id: "cloudUser",
 "onUpdate:modelValue": $event => ((_ctx.cloudUser) = $event),
 onChange: _ctx.saveCloud,
-placeholder: "账号（邮箱）",
+placeholder: "账号 / 邮箱（留空用 .env）",
 style: {"flex":"1"}
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_287), [
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_302), [
 [_vModelText, _ctx.cloudUser]
 ]),
 _withDirectives(_createElementVNode("input", {
@@ -1747,142 +1816,94 @@ id: "cloudPass",
 type: "password",
 "onUpdate:modelValue": $event => ((_ctx.cloudPass) = $event),
 onChange: _ctx.saveCloud,
-placeholder: "应用密码",
+placeholder: "应用密码（留空用 .env）",
 style: {"flex":"1"}
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_288), [
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_303), [
 [_vModelText, _ctx.cloudPass]
 ])
 ]),
-_createElementVNode("div", _hoisted_289, [
+_createElementVNode("div", _hoisted_304, [
 _createElementVNode("button", {
 class: "ghost",
 onClick: $event => (_ctx.cloudBusy.test ? _ctx.cloudAbort('test') : _ctx.cloudCall('test'))
-}, _toDisplayString(_ctx.cloudBusy.test ? '中止这次' : '测试连接'), 9 /* TEXT, PROPS */, _hoisted_290),
+}, _toDisplayString(_ctx.cloudBusy.test ? '中止这次' : '测试连接'), 9 /* TEXT, PROPS */, _hoisted_305),
 _createElementVNode("button", {
 class: "ghost",
 onClick: $event => (_ctx.cloudBusy.push ? _ctx.cloudAbort('push') : _ctx.cloudPush())
-}, _toDisplayString(_ctx.cloudBusy.push ? '中止这次' : '↑ 上传到云端'), 9 /* TEXT, PROPS */, _hoisted_291),
+}, _toDisplayString(_ctx.cloudBusy.push ? '中止这次' : '↑ 上传到云端'), 9 /* TEXT, PROPS */, _hoisted_306),
 _createElementVNode("button", {
 class: "ghost",
 onClick: $event => (_ctx.cloudBusy.pull ? _ctx.cloudAbort('pull') : _ctx.cloudPull())
-}, _toDisplayString(_ctx.cloudBusy.pull ? '中止这次' : '↓ 从云端下载'), 9 /* TEXT, PROPS */, _hoisted_292),
+}, _toDisplayString(_ctx.cloudBusy.pull ? '中止这次' : '↓ 从云端下载'), 9 /* TEXT, PROPS */, _hoisted_307),
 _createElementVNode("button", {
 class: "ghost",
 onClick: $event => (_ctx.cloudBusy.sync ? _ctx.cloudAbort('sync') : _ctx.cloudSync()),
 title: "冲突由你选一边"
-}, _toDisplayString(_ctx.cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步'), 9 /* TEXT, PROPS */, _hoisted_293),
-_createElementVNode("label", _hoisted_294, [
+}, _toDisplayString(_ctx.cloudBusy.sync ? '中止这次' : '⇅ 一键双向同步'), 9 /* TEXT, PROPS */, _hoisted_308),
+_createElementVNode("label", _hoisted_309, [
 _withDirectives(_createElementVNode("input", {
 type: "checkbox",
 id: "cloudKeys",
 "onUpdate:modelValue": $event => ((_ctx.cloudKeys) = $event),
 onChange: _ctx.saveCloud
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_295), [
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_310), [
 [_vModelCheckbox, _ctx.cloudKeys]
 ]),
-_cache[63] || (_cache[63] = _createTextVNode(" 连密钥一起同步", -1 /* CACHED */))
+_cache[66] || (_cache[66] = _createTextVNode(" 连密钥一起同步", -1 /* CACHED */))
 ]),
-_createElementVNode("label", _hoisted_296, [
+_createElementVNode("label", _hoisted_311, [
 _withDirectives(_createElementVNode("input", {
 type: "checkbox",
 id: "cloudPrompts",
 "onUpdate:modelValue": $event => ((_ctx.cloudPrompts) = $event),
 onChange: _ctx.saveCloud
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_297), [
+}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_312), [
 [_vModelCheckbox, _ctx.cloudPrompts]
 ]),
-_cache[64] || (_cache[64] = _createTextVNode(" 连提示词归档一起", -1 /* CACHED */))
+_cache[67] || (_cache[67] = _createTextVNode(" 连提示词归档一起", -1 /* CACHED */))
 ]),
-_createElementVNode("span", _hoisted_298, _toDisplayString(_ctx.cloudMsg), 1 /* TEXT */)
+_createElementVNode("span", _hoisted_313, _toDisplayString(_ctx.cloudMsg), 1 /* TEXT */)
 ]),
-_createElementVNode("div", _hoisted_299, [
-_createElementVNode("span", _hoisted_300, _toDisplayString(_ctx.cloudState), 1 /* TEXT */)
+_createElementVNode("div", _hoisted_314, [
+_createElementVNode("span", _hoisted_315, _toDisplayString(_ctx.cloudState), 1 /* TEXT */)
 ]),
 _createCommentVNode(" 冲突：两边都改过的键。不自动覆盖，由用户在两条里选一边 "),
-_createElementVNode("div", _hoisted_301, null, 512 /* NEED_PATCH */),
-_createCommentVNode(" 备份：每次云端覆盖本机之前留的那一份，可一键恢复 "),
-_createElementVNode("div", _hoisted_302, null, 512 /* NEED_PATCH */)
+_createElementVNode("div", _hoisted_316, null, 512 /* NEED_PATCH */)
 ]),
-_createElementVNode("div", _hoisted_303, [
-_cache[66] || (_cache[66] = _createElementVNode("h2", { class: "card-h" }, [
+_createElementVNode("div", _hoisted_317, [
+_cache[70] || (_cache[70] = _createElementVNode("h2", { class: "card-h" }, [
 _createElementVNode("span", { class: "card-ic empty" }),
 _createTextVNode("提示词归档")
 ], -1 /* CACHED */)),
-_cache[67] || (_cache[67] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
-_createElementVNode("div", _hoisted_304, [
-_createElementVNode("span", _hoisted_305, [
-_createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_306)
+_cache[71] || (_cache[71] = _createElementVNode("label", { class: "plabel" }, "归档目录", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_318, [
+_createElementVNode("span", _hoisted_319, [
+_createElementVNode("span", { innerHTML: _ctx.icFolderDoc }, null, 8 /* PROPS */, _hoisted_320)
 ]),
 _createElementVNode("span", {
 class: "set-path",
 title: _ctx.promptDir
-}, _toDisplayString(_ctx.promptDir), 9 /* TEXT, PROPS */, _hoisted_307),
-_createElementVNode("span", _hoisted_308, _toDisplayString(_ctx.promptInfo), 1 /* TEXT */)
+}, _toDisplayString(_ctx.promptDir), 9 /* TEXT, PROPS */, _hoisted_321),
+_createElementVNode("span", _hoisted_322, _toDisplayString(_ctx.promptInfo), 1 /* TEXT */)
 ]),
-_createElementVNode("div", _hoisted_309, [
+_createElementVNode("div", _hoisted_323, [
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.promptOpenBusy,
 onClick: _ctx.openPromptDir
-}, "打开目录", 8 /* PROPS */, _hoisted_310),
+}, "打开目录", 8 /* PROPS */, _hoisted_324),
 _createElementVNode("button", {
 class: "ghost",
 onClick: _ctx.promptRefresh
-}, "刷新清单", 8 /* PROPS */, _hoisted_311),
-_createElementVNode("span", _hoisted_312, _toDisplayString(_ctx.promptMsg), 1 /* TEXT */)
+}, "刷新清单", 8 /* PROPS */, _hoisted_325),
+_createElementVNode("span", _hoisted_326, _toDisplayString(_ctx.promptMsg), 1 /* TEXT */)
 ]),
-_createElementVNode("div", _hoisted_313, null, 512 /* NEED_PATCH */)
-]),
-_createCommentVNode(" 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 "),
-_createElementVNode("div", _hoisted_314, [
-_createElementVNode("h2", _hoisted_315, [
-_createElementVNode("span", {
-class: "card-ic",
-innerHTML: _ctx.icFolderDoc
-}, null, 8 /* PROPS */, _hoisted_316),
-_cache[68] || (_cache[68] = _createTextVNode("设置备份与恢复", -1 /* CACHED */))
-]),
-_createElementVNode("div", _hoisted_317, [
-_createElementVNode("button", {
-class: "ghost",
-onClick: _ctx.exportSetup
-}, [...(_cache[69] || (_cache[69] = [
-_createElementVNode("span", {
-class: "ic",
-"data-icon": "download",
-"data-size": "13"
-}, null, -1 /* CACHED */),
-_createTextVNode(" 导出设置", -1 /* CACHED */)
-]))], 8 /* PROPS */, _hoisted_318),
-_createElementVNode("button", {
-class: "ghost",
-onClick: _ctx.pickImportSetup
-}, [...(_cache[70] || (_cache[70] = [
-_createElementVNode("span", {
-class: "ic",
-"data-icon": "upload",
-"data-size": "13"
-}, null, -1 /* CACHED */),
-_createTextVNode(" 导入设置", -1 /* CACHED */)
-]))], 8 /* PROPS */, _hoisted_319),
-_createElementVNode("button", {
-class: "ghost danger",
-onClick: _ctx.resetSetup,
-title: "清空密钥等全部设置"
-}, "恢复默认", 8 /* PROPS */, _hoisted_320),
-_createElementVNode("input", {
-type: "file",
-ref: "impSetFileEl",
-accept: ".json,application/json",
-style: {"display":"none"},
-onChange: _ctx.onImportSetupFile
-}, null, 40 /* PROPS, NEED_HYDRATION */, _hoisted_321)
-])
+_createElementVNode("div", _hoisted_327, null, 512 /* NEED_PATCH */)
 ])
 ]),
 _createCommentVNode(" 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，\n                 键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 "),
-_createElementVNode("section", _hoisted_322, [
-_cache[81] || (_cache[81] = _createElementVNode("h2", { class: "set-group-h" }, [
+_createElementVNode("section", _hoisted_328, [
+_cache[82] || (_cache[82] = _createElementVNode("h2", { class: "set-group-h" }, [
 _createElementVNode("button", {
 class: "tool fold-toggle",
 type: "button",
@@ -1892,113 +1913,113 @@ _createElementVNode("span", { class: "fold-title" }, "本机维护"),
 _createElementVNode("span", { class: "fold-txt" }, "展开")
 ])
 ], -1 /* CACHED */)),
-_createElementVNode("div", _hoisted_323, [
-_createElementVNode("div", _hoisted_324, [
-_createElementVNode("h2", _hoisted_325, [
+_createElementVNode("div", _hoisted_329, [
+_createElementVNode("div", _hoisted_330, [
+_createElementVNode("h2", _hoisted_331, [
 _createElementVNode("span", {
 class: "card-ic",
 innerHTML: _ctx.icGear
-}, null, 8 /* PROPS */, _hoisted_326),
-_cache[72] || (_cache[72] = _createTextVNode("本机环境", -1 /* CACHED */))
+}, null, 8 /* PROPS */, _hoisted_332),
+_cache[73] || (_cache[73] = _createTextVNode("本机环境", -1 /* CACHED */))
 ]),
-_createElementVNode("div", _hoisted_327, [...(_cache[73] || (_cache[73] = [
+_createElementVNode("div", _hoisted_333, [...(_cache[74] || (_cache[74] = [
 _createElementVNode("span", { class: "hint sm" }, "体检中…", -1 /* CACHED */)
 ]))], 512 /* NEED_PATCH */),
-_createElementVNode("div", _hoisted_328, [
+_createElementVNode("div", _hoisted_334, [
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.sysBusy,
 onClick: _ctx.recheckSys
-}, "重新体检", 8 /* PROPS */, _hoisted_329),
+}, "重新体检", 8 /* PROPS */, _hoisted_335),
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.sysCopyDisabled,
 onClick: _ctx.copySys,
 title: _ctx.sysCopyDisabled ? '还没读到结果' : ''
-}, "复制体检结果", 8 /* PROPS */, _hoisted_330),
-_createElementVNode("span", _hoisted_331, _toDisplayString(_ctx.sysMsg), 1 /* TEXT */)
+}, "复制体检结果", 8 /* PROPS */, _hoisted_336),
+_createElementVNode("span", _hoisted_337, _toDisplayString(_ctx.sysMsg), 1 /* TEXT */)
 ])
 ]),
-_createElementVNode("div", _hoisted_332, [
-_createElementVNode("h2", _hoisted_333, [
+_createElementVNode("div", _hoisted_338, [
+_createElementVNode("h2", _hoisted_339, [
 _createElementVNode("span", {
 class: "card-ic",
 innerHTML: _ctx.icLayers
-}, null, 8 /* PROPS */, _hoisted_334),
-_cache[74] || (_cache[74] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
+}, null, 8 /* PROPS */, _hoisted_340),
+_cache[75] || (_cache[75] = _createTextVNode("资产库磁盘用量", -1 /* CACHED */))
 ]),
-_createElementVNode("div", _hoisted_335, [...(_cache[75] || (_cache[75] = [
+_createElementVNode("div", _hoisted_341, [...(_cache[76] || (_cache[76] = [
 _createElementVNode("span", { class: "hint sm" }, "数盘中…", -1 /* CACHED */)
 ]))], 512 /* NEED_PATCH */),
-_createElementVNode("div", _hoisted_336, [
+_createElementVNode("div", _hoisted_342, [
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.usageBusy,
 onClick: _ctx.recountUsage
-}, "重新数一遍", 8 /* PROPS */, _hoisted_337),
+}, "重新数一遍", 8 /* PROPS */, _hoisted_343),
 _createElementVNode("button", {
 class: "ghost",
 disabled: _ctx.usageCopyDisabled,
 onClick: _ctx.copyUsage,
 title: _ctx.usageCopyDisabled ? '还没读到结果' : ''
-}, "复制这份读数", 8 /* PROPS */, _hoisted_338),
-_createElementVNode("span", _hoisted_339, null, 512 /* NEED_PATCH */),
-_createElementVNode("span", _hoisted_340, _toDisplayString(_ctx.usageMsg), 1 /* TEXT */)
+}, "复制这份读数", 8 /* PROPS */, _hoisted_344),
+_createElementVNode("span", _hoisted_345, null, 512 /* NEED_PATCH */),
+_createElementVNode("span", _hoisted_346, _toDisplayString(_ctx.usageMsg), 1 /* TEXT */)
 ])
 ]),
-_createElementVNode("div", _hoisted_341, [
-_createElementVNode("h2", _hoisted_342, [
+_createElementVNode("div", _hoisted_347, [
+_createElementVNode("h2", _hoisted_348, [
 _createElementVNode("span", {
 class: "card-ic",
 innerHTML: _ctx.icTrash
-}, null, 8 /* PROPS */, _hoisted_343),
-_cache[76] || (_cache[76] = _createTextVNode("清理缓存", -1 /* CACHED */))
+}, null, 8 /* PROPS */, _hoisted_349),
+_cache[77] || (_cache[77] = _createTextVNode("清理缓存", -1 /* CACHED */))
 ]),
-_createElementVNode("div", _hoisted_344, [
-_createElementVNode("div", _hoisted_345, [
-_cache[77] || (_cache[77] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_350, [
+_createElementVNode("div", _hoisted_351, [
+_cache[78] || (_cache[78] = _createElementVNode("span", { class: "kn" }, "平台接口应答", -1 /* CACHED */)),
 _createElementVNode("button", {
 class: "ghost mini wide",
 disabled: _ctx.cacheBusy.api,
 onClick: _ctx.clearApiCache
-}, _toDisplayString(_ctx.cacheBusy.api ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_346)
+}, _toDisplayString(_ctx.cacheBusy.api ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_352)
 ]),
-_createElementVNode("div", _hoisted_347, [
-_cache[78] || (_cache[78] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_353, [
+_cache[79] || (_cache[79] = _createElementVNode("span", { class: "kn" }, "文字 AI 型号能力", -1 /* CACHED */)),
 _createElementVNode("button", {
 class: "ghost mini wide",
 disabled: _ctx.cacheBusy.meta,
 onClick: _ctx.clearMetaCache
-}, _toDisplayString(_ctx.cacheBusy.meta ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_348)
+}, _toDisplayString(_ctx.cacheBusy.meta ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_354)
 ]),
-_createElementVNode("div", _hoisted_349, [
-_cache[79] || (_cache[79] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_355, [
+_cache[80] || (_cache[80] = _createElementVNode("span", { class: "kn" }, "缩略图与体积探测", -1 /* CACHED */)),
 _createElementVNode("button", {
 class: "ghost mini wide",
 disabled: _ctx.cacheBusy.thumb,
 onClick: _ctx.clearThumbCache
-}, _toDisplayString(_ctx.cacheBusy.thumb ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_350)
+}, _toDisplayString(_ctx.cacheBusy.thumb ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_356)
 ]),
-_createElementVNode("div", _hoisted_351, [
-_cache[80] || (_cache[80] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_357, [
+_cache[81] || (_cache[81] = _createElementVNode("span", { class: "kn" }, "「没归档到」标记", -1 /* CACHED */)),
 _createElementVNode("button", {
 class: "ghost mini wide",
 disabled: _ctx.cacheBusy.missed,
 onClick: _ctx.clearMissedCache
-}, _toDisplayString(_ctx.cacheBusy.missed ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_352)
+}, _toDisplayString(_ctx.cacheBusy.missed ? '清理中…' : '清空'), 9 /* TEXT, PROPS */, _hoisted_358)
 ])
 ]),
-_createElementVNode("div", _hoisted_353, null, 512 /* NEED_PATCH */),
-_createElementVNode("div", _hoisted_354, _toDisplayString(_ctx.cacheUsage), 1 /* TEXT */),
-_createElementVNode("div", _hoisted_355, _toDisplayString(_ctx.cacheMsg), 1 /* TEXT */)
+_createElementVNode("div", _hoisted_359, null, 512 /* NEED_PATCH */),
+_createElementVNode("div", _hoisted_360, _toDisplayString(_ctx.cacheUsage), 1 /* TEXT */),
+_createElementVNode("div", _hoisted_361, _toDisplayString(_ctx.cacheMsg), 1 /* TEXT */)
 ])
 ])
 ])
 ], 512 /* NEED_PATCH */),
 _createCommentVNode(" 钉在底下的一行：现在在第几项 + 改没改（自动保存的回执只在这一格说话） "),
-_createElementVNode("div", _hoisted_356, [
-_createElementVNode("span", _hoisted_357, _toDisplayString(_ctx.navPos), 1 /* TEXT */),
-_cache[82] || (_cache[82] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
+_createElementVNode("div", _hoisted_362, [
+_createElementVNode("span", _hoisted_363, _toDisplayString(_ctx.navPos), 1 /* TEXT */),
+_cache[83] || (_cache[83] = _createElementVNode("span", { class: "sp" }, null, -1 /* CACHED */)),
 _createElementVNode("span", {
 class: _normalizeClass(["set-save", _ctx.saveKind])
 }, _toDisplayString(_ctx.saveText), 3 /* TEXT, CLASS */)

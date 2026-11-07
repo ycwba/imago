@@ -99,12 +99,23 @@ function voiceAssetBase(v, shRef) {
   const ctx = sh && owner ? shotCtxOf(owner, sh) : null;
   return ctx ? voiceBase(ctx) : '';
 }
-function announceAssetDone(c, shRef) {
-  if (!c || c._mirrorAnnounced) return;
+/* 这一批候选已经投过自动镜像。**只在内存里**（WeakSet，不写进候选对象）：
+   以前是 `c._mirrorAnnounced`，会跟着 .data/workspace.json 与项目文件一起序列化出去 ——
+   换机器导入后每一条都带着「已投过」，历史补扫整批跳过，候选永远不落盘。 */
+const announcementSent = new WeakSet();
+/* fresh = 这一条是**这一轮刚生成出来的**（只有 pollOne 那一处传 true）。
+   它决定要不要打 mustSave：导演台刚生成的作品不受「历史产物自动存本机」开关管；
+   而开机 / 导入后的历史补扫只是「补齐以前没存的」，必须听开关的，否则关掉开关的人
+   一打开老工程就会被强制下载几十上百条历史候选。 */
+function announceAssetDone(c, shRef, fresh) {
+  if (!c || typeof c !== 'object' || announcementSent.has(c)) return;
   const src = String(c.url || (c.assetId ? Api.assetSrc(c.assetId) : ''));
   if (!src) return;
-  c._mirrorAnnounced = true;
+  announcementSent.add(c);
   window.AssetLocal.announce([{
+    /* 导演台自己刚生成的候选：不受设置页「历史产物自动存本机」开关管（那个开关只管历史补齐）。
+       作品没落到本机，项目文件导出 / 换设备 / 离线回看就全靠不住 —— mustSave 见 local.js。 */
+    mustSave: !!fresh,
     kind: 'asset', provider: c.provider || '', assetId: c.assetId || '', genId: c.vid || '',
     type: '视频', format: c.format || 'mp4', status: 'done', src,
     name: candidateAssetBase(c, shRef),            // base，不带扩展名（见 local.js 的 nameOf）
@@ -116,7 +127,9 @@ function announceAssetDone(c, shRef) {
 }
 function announceDoneCandidates() {
   try {
-    /* 起点扫**所有短片**（不只是当前这一部）：切走之后跑完的候选同样要投自动镜像。 */
+    /* 起点扫**所有短片**（不只是当前这一部）：切走之后跑完的候选同样要投自动镜像。
+       这一趟是**历史补扫**，不传 fresh —— 关掉「历史产物自动存本机」的人不该因为
+       打开老工程就被强制下载一批旧候选（只有真正刚生成的那一条才 mustSave）。 */
     ((wsOf() && wsOf().projects) || []).forEach(p => (p.scenes || []).forEach(sc => (sc.shots || []).forEach(sh =>
       (sh.candidates || []).forEach(c => { if (c && c.status === 'succeeded' && c.url) announceAssetDone(c, sh); }))));
   } catch (e) { /* 自动镜像是尽力而为，抛错不该打断这一屏渲染 */ }
@@ -170,7 +183,7 @@ function pollOne(t) {
       }
       if (p.done || p.failed) {
         if (!sh.selId && p.done) { setSelectedCandidate(sh, c); }   // 第一条成功的自动选用
-        if (p.done) announceAssetDone(c, sh);            // 自动镜像的入口（见 announceAssetDone）
+        if (p.done) announceAssetDone(c, sh, true);      // 真·刚生成：mustSave，见 announceAssetDone
         p2done = true;                                   // 这一条刚出结果 → 立刻重画中栏
       }
     } else if (r) {

@@ -1,5 +1,5 @@
 /* Skill 客户端：清单 / 全文 / 安装 / 启停 / 删除 / 导出 / 按页面与触发词匹配。
-   服务端解析与写盘只在 server/skills-store.js；这里不复制 frontmatter 规则。
+   服务端解析与写盘只在 server/data-hub.js；这里不复制 frontmatter 规则。
    页面与助手都只读这一份缓存（30 秒），改动后调 invalidate()。 */
 (function () {
   'use strict';

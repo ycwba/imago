@@ -9,7 +9,7 @@ const os = require('os');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { localAsrState } = require('../asr-store.js');
+const { localAsrState } = require('../data-hub.js');
 const { sendJson, readJsonBody } = require('./http');
 const { providerOf, channelKey, channelBase, loopback, collect, postJson } = require('../channel-cred.js');
 

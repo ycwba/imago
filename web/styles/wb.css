@@ -44,7 +44,10 @@
      另外六页的主体都是铺满内容区、贴着左缘 + --shell-px，这一页一旦限宽就只能居中或靠左 ——
      居中实测把首字从 x=88 推到 300（1920 窗）/ 620（2560 窗），靠左也让那条线比别的页短一截。
      铺满之后标题、分隔线、两栏块三样在七页与所有窗宽下同一位置，没有第三种画法需要特判。 */
-  width: 100%; margin: 0; padding: var(--sp-16) var(--shell-px);
+  /* 顶距是 8 不是 16：.wb-body 自己再补 8px 上内边距给控件阴影留呼吸
+     （滚动容器把第一排控件伸出去的光晕裁掉），两下相加仍是 16，
+     左右两栏的第一排在所有窗宽下都站在原来的高度上。 */
+  width: 100%; margin: 0; padding: var(--sp-8) var(--shell-px);
   flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; position: relative;
 }
 /* 左栏分两段：正文自己滚（.wb-body）+ 生成区钉在栏底（.wb-dock）。
@@ -54,9 +57,13 @@
 .wb .col-left { display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0; }
 .wb .col-left > .wb-body {
   flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto;
-  padding-right: var(--sp-4); padding-bottom: var(--sp-12); scrollbar-gutter: stable;
+  /* 上内边距 ≥ 控件阴影的上缘伸出量（--shadow-ctl 柔光层 0 3px 10px ≈ 7px）：
+     第一排（类型分段 + 型号下拉）贴着滚动口上缘时，那圈光晕会被整条裁掉。 */
+  padding-top: var(--sp-8); padding-right: var(--sp-4); padding-bottom: var(--sp-12); scrollbar-gutter: stable;
 }
-.wb .col-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.wb .col-right { display: flex; flex-direction: column; min-height: 0; min-width: 0;
+  /* 与 .wb-body 的上内边距同枚：两栏第一排对齐（这一栏不裁切，补它只为对齐）。 */
+  padding-top: var(--sp-8); }
 .wb .col-right .tasks-head { flex: 0 0 auto; }
 .wb .col-right #result {
   flex: 1 1 auto; overflow-y: auto; min-height: 0; min-width: 0;

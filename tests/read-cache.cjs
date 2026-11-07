@@ -17,7 +17,7 @@ const path = require('path');
 const crypto = require('crypto');
 const { PassThrough } = require('stream');
 const { createLocalAssetsStore } = require('../server/local-assets-store.js');
-const { createPromptsStore } = require('../server/prompts-store.js');
+const { createPromptsStore } = require('../server/data-hub.js');
 const { createCacheRoutes } = require('../server/routes/cache.js');
 
 let bad = 0, n = 0;

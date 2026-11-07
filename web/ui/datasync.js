@@ -1,9 +1,11 @@
 /* DataSync — 与本地代理的数据文件同步（信封 ts、体积 + 逐字节对账、突发写合并、整包备份）。
    从 web/ui/ui.js 拆出；依赖 Store / Kv / Net / Toast，加载顺序在这四个之后。 */
 (function () {
-  /* 整包备份的格式版本：导出写它、导入只认它。形状变了就升这一枚并在 importAll 里加一次
-     用户数据的搬迁；旧形状的包一律拒绝，不做「读不到就当旧版」的双读。 */
-  const PACK_VERSION = 1;
+  /* 整包备份的格式版本：导出写它、导入只认它。
+     v2 起包里多一段 `server`（/backup/export 出的整份状态快照：业务键、资产索引、
+     提示词归档、云同步状态与基线），所以「本机数据文件」也跟着包走 —— v1 那种只带
+     浏览器 localStorage/IndexedDB 的包不是一份完整备份。旧形状一律拒绝，不做双读兼容。 */
+  const PACK_VERSION = 2;
   /* 界面偏好那一批键名只由 ui.js 的 UI_PREFS 给（这张表同时被设置页渲染与助手白名单读），
      这里拿不到就当空表：宁可这几项这次不同步，也不让 DataSync 整块挂掉。顺序判据在 tests/settings-schema.cjs。 */
   const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
@@ -463,12 +465,29 @@
       } catch { return { supported: true, granted: false }; }
     },
 
-    /* ---------- 整包备份 / 恢复（方案 C）----------
-       把「浏览器里的全部数据」打成一个 JSON：
+    /* ---------- 整包备份 / 恢复（方案 C，v2）----------
+       把「这台机器上的全部数据」打成一个 JSON：
          · localStorage 里参与同步的业务键（含密钥，导出时会明确提示）
          · IndexedDB：导演台工作区、本地导入的视频、收藏的本地文件、音色复刻的参考音频
+         · server：/backup/export 出的服务端整份快照（state.json 的所有业务键、
+           资产索引、提示词归档正文、云同步状态与基线），带 sha256 校验和
        本地文件（Blob）按需打包：只导出数据时跳过，打包文件时转成 base64。
+       提示词归档不再另走 PromptLog 导出第二份 —— 服务端快照里已经带了，恢复时同名的不覆盖。
        要带哪几个库来自 Kv 的登记表（backup:true 的那些），这里不再抄一遍库/表名。 */
+    /* 备份中心的唯一出口：端点字符串只在这一个方法里出现一次，
+       设置页只看 DataSync 的这几枚方法，不再自己拼 /backup/... */
+    async backupCall(cmd, body) {
+      const isGet = cmd === 'status' || cmd === 'export';
+      return window.Net.json('/backup/' + cmd, isGet
+        ? { timeout: 30000, retry: 0 }
+        : { method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body || {}), timeout: 120000, retry: 0 });
+    },
+    backupStatus() { return this.backupCall('status'); },
+    backupCreate(reason) { return this.backupCall('create', { reason: reason || 'manual' }); },
+    backupVerify() { return this.backupCall('verify'); },
+    backupPreview(id) { return this.backupCall('preview', { snapshot: id }); },
+    backupRestore(id, keys) { return this.backupCall('restore', { snapshot: id, keys: keys || null }); },
     get IDB_TARGETS() {
       return Object.entries(window.Kv.TARGETS)
         .filter(([, t]) => t.backup)
@@ -510,14 +529,16 @@
       return { ok, failed };
     },
     /* 格式闸门：界面在弹确认框之前就调一次（免得让人读完摘要才被拒），写入口自己再调一次。
-       只认当前这一版 —— 更高版本的包里字段形状可能已经变了，硬读会把半份数据写进本机。 */
+       只认当前这一版 —— 更高版本的包里字段形状可能已经变了，硬读会把半份数据写进本机；
+       v1 那种没有服务端段的包也不放行：它不是完整备份，导进来等于把 .data 留在旧状态。 */
     assertPack(pack) {
       if (!pack || pack.type !== 'ai-workbench-backup') throw new Error('不是本工具导出的备份文件');
-      if (pack.version !== PACK_VERSION) {
-        throw new Error(pack.version > PACK_VERSION
-          ? '这份备份来自更新版本（v' + pack.version + '），请先升级再导入'
-          : '这份备份缺少可识别的格式版本');
-      }
+      if (pack.version == null) throw new Error('这份备份缺少可识别的格式版本');
+      if (pack.version > PACK_VERSION) throw new Error('这份备份来自更新版本（v' + pack.version + '），请先升级再导入');
+      if (pack.version !== PACK_VERSION) throw new Error('这份备份是旧版 v' + pack.version + '，已不再支持；请用当前版本重新导出');
+      const s = pack.server;
+      if (!s || typeof s !== 'object' || s.version !== PACK_VERSION || !s.state || typeof s.state !== 'object'
+        || typeof s.checksum !== 'string') throw new Error('这份备份缺少服务端快照（不是完整的整包备份）');
     },
     /* 导入前的差异摘要（纯读，不写任何东西）。要说清两件容易被误会的事：
        ① 导入是「覆盖备份里有的键」，不在备份里的当前数据不会被删；
@@ -526,20 +547,31 @@
       const lsKeys = Object.keys(pack.localStorage || {});
       const tables = Object.entries(pack.indexedDB || {});
       const rows = tables.reduce((n, [, list]) => n + (Array.isArray(list) ? list.length : 0), 0);
-      const prompts = pack.prompts && Array.isArray(pack.prompts.files) ? pack.prompts.files.length : 0;
+      const srv = (pack && pack.server) || {};
+      const serverKeys = Object.keys(srv.state || {}).length;
+      const promptPack = (srv.prompts && Array.isArray(srv.prompts.files)) ? srv.prompts.files : [];
+      const prompts = promptPack.length;
       const inPack = new Set(lsKeys);
       let kept = 0;
       for (const k of this.localKeys()) if (!inPack.has(k) && window.LS.get(k) != null) kept++;
       const text = '备份版本 v' + pack.version + '（导出于 ' + String(pack.ts || '未知时间').slice(0, 10) + '）：'
-        + '将覆盖本机设置与数据 ' + lsKeys.length + ' 项、本地文件 ' + rows + ' 条（' + tables.length + ' 张表）；'
+        + '将覆盖本机设置与数据 ' + lsKeys.length + ' 项、服务端业务键 ' + serverKeys + ' 项、'
+        + '本地文件 ' + rows + ' 条（' + tables.length + ' 张表）；'
         + '提示词归档 ' + prompts + ' 份（同名不覆盖）；'
-        + '不在备份里的当前数据 ' + kept + ' 项会保留，不会被删。';
-      return { ls: lsKeys.length, tables: tables.length, rows, prompts, kept, text };
+        + '不在备份里的当前数据 ' + kept + ' 项会保留，不会被删。'
+        + '导入前会先校验服务端快照的校验和，对不上就一项都不写。';
+      return { ls: lsKeys.length, tables: tables.length, rows, prompts, serverKeys, kept, text };
     },
     /* 导出整包。includeBlobs=false 时只带数据（体积小、够恢复设置与工作区）。
-       includePrompts=true 时连提示词归档一起带 —— 归档是磁盘上的一堆 .md，
-       既不在 .data/ 也进不了 localStorage/IndexedDB，不显式带就永远带不走。 */
-    async exportAll(includeBlobs, includePrompts) {
+       服务端那一段**恒带**：state.json 的所有业务键、资产索引、提示词归档正文、
+       云同步状态与基线都在里面，带 sha256 校验和。少这一段就不算整包 ——
+       宁可导出失败，也不吐出一个「看起来成功、恢复时才发现缺一半」的包。 */
+    async exportAll(includeBlobs) {
+      const r = await this.backupCall('export');
+      const srv = r && r.pack;
+      if (!r || !r.ok || !srv || srv.version !== PACK_VERSION || typeof srv.checksum !== 'string') {
+        throw new Error('服务端快照读不出来或版本不对，已中止导出');
+      }
       const ls = {};
       for (const k of this.localKeys()) {
         const v = window.LS.get(k);
@@ -550,26 +582,18 @@
         const rows = await this._idbDump(t.db, t.store, includeBlobs);
         if (rows.length) idb[t.db + '/' + t.store] = rows;
       }
-      const pack = {
+      return {
         type: 'ai-workbench-backup', version: PACK_VERSION,
         ts: new Date().toISOString(), includeBlobs: !!includeBlobs,
-        localStorage: ls, indexedDB: idb,
+        localStorage: ls, indexedDB: idb, server: srv,
       };
-      if (includePrompts && window.PromptLog) {
-        try {
-          const r = await PromptLog.exportAll();
-          pack.prompts = { dir: r.dir, total: r.total, skipped: r.skipped || 0, files: r.files || [] };
-        } catch (e) {
-          /* 归档带不上要说出来，不能悄悄导出一个「少了提示词」的备份还报成功 ——
-             那正是用户最需要它的时候。塞进 note，导出后显示。 */
-          pack.promptsError = e.message;
-        }
-      }
-      return pack;
     },
-    /* 导入整包：localStorage 全量写回，IndexedDB 逐条写回。返回计数。 */
+    /* 导入整包：**先让代理校验并恢复服务端那一段**，校验和对不上 / 版本不对时代理一项都不写，
+       这里也跟着一项都不写（不先动 localStorage，免得半份数据落地）。
+       之后才把浏览器那两段写回，回执把两头的成功与失败条数都报出来。 */
     async importAll(pack) {
       this.assertPack(pack);
+      const srv = await this.backupCall('import', { pack: pack.server });
       let nLs = 0, nIdb = 0, failed = 0;
       for (const [k, v] of Object.entries(pack.localStorage || {})) {
         try { localStorage.setItem(k, v); nLs++; }
@@ -580,17 +604,13 @@
         const r = await this._idbRestore(dbName, storeName, rows);
         nIdb += r.ok; failed += r.failed;
       }
-      /* 归档恢复走代理写盘（浏览器写不了那个目录）。**一份也不覆盖**同名文件，
-         代理那边会返回「本机已有同名」的数量 —— 报出来，让人知道少了几份。 */
-      let nPrompt = 0, promptNote = '';
-      if (pack.prompts && Array.isArray(pack.prompts.files) && pack.prompts.files.length && window.PromptLog) {
-        try {
-          const r = await PromptLog.importAll(pack.prompts.files);
-          nPrompt = r.restored || 0;
-          promptNote = r.message || ('恢复归档 ' + nPrompt + ' 份');
-        } catch (e) { promptNote = '归档没恢复成：' + e.message; }
-      }
-      return { localStorage: nLs, indexedDB: nIdb, prompts: nPrompt, promptNote, failed };
+      failed += Number(srv && srv.failed) || 0;
+      return {
+        localStorage: nLs, indexedDB: nIdb,
+        server: { written: Number(srv && srv.written) || 0, ok: !!(srv && srv.ok),
+          prompts: Number(srv && srv.promptsRestored) || 0, message: (srv && srv.message) || '' },
+        failed,
+      };
     },
   };
   /* 页面加载后自动对账一次；并顺手申请持久化存储（不需要用户手势）。

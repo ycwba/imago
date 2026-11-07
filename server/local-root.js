@@ -4,14 +4,13 @@
 
    优先级：
      ① ASSETS_DIR 环境变量 —— 隔离验证实例靠它指出去，否则 headless 探针生成的素材会直接写进用户那份；
-     ② .data/sk_local_dir.json —— 设置页「本机资产库」那一格配的（页面写 localStorage，DataSync 镜像到盘上）；
+     ② state.json 里的 sk_local_dir —— 设置页「本机资产库」那一格（页面写 localStorage，DataSync 镜像进状态仓）；
      ③ 默认 = 系统下载\成像（路径本身在 server/user-dirs.js，全站唯一）。
    ②③ 每次现读，改位置不必重启代理。
    ⚠ 换根之后旧根里的文件不会自己跟过去：账（.data\local-assets\）跟着应用走，本体留在原来那块盘上，
      于是旧根那些产物在库里读不到文件 —— 代理只扫**当前**根，界面上如实显示「文件不在了」，
      回源外链与费用记录照样在。要接着用旧根那些字节，就把文件管理器里的整个旧根搬进新根。 */
 'use strict';
-const fs = require('fs');
 const path = require('path');
 const userDirs = require('./user-dirs.js');
 
@@ -27,7 +26,7 @@ function envLocalDir(projectRoot) {
   return path.resolve(projectRoot, String(process.env.ASSETS_DIR || '').trim());
 }
 
-/* 那一格在盘上长什么样：`PUT /data/<键>` 把浏览器发的正文**一字不改**写进 `<键>.json`，
+/* 那一格在盘上长什么样：`PUT /data/<键>` 把浏览器发的正文**一字不改**写进 state.json 的 `<键>.body`，
    而正文就是 localStorage 里那个键的原值。页面这一路走 `window.LS.set`（裸字符串，没有引号、
    不是 JSON），所以常态是**裸文本** `D:\作品`；换成 `Store.set` 的那一路才是信封 `{"data":…,"ts":…}`。
    两种都得认 —— 「读出来当没配」在这里不会报错，它的表现是产物静默写进默认根，
@@ -43,13 +42,14 @@ function mirroredDir(raw) {
   } catch { return ''; }
 }
 
-/* 一次现算（给定项目根与数据目录）。dataDir 是 .data 的那一个（绝对或相对项目根）。
-   环境变量排在配置前面：探针指了 ASSETS_DIR 就不能因为 .data 里留着用户真机的那一格而写进用户作品。 */
-function localRootOf(projectRoot, dataDir) {
+/* 一次现算（给定项目根、数据目录与状态仓的读键口）。dataDir 仍收着，是为了磁盘对账那条
+   只读判据能按同一口径定位目录；环境变量排在配置前面：探针指了 ASSETS_DIR 就不能因为
+   状态仓里留着用户真机的那一格而写进用户作品。 */
+function localRootOf(projectRoot, dataDir, readKey) {
   if (String(process.env.ASSETS_DIR || '').trim()) return envLocalDir(projectRoot);
   let raw = '';
-  try { raw = fs.readFileSync(path.join(dataDir, LOCAL_DIR_KEY + '.json'), 'utf8'); }
-  catch { /* 文件不在 = 那一格没填；读不出也照没填走，回落默认，绝不因此罢工 */ }
+  try { raw = (readKey && readKey(LOCAL_DIR_KEY)) || ''; }
+  catch { /* 读不出也照没填走，回落默认，绝不因此罢工 */ }
   const dir = mirroredDir(raw);
   /* ② 命中就直接返回，**不要**顺手去解默认根（user-dirs.downloadsRoot()）：那一个 getter 带着
      「下载\拾帧 → 下载\成像」的一次性改名，拿它去问一个用不上的默认值，会把用户显式指定的
@@ -67,7 +67,8 @@ function defaultLocalDir(projectRoot) {
 /* 给代理用的动态读法：每次调用都现读（数据目录本身也可能是环境变量指定的，交给注入的函数算）。 */
 function createLocalRoot(opts) {
   const readDataDir = opts.dataDirPath;
-  return function localRoot() { return localRootOf(opts.ROOT, readDataDir()); };
+  const readKey = opts.readKey;
+  return function localRoot() { return localRootOf(opts.ROOT, readDataDir(), readKey); };
 }
 
 module.exports = { localRootOf, defaultLocalDir, createLocalRoot };

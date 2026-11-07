@@ -40,8 +40,10 @@ const SET_ROWS = [
   { card: 'net', kind: 'num', name: 'poll', label: '任务刷新间隔', unit: '秒' },
   /* 产物存放：三行（自动存档位 + 左栏两块开关）。库根位置不在这里 —— 那是代理读的配置，
      由「本机资产库」那一卡直接写 `sk_local_dir`。 */
-  { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '自动存本机要存哪一档', def: 'all', keep: 1,
-    opts: [['all', '连历史一起补齐（推荐）'], ['new', '只存新生成的']] },
+  /* 这两档只管「历史产物要不要补齐」：导演台刚生成的产物一律存（见 web/domain/local.js 的 mustSave）；
+     工作台产物不在此列，仍按这一档走。 */
+  { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '历史产物补存哪一档', def: 'all', keep: 1,
+    opts: [['all', '连历史一起补齐（推荐）'], ['new', '只补开启之后生成的']] },
   { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
   { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物', on: '1', off: '0', def: true, keep: 1 },
   /* AI 助手：四颗开关（after: 'notice' 在通知那一行追加「现在授权」与授权状态说明） */
@@ -105,7 +107,7 @@ const SettingsView = {
     const impAllFileEl = ref(null);
     const impSetFileEl = ref(null);
     const cloudConflictsEl = ref(null);
-    const cloudBackupsEl = ref(null);
+    const backupListEl = ref(null);
 
     /* ---------- 公共层（求值期不抓，用到时现取） ---------- */
     const ic = (n, s) => (window.icon ? window.icon(n, s) : '');
@@ -1213,7 +1215,7 @@ const SettingsView = {
             const okLine = st.on
               ? ('本机已存 ' + st.count + ' 个产物，共 ' + mbOf(st.bytes) + busy
                 + '（单个超过 200 MB 的不自动存）')
-              : '自动存本机已关闭。';
+              : '历史产物补存已关闭；导演台刚生成的产物仍会存进本机（工作台按这一档走）。';
             const parts = [okLine];
             if (st.on && st.lastAt) {
               parts.push(st.lastErr
@@ -1369,6 +1371,16 @@ const SettingsView = {
       where.className = 'hint sm'; where.dataset.libWhere = '1';
       where.textContent = '加载中…';
       box.appendChild(where);
+
+      /* 口径说清楚：索引 / 对账 / 播放都只看这一个目录，**不翻机器上其它地方**。
+         换机器时把「导出媒体包」里的 media\ 挪进这个目录，再导入项目文件 —— 按文件名 + 字节数认回原号，
+         不用重新导入素材。这一行不是装饰：用户问过「会不会去下载夹、桌面找」，答案必须写在设置页上。 */
+      const scope = document.createElement('div');
+      scope.className = 'hint sm';
+      scope.textContent = '只认这个目录里的文件（图片\\ 视频\\ 音频\\，含子目录）：资产库索引、磁盘对账、'
+        + '导演台导入项目都只在这里找，不会去本机其它地方翻。换机器时把「导出媒体包」里的 media\\ '
+        + '挪进这个目录，再导入项目文件即可。';
+      box.appendChild(scope);
       refreshLibRoot();
     }
 
@@ -1798,27 +1810,19 @@ const SettingsView = {
       }
       return { type: 'ai-workbench-settings', version: 1, ts: new Date().toISOString(), includeKeys: !!includeKeys, data: out };
     }
-    function backupSettingsBefore(tag) {
+    /* 覆盖前的唯一退路：代理的快照仓（.data/backup.json）。
+       以前是往浏览器下载目录丢一份 JSON —— 下载可能被拦、可能被清理，而且没人看得见
+       它到底存没存成。现在统一留一份带校验和的快照，设置页那张卡随时能列出来恢复。
+       留不成不拦路，但回执必须如实说「这一次撤不回来」。 */
+    async function snapshotBefore(tag) {
       try {
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const name = 'ai-workbench-设置-' + stamp + '-' + tag + '.json';
-        Net.save(new Blob([JSON.stringify(exportSettings(true), null, 2)], { type: 'application/json' }), name);
-        return name;
+        const r = await DataSync.backupCreate('before-' + tag);
+        return (r && r.id) ? String(r.id) : '';
       } catch (e) { return ''; }
     }
-    /* 「从数据文件恢复」和「导入整包备份」都会把浏览器里当前那份数据整个盖掉，而盖下去之前
-       手里这一份是唯一退路。「恢复默认」早就先导出再清（backupSettingsBefore），这两条以前是直接盖。
-       这里补一份「只含数据」的整包（不带本机文件字节，体积与导出页那一档「只导出数据」一样）。
-       导出没成不拦路：把「没有退路」如实写进回执，让用户知道这一次撤不回来。 */
-    async function backupDataBefore(tag) {
-      try {
-        const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-        const name = 'ai-workbench-整包备份-' + stamp + '-' + tag + '.json';
-        const pack = await DataSync.exportAll(false, false);
-        Net.save(new Blob([JSON.stringify(pack)], { type: 'application/json' }), name);
-        return name;
-      } catch (e) { return ''; }
-    }
+    const undoNote = snap => snap
+      ? '。撤销：到「数据与备份」恢复快照 ' + snap
+      : '。⚠ 覆盖前没能留下快照，这一次撤不回来';
     async function exportSetup() {
       if (!(await flushPending())) { Toast.err('设置没能完整存进本机：' + saveFailed); return; }
       const withKeys = await Confirm.choose({
@@ -1851,7 +1855,7 @@ const SettingsView = {
                 + extra.slice(0, 5).join('、') + (extra.length > 5 ? ' 等' : '') : '') });
           if (!ok) return;
           await stopPendingSave();
-          const bak = backupSettingsBefore('导入前');
+          const snap = await snapshotBefore('导入设置');
           const bad = [];
           Object.entries(d.data).forEach(([k, v]) => {
             if (extra.includes(k)) return;
@@ -1861,14 +1865,14 @@ const SettingsView = {
           if (bad.length) {
             Toast.after('已导入 ' + wrote + ' 项，' + bad.length + ' 项没写进去（本机存储满，先清一点再试）：'
               + bad.slice(0, 3).join('、') + (bad.length > 3 ? ' 等' : '')
-              + (bak ? '。导入前的设置已存为 ' + bak : '。导入前的设置没能导出备份'), 'err');
+              + undoNote(snap), 'err');
           } else if (extra.length) {
             Toast.after('已导入 ' + wrote + ' 项；文件里另有 ' + extra.length + ' 项不是设置（' + extra.slice(0, 3).join('、')
               + (extra.length > 3 ? ' 等' : '') + '），已跳过'
-              + (bak ? '。导入前的设置已存为 ' + bak : '。导入前的设置没能导出备份'));
+              + undoNote(snap));
           } else {
             Toast.after('已导入 ' + wrote + ' 项设置（页面为此刷新了一次）'
-              + (bak ? '。导入前的设置已存为 ' + bak : '。导入前的设置没能导出备份'));
+              + undoNote(snap));
           }
           reloadAfter(900);
         } catch (err) { Toast.err('导入失败：' + errText(err)); }
@@ -1880,13 +1884,13 @@ const SettingsView = {
       const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
         body: '会清掉：密钥、接口地址与型号、自定义供应商、润色指令、分页、网络与分栏等全部设置。\n'
           + '不会清掉：主题、视图偏好、生成历史、资产、收藏与素材库。\n'
-          + '清空前会自动导出一份 JSON 到下载目录。' });
+          + '清空前会在「数据与备份」留一份本机快照，随时能撤回。' });
       if (!ok) return;
       await stopPendingSave();
-      const bak = backupSettingsBefore('恢复默认前');
+      const snap = await snapshotBefore('恢复默认');
       const n = Store.sweep(k => !RESET_KEEP.includes(k) && isSettingKey(k));
       Toast.after('已清除 ' + n + ' 项设置，其余各项回到内置默认（页面为此刷新了一次）'
-        + (bak ? '。撤销：把下载目录里的 ' + bak + ' 导回来' : '。清空前的设置没能导出备份'));
+        + undoNote(snap));
       reloadAfter(800);
     }
     async function reloadAfter(ms) {
@@ -1904,6 +1908,94 @@ const SettingsView = {
     const dataBusy = reactive({ copy: false, push: false, pull: false, exp: false, imp: false });
     /* 目录轨上「数据与同步」那一行的当前值（几份数据）—— 与 dataInfo 同源，只是短。 */
     const dataCount = ref(0);
+    /* ---------- 备份中心：本机快照的唯一界面（端点只经 DataSync 走 /backup/*） ----------
+       健康提示必须说清「哪一份坏了」：state.json 校验不过时代理会拒绝写入，
+       这时界面上要是还写「正常」，用户就会一直以为自己的修改存下来了。 */
+    const backupInfo = ref('读取中…');
+    const backupMsg = ref('');
+    const backupRows = ref([]);
+    const backupBusy = reactive({ create: false, verify: false, refresh: false });
+    async function refreshBackupCenter() {
+      if (backupBusy.refresh) return;
+      backupBusy.refresh = true;
+      try {
+        const st = await DataSync.backupStatus();
+        const bad = [];
+        if (st.stateDegraded) bad.push('状态仓：' + st.stateDegraded);
+        if (st.degraded) bad.push('快照仓：' + st.degraded);
+        if (!st.verified) bad.push('快照校验没过：' + (st.bad || []).join('、'));
+        backupInfo.value = st.ok
+          ? '✓ 正常 · ' + st.count + '/5 份快照 · 最近 ' + (st.lastAt ? fmtTime(st.lastAt) : '尚无')
+            + (st.fsyncDegraded ? ' · 落盘同步退化：' + st.fsyncDegraded : '')
+          : '⚠ ' + (bad.join('；') || '备份状态异常，先别覆盖数据');
+        backupRows.value = st.snapshots || [];
+        if (st.legacy && st.legacy.migrated) backupMsg.value = '旧数据文件已转成 state.json（' + st.legacy.migrated + ' 个业务键），原文件已删除';
+      } catch (e) {
+        backupInfo.value = '读不到备份状态（代理没在运行？）';
+        backupRows.value = [];
+      }
+      renderBackupRows();
+      backupBusy.refresh = false;
+    }
+    function renderBackupRows() {
+      const box = backupListEl.value;
+      if (!box) return;
+      const rows = backupRows.value || [];
+      if (!rows.length) { box.innerHTML = ''; return; }
+      box.innerHTML = panelBox('本机快照（' + rows.length + ' 份，最多留 5 份）')
+        + rows.map(x => '<div class="cloud-row">'
+          + '<span class="cloud-key">' + escH(x.reason) + '</span>'
+          + '<span class="cloud-meta">' + escH(fmtTime(x.ts)) + ' · ' + Number(x.keys || 0) + ' 键 / '
+          + Number(x.prompts || 0) + ' 归档' + (x.assetsIndex ? ' / 含资产索引' : '') + '</span>'
+          + '<button class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="preview">看差异</button>'
+          + '<button class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="restore">恢复这份</button>'
+          + '</div>').join('') + '</div>';
+      box.querySelectorAll('[data-snap]').forEach(b => { b.onclick = () => backupRowAct(b.dataset.snap, b.dataset.act); });
+    }
+    async function backupRowAct(id, act) {
+      try {
+        if (act === 'preview') {
+          const d = await DataSync.backupPreview(id);
+          const go = await Confirm.ask({ title: '恢复这份快照？', danger: true, okLabel: '恢复并刷新',
+            body: (d.text || '') + ' 恢复前会再留一份当前数据的快照。' });
+          if (!go) return;
+        } else {
+          const go = await Confirm.ask({ title: '恢复这份快照？', danger: true, okLabel: '恢复并刷新',
+            body: '会用这份快照覆盖当前业务键与提示词归档，然后刷新页面。恢复前会再留一份当前数据的快照。' });
+          if (!go) return;
+        }
+        await doRestore(id);
+      } catch (e) { backupMsg.value = '失败：' + errText(e); }
+    }
+    async function doRestore(id) {
+      await stopPendingSave();
+      try {
+        const r = await DataSync.backupRestore(id);
+        Toast.after((r.message || '已从快照恢复') + '（页面为此刷新了一次）');
+        try { DataSync.resetBootFlags(); } catch (e) {}
+        reloadAfter(900);
+      } catch (e) { backupMsg.value = '恢复失败：' + errText(e); }
+    }
+    async function createBackup() {
+      if (backupBusy.create) return;
+      backupBusy.create = true;
+      try {
+        const r = await DataSync.backupCreate('manual');
+        backupMsg.value = r && r.created === false ? '已有相同内容的快照（' + (r.why || '内容没变') + '）' : '✓ 已留一份快照';
+        await refreshBackupCenter();
+      } catch (e) { backupMsg.value = '留快照失败：' + errText(e); }
+      finally { backupBusy.create = false; }
+    }
+    async function verifyBackup() {
+      if (backupBusy.verify) return;
+      backupBusy.verify = true;
+      try {
+        const r = await DataSync.backupVerify();
+        backupMsg.value = r.ok ? '✓ 全部 ' + r.count + ' 份快照校验通过' : '✗ 校验没过：' + (r.bad || []).join('、');
+        await refreshBackupCenter();
+      } catch (e) { backupMsg.value = '校验失败：' + errText(e); }
+      finally { backupBusy.verify = false; }
+    }
     async function refreshDataInfo() {
       try {
         const r = await Net.fetch('/data', { timeout: 15000 });
@@ -1933,7 +2025,7 @@ const SettingsView = {
       } catch (e) { dataMsg.value = '读不到数据目录'; }
       finally { dataBusy.copy = false; }
     }
-    function reloadDataInfo() { refreshDataInfo(); refreshPersistInfo(); }
+    function reloadDataInfo() { refreshDataInfo(); refreshPersistInfo(); refreshBackupCenter(); }
     async function askPersist() {
       const r = await DataSync.persist();
       dataMsg.value = r.granted ? '✓ 已获得持久化存储' : '浏览器没有授予（多用几次再来）';
@@ -1948,48 +2040,45 @@ const SettingsView = {
     }
     async function pullData() {
       const ok = await Confirm.ask({ title: '从数据文件恢复？', danger: true, okLabel: '恢复并刷新',
-        body: '会覆盖当前数据并自动刷新。覆盖前会自动备份到下载目录。' });
+        body: '会覆盖当前数据并自动刷新。覆盖前会在「数据与备份」留一份本机快照。' });
       if (!ok) return;
       if (dataBusy.pull) return;
-      dataBusy.pull = true; dataMsg.value = '正在备份当前数据…';
+      dataBusy.pull = true; dataMsg.value = '正在留一份快照…';
       try {
         await stopPendingSave();
-        const bak = await backupDataBefore('从数据文件恢复前');
+        const snap = await snapshotBefore('从数据文件恢复');
         dataMsg.value = '正在恢复…';
         const n = await DataSync.pullAll();
-        Toast.after('已从数据文件恢复 ' + n + ' 项（页面为此刷新了一次）'
-          + (bak ? '。撤销：把下载目录里的 ' + bak + ' 导回来' : '。覆盖前的当前数据没能导出备份'));
+        Toast.after('已从数据文件恢复 ' + n + ' 项（页面为此刷新了一次）' + undoNote(snap));
         reloadAfter(800);
       } catch (e) { dataMsg.value = '失败：' + errText(e); dataBusy.pull = false; }
     }
+    /* v2 整包恒带服务端快照（业务键 / 资产索引 / 提示词归档 / 云同步状态），
+       所以「要不要带归档」不再是一个选项 —— 少那一段就不算整包。
+       唯一还能选的是本地文件字节（视频 / 参考音频那些大 Blob）。 */
     async function exportAll() {
       const pick = await Confirm.choose({
-        title: '导出整包备份', body: '要带哪些一起？不显式勾就带不走提示词归档。',
+        title: '导出整包备份', body: '本地文件（视频、参考音频）要不要一起打包？',
         options: [
-          { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏、导演台工作区；体积小' },
-          { value: 'prompts', label: '数据 + 提示词归档', hint: '再加上归档文件夹里的那些 .md' },
-          { value: 'all', label: '连本地文件一起导出', hint: '体积可能大；不含提示词归档。' },
+          { value: 'data', label: '只导出数据（推荐）', hint: '设置、历史、收藏、工作区 + 服务端整份快照；体积小' },
+          { value: 'all', label: '连本地文件一起导出', hint: '再把 IndexedDB 里的大文件转成 base64，体积可能很大' },
         ],
       });
       if (!pick) return;
       if (dataBusy.exp) return;
       dataBusy.exp = true; dataMsg.value = '正在打包…';
       try {
-        const withPrompts = pick === 'prompts';
-        const pack = await DataSync.exportAll(pick === 'all', withPrompts);
+        const pack = await DataSync.exportAll(pick === 'all');
         const json = JSON.stringify(pack);
-        const name = 'ai-workbench-整包备份-' + new Date().toISOString().slice(0, 10)
-          + (pick === 'all' ? '-含文件' : '') + (withPrompts ? '-含提示词' : '') + '.json';
+        const name = 'ai-workbench-整包备份-v2-' + new Date().toISOString().slice(0, 10)
+          + (pick === 'all' ? '-含文件' : '') + '.json';
         const blob = new Blob([json], { type: 'application/json' });
         Net.save(blob, name);
-        let extra = '';
-        if (withPrompts) {
-          extra = pack.prompts
-            ? '，含提示词归档 ' + pack.prompts.files.length + ' 份'
-              + (pack.prompts.skipped ? '（另有 ' + pack.prompts.skipped + ' 份超出上限没带上）' : '')
-            : '，但提示词归档没带上：' + (pack.promptsError || '未知原因');
-        }
-        dataMsg.value = '✓ 已导出（' + mbOf(blob.size) + window.esc(extra) + '）';
+        const sp = (pack.server && pack.server.prompts) || {};
+        const skipped = Number(sp.skipped) || 0;
+        dataMsg.value = '✓ 已导出（' + mbOf(blob.size) + '，服务端 ' + Object.keys(pack.server.state || {}).length
+          + ' 项业务键、提示词归档 ' + ((sp.files || []).length) + ' 份'
+          + (skipped ? '（另有 ' + skipped + ' 份超出上限没带上）' : '') + '）';
       } catch (e) { dataMsg.value = '导出失败：' + errText(e); }
       finally { dataBusy.exp = false; }
     }
@@ -2006,18 +2095,19 @@ const SettingsView = {
           DataSync.assertPack(pack);
           const desc = DataSync.describePack(pack);
           const ok = await Confirm.ask({ title: '导入整包备份？', danger: true, okLabel: '导入并刷新',
-            body: '会覆盖当前数据并自动刷新。覆盖前会自动备份到下载目录。 ' + desc.text });
+            body: '会覆盖当前数据并自动刷新。覆盖前会在「数据与备份」留一份本机快照。 ' + desc.text });
           if (!ok) return;
-          dataMsg.value = '正在备份当前数据…';
+          dataMsg.value = '正在留一份快照…';
           await stopPendingSave();
-          const bak = await backupDataBefore('导入整包前');
+          await snapshotBefore('导入整包');
           dataMsg.value = '正在导入…';
+          /* 服务端那一段先校验 checksum，对不上就一项都不写（DataSync.importAll 里排在最前）。 */
           const res = await DataSync.importAll(pack);
-          Toast.after('已从备份导入：' + res.localStorage + ' 项数据' + (res.indexedDB ? '、' + res.indexedDB + ' 个本地文件' : '')
-            + (res.promptNote ? '；' + res.promptNote : '')
+          Toast.after('已从备份导入：' + res.localStorage + ' 项浏览器数据'
+            + (res.indexedDB ? '、' + res.indexedDB + ' 个本地文件' : '')
+            + (res.server ? '；服务端 ' + res.server.written + ' 项业务键、归档 ' + res.server.prompts + ' 份' : '')
             + (res.failed ? '；⚠ 有 ' + res.failed + ' 项没写进去（本机存储写满或被占用）' : '')
-            + (bak ? '；覆盖前的当前数据已存为 ' + bak : '；覆盖前的当前数据没能导出备份')
-            + '（页面为此刷新了一次）');
+            + '；恢复前的当前数据已另留一份快照（页面为此刷新了一次）');
           reloadAfter(900);
         } catch (err) { dataMsg.value = '导入失败：' + errText(err); }
       };
@@ -2027,8 +2117,14 @@ const SettingsView = {
 
     /* ---------- 云同步（WebDAV） ---------- */
     const CK = { url: 'sk_cloud_url', user: 'sk_cloud_user', pass: 'sk_cloud_pass', keys: 'sk_cloud_keys', prompts: 'sk_cloud_prompts' };
-    const CLOUD_DEFAULT_URL = 'https://dav.jianguoyun.com/dav/ai-workbench/';
-    const cloudUrl = ref(CLOUD_DEFAULT_URL);
+    /* 默认云端地址的唯一一份在代理侧（server/data-hub.js 的 CLOUD_DEFAULT_URL）：
+       页面留空 → .env → 两处都没填才轮到它。这里只从 /cloud/status 取回来做输入提示，
+       绝不预填进输入框 —— 预填会被当成「页面填了」，反而把 .env 写的地址压掉。 */
+    const cloudUrl = ref('');
+    const cloudDefaultUrl = ref('');
+    const cloudUrlHint = computed(() => cloudDefaultUrl.value
+      ? '留空 = 用 .env；都没填就用 ' + cloudDefaultUrl.value
+      : '留空 = 用 .env；都没填用内置默认');
     const cloudUser = ref('');
     const cloudPass = ref('');
     const cloudKeys = ref(false);
@@ -2036,9 +2132,12 @@ const SettingsView = {
     const cloudMsg = ref('');
     const cloudState = ref('读取同步状态…');
     const cloudBusy = reactive({ test: false, push: false, pull: false, sync: false });
+    /* 三格与 .env 的 CLOUD_WEBDAV_* 一一对应：留空 = 请求头不带这一项、代理回退到 .env，
+       地址那一格连 .env 也空时再由代理用内置默认；填了 = 以页面为准。
+       本机没存过这个键、或存的就是空串，输入框都保持空（以前会把默认地址顶回来）。 */
     function initCloud() {
       const g = k => window.LS.get(CK[k]);
-      cloudUrl.value = (g('url') != null && g('url') !== '') ? g('url') : CLOUD_DEFAULT_URL;
+      cloudUrl.value = g('url') || '';
       cloudUser.value = g('user') || '';
       cloudPass.value = g('pass') || '';
       cloudKeys.value = g('keys') === '1';
@@ -2063,6 +2162,7 @@ const SettingsView = {
     }
     function cloudHeaders() {
       saveCloud();
+      /* 三格一律只在非空时才带请求头：留空的那一格由代理读 .env 补上，填了的压过 .env。 */
       const h = { 'Content-Type': 'application/json' };
       const u = String(cloudUrl.value || '').trim(), n = String(cloudUser.value || '').trim(), p = String(cloudPass.value || '');
       if (u) h['x-cloud-url'] = u;
@@ -2098,7 +2198,7 @@ const SettingsView = {
         let extra = '';
         if ((d.overwritten || []).length) {
           const list = d.overwritten.slice(0, 4).join('、') + (d.overwritten.length > 4 ? '…' : '');
-          extra += '；用云端覆盖了本机较旧的 ' + d.overwritten.length + ' 份（覆盖前已在本机留 .bak.json：' + list + '）';
+          extra += '；用云端覆盖了本机较旧的 ' + d.overwritten.length + ' 份（覆盖前已留一份本机快照：' + list + '）';
         }
         if ((d.averted || []).length) {
           extra += '；另有 ' + d.averted.length + ' 份' + (cmd === 'push'
@@ -2160,12 +2260,14 @@ const SettingsView = {
       let d = null;
       try { d = await Net.json('/cloud/status', { timeout: 10000 }); }
       catch (e) { cloudState.value = '读不到同步状态（代理没在运行？）'; return; }
+      /* 默认地址只从代理这一份拿，页面不写第二遍；代理是老版本时保留旧提示文案。 */
+      cloudDefaultUrl.value = String(d.defaultUrl || '');
       cloudState.value = (d.lastAt ? '上次同步 ' + fmtTime(d.lastAt) + '：' + (d.lastResult || '') : '还没有同步过')
-        + (d.envConfigured ? ' · 凭据来自 .env' : '')
+        + (d.envConfigured ? ' · 凭据在代理侧（账号密码留空即用）' : '')
         + (d.prompts ? (d.prompts.error ? '；提示词归档：' + window.esc(d.prompts.error)
           : '；提示词归档 ' + d.prompts.count + ' 份' + (cloudPrompts.value ? ' · 随同步' : ' · 未随同步'))
           : '');
-      /* 冲突：每条两个按钮，选完立即执行（选云端会先在本机留 .bak.json 备份） */
+      /* 冲突：每条两个按钮，选完立即执行（选云端会先留一份本机快照） */
       const cf = d.conflicts || [];
       const cBox = cloudConflictsEl.value;
       if (cBox) {
@@ -2186,7 +2288,7 @@ const SettingsView = {
               const key = b.dataset.cf, side = b.dataset.side;
               if (side === 'remote') {
                 const ok = await Confirm.ask({ title: '用云端版本覆盖本机？', danger: true, okLabel: '覆盖本机',
-                  body: '会覆盖本机这份数据（覆盖前自动留一份 .bak.json 可恢复），然后刷新页面。' });
+                  body: '会覆盖本机这份数据（覆盖前自动留一份本机快照可恢复），然后刷新页面。' });
                 if (!ok) return;
               }
               b.disabled = true;
@@ -2204,39 +2306,6 @@ const SettingsView = {
                   refreshCloudPanel();
                 }
               } catch (e) { Toast.err('解决冲突失败：' + errText(e)); b.disabled = false; }
-            };
-          });
-        });
-      }
-      /* 备份：云端覆盖过本机的那些键，随时可以退回去 */
-      let bk = [];
-      try { bk = ((await Net.json('/cloud/backups', { timeout: 10000 })).items) || []; } catch (e) {}
-      const bBox = cloudBackupsEl.value;
-      if (bBox) {
-        window.Wb.viewport.keep(setDocEl.value, () => {
-          if (!bk.length) { bBox.innerHTML = ''; return; }
-          bBox.innerHTML = panelBox('备份（' + bk.length + ' 份）')
-            + bk.slice(0, 12).map(x => '<div class="cloud-row">'
-              + '<span class="cloud-key">' + escH(x.key) + '</span>'
-              + '<span class="cloud-meta">' + escH(fmtTime(x.mtime)) + ' · ' + mbOf(x.size) + '</span>'
-              + '<button class="ghost mini xs" data-bk="' + escH(x.key) + '">恢复这份</button>'
-              + '</div>').join('')
-            + (bk.length > 12 ? '<div class="cloud-more">…共 ' + bk.length + ' 份，仅列最近 12 份</div>' : '')
-            + '</div>';
-          bBox.querySelectorAll('[data-bk]').forEach(b => {
-            b.onclick = async () => {
-              const ok = await Confirm.ask({ title: '用备份覆盖当前数据？', danger: true, okLabel: '恢复并刷新',
-                body: '会用 .data/ 里的那份备份覆盖本机当前数据文件（' + b.dataset.bk + '），然后刷新页面。' });
-              if (!ok) return;
-              b.disabled = true;
-              try {
-                const r = await Net.fetch('/cloud/restore', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: b.dataset.bk }), timeout: 60000, retry: 0 });
-                const rd = await r.json();
-                if (!r.ok) throw new Error((rd.error && rd.error.message) || ('HTTP ' + r.status));
-                Toast.after((rd.message || '已用那份备份覆盖本机') + '（页面为此刷新了一次）');
-                try { DataSync.resetBootFlags(); } catch (e) {}
-                reloadAfter(900);
-              } catch (e) { Toast.err('恢复失败：' + errText(e)); b.disabled = false; }
             };
           });
         });
@@ -3852,6 +3921,7 @@ const SettingsView = {
       renderHistRows();
       paintCacheUsage();
       refreshCloudPanel();
+      refreshBackupCenter();
       setupNav();
       try { if (window.TextAI) await TextAI.warm(await Api.registry()); } catch (e) {}
       await loadReg();
@@ -3922,9 +3992,11 @@ const SettingsView = {
       netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl,
       dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
+      backupInfo, backupMsg, backupRows, backupBusy, backupListEl, refreshBackupCenter, createBackup, verifyBackup,
       impAllFileEl,
-      cloudUrl, cloudUser, cloudPass, cloudKeys, cloudPrompts, saveCloud, cloudMsg, cloudState,
-      cloudBusy, cloudCall, cloudAbort, cloudPush, cloudSync, cloudPull, cloudConflictsEl, cloudBackupsEl,
+      cloudUrl, cloudUrlHint, cloudUser, cloudPass, cloudKeys, cloudPrompts,
+      saveCloud, cloudMsg, cloudState,
+      cloudBusy, cloudCall, cloudAbort, cloudPush, cloudSync, cloudPull, cloudConflictsEl,
       sysRowsEl, sysMsg, sysCopyDisabled, sysBusy, recheckSys, copySys,
       usageRowsEl, usageMsg, usageCopyDisabled, usageBusy, recountUsage, copyUsage, usageGoSlotEl,
       cacheBusy, clearApiCache, clearMetaCache, clearThumbCache, clearMissedCache, histBoxEl, cacheUsage, cacheMsg,

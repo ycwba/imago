@@ -9,11 +9,11 @@
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
-const { renameWithRetry, fsyncPath, atomicWrite } = require('../fs-atomic.js');
+const { renameWithRetry, fsyncPath, atomicWrite } = require('../data-hub.js');
 const { sendJson, fail } = require('./http');
 /* 类别闸直接连存储层的那张表（LOCAL_KIND_BY_EXT → isMediaExt）：落点、对账、用量与这道闸
    必须读同一份名单；它是纯函数、不碰实例状态，所以走模块导出，不经组合根的注入清单转发。 */
-const { isMediaExt, isDocExt, identityOf } = require('../local-assets-store.js');
+const { isMediaExt, isDocExt, identityOf, sampleSigOfBuffer } = require('../local-assets-store.js');
 
 function createLocalAssets(ctx) {
   const readBody = ctx.readBody;
@@ -55,6 +55,9 @@ function createLocalAssets(ctx) {
   const invalidateScan = ctx.invalidateScan;
   const localRootDir = ctx.localRootDir;
   const MIME = ctx.MIME;
+  /* 「盘上已经有这份字节」→ 只补索引：两个写入口与项目文件重绑共用存储层那一枚判据。 */
+  const adoptBodyByHint = ctx.adoptBodyByHint;
+  const rebindBodies = ctx.rebindBodies;
 
   /* 本文件的错误体是 `{error:{message}}`（设置页与 domain/local.js 读的是 error.message），
      与公共 fail 的扁平 `{error}` 不同：这里只做形状适配，头字段仍交给 ./http。 */
@@ -83,6 +86,37 @@ function createLocalAssets(ctx) {
         if (!spec || !spec.url) return failMsg(res, 400, '缺少 url');
         const meta = (spec.meta && typeof spec.meta === 'object') ? spec.meta : {};
         const ident = identOfMeta(meta);
+        /* ---- 下载字节之前：盘上是不是已经躺着这一份 ----
+           索引被清过 / 换过机器 / 用户把视频文件直接拷进库根时，账里查不到而字节在。
+           以前这一条会把几百 MB 重新取回来，再靠采样签名发现「原来是裸行」、把 tmp 扔掉 ——
+           没多存一份，却白下一遍。现在先按「规范名 + 字节数」认盘（缺一条线索都不认：
+           同一镜头重做的那一版规范名一样而内容不同），认准就只把身份补进账，零下载零写盘。
+           只认我们自己存过、名字里带可移植号的那一份（requirePortable）；没有平台身份的
+           本地上传不参与，认不准也照旧走下面那一趟下载。 */
+        const recName = String(spec.name || '').trim();
+        const recFmt = (extInUrl(recName) || String(spec.format || '').replace(/[^a-z0-9]/gi, '').toLowerCase() || '').toLowerCase();
+        const recUp = safeOutboundUrl(String(meta.upstream || ''));
+        if (recName && recFmt && isMediaExt(recFmt) && (recUp || ident.assetId || ident.taskId)) {
+          let got = null;
+          try {
+            got = adoptBodyByHint({
+              name: recName, format: recFmt, upstream: recUp,
+              assetId: ident.assetId, taskId: ident.taskId,
+              detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null,
+              prompt: meta.prompt || '', model: meta.model || '', voice: meta.voice || '',
+              priceText: meta.priceText || '', duration: meta.duration ?? null, credits: meta.credits ?? null,
+              bytes: Number(meta.byteLength) || 0,
+              requirePortable: true,
+            });
+          } catch (e) { log('[local-assets/from-url] 盘上认回没成（照常下载）：' + e.message); }
+          if (got && got.row) {
+            const row = got.row;
+            sendJson(res, 200, Object.assign({}, row, {
+              status: 'succeeded', url: '/asset/' + row.id, reused: true, recognized: true,
+            }));
+            return;
+          }
+        }
         let target = '';
         try { target = await resolveSrc(String(spec.url), assetStore ? keyOf(assetStore.keyEnv) : ''); }
         catch (e) { return failMsg(res, 400, e.message); }
@@ -112,7 +146,10 @@ function createLocalAssets(ctx) {
           const out = await withLocalSaveLock(lockKey, async () => {
             const list0 = localIndexRead();
             const twin = upKey ? list0.find(x => x && localUpKey(x.upstream) === upKey) : (localId ? list0.find(x => x && x.id === localId) : null);
-            if (twin) {
+            /* 账里有同来源的一行，但**文件已经不在了**（用户手动删过 / 盘满只剩账）：
+               不能回 reused —— 前端会拿到一个 404，而且以为存过了、再也不会重下。
+               这种情况照常落一份新的，**沿用原号**，旧工程里的 /asset/<id> 继续有效。 */
+            if (twin && localFileFromEntry(twin)) {
               fillAndSave(twin, { prompt: meta.prompt || '', model: meta.model || '',
                 voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
                 credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
@@ -126,7 +163,7 @@ function createLocalAssets(ctx) {
             const whySpace = whyNoSpace(dir, 0, '把这一份产物存进本机资产库');
             if (whySpace) throw new Error(whySpace);
             fs.mkdirSync(dir, { recursive: true });
-            const id = mintAssetId();
+            const id = (twin && twin.id) || mintAssetId();
             const tmp = path.join(dir, id + '.tmp-' + process.pid + '-' + Math.random().toString(36).slice(2, 8));
             let size = 0;
             let itemSha = '';
@@ -142,12 +179,17 @@ function createLocalAssets(ctx) {
               }
               /* 按字节认回：磁盘对账补建的那一族裸行（没有 upstream、没有 detail）按平台产物号、
                  按来源地址都查不到 —— 于是「文件明明在盘上，卡片却一直加载不出来」。
-                 这一份的字节与那一行同签名时，把身份（来源地址 + 任务号 / 产物号）写到那一行上，
+                 这一份的字节与那一行同签名（或同内容指纹）时，把身份写到那一行上，
                  不再落第二份字节、不再开第二条账：「存回本机」因此兼是修复，坏掉那一张按一次就认回来。
+                 两类线索合成**一次查表**：采样签名（size + 头尾各 1MB）与懒写的 sha256；
                  只认「两头都没有身份」的那一行 —— 已经有号的可能是同内容的另一份产物，
                  把这一份的身份盖上去会把它那张卡换掉（接错比不接更糟）。 */
               const itemSig = localSigOf(tmp, size);
-              const bare = itemSig ? localIndexRead().find(x => x && x.sig === itemSig
+              /* 内容指纹只在「没有来源、也不是复制本机既有文件」时算：整份读一遍不便宜，
+                 算它是为了认回「以前没记来源就存下的同一份字节」。 */
+              if (!upKey && !localId) itemSha = sha256Of(fs.readFileSync(tmp));
+              const bare = (itemSig || itemSha) ? localIndexRead().find(x => x
+                && ((itemSig && x.sig === itemSig) || (itemSha && x.sha256 === itemSha))
                 && !String(x.upstream || '').trim()
                 && !identityOf(x).assetId && !identityOf(x).taskId) : null;
               if (bare) {
@@ -161,22 +203,6 @@ function createLocalAssets(ctx) {
                 log('[local-assets] 按字节认回 ' + bare.id + '（' + bare.file + '，裸行补上身份，不重存字节）');
                 return { ...bare, status: 'succeeded', url: '/asset/' + bare.id, reused: true };
               }
-              /* 内容指纹兜底：upstream 算不出键时按 sha256 找同内容的那条 ——
-                 找到就复用（扔掉刚下载的 tmp，不新开、不重写文件），治「同一份产物存两遍」。 */
-              if (!upKey && !localId) {
-                itemSha = sha256Of(fs.readFileSync(tmp));
-                const twin2 = itemSha ? localIndexRead().find(x => x && x.sha256 === itemSha) : null;
-                if (twin2) {
-                  try { fs.unlinkSync(tmp); } catch {}
-                  fillAndSave(twin2, { prompt: meta.prompt || '', model: meta.model || '',
-                    voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
-                    credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
-                    usage: meta.usage || null, assetId: ident.assetId, taskId: ident.taskId,
-                    detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
-                  log('[local-assets] 内容指纹命中 ' + twin2.id + '（同内容已存过，不新开）');
-                  return { ...twin2, status: 'succeeded', url: '/asset/' + twin2.id, reused: true };
-                }
-              }
               place = newBodyPlace({ name: spec.name, id, format: fmt, mime });
               const why2 = whyNoSpace(place.dir, size, '把这一份产物存进本机资产库');
               if (why2) throw new Error(why2);
@@ -187,7 +213,10 @@ function createLocalAssets(ctx) {
               throw e;
             }
             invalidateScan();
-            const item = {
+            /* 同来源的旧行还在（文件被删了要补回来）：以它打底，保住 upstream / detail / 费用，
+               只把落点与字节换成这一份；sha256 是内容指纹，旧行那一枚属于上一份字节，
+               这一趟没重算就删掉，别拿它去命中下一次的「同内容」。 */
+            const item = Object.assign({}, twin || {}, {
               id, file: place.file, name: spec.name || place.name, mime,
               format: fmt, byte_length: size, created_at: new Date().toISOString(),
               media_type: localMediaType({ format: fmt, mime, media_type: spec.media_type }),
@@ -205,7 +234,8 @@ function createLocalAssets(ctx) {
               /* 内容指纹（懒写：有 upstream 的不算不写）——下次同内容再来时靠它认出「已经存过了」。 */
               ...(itemSha ? { sha256: itemSha } : {}),
               detail: (meta.detail && typeof meta.detail === 'object') ? Object.assign({}, meta.detail, { bytes: size }) : null,
-            };
+            });
+            if (!itemSha) delete item.sha256;
             /* 这一条走队列，不走同步的 upsert：从上面那次 `localIndexRead()` 到这里隔着一次
                真下载（`await downloadTo`），期间别的请求完全可能写了索引。fn 里拿到的
                永远是**队首时刻**的当前表，`localIndexPut` 只动这一条。 */
@@ -264,7 +294,9 @@ function createLocalAssets(ctx) {
           const up = safeOutboundUrl(String(meta.upstream || '')) || '';
           const upKey = localUpKey(up);
           const sha = upKey ? '' : sha256Of(buf);
-          const list0 = (upKey || sha) ? localIndexRead() : [];
+          /* 两个线索至少有一个非空（buf 非空时 sha 一定有），所以这里恒读整表 ——
+             以前写成 `(upKey || sha) ? read() : []`，后半截永远走不到，是句死条件。 */
+          const list0 = localIndexRead();
           const twin = upKey ? list0.find(x => x && localUpKey(x.upstream) === upKey)
             : (sha ? list0.find(x => x && x.sha256 === sha) : null);
           if (twin) {
@@ -290,9 +322,34 @@ function createLocalAssets(ctx) {
               invalidateScan();
             }
             fillAndSave(twin, patch);
-            log(`[local-assets] 已有本机副本 ${twin.id}（同一份产物，第 ${list0.filter(x => localUpKey(x && x.upstream) === upKey).length} 次镜像被挡下）`);
+            log('[local-assets] 已有本机副本 ' + twin.id + '（同一'
+              + (upKey ? '来源' : '内容') + '，不再落第二份）');
             sendJson(res, 200, { ...twin, status: 'succeeded', url: '/asset/' + twin.id, reused: true });
             return;
+          }
+          /* ---- base64 直传也先问一句「盘上是不是已经有同一份字节」----
+             任务卡 / 语音 / 成片这一族走的是 POST 直传：索引被清过、换过机器、或上一轮只写了字节
+             没写账时，以前会再落一份同名 -2 —— 盘上两份、账上两张卡。这里按**内容**认（size + 头尾
+             各 1MB 的采样签名，与磁盘对账同一把尺子），认准就只补索引，零写入。
+             不拿名字当判据：同名同大小而字节不同的两份是两个作品，凭名字认会把新那份吞掉。 */
+          const sigBuf = sampleSigOfBuffer(buf);
+          if (sigBuf) {
+            let got = null;
+            /* 身份一起带进去：同一份字节配**不同**来源 / 产物号时不许合并 —— 那可能是两件
+               字节恰好相同的作品（换中转地址重下就是这种），合并会丢一条身份、回源就断了。
+               没有身份的直传（导演台导入视频 / 语音 / 成片）按内容认，认准就只补索引。 */
+            try {
+              got = adoptBodyByHint({ bytes: buf.length, sig: sigBuf, format: fmt,
+                upstream: up, assetId: ident.assetId, taskId: ident.taskId,
+                detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
+            } catch (e) { log('[local-assets] 盘上认回没成（照常落一份新的）：' + e.message); }
+            if (got && got.row) {
+              const row = got.row;
+              sendJson(res, 200, Object.assign({}, row, {
+                status: 'succeeded', url: '/asset/' + row.id, reused: true, recognized: true,
+              }));
+              return;
+            }
           }
           const id = mintAssetId();
           const place = newBodyPlace({ name: spec.name, id, format: fmt, mime });
@@ -361,6 +418,20 @@ function createLocalAssets(ctx) {
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
         const items = (spec && Array.isArray(spec.items)) ? spec.items.slice(0, 2000) : [];
         sendJson(res, 200, { rows: localLocateBatch(items) });
+      });
+      return;
+    }
+    /* 项目文件导入时的「按旧号重绑」：新机器上只拷了视频文件、没搬索引，包里每一条
+       `/asset/la_xxx` 都要能对回库根那一份。线索是导出时从别名表抄下来的
+       （旧号 / 相对落点 / 文件名 / 字节数 / 平台身份），这里**只写账，一个字节都不下载**。
+       与 locate 同一条「只读不写」的规矩不同：这一条明确要补账，所以单独一个端点。 */
+    if (dataPath === '/local-assets/rebind' && req.method === 'POST') {
+      readBody(req, res, 8 * 1024 * 1024).then(raw => {
+        if (raw == null) return;
+        let spec = null;
+        try { spec = JSON.parse(raw.toString('utf8')); } catch {}
+        const items = (spec && Array.isArray(spec.items)) ? spec.items : [];
+        sendJson(res, 200, rebindBodies(items));
       });
       return;
     }

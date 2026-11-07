@@ -30,7 +30,7 @@ const LOCAL_KIND_BY_EXT = {
    为什么资产库只收媒体：库根是「一条产物一个本体」的作品堆，账、缩略图、播放、回源外链、
    用量清理全按这三类运转；字幕 / 文本没有类型档位，写进来只会落进 其他\，再被列表的
    「认不出兜底成音频」（localMediaType 那句，只服务老数据的读路径）画成一条假音频。
-   字幕 / 文本有自己的去处：下载目录与 提示词\ 归档（server/prompts-store.js）。
+   字幕 / 文本有自己的去处：下载目录与 提示词\ 归档（server/data-hub.js）。
    与 productKindOfName 同一张表、同一个「只认扩展名、不猜类型」的立场。 */
 function isMediaExt(fmt) {
   const f = String(fmt || '').toLowerCase().replace(/^\./, '');
@@ -46,6 +46,59 @@ const DOC_EXTS = new Set([
 ]);
 function isDocExt(fmt) {
   return DOC_EXTS.has(String(fmt || '').toLowerCase().replace(/^\./, ''));
+}
+
+/* ---------- 可移植身份：文件名带着本机号一起走 ----------
+   账（.data\local-assets\）是应用私有的一份指针，用户搬作品时只会搬 `下载\成像\视频\`
+   里的字节。以前 `la_xxx` 只活在账里 —— 索引一没，磁盘对账就给同一份文件**重新铸一枚号**，
+   于是旧机器导出的项目文件里 `/asset/la_xxx` 全成了查无此号，只能把素材重新导入一遍。
+   修法是把号写进**文件名**（`<规范名>__la_xxx.mp4`，撞名加 -2 时不丢号）：
+   字节走到哪，号就跟到哪；新机器扫盘时按名认回同一枚号，不用搬索引、不用重新导入。
+   ⚠ 只改名我们自己新写的文件，不重命名 / 移动 / 删除用户已有的任何文件（磁盘对账的立场不变）。
+   两枚纯函数放在模块层：路由侧的识别闸与判据都要问同一个「名字里有没有号」，不各拼一份正则。 */
+const PORTABLE_TAG_RE = /__la_([a-z0-9]+)(?:-\d+)?$/i;
+function portableIdOfName(name) {
+  const base = String(path.basename(String(name || '')));
+  const stem = base.replace(/\.[A-Za-z0-9]{1,8}$/i, '');
+  const m = PORTABLE_TAG_RE.exec(stem);
+  if (m) return 'la_' + m[1];
+  /* 老形状：没有可读名字时落的就是 `la_xxx.mp4`，文件名本身就是号。 */
+  return /^la_[a-z0-9]+$/i.test(stem) ? stem : '';
+}
+/* 去掉可移植尾标与撞名序号，剩下来的就是规范名（按规范名认盘时与它比）。 */
+function canonicalStemOfName(name) {
+  const base = String(path.basename(String(name || '')));
+  const stem = base.replace(/\.[A-Za-z0-9]{1,8}$/i, '');
+  return stem.replace(/__la_[a-z0-9]+(?:-\d+)?$/i, '').replace(/-\d+$/, '');
+}
+/* 采样签名的采样宽度：头尾各这么多字节。读路径（localSigOf）与「字节还在内存里」那一路
+   （sampleSigOfBuffer）必须是同一个数，否则两把尺子量出来的签名对不上，认盘永远落空。 */
+const SIG_SAMPLE_BYTES = 1024 * 1024;
+/* 内存版采样签名：格式与 localSigOf 逐字一致（`字节数:头尾各 1MB 的 sha1 前 16 位`）。
+   用途只有一个 —— base64 直传那一路在落字节**之前**问一句「盘上是不是已经有同一份」，
+   有就只补索引、不再写第二个文件。判据与磁盘对账同一把尺子，不另起一套。 */
+function sampleSigOfBuffer(buf) {
+  const n = buf ? buf.length : 0;
+  if (!n) return '';
+  const head = buf.subarray(0, Math.min(n, SIG_SAMPLE_BYTES));
+  const tail = n > SIG_SAMPLE_BYTES * 2 ? buf.subarray(n - SIG_SAMPLE_BYTES) : head;
+  const h = crypto.createHash('sha1');
+  h.update(head);
+  if (tail !== head) h.update(tail);
+  return n + ':' + h.digest('hex').slice(0, 16);
+}
+
+/* 999 个同名之后退回「时间戳」：戳必须插在可移植尾标**前面**
+   （`名字-<戳>__la_xxx.mp4`），否则 PORTABLE_TAG_RE 认不出尾标，
+   这一份文件从此对不上原来那枚 la_ 号 —— 换机器时它就成了「没登记过的产物」。
+   纯函数放在模块层：判据直接验名字形状，不用真造 1000 个文件。 */
+function portableFallbackName(base, stamp) {
+  const b = String(base || '素材');
+  const ext = path.extname(b);
+  const stem = ext ? b.slice(0, -ext.length) : b;
+  const tag = /__la_[a-z0-9]+$/i.exec(stem);
+  const head = tag ? stem.slice(0, tag.index) : stem;
+  return head + '-' + String(stamp || Date.now().toString(36)) + (tag ? tag[0] : '') + ext;
 }
 
 /* 一条账 / 一份写入声明记的是哪一件平台产物：顶层字段优先，detail 只是老数据的回退。
@@ -200,11 +253,28 @@ function createLocalAssetsStore(deps) {
      三级全落空才说「文件不在了」：不假装还在，也不顺手删条目 —— 条目里还留着回源外链与费用那笔账。 */
   const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
   const absKey = p => { const s = String(p || ''); return CASE_INSENSITIVE_FS ? s.toLowerCase() : s; };
-  /* 账里的 file：相对库根，也认绝对路径（历史条目，以及刚从旧目录搬进来还没落定的那一条）。 */
+  /* 一条账的落点**只可能**在库根里 —— 相对路径按当前库根拼，绝对路径也必须真的落在库根之下。
+     这是「只查用户选的那一个目录」的唯一闸门：库根外面（旧位置、别人的盘、桌面、整个硬盘）的
+     文件一律当作「不在这里」，绝不顺着账里的路径去读盘。换机器 / 换根之后要接着用，
+     就把文件（或媒体包里的 media\\）挪进当前库根 —— 见 README「换机器」。 */
+  function absInRoot(p) {
+    const s = String(p || '');
+    if (!s) return '';
+    const root = path.resolve(DIR());
+    let abs = '';
+    try { abs = path.resolve(path.isAbsolute(s) ? s : path.join(root, s)); } catch { return ''; }
+    const rel = path.relative(root, abs);
+    /* `rel === ''` 是库根本身（不是一份文件）；`..` 与 `..\\x` 都在根外面。
+       只比 '..' + 分隔符：叫 `..notes` 的子目录是根里的正经目录，不能被误杀。 */
+    if (!rel || rel === '..' || rel.startsWith('..' + path.sep)) return '';
+    return abs;
+  }
+  /* 账里的 file：相对库根，也认绝对路径（历史条目，以及刚从旧目录搬进来还没落定的那一条）。
+     两种情况最后都过同一道 absInRoot：指到根外面的按「空」处理，读路径于是当它不存在。 */
   function entryAbsOf(ent) {
     const f = String((ent && ent.file) || '');
     if (!f) return '';
-    try { return path.isAbsolute(f) ? path.normalize(f) : path.join(DIR(), f); } catch { return ''; }
+    return absInRoot(f);
   }
   /* fid = `<dev>:<ino>`，都取字符串（不 Number()：超过 2^53 会丢精度，而 NTFS 的 ino 真能超过）。
      ⚠ 必须用 `{ bigint: true }` 那一次 stat：普通 statSync 交回来的是已经丢过精度的 double，
@@ -214,7 +284,7 @@ function createLocalAssetsStore(deps) {
   function fileFidOf(abs) {
     try { return fidOfStat(fs.statSync(abs, { bigint: true })); } catch { return ''; }
   }
-  const SIG_SAMPLE = 1024 * 1024;
+  const SIG_SAMPLE = SIG_SAMPLE_BYTES;
   /* 采样内容签名：`字节数:头尾各 1MB 的 sha1 前 16 位`。
      为什么不用整份 sha1：这一枚在磁盘对账时要给「同字节数的那几个」现算，
      一条 788MB 的片子读全量是几百毫秒的**主线程同步阻塞**，
@@ -376,6 +446,51 @@ function createLocalAssetsStore(deps) {
       const zh = LOCAL_KIND_BY_EXT[fmt];
       if (!zh) { skipped++; continue; }                 // 认不出类别的文件不补账（.md 与笔记在这一档被挡掉）
       if (knownFid.has(f.fid)) { skipped++; continue; }
+      /* 名字里带着本机号（`<规范名>__la_xxx.mp4`）：换机 / 索引丢了之后按名复原**原来那一枚号**。
+         放在内容签名并账之前 —— 两枚不同的号是两件作品，先按 sig 并掉就会丢一枚号，
+         旧机器项目文件里指向它的 `/asset/la_xxx` 又变成查无此号。 */
+      const pid = portableIdOfName(f.abs);
+      if (pid) {
+        const rel = path.relative(sc.root, f.abs);
+        const owner = list.find(x => x && (x.id === pid
+          || (Array.isArray(x.aliasIds) && x.aliasIds.indexOf(pid) >= 0)));
+        if (owner) {
+          /* 已经有这一枚号的账：只把落点补齐（换机后路径变了），或把同号的第二份挂成 altPaths。
+             不新开号、不新开卡。 */
+          const ownerHit = resolveInScan(sc, owner);
+          if (!ownerHit) {
+            owner.file = rel; owner.fid = f.fid;
+            owner.sig = f.sig || localSigOf(f.abs, f.size);
+            try { indexStore.upsert(owner); } catch (e) { log('[local-assets] 可移植号认回没写进账：' + e.message); }
+          } else if (absKey(ownerHit.abs) !== absKey(f.abs)) {
+            const alts = Array.isArray(owner.altPaths) ? owner.altPaths : [];
+            if (alts.indexOf(rel) < 0) {
+              owner.altPaths = alts.concat([rel]);
+              try { indexStore.upsert(owner); } catch (e) { log('[local-assets] 可移植号并账没写成：' + e.message); }
+            }
+          }
+          knownAbs.add(absKey(f.abs));
+          if (f.fid) knownFid.add(String(f.fid));
+          skipped++;
+          continue;
+        }
+        const pidSig = localSigOf(f.abs, f.size);
+        const item = {
+          id: pid, file: rel, name: path.basename(rel), mime: MIME['.' + fmt] || 'application/octet-stream',
+          format: fmt, byte_length: f.size, created_at: new Date(f.mtimeMs).toISOString(),
+          media_type: zh, provider: 'local',
+          prompt: '', model: '', voice: '', duration: null, credits: null, priceText: '', chars: null, usage: null,
+          upstream: '', fid: f.fid, sig: pidSig, adopted: true, portable: true,
+        };
+        /* `localIndexRead()` 交回的就是账本那张表，upsert 会把它插进去 ——
+           再 `list.push(item)` 等于同一枚号在同一张表里放两份。 */
+        try { indexStore.upsert(item); added.push(item); }
+        catch (e) { log('[local-assets] 可移植号补账没写成（文件仍在盘上）：' + e.message); continue; }
+        knownAbs.add(absKey(f.abs));
+        if (f.fid) knownFid.add(String(f.fid));
+        if (pidSig) { const a = knownSig.get(pidSig); if (a) a.push(item); else knownSig.set(pidSig, [item]); }
+        continue;
+      }
       /* 只有真需要分辨「同字节数的还不止这一个」时才现算签名：
          一个目录里 size 独一份的文件，一个字节都不用读。 */
       const same = sc.bySize.get(f.size) || [];
@@ -406,6 +521,206 @@ function createLocalAssetsStore(deps) {
     if (added.length || skipped) log('[local-assets] 磁盘对账：补 ' + added.length + ' 条账，' + skipped + ' 份并到已有条目或跳过');
     return { added: added.length, skipped };
   }
+
+  /* ---------- 「盘上已经躺着这一份」：只补账，一个字节都不写 ----------
+     两条路共用这一枚 `adoptBodyByHint`：
+       · 项目文件导入（`POST /local-assets/rebind`）：线索里有旧机器的 la_ 号 / 落点 / 文件名 / 字节数；
+       · 资产库 / 工作台点「存回本机」或自动镜像（`from-url` 下载之前）：按规范名认盘。
+     两者都是「索引丢了但字节还在」，答案不是再下一遍、再存一份，而是把身份写回账里。
+     三条口径：
+       ① 只写账：不下载、不复制、不重命名、不删（写不成就返回 null，让调用方照旧走下载那一趟）；
+       ② 认不准就返回 null —— 把别的产物认成这一份比不认更糟；
+       ③ 身份只补空字段（localFillMissing），已有非空值不覆盖；旧号挂 `aliasIds`，
+          `/asset/<旧号>` 由 localAssetEntry 认回同一行，不会为一份字节多开一张卡。 */
+  function hintPatchOf(h) {
+    return {
+      prompt: String(h.prompt || ''), model: String(h.model || ''), voice: String(h.voice || ''),
+      priceText: String(h.priceText || ''), duration: h.duration ?? null, credits: h.credits ?? null,
+      chars: h.chars != null ? Number(h.chars) : null, usage: h.usage || null,
+      upstream: String(h.upstream || ''), assetId: String(h.assetId || ''), taskId: String(h.taskId || ''),
+      detail: (h.detail && typeof h.detail === 'object') ? h.detail : null,
+    };
+  }
+  /* 账里哪一行盖着这个绝对路径（含同内容并进来的 altPaths）。 */
+  function rowCoveringAbs(list, abs) {
+    const k = absKey(abs);
+    return (Array.isArray(list) ? list : []).find(x => x && (
+      (x.file && absKey(entryAbsOf(x)) === k)
+      || (Array.isArray(x.altPaths) && x.altPaths.some(p =>
+        absKey(absInRoot(String(p))) === k))
+    )) || null;
+  }
+  /* 按线索在磁盘快照里找那一份：号（文件名尾标）→ 落点（相对库根）→ 规范名（+ 字节数）。
+     三种线索找到**同一份**才算认准；找到两份不同的东西一律当认不准。 */
+  function bodyByHint(h, sc) {
+    const snap = sc || dirScan();
+    const id = String((h && h.id) || '');
+    const rel = String((h && h.file) || '').replace(/[\\/]+/g, path.sep);
+    const rawName = String((h && h.name) || '');
+    const stem = rawName ? fileSafe(canonicalStemOfName(rawName), 80) : '';
+    const bytes = Number(h && h.bytes) || 0;
+    const hits = new Map();
+    let idHit = null;
+    const takeHit = f => {
+      if (!f || !fs.existsSync(f.abs)) return null;
+      const fmt = (path.extname(f.abs).slice(1) || '').toLowerCase();
+      if (!LOCAL_KIND_BY_EXT[fmt]) return null;            // 只认媒体，笔记 / 字幕不是产物
+      if (bytes && f.size !== bytes) return null;          // 给了体积就必须对得上
+      /* `from-url` 那一路只认「我们自己存过、名字里带可移植号」的那一份：
+         没有下载字节就没有内容签名，凭一个规范名把用户自己放进来的一张同名图认成这条产物，
+         比多下一次更糟。项目文件导入那一趟带齐旧号 / 落点 / 体积，不受这一条限制。 */
+      if (h && h.requirePortable && !portableIdOfName(f.abs)) return null;
+      hits.set(absKey(f.abs), f);
+      return f;
+    };
+    if (id) idHit = takeHit(snap.files.find(f => portableIdOfName(f.abs) === id));
+    if (rel) {
+      const abs = path.isAbsolute(rel) ? rel : path.join(snap.root, rel);
+      takeHit(snap.files.find(f => absKey(f.abs) === absKey(abs)));
+    }
+    if (stem && !(h && h.requirePortable && !bytes)) {
+      /* 只给名字、不给字节数时**不许**认：同一个镜头重做一次候选，规范名完全一样而内容不同，
+         凭名字认就会把上一版当成这一版（界面显示旧片、新的那份永远不下）。 */
+      const matches = snap.files.filter(f => {
+        const b = path.basename(f.abs);
+        return b === rawName || fileSafe(canonicalStemOfName(b), 80) === stem;
+      });
+      if (matches.length === 1) takeHit(matches[0]);
+    }
+    /* 内容线索：字节还在内存里那一路（base64 直传）算好了采样签名再来 —— 名字对不上也能
+       按「同一份字节」认出盘上那一份。同字节数的候选才读头尾，与磁盘对账同一档开销。 */
+    const sig = String((h && h.sig) || '');
+    if (sig) {
+      const same = snap.bySize.get(Number(h.bytes) || -1) || [];
+      for (const f of same) {
+        if (!f.sig) f.sig = localSigOf(f.abs, f.size);
+        if (f.sig === sig) { takeHit(f); break; }
+      }
+    }
+    /* 号是唯一身份：同一枚号的两份是用户的副本（拷了两次 / 换过类型目录），
+       随便哪一份都能交差，不该因为「找到两份」就判成认不准。 */
+    if (idHit) return idHit;
+    return hits.size === 1 ? [...hits.values()][0] : null;
+  }
+  /* 一条线索 → 一条别名行。`id` 是「旧机器项目文件里写的那个 la_ 号」：账里那一行叫别的号时
+     挂成别名，回给浏览器的行仍用旧号 —— 页面当场的地址不用改一个字。 */
+  function adoptBodyByHint(h, opt) {
+    const hint = h || {};
+    const o = opt || {};
+    /* 批量那一趟（rebindBodies）把表与磁盘快照一起递进来：整批只读一次表、只扫一次盘，
+       最后由调用方一次落盘。逐条自己读表 / 自己扫盘的话，2000 条重绑就是 2000 次
+       全表序列化 + 2000 次目录遍历，导入会明显卡住。 */
+    const id = String(hint.id || '');
+    const patch = hintPatchOf(hint);
+    const list = o.list || localIndexRead();
+    /* ① 账里本来就有这一枚号 / 这个来源 / 这个平台产物号，且文件还在 → 只补身份。 */
+    let row = id ? (localIndexEntry(id)
+      || list.find(x => x && Array.isArray(x.aliasIds) && x.aliasIds.indexOf(id) >= 0)) : null;
+    const upKey = localUpKey(patch.upstream);
+    if (!row && upKey) row = list.find(x => x && localUpKey(x.upstream) === upKey && localFileFromEntry(x)) || null;
+    if (!row && patch.assetId) {
+      row = list.find(x => x && identityOf(x).assetId === patch.assetId && localFileFromEntry(x)) || null;
+    }
+    if (row && localFileFromEntry(row)) {
+      let changed = localFillMissing(row, patch);
+      if (id && row.id !== id && !(Array.isArray(row.aliasIds) && row.aliasIds.indexOf(id) >= 0)) {
+        row.aliasIds = (Array.isArray(row.aliasIds) ? row.aliasIds : []).concat([id]);
+        changed = true;
+      }
+      if (changed && !o.batch) { try { indexStore.upsert(row); } catch (e) { log('[local-assets] 只补索引没写成：' + e.message); } }
+      return { row: aliasRowOf(Object.assign({}, row, id && row.id !== id ? { id } : {})),
+        reused: true, reason: 'index' };
+    }
+    /* ② 账里没有 → 按线索在盘上找那一份字节。用 30 秒那一档缓存：这一条挂在落盘入口上，
+       每次写之前都整库重扫一遍太贵；写盘 / 重绑批次都会 invalidateScan，认不准就照旧下载。 */
+    const sc = o.sc || dirScan();
+    const f = bodyByHint(hint, sc);
+    if (!f) return null;
+    /* 身份冲突：这一份已经归给别的产物号 / 别的来源了，别把新身份盖上去。 */
+    const owner = rowCoveringAbs(list, f.abs);
+    const want = identityOf(patch);
+    if (owner) {
+      const oi = identityOf(owner), ou = localUpKey(owner.upstream);
+      if (oi.assetId && want.assetId && oi.assetId !== want.assetId) return null;
+      if (oi.taskId && want.taskId && oi.taskId !== want.taskId) return null;
+      if (ou && upKey && ou !== upKey) return null;
+    }
+    const rel = path.relative(sc.root, f.abs);
+    const fmt = (path.extname(f.abs).slice(1) || '').toLowerCase();
+    /* 盘上这一份的硬事实：落点 / 体积 / 指纹。身份与展示字段留给 localFillMissing ——
+       空字段才补，已有的一份都不覆盖。 */
+    const fresh = {
+      file: rel, name: path.basename(rel), mime: MIME['.' + fmt] || 'application/octet-stream',
+      format: fmt, byte_length: f.size, fid: f.fid,
+      sig: f.sig || localSigOf(f.abs, f.size),
+      adopted: true, rebound: true,
+    };
+    /* 同号旧行还在（文件被删过 / 挪过、账还留着）：**在它上面改**，不新建一条覆盖。
+       以前这里拿新对象按同 id upsert，旧行的 upstream / detail / 费用全被抹掉 ——
+       本机文件再丢一次就再也没有回源那条路了。 */
+    let out = owner || ((row && row.id === (id || '')) ? row : null);
+    if (out) Object.assign(out, fresh);
+    else {
+      out = Object.assign({
+        id: id || portableIdOfName(f.abs) || mintAssetId(),
+        created_at: new Date(f.mtimeMs).toISOString(),
+        media_type: localMediaType({ format: fmt }), provider: 'local',
+      }, fresh);
+    }
+    localFillMissing(out, patch);
+    if (id && out.id !== id && !(Array.isArray(out.aliasIds) && out.aliasIds.indexOf(id) >= 0)) {
+      out.aliasIds = (Array.isArray(out.aliasIds) ? out.aliasIds : []).concat([id]);
+    }
+    if (o.batch) indexStore.putInto(list, out);   // 整批最后只 write 一次（见 rebindBodies）
+    else {
+      try { indexStore.upsert(out); }
+      catch (e) {
+        /* 文件是真在盘上的，只是账没写成（盘满 / 索引只读）：把这一行交回去让读路径照旧能取字节，
+           但打上 `writeFailed` —— 落盘入口看到它会改走「照常下载 / 落一份」那条路，不吃这个回执。 */
+        log('[local-assets] 盘上认回没写进账（本次按读到的算）：' + e.message);
+        return { row: aliasRowOf(Object.assign({}, out, id && out.id !== id ? { id } : {})),
+          reused: true, reason: 'disk', writeFailed: true };
+      }
+      /* 这里**不作废**目录快照：认回只写账、不动盘上任何文件，快照里的文件集合仍然有效。
+         每次补建都作废的话，打开一个刚拷进来的项目会变成「200 个 /asset 请求 × 200 次目录遍历」。 */
+      log('[local-assets] 盘上已有 ' + rel + '，只补索引（' + out.id + '，不重下字节）');
+    }
+    return { row: aliasRowOf(Object.assign({}, out, id && out.id !== id ? { id } : {})),
+      reused: true, reason: 'disk' };
+  }
+  /* 批量重绑（项目文件导入）：一条一条走同一枚判据，坏线索不影响其余。
+     整批共用一份表与一份磁盘快照，最后**一次落盘**（journal 只追加一趟）：
+     以前每条都 upsert + invalidateScan，2000 条就是 2000 次全表 stringify 与目录重扫。
+     超过上限的不再静默丢掉：`total` 是请求里的条数，`omitted` 是这次没处理的尾巴，
+     客户端据此说清「还有 N 条没重绑」。 */
+  const REBIND_MAX = Math.max(1, Number(deps.rebindMax) || 5000);
+  function rebindBodies(hints) {
+    const all = (Array.isArray(hints) ? hints : []).filter(h => h && typeof h === 'object');
+    const list = all.slice(0, REBIND_MAX);
+    const rows = [];
+    let bound = 0;
+    if (!list.length) return { rows, bound, total: all.length, omitted: 0 };
+    /* 用户多半是「刚把一堆视频拷进库根」就导入项目文件：那份磁盘快照可能还是拷之前的，
+       整批开头作废一次，后面每一条共用这一趟新快照。 */
+    invalidateScan();
+    const sc = dirScan();
+    const table = localIndexRead();
+    for (const h of list) {
+      let out = null;
+      try { out = adoptBodyByHint(h, { batch: true, list: table, sc }); }
+      catch (e) { log('[local-assets] 重绑一条失败：' + e.message); }
+      rows.push(out ? out.row : null);
+      if (out) bound++;
+    }
+    let error = '';
+    if (bound) {
+      try { indexStore.write(table); }
+      catch (e) { error = e.message || String(e); log('[local-assets] 重绑写账失败：' + error); }
+    }
+    return { rows, bound, total: all.length, omitted: all.length - list.length,
+      ...(error ? { error } : {}) };
+  }
+
   /* ---------- 一次性重建：旧账与旧本体整体搬进库根的回收站 ----------
      为什么要有这一步：旧账里的身份是靠浏览器镜像逐条「学」回来的，镜像一丢（换端口、清站点数据、
      换机器）那些行就只剩路径与字节，按平台产物号 / 来源地址都查不到 —— 云端签名一过期，
@@ -481,7 +796,11 @@ function createLocalAssetsStore(deps) {
     const fmt = String(format || '').toLowerCase().replace(/[^a-z0-9]/g, '');
     const raw = String(name || '').trim();
     const stem = fileSafe(raw.replace(/\.[A-Za-z0-9]{1,6}$/, ''), 80) || fileSafe(id, 40);
-    return (stem || id || '素材') + (fmt ? '.' + fmt : '');
+    /* 尾标只在 id 是本机号时挂：补回来那一路传的是已存在的号，别给它套两层。
+       名字里本来就有同一枚号（旧条目重存）也不重复挂。 */
+    const tag = /^la_[a-z0-9]+$/i.test(String(id || '')) && stem !== String(id)
+      && !PORTABLE_TAG_RE.test(stem) ? '__' + String(id) : '';
+    return (stem || id || '素材') + tag + (fmt ? '.' + fmt : '');
   }
   /* 落点一次算全：目录（会 mkdir）、相对库根的路径、绝对路径、最终文件名。
      库里已经有的那份**字节**由磁盘对账那一级认回（dirScan → localAdopt），不在这里比：
@@ -492,7 +811,9 @@ function createLocalAssetsStore(deps) {
     const dir = bodyDirOf(zh);
     fs.mkdirSync(dir, { recursive: true });
     const base = bodyBaseNameOf({ name: spec.name, id: spec.id, format: fmt });
-    const file = saveUniqueName(dir, base, () => base.replace(/(\.[^.]+)?$/, m => '-' + Date.now().toString(36) + m));
+    /* 999 个同名之后退回「时间戳」：戳必须插在可移植尾标**前面**，
+       否则 PORTABLE_TAG_RE 认不出尾标（见 portableFallbackName）。 */
+    const file = saveUniqueName(dir, base, () => portableFallbackName(base));
     return { dir, file: zh + path.sep + file, abs: path.join(dir, file), name: file, 类型: zh };
   }
   const LOCAL_INDEX_MAX = 20000;
@@ -507,7 +828,13 @@ function createLocalAssetsStore(deps) {
      一个不存在的 id 被轮询时（页面 3 秒一问）每次都会扫一遍库根。
      要补建的入口单独一个 localAssetRepair（见下），由真正要拿文件的操作显式调用。 */
   function localAssetEntry(id) {
-    return localIndexEntry(id);
+    const own = localIndexEntry(id);
+    if (own) return own;
+    /* 项目文件导入时把旧号挂成别名（见 adoptBodyByHint）：号不是这一行的 id，
+       但 `/asset/<旧号>` 必须照样取得到同一份字节。只认 la_ 号，别把平台产物号当别名翻一遍。 */
+    const s = String(id || '');
+    if (!/^la_/.test(s)) return null;
+    return localIndexRead().find(x => x && Array.isArray(x.aliasIds) && x.aliasIds.indexOf(s) >= 0) || null;
   }
   /* ---------- 「这条地址取回来的字节是不是就在库根里」 ----------
      浏览器那一份别名表只活在当前会话、按源（端口）分家：换端口、清浏览器数据、无痕窗口都会清空。
@@ -724,10 +1051,10 @@ function createLocalAssetsStore(deps) {
     if (!old.detail && inc.detail) { old.detail = inc.detail; changed = true; }   // 生成时间在这里，缺了就只能回落盘时间
     return changed;
   }
-  /* 账里根本没有这一个号：只有「文件名就是资产号」的那一批认得回来
-     （给不出可读名字时 newBodyPlace 会退回 `la_xxx.<格式>`，旧版资产库根里也全是这个形状）。
-     规范名那一些认不回来是**事实**，不是漏洞：号只活在账里，账没了就没有对应关系，
-     只能靠磁盘对账（localAdopt）把它当一份「没登记过的产物」补一条新账。
+  /* 账里根本没有这一个号：文件名带着可移植尾标的那一批（`<规范名>__la_xxx.mp4`）与
+     「文件名就是资产号」的老形状（`la_xxx.mp4`）都认得回来 —— `portableIdOfName` 一枚纯函数管两种。
+     这一步让「只把视频文件拷到新机器、不搬索引」在**磁盘对账还没跑之前**就能播：
+     `/asset/la_xxx` 一问就当场补回同一枚号，不用等启动收尾，也不用重新导入素材。
      **明确补建入口**：只有真正要拿文件、而账里没有时才调（localAssetFile / `/asset/<id>`）。
      盘上确实没有的号记 60 秒负缓存 —— 轮询同一个不存在的 id 时不再每次扫一遍库根。 */
   const repairMiss = new Map();
@@ -737,27 +1064,19 @@ function createLocalAssetsStore(deps) {
     if (!clean) return null;
     const missAt = repairMiss.get(clean);
     if (missAt && Date.now() - missAt < REPAIR_MISS_TTL) return null;
-    const sc = dirScan();
-    /* 同样要先确认那一份还在原地：快照可能是几十秒前的，而这一条会**当成一条新账写进盘**。
-       按一个已经不存在的位置补建，界面上就是一条「已丢失」的假条目。 */
-    const hit = sc.files.find(f => path.basename(f.abs).replace(/\.[^.]*$/, '') === clean && fs.existsSync(f.abs));
-    if (!hit) { repairMiss.set(clean, Date.now()); return null; }
+    /* 判据只有 `adoptBodyByHint` 一份：按名里的可移植尾标找文件、同号旧行在原行上改
+       （保住 upstream / detail）、文件已归给别的账时只挂别名不重开账 —— 全在那一枚里。
+       这里只多两件事：负缓存（不存在的号 60 秒内不再扫库根）与「把真账行交回去」。
+       以前这里另写了一遍，宽严与那边不一致（还少了冲突检查，会补出两条账指向同一份文件）。 */
+    let got = null;
+    try { got = adoptBodyByHint({ id: clean }); }
+    catch (e) { log('[local-assets] 按号补建失败（文件仍在，本次按读到的算）：' + e.message); }
+    /* 不管补成没补成，都以账上的真行为准：别名那一路返回的是被挂靠的那一行；
+       账没写成（`writeFailed`）时用刚拼出来的那一行，读路径照样交得出字节。 */
+    const row = got ? (localAssetEntry(clean) || got.row || null) : null;
+    if (!row) { repairMiss.set(clean, Date.now()); return null; }
     repairMiss.delete(clean);
-    const fmt = (path.extname(hit.abs).slice(1) || 'wav').toLowerCase();
-    const mime = MIME['.' + fmt] || 'application/octet-stream';
-    const item = {
-      id: clean, file: hit.rel, name: path.basename(hit.rel), mime, format: fmt,
-      byte_length: hit.size, created_at: new Date(hit.mtimeMs).toISOString(),
-      media_type: localMediaType({ mime, format: fmt }),
-      prompt: '', model: '', voice: '', provider: 'local', duration: null,
-      credits: null, priceText: '', chars: null, usage: null, upstream: '', rebuilt: true,
-      fid: hit.fid, sig: hit.sig || localSigOf(hit.abs, hit.size),
-    };
-    /* 补建是**读**路径上的一步（文件就在眼前，条目已经拼好了），账写不成也不该让读操作失败 ——
-       真正需要「写不成就要报错」的是落盘那两条路（见 index-store 里 upsert 的说明）。 */
-    try { localIndexUpsert(item); }
-    catch (e) { log('[local-assets] 补建条目写账失败（文件仍在，本次按读到的算）：' + e.message); }
-    return item;
+    return row;
   }
   function localAssetFile(id) {
     const p = localFileFromEntry(localAssetEntry(id));
@@ -996,6 +1315,15 @@ function createLocalAssetsStore(deps) {
      自己找时按**解析后的绝对路径**比，不比 basename：本体现在住在 库根\图片\ 那一层里，
      不同子目录同名是常事（图片\a.png 与 视频\a.png 是两条账）。 */
   function serveLocalFile(req, res, file, q, entry) {
+    /* 最后一道闸：发字节只发库根里的那一份。上面每一处路径都已经过 absInRoot，
+       这里再夹一次 —— 以后新加一条取字节的路，忘了夹也不会把库根外面的文件发出去。 */
+    const inside = absInRoot(file);
+    if (!inside) {
+      res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+      res.end('本机资产库没有这一份（只读设置里选的那个目录）');
+      return;
+    }
+    file = inside;
     const base = path.basename(file);
     if (!entry) {
       const want = absKey(file);
@@ -1033,10 +1361,8 @@ function createLocalAssetsStore(deps) {
     if (direct && fs.existsSync(direct)) addPath(direct);
     else addPath(localFileFromEntry(ent));
     for (const p of (Array.isArray(ent.altPaths) ? ent.altPaths : [])) {
-      const s = String(p || '');
-      if (!s) continue;
-      const abs = path.isAbsolute(s) ? s : path.join(DIR(), s);
-      if (fs.existsSync(abs)) addPath(abs);
+      const abs = absInRoot(String(p || ''));
+      if (abs && fs.existsSync(abs)) addPath(abs);
     }
     return out;
   }
@@ -1072,7 +1398,10 @@ function createLocalAssetsStore(deps) {
     localEntryByUpstream, localEntryByPlatformId, localAliases, localLocateBatch,
     localUpKey, localFillMissing, localFileFromEntry, localAssetFile, localAssetSiblings,
     localUsageScan, serveLocalFile,
+    /* 盘上已有字节 → 只补索引：两个写入口与项目文件导入的重绑端点共用这一枚。 */
+    adoptBodyByHint, rebindBodies,
   };
 }
 
-module.exports = { createLocalAssetsStore, isMediaExt, isDocExt, identityOf };
+module.exports = { createLocalAssetsStore, isMediaExt, isDocExt, identityOf,
+  portableIdOfName, canonicalStemOfName, sampleSigOfBuffer, portableFallbackName };

@@ -28,6 +28,11 @@ import { createSplitAssets } from './split-assets.js';
 
 import { createGroups } from './groups.js';
 
+/* 项目文件（导出 / 导入完整工程）：格式闸门、校验和、清洗与导入归一化全在这一份纯件里，
+   本文件只负责取文件、下载文件与把结果放回工作区。 */
+import { buildProjectPack, assertProjectPack, describeProjectPack, prepareProjectPackImport,
+  scanProjectPackConflicts } from './project-pack.js';
+
 import { createBoardAssets } from './board-assets.js';
 
 import { createBoardVars } from './board-vars.js';
@@ -429,6 +434,10 @@ function snapOf() {
      不进快照的话 Ctrl+Z 撤不回去 —— 那条组关系就再也回不来了。 */
   return JSON.stringify({ curId: WS.curId, project: proj, roles: WS.roles, groups: WS.groups },
     (k, v) => (k === 'progress' || k === 'queue_position'
+      /* `_mirrorAnnounced` 是「这一条已经投过自动镜像」的纯内存标记（现在改放 WeakSet，
+         这里再挡一次旧工程里残留的那一枚）：它进了快照就会随撤销恢复来回翻转，
+         而且多一份与作品无关的字段。 */
+      || k === '_mirrorAnnounced'
       || k === 'curScene' || k === 'curShot' || k === 'curCand') ? undefined : v);
 }
 function restoreSnap(json) {
@@ -3781,7 +3790,9 @@ async function genOneImage(imgProv, imgModel, prompt, o) {
   if (!m) throw new Error('该平台没有可用的图片型号');
   /* 参数整包交下去（画质 / 画幅 / 尺寸 / 格式 / 参考图条目）：一个函数六个位置参数，
      调用点想漏哪个都看不出来 —— 高参加进来之后更容易漏的是这一类。 */
-  const e = await AiGen.image(Object.assign({ prov: imgProv, model: m, prompt: prompt }, o));
+  /* mustSave：导演台生成的关键帧与候选同一档 —— 无论「产物自动存本机」开关怎么设都要落盘
+     （那一枚开关只管历史补齐）。见 web/domain/local.js 的 wantSave / offer。 */
+  const e = await AiGen.image(Object.assign({}, o, { prov: imgProv, model: m, prompt: prompt, mustSave: true }));
   if (!e.assetId) throw new Error('这个平台产出的是外链而不是资产号，关键帧流程用不了');
   return e.assetId;
 }
@@ -3968,9 +3979,16 @@ function updateProjUI() {
    pmEdit  'p:<id>' | 'g:<id>' —— 哪一格正在改名
    pmMove  短片 id —— 哪一行摊开了移组下拉
    pmNew   新建项目组的草稿开没开
-   pmSync  { key, oldName, newName, n } —— 改组名之后对素材库那一组的追问挂在哪个组下面 */
+   pmSync  { key, oldName, newName, n } —— 改组名之后对素材库那一组的追问挂在哪个组下面
+   pmIOOpen —— 底部「项目文件」那一组是不是摊开了。
+   pmIOSplitOpen —— 导出拆分按钮的尾钮摊开没（当前项目组短片 / 全部短片）。
+   跟着菜单一起复位：每次重新打开短片菜单都是**默认折叠**的那一屏。 */
 let pmEdit = '', pmMove = '', pmNew = false, pmSync = null;
-function clearProjMenuStates() { pmEdit = ''; pmMove = ''; pmNew = false; pmSync = null; }
+let pmIOOpen = false, pmIOSplitOpen = false;
+function clearProjMenuStates() {
+  pmEdit = ''; pmMove = ''; pmNew = false; pmSync = null;
+  pmIOOpen = false; pmIOSplitOpen = false;
+}
 function findProj(id) { return WS.projects.find(x => x && x.id === id); }
 /* 改组名之后素材库那一组要不要一起改？
    **不自动改**：素材库是用户数据，那一组可能还有别的来源（同名的组在别的短片里也在用）。
@@ -4178,14 +4196,121 @@ function renderProjMenu() {
     addRow.className = 'pm-add';
     addRow.textContent = '＋ 新建短片';
     addRow.onclick = () => {
-      const p = { id: uid(), name: '未命名短片', scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] };
+      /* 名字按**同组**里的序号往下排：一组里连点几次「新建短片」不会得到一排同名的
+         「未命名短片」，菜单里分得出谁是谁。序号判据在 groups.js（纯件）。 */
+      const gid = (proj && proj.groupId) || '';
+      const p = { id: uid(), name: Groups.nextProjectName(WS, gid, Groups.DEFAULT_PROJECT_NAME),
+        scenes: [{ id: uid(), name: '场景 1', shots: [newShot()] }] };
       /* 新短片默认落在**当前短片所在的组**里 —— 同一组的短片才共享素材。 */
-      if (proj && proj.groupId) p.groupId = proj.groupId;
+      if (gid) p.groupId = gid;
       WS.projects.push(p);
       switchProject(p.id);
       menu.hidden = true;
     };
     menu.appendChild(addRow);
+    /* 项目文件那一组也长在这一趟重画里：放到 keep 回调外面 append 的话，
+       视口还位量到的是「还没有这几行」的高度，菜单滚到底时会被夹回去。
+       **默认折叠**：底部只留一行开关，摊开是两颗**同级**入口 ——
+       导出（拆分按钮）与导入项目文件，同一套 .pm-io 行、同样的图标位与右对齐 hint。
+       拆分按钮：左半就是「导出当前短片」，行尾那枚 chevron 是**独立一格热区**，摊开范围更大的
+       「导出当前项目组短片 / 导出全部短片」—— 它们才是导出的次级，所以缩进在左侧细线里，
+       窄范围在前、全量在后；导入不是导出的子项，留在同一级，别让它看起来低一级。
+       用自家的 .pm-io* 一类而不是 .pm-add —— 那边「＋ 新建项目组」是按 pm-add 数出来点的。 */
+    const ioBox = document.createElement('div');
+    ioBox.className = 'pm-io-box';
+    const ioToggle = document.createElement('div');
+    ioToggle.className = 'pm-io-toggle';
+    ioToggle.setAttribute('role', 'button');
+    ioToggle.tabIndex = 0;
+    ioToggle.setAttribute('aria-expanded', pmIOOpen ? 'true' : 'false');
+    ioToggle.title = '项目文件：展开 / 收起导入导出';
+    ioToggle.innerHTML = icon('box', 13) + '<span class="pm-io-name">项目文件 · 导入 / 导出</span>'
+      + icon(pmIOOpen ? 'chevronUp' : 'chevronDown', 12);
+    const toggleIO = e => {
+      if (e) e.stopPropagation();
+      pmIOOpen = !pmIOOpen;
+      pmIOSplitOpen = false;          // 收起这一组，尾钮也跟着收回到默认那一屏
+      renderProjMenu();
+    };
+    ioToggle.onclick = toggleIO;
+    ioToggle.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleIO(e); } };
+    ioBox.appendChild(ioToggle);
+    if (pmIOOpen) {
+      /* 摊开的内容整组缩进一条竖线里（`.pm-io-body`）：这几行长在「项目文件 · 导入 / 导出」
+         下面，不是与上面那串短片行同级 —— 光靠缩进还不够，竖线才是层级的那条边。 */
+      const ioBody = document.createElement('div');
+      ioBody.className = 'pm-io-body';
+      /* 两套行：`.pm-io` 是同级入口（导出主钮 / 导入），`.pm-io-sub .pm-io` 是拆分按钮摊开的次级。
+         两者字型、行高、内边距一致；次级只多一条缩进细线，因此导入与导出看起来仍是一级。 */
+      const ioRow = (label, hint, glyph, act, off) => {
+        const row = document.createElement('div');
+        row.className = 'pm-io' + (off ? ' pm-io-off' : '');
+        row.innerHTML = icon(glyph, 13) + '<span class="pm-io-name">' + esc(label) + '</span>'
+          + '<span class="pm-io-hint">' + esc(hint) + '</span>';
+        row.title = label + '（' + hint + '）';
+        if (off) {
+          /* 当前短片没归组时「按项目组导出」没有范围：留着这一格（位置稳定、人也知道少了什么），
+             但标成不可用，点一下把原因说清楚。 */
+          row.setAttribute('aria-disabled', 'true');
+          row.title = label + '：当前短片还没归入项目组';
+          row.onclick = e => {
+            e.stopPropagation();
+            $('projMenu').hidden = true;
+            setStatus('<span class="err">当前短片还没归入项目组：先把它归到一个组，才能按组导出</span>');
+          };
+          return row;
+        }
+        row.setAttribute('role', 'button');
+        row.tabIndex = 0;
+        row.onclick = e => { e.stopPropagation(); act(); };
+        row.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); row.click(); } };
+        return row;
+      };
+      /* 当前短片所在的项目组 —— 范围就是同组的那些短片（组名即素材组名，见 groups.js）。 */
+      const grp = Groups.groupOf(WS, proj);
+      const grpN = grp ? WS.projects.filter(p => p && p.groupId === grp.id).length : 0;
+      const split = document.createElement('div');
+      split.className = 'pm-io pm-io-split';
+      const main = document.createElement('div');
+      main.className = 'pm-io-main';
+      main.setAttribute('role', 'button');
+      main.tabIndex = 0;
+      main.title = '导出当前短片的完整工程（.json）';
+      main.innerHTML = icon('download', 13) + '<span class="pm-io-name">导出当前短片</span>'
+        + '<span class="pm-io-hint">.json</span>';
+      const doCurrent = e => { if (e) e.stopPropagation(); exportProjectPack('current'); };
+      main.onclick = doCurrent;
+      main.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); doCurrent(e); } };
+      const more = document.createElement('div');
+      more.className = 'pm-io-more';
+      more.setAttribute('role', 'button');
+      more.tabIndex = 0;
+      more.setAttribute('aria-expanded', pmIOSplitOpen ? 'true' : 'false');
+      more.setAttribute('aria-label', '更多导出范围');
+      more.title = '更多导出范围：当前项目组短片 / 全部短片';
+      more.innerHTML = icon('chevronDown', 12);
+      const toggleMore = e => {
+        if (e) e.stopPropagation();
+        pmIOSplitOpen = !pmIOSplitOpen;
+        renderProjMenu();
+      };
+      more.onclick = toggleMore;
+      more.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleMore(e); } };
+      split.appendChild(main); split.appendChild(more);
+      ioBody.appendChild(split);
+      if (pmIOSplitOpen) {
+        const sub = document.createElement('div');
+        sub.className = 'pm-io-sub';
+        sub.appendChild(ioRow('导出当前项目组短片', grp ? grp.name + ' · ' + grpN + ' 部' : '当前短片未归组', 'folder',
+          () => exportProjectPack('group'), !grp));
+        sub.appendChild(ioRow('导出全部短片', WS.projects.length + ' 部', 'box',
+          () => exportProjectPack('all')));
+        ioBody.appendChild(sub);
+      }
+      ioBody.appendChild(ioRow('导入项目文件', '追加为新短片', 'upload', () => pickProjectPack()));
+      ioBox.appendChild(ioBody);
+    }
+    menu.appendChild(ioBox);
   });
   /* 摊开的移组下拉在视口还位之后再打开：浮层按按钮的视口坐标定点，
      重画中途就打开会摆到「还没还位」的那一版位置上。点「文件夹」就是来看去哪一组的，
@@ -4295,6 +4420,219 @@ function switchProject(id) {
   proj.curScene = 0; proj.curShot = 0; proj.curCand = 0;
   renderAll(); scheduleSave();
 }
+/* ---------- 项目文件：导出 / 导入完整工程 ----------
+   页头那四种导出只带「选中的画面」，是成片或给剪辑软件的交换文件；这里带的是作品本身：
+   每一镜的全部候选、提示词与台词、参考图、选用 / 裁剪 / 锁定、成片轨、画幅、项目组名。
+   格式闸门与清洗在 web/director/project-pack.js（纯件），下面三个函数只管取文件与放回工作区。 */
+/* scope：'current' 当前短片 / 'all' 工作区全部 / 'group' 当前短片所在的项目组。
+   早先这里是布尔（true = 全部），留着兼容老调用点。 */
+function exportProjectPack(scope) {
+  const mode = scope === true ? 'all' : (scope || 'current');
+  try {
+    const grp = Groups.groupOf(WS, proj);
+    if (mode === 'group' && !grp) throw new Error('当前短片还没归入项目组，按组导出没有范围可用');
+    const list = mode === 'all' ? WS.projects
+      : mode === 'group' ? WS.projects.filter(p => p && p.groupId === grp.id)
+        : [proj];
+    if (!list.length) throw new Error('这个范围里没有短片可导出');
+    const pack = buildProjectPack({
+      projects: list,
+      groupNameOf: p => Groups.assetGroupName(WS, p),
+      /* 每一枚 `/asset/la_xxx` 随包带上落点 / 体积 / 平台身份：新机器只拷视频文件、
+         不搬索引时，导入端按它把旧号认回盘上那一份（项目文件纯件只收不管网络）。 */
+      hintOf: u => (window.AssetLocal && AssetLocal.exportHintOf ? AssetLocal.exportHintOf(u) : null),
+    });
+    /* buildProjectPack 已经按形状校验过、并算好了 checksum —— 这里不再对着刚造出来的
+       包重跑一遍 assert（那等于把几 MB 的 projects 再 stringify + 散列一次，纯白费）。 */
+    const s = pack.stats;
+    const base = mode === 'all' ? '全部短片'
+      : mode === 'group' ? grp.name
+        : (proj.name || '未命名短片');
+    const name = window.fileSafe(base, 60) + '-项目-' + window.fileStamp() + '.json';
+    Net.save(new Blob([JSON.stringify(pack, null, 2)], { type: 'application/json' }), name);
+    const media = s.localAssets + s.remoteUrls;
+    const carried = media
+      ? '；视频字节不在包里（' + (s.localAssets ? s.localAssets + ' 条本机素材' : '')
+        + (s.localAssets && s.remoteUrls ? ' / ' : '') + (s.remoteUrls ? s.remoteUrls + ' 条平台地址' : '')
+        + '，本机素材把视频文件放进新机器的资产库即可认回）'
+      : '';
+    const hinted = pack.media.length
+      ? '；随包带了 ' + pack.media.length + ' 条本机素材线索，只拷视频文件也能认回旧本机号' : '';
+    setStatus('<span class="ok">✓ 已交给浏览器下载：' + esc(name) + '（' + s.projects + ' 部短片'
+      + (s.groups ? ' / ' + s.groups + ' 个项目组' : '') + ' / '
+      + s.shots + ' 镜 / ' + s.candidates + ' 条候选 / '
+      + (s.promptShots + s.promptCandidates + s.lines + s.notes) + ' 段提示词 / '
+      + (s.clips + s.voices + s.captions + s.markers) + ' 段剪辑）' + carried + hinted + '</span>');
+  } catch (e) {
+    setStatus('<span class="err">导出项目文件没能完成：' + esc(errText(e)) + '</span>');
+  } finally {
+    $('projMenu').hidden = true;
+  }
+}
+function pickProjectPack() {
+  const input = $('projPackFile');
+  $('projMenu').hidden = true;
+  if (!input) { setStatus('<span class="err">项目文件选择器不在页面上</span>'); return; }
+  input.value = '';                 // 同一份文件连选两次也要触发 change
+  input.click();
+}
+$('projPackFile').onchange = async e => {
+  const input = e.target;
+  const file = input && input.files && input.files[0];
+  if (input) input.value = '';
+  if (!file) return;
+  if (!wsLoaded) {
+    setStatus('<span class="err">工作区还没装载完，稍等一下再导入项目文件</span>');
+    return;
+  }
+  let pack, desc;
+  try {
+    pack = JSON.parse(await file.text());
+    assertProjectPack(pack);        // 零写入闸门：任何一项不过，工作区一个字节都不动
+    desc = describeProjectPack(pack);
+  } catch (err) {
+    setStatus('<span class="err">项目文件没能导入：' + esc(errText(err)) + '</span>');
+    return;
+  }
+  /* ---- 两处冲突先问清楚，再走「追加为新短片」那一道确认 ----
+     先问「重复的要不要再来一份」：全跳过的话就没有「落在哪个组」的问题了，
+     组名那一问要按**真正会导进来**的那几部重新扫一遍。
+     两件事都不能不问就替用户定：前者决定工作区里多不多一份，
+     后者决定短片落在哪个组 —— 尤其「同一个包导了两遍」是最常见的那一种。 */
+  const scanOpts = {
+    nameKey: window.nameKey,
+    localProjects: WS.projects,
+    groupTaken: n => !!Groups.find(WS, n),
+  };
+  let conflict;
+  try {
+    conflict = scanProjectPackConflicts(pack, scanOpts);
+  } catch (err) {
+    setStatus('<span class="err">项目文件没能导入：' + esc(errText(err)) + '</span>');
+    return;
+  }
+  let skipIndexes = [];
+  if (conflict.duplicates.length) {
+    const n = conflict.duplicates.length;
+    const sample = conflict.duplicates.slice(0, 3)
+      .map(d => '《' + d.name + '》= 本机《' + d.sameAs + '》').join('；') + (n > 3 ? ' 等' : '');
+    const pick = await Confirm.choose({
+      title: '有内容完全一致的短片',
+      sub: '按作品内容比对（不看名字与 id），包里这 ' + n + ' 部本机已经有了：' + sample,
+      options: [
+        { label: '跳过这 ' + n + ' 部', hint: '本机已经有一份，不再重复导入', value: 'skip' },
+        { label: '仍然导入并重命名', hint: '包里这份照收，名字加「（导入）」后缀和本机那部分开', value: 'rename' },
+      ],
+    });
+    if (pick == null) return;
+    if (pick === 'skip') skipIndexes = conflict.duplicates.map(d => d.index);
+  }
+  if (skipIndexes.length && skipIndexes.length === pack.projects.length) {
+    setStatus('<span class="ok">✓ 包里 ' + skipIndexes.length
+      + ' 部短片与本机已有作品内容一致，按你的选择一部都没重复导入</span>');
+    return;
+  }
+  let groupPolicy = 'merge';
+  let groupHits = [];
+  try {
+    groupHits = scanProjectPackConflicts(pack, { ...scanOpts, skipIndexes }).groups;
+  } catch (err) {
+    setStatus('<span class="err">项目文件没能导入：' + esc(errText(err)) + '</span>');
+    return;
+  }
+  if (groupHits.length) {
+    const names = groupHits.map(g => '「' + g.name + '」（' + g.count + ' 部）').join('、');
+    const pick = await Confirm.choose({
+      title: '项目组重名：怎么落位？',
+      sub: '包里这些组名本机已经有了：' + names,
+      options: [
+        { label: '并入现有同名组', hint: '短片直接放进本机那个组，不会新建组', value: 'merge' },
+        { label: '给导入的组改名', hint: '导入的组加「（导入）」后缀，本机原有的组一个字节都不动', value: 'rename' },
+      ],
+    });
+    if (pick == null) return;
+    groupPolicy = pick === 'rename' ? 'rename' : 'merge';
+  }
+  const go = await Confirm.ask({
+    title: '导入项目文件？', okLabel: '追加为新短片', cancelLabel: '取消',
+    body: desc.text + (skipIndexes.length
+      ? ' 其中 ' + skipIndexes.length + ' 部内容与本机一致，按你的选择跳过。' : ''),
+  });
+  if (!go) return;
+  /* 追加，不覆盖：与本机已有短片撞 id 就换一枚、撞名字就加后缀，
+     导入的每一部都是新的那一条，现有作品一部都不动。 */
+  const prep = prepareProjectPackImport(pack, {
+    uid,
+    existingIds: WS.projects.map(p => p.id),
+    nameTaken: n => WS.projects.some(p => p.name === n),
+    nameKey: window.nameKey,
+    groupTaken: n => !!Groups.find(WS, n),
+    groupPolicy,
+    skipIndexes,
+  });
+  /* ---- 换机器只拷视频文件、不搬索引时：按包里的旧 la_ 号把盘上那一份认回来 ----
+     代理这一跳只写账（一个字节都不下载）：按可移植尾标 / 相对落点 / 文件名+体积找文件，
+     找到就把旧号与平台身份补进账。重绑失败不拦导入 —— 素材可能还没拷过来，
+     之后开机磁盘对账与 `/asset/<旧号>` 那一问也会把它认回来。 */
+  let rebound = 0, rebindOmitted = 0, rebindErr = '';
+  if (prep.media.length) {
+    try {
+      const d = await Net.json('/local-assets/rebind', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: prep.media }),
+      });
+      const got = (d && Array.isArray(d.rows)) ? d.rows.filter(Boolean) : [];
+      /* learn 只把一行收进当前会话的别名表（行形状不对时自己返回 null），不必再吞一层异常。 */
+      got.forEach(r => { if (window.AssetLocal && AssetLocal.learn) AssetLocal.learn(r); });
+      rebound = got.length;
+      /* 代理一次只处理有限条（见 local-assets-store 的 rebindBodies）：超出的照实报出来，
+         不能让用户以为「全都认回了」。 */
+      rebindOmitted = Math.max(0, Number(d && d.omitted) || 0);
+      if (d && d.error) rebindErr = '索引没写成：' + d.error;
+    } catch (e) { rebindErr = errText(e); }
+  }
+  /* 项目组跟着包一起回来，而且**只按组名认**（见 groups.js）：本机已有同名组就并进去，
+     没有才新建 —— 同一份包导入两次不会得到两个「默认组」。组名同时是素材组名，
+     并进现有组正是「同名就在那个组下添加」。
+     分类用的「导入前有哪些组」要在 push 之前拍下来：循环里 ensure 会现建新组，
+     事后再查就分不出哪个是本机原有的、哪个是这一趟建的。 */
+  const hadGroups = new Set(Groups.list(WS).map(g => window.nameKey(g.name)));
+  const newGroups = new Set(), joinGroups = new Set();
+  for (const it of prep.items) {
+    WS.projects.push(it.project);
+    if (!it.groupName) continue;
+    const g = Groups.ensure(WS, it.groupName);
+    if (!g) continue;
+    Groups.assign(WS, it.project.id, g.id);
+    (hadGroups.has(window.nameKey(g.name)) ? joinGroups : newGroups).add(g.name);
+  }
+  WS.curId = prep.items[0].project.id;
+  /* 走页面自己的数据消毒（成片轨、游标、参考图地址都在那儿统一规整），不另写一份。 */
+  sanitize();
+  renderProjMenu();
+  switchProject(WS.curId);
+  scheduleSave('导入项目文件');
+  /* 导入的短片里的候选此刻才进工作区：投一次自动镜像。开关关着时这一趟是空转
+     （历史补扫不带 mustSave），开着才补齐 —— 与开机那一趟同一条路。 */
+  try { Gen.announceDoneCandidates(); } catch (e) { /* 补齐失败不拦导入回执 */ }
+  const n = prep.notes;
+  const tail = (newGroups.size ? '；新建 ' + newGroups.size + ' 个项目组（'
+    + Array.from(newGroups).map(g => esc(g)).join('、') + '）' : '')
+    + (joinGroups.size ? '；' + joinGroups.size + ' 个项目组并入了现有同名组' : '')
+    + (n.renamedGroups ? '；' + n.renamedGroups + ' 个重名组改了名（'
+      + n.groupRenames.map(r => esc(r.from) + ' → ' + esc(r.to)).join('、') + '）' : '')
+    + (n.inFlight ? '；' + n.inFlight + ' 条在途生成已标为可重试' : '')
+    + (n.deadUrls ? '；' + n.deadUrls + ' 条临时视频地址已清空' : '')
+    + (rebound ? '；' + rebound + ' 份本机素材已按旧号认回，不用重新导入' : '')
+    + (rebindOmitted ? '；另有 ' + rebindOmitted + ' 条素材线索超出单次重绑上限，再导入一次或刷新后可继续认回' : '')
+    + (rebindErr ? '；本机素材重绑没成（' + esc(rebindErr) + '），视频拷进资产库后刷新一次' : '')
+    + (n.mediaDropped ? '；' + esc(n.mediaDropped) : '')
+    + (n.skipped ? '；' + n.skipped + ' 部内容与本机一致已跳过（'
+      + esc(n.skippedNames.join('、')) + '）' : '')
+    + (n.renamed ? '；' + n.renamed + ' 部短片因重名加了「（导入）」后缀' : '');
+  setStatus('<span class="ok">✓ 已导入 ' + prep.items.length + ' 部短片（' + desc.shots + ' 镜 / '
+    + desc.candidates + ' 条候选 / ' + desc.prompts + ' 段提示词），现有项目一部都没动' + tail + '</span>');
+};
 $('projSwitch').onclick = e => {
   e.stopPropagation();
   const menu = $('projMenu');
@@ -4661,7 +4999,11 @@ function sanitize() {
         /* 提交中途刷新页面：占位候选（tmp_*）拿不到任务号、轮询也明确跳过它，
            以前会永远显示「创建中」（video-gen 有对应自愈，导演台没有）。这里按中断结掉，卡上写明可重试。 */
         sh.candidates.forEach(c => {
-          if (c && c.status === 'creating' && (!c.vid || String(c.vid).startsWith('tmp_'))) {
+          if (!c) return;
+          /* 旧工程把「这条投过自动镜像」写在候选上（现在改成内存里的 WeakSet）：
+             载入时抹掉，别让它继续随工作区与项目文件漂到别的机器上。 */
+          delete c._mirrorAnnounced;
+          if (c.status === 'creating' && (!c.vid || String(c.vid).startsWith('tmp_'))) {
             c.status = 'failed';
             c.error = c.error || '页面刷新导致创建中断（未拿到任务号），可重新生成这一镜';
           }

@@ -146,7 +146,7 @@ ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
 /* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
    文档里的条数也得跟着改 ——「文档不许说谎」。 */
-ok(nE2e === 54, 'e2e 应为 54 条，实际 ' + nE2e);
+ok(nE2e === 55, 'e2e 应为 55 条，实际 ' + nE2e);
 
 /* ---------- 版本与清单：README / CHANGELOG 不许与代码漂移 ----------
    和上面那几档同一个立场：只盯「能对着代码数出来」的陈述。 */

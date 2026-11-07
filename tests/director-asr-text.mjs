@@ -122,7 +122,7 @@ assert.doesNotMatch(workerSrc, /https?:\/\/(?!local)/, 'worker 源码里不出�
 const asrClient = fs.readFileSync(path.join(root, 'web', 'domain', 'asr.js'), 'utf8');
 assert.match(asrClient, /whisper-small_timestamped/, '页面侧声明的模型 id 与 worker 一致');
 assert.match(asrClient, /asr-worker\.js.*type:\s*'module'/, 'worker 以 module 起才吃得到 import.meta.url 的 publicPath');
-const asrStore = fs.readFileSync(path.join(root, 'server', 'asr-store.js'), 'utf8');
+const asrStore = fs.readFileSync(path.join(root, 'server', 'data-hub.js'), 'utf8');
 assert.match(asrStore, /ROUTES\s*=\s*new Set\(\[.*'browser'/s, '服务端路线集合认 browser');
 
 /* 静态路由要真放行 .wasm 并带对类型：白名单漏了 wasm 那阵子，ORT 拿到的是 9 字节

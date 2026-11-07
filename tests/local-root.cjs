@@ -30,31 +30,34 @@ function ok(name, cond, detail) {
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'local-root-probe-'));
 /* 一个只有测试认识的目录名（带中文与反斜杠，免得判据只在「恰好是合法 JSON」时才是绿的）。 */
 const WANT = path.resolve(tmp, '作品\\挑的这一格');
+/* 状态仓把这一格收进 state.json：判据用「目录 → 该键正文」的现读口代替原来的单文件。 */
+const keyBodies = new Map();
 const withFile = (body) => {
   const dir = fs.mkdtempSync(path.join(tmp, 'data-'));
-  if (body !== null) fs.writeFileSync(path.join(dir, 'sk_local_dir.json'), body, 'utf8');
+  keyBodies.set(dir, body === null ? null : String(body));
   return dir;
 };
+const rootOf = (dir) => localRootOf(ROOT, dir, k => (k === 'sk_local_dir' ? keyBodies.get(dir) : null));
 
 try {
   /* ① 写侧真实会写出的那一种：裸文本 */
   ok('裸文本（window.LS.set 那一形状）算的就是那一格',
-    localRootOf(ROOT, withFile(WANT)) === WANT, 'got ' + localRootOf(ROOT, withFile(WANT)));
+    rootOf(withFile(WANT)) === WANT, 'got ' + rootOf(withFile(WANT)));
   /* ② 有人以后改用 setJson：JSON 字符串形状 */
   ok('JSON 字符串形状也算同一个根',
-    localRootOf(ROOT, withFile(JSON.stringify(WANT))) === WANT);
+    rootOf(withFile(JSON.stringify(WANT))) === WANT);
   /* ③ Store 的信封形状 */
   ok('Store 信封 {data,ts} 取 data',
-    localRootOf(ROOT, withFile(JSON.stringify({ data: WANT, ts: 1 }))) === WANT);
+    rootOf(withFile(JSON.stringify({ data: WANT, ts: 1 }))) === WANT);
   /* ④ 回落默认的那几档：没这个文件 / 空串 / 只有空白 */
   const DEF = defaultLocalDir(ROOT);
-  ok('没有这一份文件 = 那一格没填，回落默认根', localRootOf(ROOT, withFile(null)) === DEF);
-  ok('空串回落默认根（页面清空那一格时把键删掉，这里守后半段）', localRootOf(ROOT, withFile('')) === DEF);
-  ok('只有空白回落默认根', localRootOf(ROOT, withFile('   \r\n')) === DEF);
+  ok('没有这一份文件 = 那一格没填，回落默认根', rootOf(withFile(null)) === DEF);
+  ok('空串回落默认根（页面清空那一格时把键删掉，这里守后半段）', rootOf(withFile('')) === DEF);
+  ok('只有空白回落默认根', rootOf(withFile('   \r\n')) === DEF);
   /* ⑤ 没有任何写入方会产生的形状：不许照着它算，也不许拼成 [object Object] 那种项目根下的怪目录 */
-  const junk = localRootOf(ROOT, withFile(JSON.stringify({ value: WANT })));
+  const junk = rootOf(withFile(JSON.stringify({ value: WANT })));
   ok('凭空猜的形状（value / dir）不当「配过」', junk === DEF, 'got ' + junk);
-  const junk2 = localRootOf(ROOT, withFile(JSON.stringify({ list: [1, 2] })));
+  const junk2 = rootOf(withFile(JSON.stringify({ list: [1, 2] })));
   ok('非字符串的 JSON 不当「配过」', junk2 === DEF, 'got ' + junk2);
   /* ⑥ 默认根跟着系统下载文件夹走（不是写死的 HOME\\Downloads） */
   ok('默认根 = 系统下载\\成像', DEF === path.join(userDirs.systemDownloadsDir(), '成像'), 'got ' + DEF);
@@ -63,17 +66,17 @@ try {
   try {
     const probeAbs = path.resolve(tmp, '探针假根');
     process.env.ASSETS_DIR = probeAbs;
-    ok('ASSETS_DIR（绝对）压过盘上那一格', localRootOf(ROOT, withFile(WANT)) === probeAbs);
+    ok('ASSETS_DIR（绝对）压过盘上那一格', rootOf(withFile(WANT)) === probeAbs);
     process.env.ASSETS_DIR = '.assets-probe';
     ok('ASSETS_DIR（相对）按项目根解析，不是按进程当前目录',
-      localRootOf(ROOT, withFile(WANT)) === path.resolve(ROOT, '.assets-probe'));
+      rootOf(withFile(WANT)) === path.resolve(ROOT, '.assets-probe'));
   } finally {
     if (saved === undefined) delete process.env.ASSETS_DIR; else process.env.ASSETS_DIR = saved;
   }
-  ok('环境变量撤掉后回到盘上那一格', localRootOf(ROOT, withFile(WANT)) === WANT);
+  ok('环境变量撤掉后回到盘上那一格', rootOf(withFile(WANT)) === WANT);
   /* ⑧ 整轮里没有一次算出过 [object —— 那一级是「在项目根下新建一个怪目录」的前置 */
   ok('任何形状都不把根算成 [object Object]',
-    !/object Object/i.test(localRootOf(ROOT, withFile(JSON.stringify({ x: 1 })))));
+    !/object Object/i.test(rootOf(withFile(JSON.stringify({ x: 1 })))));
   /* ⑨ 一次性搬迁：旧根在、新根不在 → 整体改名，文件跟着走。
      用探针口（AUTOSAVE_DIR）指到临时基座，绝不碰用户的 下载。 */
   const freshUserDirs = () => {
@@ -167,8 +170,8 @@ try {
     process.env.AUTOSAVE_DIR = path.resolve(tmp, '归档基座');
     delete process.env.PROMPTS_DIR;
     delete require.cache[require.resolve('../server/user-dirs.js')];
-    delete require.cache[require.resolve('../server/prompts-store.js')];
-    const { createPromptsStore } = require('../server/prompts-store.js');
+    delete require.cache[require.resolve('../server/data-hub.js')];
+    const { createPromptsStore } = require('../server/data-hub.js');
     const promptStoreOf = root => createPromptsStore({
       root: ROOT, localRoot: () => root, log: () => {},
       readBody: () => Promise.resolve(Buffer.from('{}')),
@@ -190,7 +193,7 @@ try {
   } finally {
     if (savedAuto2 === undefined) delete process.env.AUTOSAVE_DIR; else process.env.AUTOSAVE_DIR = savedAuto2;
     if (savedPromptsDir === undefined) delete process.env.PROMPTS_DIR; else process.env.PROMPTS_DIR = savedPromptsDir;
-    delete require.cache[require.resolve('../server/prompts-store.js')];
+    delete require.cache[require.resolve('../server/data-hub.js')];
     delete require.cache[require.resolve('../server/user-dirs.js')];
   }
 } catch (e) {

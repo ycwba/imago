@@ -19,7 +19,7 @@ const path = require('path');
 const { openDir } = require('../open-dir.js');
 const { FCPXML_PROJECT_DIR } = require('../user-dirs.js');
 const { createZip } = require('../zip.js');
-const { renameWithRetry } = require('../fs-atomic.js');
+const { renameWithRetry } = require('../data-hub.js');
 const { sendJson, noStore } = require('./http');
 
 /* 媒体名怎么洗只有 app.js 注入的那一份 `fileSafe`（与提示词归档、库根落点同一条规则）：

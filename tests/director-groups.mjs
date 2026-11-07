@@ -98,4 +98,30 @@ const proj = (id, groupId) => ({ id, name: '短片' + id, groupId: groupId || ''
   assert.equal(G.assetGroupName(ws, ws.projects[0]), '');
 }
 
-console.log('✓ 导演台项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 素材组名');
+/* ⑧ 同组新建短片的默认名带序号：**每组各自从 1 起、组内连续**，
+     老工程里光秃秃的「未命名短片」按第 1 部算。
+     不同组允许同名（菜单是按组画成树的）；早先按「全工作区不重名」顺延，
+     会让甲组建成 1、2 之后乙组占掉 3，甲组再建就成了 4 —— 组内序号出现空洞。 */
+{
+  const ws = { projects: [], groups: [] };
+  const g1 = G.ensure(ws, '甲组');
+  const g2 = G.ensure(ws, '乙组');
+  const add = (id, gid, name) => ws.projects.push({ id, name, groupId: gid, scenes: [] });
+  assert.equal(G.nextProjectName(ws, g1.id), '未命名短片 1', '组里第一部从 1 起');
+  add('p1', g1.id, G.nextProjectName(ws, g1.id));
+  assert.equal(G.nextProjectName(ws, g1.id), '未命名短片 2', '同组接着往下排');
+  add('p2', g1.id, G.nextProjectName(ws, g1.id));
+  assert.equal(G.nextProjectName(ws, g1.id), '未命名短片 3', '连点三次不重名');
+  /* 另一组从自己的 1 起：组内连续比「全工作区不重名」更要紧，组名已经把这层区分开了。 */
+  assert.equal(G.nextProjectName(ws, g2.id), '未命名短片 1', '换一个组从自己的 1 起');
+  add('p3', g2.id, G.nextProjectName(ws, g2.id));
+  /* 乙组占掉 1 之后，甲组的下一个仍然是 3（不跳号）。 */
+  assert.equal(G.nextProjectName(ws, g1.id), '未命名短片 3', '别组的号不许把本组打出空洞');
+  /* 未分组单独算一组：老工程那条没序号的按第 1 部算，下一部从 2 起。 */
+  add('p4', '', '未命名短片');
+  assert.equal(G.nextProjectName(ws, ''), '未命名短片 2', '老工程的裸名算第 1 部');
+  assert.equal(G.nextProjectName(ws, g1.id, '校园篇'), '校园篇 1', '换个名字前缀照样编号');
+  assert.equal(G.nextProjectName({ projects: [] }, '', '  '), '未命名短片 1', '空工作区 / 空前缀不抛');
+}
+
+console.log('✓ 导演台项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 素材组名 / 新建短片序号');

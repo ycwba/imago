@@ -516,7 +516,59 @@ const g18 = (async () => {
     !after.dead && after.tries === 0 && AL.info().dead === 0, JSON.stringify(after));
 })();
 
-Promise.all([g11, g12, g13, g15, g16, g17, g18]).then(() => {
+/* ⑲ 「刚生成的产物一律存本机」：设置页那个开关只管历史补齐，导演台候选 / 关键帧
+     带 `mustSave` 的一条不论开关、不论「只存新生成的」边界都要落盘；刷新之后清单里
+     仍记着这一枚旗标，回放也会在开关关着的时候接着存。 */
+const g19 = (async () => {
+  const U = 'https://cdn.example.com/results/just-made.mp4?Expires=1&Signature=g';
+  const ent = { kind: 'asset', provider: 'sparkcine', assetId: 'asset_gen', genId: 'job_gen',
+    outCount: 1, src: '/asset/asset_gen', rawSrc: U, completed: '1', mustSave: true };
+  const plain = Object.assign({}, ent, { assetId: 'asset_old', genId: 'job_old', mustSave: false });
+  /* 落盘那一跳挂住：要读的是「排上队列那一刻」的待办清单，落完 pendDone 会把它清掉。 */
+  const st = { rows: [], saveGate: new Promise(() => {}) };
+  const { net, calls } = netStub(st);
+  const { AL, store } = boot({ net, prefs: {
+    sk_media_local: 'off', sk_media_local_scope: 'new', sk_media_local_since: String(Date.now()),
+  } });
+  await AL.ready(0);
+  ok('刚生成的产物不受「只存新生成的」边界管', AL.wantSave(ent, 'new') === true);
+  ok('历史产物仍被那一档挡住', AL.wantSave(plain, 'new') === false);
+  AL.scan([plain]);
+  ok('开关关着：历史补存一条都不排', AL.info().inFlight === 0
+    && calls.filter(c => c.path === '/local-assets/from-url').length === 0, JSON.stringify(calls.map(c => c.path)));
+  AL.scan([ent]);
+  await new Promise(r => setTimeout(r, 80));
+  const rec = (JSON.parse(store.get('sk_local_pending') || '[]') || [])[0] || {};
+  ok('开关关着：刚生成的产物照样排进镜像队列', calls.some(c => c.path === '/local-assets/from-url'),
+    JSON.stringify(calls.map(c => c.path)));
+  ok('待办清单记下 mustSave（刷新之后还认得这一条）', rec.mustSave === true && !!rec.k, JSON.stringify(rec));
+  /* 换一次开机：同一份清单、开关仍关着，回放也要把这一条接着存完。 */
+  const st2 = { rows: [] };
+  const { net: net2, calls: calls2 } = netStub(st2);
+  const B = boot({ net: net2, prefs: {
+    sk_media_local: 'off', sk_media_local_scope: 'new', sk_media_local_since: String(Date.now()),
+    sk_local_pending: JSON.stringify([rec]),
+  } });
+  await B.AL.ready(0);
+  await new Promise(r => setTimeout(r, 1400));
+  ok('开关关着刷新一次：清单里刚生成的那一条仍会回放落盘',
+    calls2.some(c => c.path === '/local-assets/from-url'), JSON.stringify(calls2.map(c => c.path)));
+})();
+
+/* ⑳ 生产侧的 flag 口径（这一条读源码，是「关掉开关打开老工程会被强制下载」那个 bug 的回归闸）：
+     · 只有**轮询到刚出结果**那一路传 fresh=true → mustSave；
+     · 开机 / 导入后的历史补扫（announceDoneCandidates）不许带 fresh；
+     · 「投过了」记在内存 WeakSet 里，不许再写回候选对象（否则随工程序列化到新机器）。 */
+const g20 = (async () => {
+  const src = fs.readFileSync(path.join(root, 'web/director/engine/gen.js'), 'utf8');
+  ok('只有候选刚出结果那一路打 mustSave', /announceAssetDone\(c, sh, true\)/.test(src), '');
+  ok('历史补扫不带 fresh', /announceAssetDone\(c, sh\)/.test(src), '');
+  ok('mustSave 由 fresh 决定，不是写死 true', /mustSave:\s*!!fresh/.test(src), '');
+  ok('「投过了」改记在内存里（WeakSet）', /new WeakSet\(\)/.test(src), '');
+  ok('不再把 _mirrorAnnounced 写回候选对象', !/c\._mirrorAnnounced\s*=\s*true/.test(src), '');
+})();
+
+Promise.all([g11, g12, g13, g15, g16, g17, g18, g19, g20]).then(() => {
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
   process.exit(bad ? 1 : 0);
 }).catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

@@ -105,6 +105,35 @@ export function createGroups(ctx) {
     return p;
   }
 
+  /* 同组里新建短片的默认名：`<base> <序号>`。
+     序号**只数同一个组**里已经叫这个名字的短片（未分组单独算一组），所以每组各自的
+     第 1 部都从 1 起、连点就是 1 / 2 / 3，不会因为别的组占了号而跳成 1 / 3。
+     不同组之间允许同名：菜单是按组画成树的，组名已经把这层区分开了；
+     硬要「全工作区不重名」就得让后建的组接着别人的号往下排，反而把本组的序号打出空洞。
+     老工程里光秃秃的 `<base>`（没有序号）按第 1 部算 —— 下一部就是 2。 */
+  const DEFAULT_PROJECT_NAME = '未命名短片';
+  function nextProjectName(ws, groupId, base) {
+    const b = String(base || DEFAULT_PROJECT_NAME).trim() || DEFAULT_PROJECT_NAME;
+    const gid = String(groupId || '');
+    const projects = Array.isArray(ws && ws.projects) ? ws.projects : [];
+    const escRe = b.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const numbered = new RegExp('^' + escRe + '\\s+(\\d+)$');
+    let max = 0;
+    const taken = new Set();
+    for (const p of projects) {
+      if (!p) continue;
+      if (String(p.groupId || '') !== gid) continue;
+      const nm = String(p.name || '').trim();
+      taken.add(nm);
+      if (nm === b) max = Math.max(max, 1);
+      const m = numbered.exec(nm);
+      if (m) max = Math.max(max, Number(m[1]) || 0);
+    }
+    let n = max + 1;
+    while (taken.has(b + ' ' + n)) n++;
+    return b + ' ' + n;
+  }
+
   /* 按组分组的短片清单：先列各组（组内按短片原来的顺序），最后列未分组。
      界面上画成树 —— 组是父、短片是子。 */
   function tree(ws) {
@@ -120,5 +149,6 @@ export function createGroups(ctx) {
     return out;
   }
 
-  return { list, find, groupOf, assetGroupName, ensure, rename, remove, assign, tree };
+  return { list, find, groupOf, assetGroupName, ensure, rename, remove, assign, tree,
+    nextProjectName, DEFAULT_PROJECT_NAME };
 }

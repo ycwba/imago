@@ -7,7 +7,8 @@
      - 改名 = 名称那一格当场换成输入框（短片与组都是）；
      - 移组 = 那一行下面摊开一个下拉（公共 Dropdowns），选一处就归位；
      - 删除 = 公共 `Confirm.arm` 就地二次确认，第一下只武装、第二下才动手；
-   · 删组 → 组里的短片退回未分组，**一条都不少**；删短片只删点中的那一部。 */
+   · 删组 → 组里的短片退回未分组，**一条都不少**；删短片只删点中的那一部；
+   · 连点「新建短片」→ 同组默认名带序号，不重名。 */
 'use strict';
 const h = require('./harness.cjs');
 
@@ -212,6 +213,27 @@ const h = require('./harness.cjs');
     const tree8 = await snapshot();
     ok(!tree8.rows.some(r => r.id === 'p-del'), '点中的那一部删掉了');
     ok(tree8.rows.some(r => r.id === 'p-grp'), '另一部没被牵连：' + tree8.rows.map(r => r.id).join(','));
+
+    /* ⑨ 连点两次「＋ 新建短片」：同组里的默认名要带序号，不能两部都叫「未命名短片」。 */
+    const newNames = await page.eval(async () => {
+      const sleep = ms => new Promise(r => setTimeout(r, ms));
+      const one = async () => {
+        const a = Array.from(document.querySelectorAll('#projMenu .pm-add'))
+          .find(x => /新建短片/.test(x.textContent || ''));
+        if (!a) throw new Error('找不到「＋ 新建短片」那一行');
+        a.click();
+        await sleep(150);
+        const name = (document.getElementById('projLabel').textContent || '').trim();
+        const m = document.getElementById('projMenu');
+        if (m.hidden) document.getElementById('projSwitch').click();
+        await sleep(120);
+        return name;
+      };
+      return [await one(), await one()];
+    });
+    ok(newNames[0] === '未命名短片 1', '第一部新建短片带序号：' + newNames[0]);
+    ok(newNames[1] === '未命名短片 2' && newNames[0] !== newNames[1],
+      '同组再建一部接着往下排，不重名：' + newNames.join(' / '));
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));

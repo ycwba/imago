@@ -18,12 +18,9 @@ const { safeOutboundUrl, baseKeyOf, guardOutboundUrl } = require('./security.js'
 const { outboundProxy, upRequest, failUpstream, anyRequest, destroyAgents, startProxyWatcher } = require('./outbound.js');
 const { createHealth } = require('./health.js');
 const { acquire: acquireInstanceLock } = require('./lock.js');
-const { createSkillsStore } = require('./skills-store.js');
-const { createPromptsStore } = require('./prompts-store.js');
-const { createDataStore } = require('./data-store.js');
-const { createCloudStore } = require('./cloud-store.js');
-const { createAsrStore } = require('./asr-store.js');
-const { createSearchStore } = require('./search-store.js');
+/* 数据落盘、备份、云同步、提示词归档与两条通道的设置都在 server/data-hub.js：
+   盘上只有 state.json 与 backup.json 两份，/data/<key> 是前者的逻辑视图。 */
+const { createDataHub } = require('./data-hub.js');
 const { handleSkills } = require('./routes/skills.js');
 const { createAsrRoutes } = require('./routes/asr.js');
 const { createModelsRoutes } = require('./routes/models.js');
@@ -461,13 +458,13 @@ function ensureSession(req, res) {
 /* FCPXML 媒体包的落盘目录（routes/fcpxml.js 的 bundle / .trash-* 都写这里）。
    渲染任务域已删（浏览器内合成），但这个目录还要活 —— 名字沿用旧的 .renders。 */
 const RENDER_DIR = path.resolve(ROOT, process.env.RENDER_DIR || '.renders');
-/* 本体目录的动态读法在 server/local-root.js（ASSETS_DIR > .data/sk_local_dir.json > 下载\成像）：
-   代理这边只注入数据目录的现读法。
-   ⚠ 传的是 `() => dataDirPath()` 而不是 `dataDirPath` 本身：这一格排在下面 dataStore 装配之前，
+/* 本体目录的动态读法在 server/local-root.js（ASSETS_DIR > state.json 里的 sk_local_dir > 下载\成像）：
+   代理这边注入数据目录与状态仓的现读法。
+   ⚠ 传的是两个闭包而不是值本身：这一格排在下面 dataHub 装配之前，
      直接把那个 const 递进去会在初始化前踩到它（TDZ 报错），包一层就只在被调用时才读。
    ⚠ 换根之后旧根里的文件不会自己跟过去：代理只扫**当前**根，旧根那些产物在库里读不到文件，
      回源外链与费用记录照样在 —— 要接着用得自己把旧根的文件搬进新根。 */
-const localRoot = createLocalRoot({ ROOT, dataDirPath: () => dataDirPath() });
+const localRoot = createLocalRoot({ ROOT, dataDirPath: () => dataDirPath(), readKey: k => dataHub.readKey(k) });
 /* ---------- 本机落盘：磁盘余量口径与本机资产库 ----------
    搬到 server/local-assets-store.js：那一大段「写媒体之前先问一句这块盘还剩多少」
    的口径、/local-assets 的索引与读文件都在那里，实例化在下面的依赖装配处。 */
@@ -582,11 +579,30 @@ const detailInflight = new Map();   // cacheKey → [res, …]（正在回源的
      DELETE /data/<key>    删除
    键名只允许 [A-Za-z0-9_-]，杜绝路径穿越。内容原样保存（客户端写入的信封结构）。
    ========================================================================== */
-/* /data 的落盘、备份与路由在 server/data-store.js；云同步那一侧读同一份导出。 */
-const dataStore = createDataStore({ root: ROOT, log, readBody, safeDecode });
-const { dataDirPath, dataFileOf, dataList, dataWriteRaw } = dataStore;
-/* 注册表的两份本机覆盖读的就是 .data 里的文件，所以在 dataStore 之后装配。 */
-const registryConfig = createRegistryConfig({ dataFileOf, safeOutboundUrl });
+/* 日期那半只拼一次：归档目录名与归档正文里的「时间：」共用这一份，
+   改补零时不会让同一条记录在两个地方长成两个日期。
+   （浏览器那一份在 ui.js 的 dayKey；代理是 Node 进程，够不着它，所以这一侧自己留一份。） */
+const pad2 = n => String(n).padStart(2, '0');
+const dayPart = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+const dirStamp = d => dayPart(d) + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
+const timeText = d => dayPart(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
+/* 数据、备份、云同步、归档与通道设置的唯一实现：盘上只有 state.json 与 backup.json。 */
+const dataHub = createDataHub({
+  root: ROOT, log, readBody, safeDecode, anyRequest, guardOutboundUrl,
+  localRoot, fileSafe, dirStamp, timeText,
+  localAssetEntry: id => localAssetEntry(id),
+  applyAssetsIndex: text => {
+    const rows = JSON.parse(text);
+    localIndexUpdate(list => { list.length = 0; for (const r of rows) list.push(r); });
+  },
+});
+const {
+  dataDirPath, dataFileOf, dataList, dataWriteRaw, readKey,
+  handleData, handleCloud, handlePrompts, handleBackup,
+  skillsStore, asrStore, searchStore, promptsStore, cloudStore, cloudState, cloudStateLoad,
+} = dataHub;
+/* 注册表的两份本机覆盖读状态仓里的键，所以在 dataHub 之后装配。 */
+const registryConfig = createRegistryConfig({ readKey, safeOutboundUrl });
 const {
   CUSTOM_RELAY, customNotice, MODEL_PREFS_KEY, modelPrefsNotice, allProviders,
 } = registryConfig;
@@ -605,6 +621,7 @@ const {
   localAssetWhen, localUpKey, localFillMissing, localFileFromEntry, localAssetFile,
   localAssetSiblings, localIndexDrop, localEntryByUpstream, localEntryByPlatformId,
   localAliases, localLocateBatch, localUsageScan, serveLocalFile,
+  adoptBodyByHint, rebindBodies,
 } = localStore;
 /* 资产下载地址从哪一家换：注册表顶层的 assetStore 声明（registry-config.js）。
    `/asset/<id>`、渲染素材解析、本机补存三处都只问这一份 —— 以前它们各自写死
@@ -620,14 +637,11 @@ const mediaSrc = createMediaSrc({
   PORT, SESSION_COOKIE, SESSION_TOKEN, safeDecode, log,
 });
 const { resolveSrc, downloadTo, assetInfoOf, assetUrlCache } = mediaSrc;
-const skillsStore = createSkillsStore({ root: ROOT, dataDir: dataDirPath(), userDir: process.env.SKILLS_DIR || '', log });
-/* ASR 与联网搜索：设置/任务账本各自一个 store；密钥只留在盘上，读接口只回 hasKey。
+/* ASR 与联网搜索的设置/任务账本都在状态仓里；密钥只留在盘上，读接口只回 hasKey。
    `/search/read` 是唯一主动出站取网页的读路由，仍然逐跳过 guardOutboundUrl。 */
-const asrStore = createAsrStore({ dataDir: dataDirPath(), log });
-const searchStore = createSearchStore({ dataDir: dataDirPath(), log });
 const asrRoutes = createAsrRoutes({
   store: asrStore, root: ROOT, log, readBody,
-  providers: () => REGISTRY.providers, keyOf, dataFileOf,
+  providers: () => REGISTRY.providers, keyOf, readKey,
   resolveSrc, localAssetFile, downloadTo, guardOutboundUrl, anyRequest,
 });
 /* 浏览器内 ASR 的模型代下载：transformers.js 的取数全走 /models/*，本机没有就代理去镜像拉
@@ -770,7 +784,7 @@ function sameOriginOnly(req) {
    不拦的话，任意网页都能在用户机器上弹一次文件夹选择框、再把用户选中的目录读走。
    `/client-error` 在里面是「写得进本机那本账」那一类：不要同源 + 会话 Cookie 的话，
    任意网页都能往「设置 → 代理健康」里塞自己编的报错，把那八条名额刷满、把真故障挤掉。 */
-const LOCAL_ONLY = /^\/(?:data|cloud|capabilities|skills|asr|models|search|prompts|local-assets|assets-usage|pick-dir|env-status|sys-status|clear-cache|client-error|fcpxml|cache|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
+const LOCAL_ONLY = /^\/(?:data|cloud|backup|capabilities|skills|asr|models|search|prompts|local-assets|assets-usage|pick-dir|env-status|sys-status|clear-cache|client-error|fcpxml|cache|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
 /* relay 转发前缀（/sparkcine、/vgenv、/textai…）与 /asset/ 同样只服务本工作台页面。
    以前它们不在同源检查里：代理在客户端没带 Authorization 时会**自动注入 .env 里的密钥**，
    于是任意恶意网页只要 fetch('http://localhost:5175/sparkcine/...') 就能用你的密钥建任务、扣费、读余额
@@ -800,24 +814,8 @@ function isPostOnlyUrl(raw) {
   return POST_ONLY.test(String(raw || '').split('?')[0]);
 }
 
-/* 提示词归档的目录校验、索引与 /prompts 路由在 server/prompts-store.js；
-   时间格式化（渲染、健康账也读它们）留在这里。
-   文件名片段清洗在 server/file-safe.js（Node 侧唯一一份，一次性迁移工具读同一份）。 */
-const pad2 = n => String(n).padStart(2, '0');
-/* 日期那半只拼一次：归档目录名与归档正文里的「时间：」以前各抄一遍「年-月-日」，
-   改补零时只会改到其中一行 —— 于是同一条记录在文件名里是 2026-10-15、在正文里是 2026-1-15。
-   （浏览器那一份在 ui.js 的 dayKey；代理是 Node 进程，够不着它，所以这一侧自己留一份。） */
-const dayPart = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
-const dirStamp = d => dayPart(d) + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
-const timeText = d => dayPart(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
-const promptsStore = createPromptsStore({
-  root: ROOT, localRoot, log, readBody, localAssetEntry, fileSafe, dirStamp, timeText,
-});
-const cloudStore = createCloudStore({
-  log, anyRequest, guardOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw,
-  promptCloudDir: promptsStore.promptCloudDir, promptFileList: promptsStore.promptFileList,
-});
-const { cloudState, cloudStateLoad } = cloudStore;
+/* 时间格式化与文件名片段清洗在组合根定一次（前者给归档，后者给资产落点），
+   上面的 createDataHub 已经拿走它们；这里不再复制第二份。 */
 const capabilities = createCapabilities({ dataDirPath, allProviders, keyOf, DEFAULTS, upRequest, log });
 const { capCache } = capabilities;
 const systemRoutes = createSystemRoutes({
@@ -830,7 +828,8 @@ const systemRoutes = createSystemRoutes({
    当前支持 WebDAV（坚果云 / Nextcloud / 群晖 都提供），它是个人云盘里最通用的一种；
    要接别的协议（S3 兼容等）只需再加一个 adapter，路由与冲突策略不用动。
    认证信息优先用请求头传（页面「设置 → 数据与同步」里填，存浏览器、只发给本地代理），
-   其次读 .env 的 CLOUD_WEBDAV_URL / CLOUD_WEBDAV_USER / CLOUD_WEBDAV_PASS。
+   其次读 .env 的 CLOUD_WEBDAV_URL / CLOUD_WEBDAV_USER / CLOUD_WEBDAV_PASS，
+   地址这一格两处都没填时再由 data-hub 用内置默认 CLOUD_DEFAULT_URL（账号密码没有默认值）。
      POST /cloud/test    测连接（PROPFIND 根目录，顺带自动建目录）
      POST /cloud/push    本地 → 云端（只上传「比远端新」的文件）
      POST /cloud/pull    云端 → 本地（只下载「比本地新」的文件）
@@ -996,6 +995,7 @@ const localAssets = createLocalAssets({
   /* 落点与身份的唯一口径都在存储层：路由只递名字，不自己拼路径、不自己算哈希。 */
   localSigOf, fileFidOf, newBodyPlace, bodyDirOf, bodyDirNameOf, mintAssetId,
   localAdopt, invalidateScan, localRootDir: localRoot, MIME,
+  adoptBodyByHint, rebindBodies,
 });
 
 /* 缩略图 / 切片帧的代理端持久层（与浏览器 origin 无关；见 routes/cache.js 文件头）。
@@ -1055,8 +1055,10 @@ const ROUTE_TABLE = [
       },
     }),
   },
-  /* 提示词归档：写文件 / 查提示词 / 打开目录（见 server/prompts-store.js） */
-  { name: 'prompts', match: a => a.path === '/prompts' || a.path.startsWith('/prompts/'), stop: 'always', run: a => promptsStore.handlePrompts(a.req, a.res, a.urlObj) },
+  /* 提示词归档：写文件 / 查提示词 / 打开目录 */
+  { name: 'prompts', match: a => a.path === '/prompts' || a.path.startsWith('/prompts/'), stop: 'always', run: a => handlePrompts(a.req, a.res, a.urlObj) },
+  /* 备份中心：快照清单 / 创建 / 预览 / 恢复 / 校验 / 整包导出 */
+  { name: 'backup', match: a => a.path === '/backup' || a.path.startsWith('/backup/'), stop: 'always', run: a => handleBackup(a.req, a.res, a.urlObj) },
   /* ASR：设置 / 提交 / 查任务 / 取消（本地 whisper 或在线 OpenAI 兼容） */
   { name: 'asr', match: a => a.path === '/asr' || a.path.startsWith('/asr/'), stop: 'always', run: a => asrRoutes.handleAsr(a.req, a.res) },
   { name: 'models', match: a => a.path === '/models' || a.path.startsWith('/models/'), stop: 'always', run: a => modelsRoutes.handleModels(a.req, a.res) },
@@ -1067,8 +1069,8 @@ const ROUTE_TABLE = [
      relay 是 `/custom/<id>`，是运行时才长出来的），`/asset/<id>` 归 outbound 而不是 local-assets
      —— 在这儿再写一份匹配就是第二套实现，两份漂开就变成
      「某条路由时好时坏」那种最难查的 bug。表在这里管的是**顺序**：谁先问、谁兜底。 */
-  { name: 'data', match: ANY, stop: 'ifTrue', run: a => dataStore.handleData(a.req, a.res, a.urlObj) },
-  { name: 'cloud', match: ANY, stop: 'ifTrue', run: a => cloudStore.handleCloud(a.req, a.res, a.urlObj) },
+  { name: 'data', match: ANY, stop: 'ifTrue', run: a => handleData(a.req, a.res, a.urlObj) },
+  { name: 'cloud', match: ANY, stop: 'ifTrue', run: a => handleCloud(a.req, a.res, a.urlObj) },
   { name: 'system', match: ANY, stop: 'ifTrue', run: a => systemRoutes.handleSystem(a.req, a.res, a.urlObj) },
   { name: 'registry', match: ANY, stop: 'ifNotFalse', run: a => registryRoutes.handleRegistry(a.req, a.res, a.urlObj) },
   { name: 'pick-dir', match: ANY, stop: 'ifNotFalse', run: a => pickDirRoutes.handlePickDir(a.req, a.res, a.path) },
@@ -1263,6 +1265,11 @@ server.listen(PORT, BIND.hosts[0], () => {
   let msRebuild = 0;
   let msAdopt = 0;
   let adoptAdded = 0;
+  afterFirstResponse(() => {
+    /* 开机或首次迁移的那一份快照：状态仓已经装配完，库根也能反查到，
+       放在启动收尾才不会把收集归档正文的同步读盘压在首屏前面。 */
+    try { dataHub.bootBackup(); } catch (e) { log('[备份] 开机快照跳过：' + (e.code || e.message)); }
+  });
   afterFirstResponse(() => {
     const t = performance.now();
     /* 崩溃残留不必等到下一次 5 分钟定时器：上一次被硬杀 / 断电留下的临时写入文件，

@@ -116,7 +116,7 @@ assert.ok(Array.isArray(TextAI.SKILL_VARS['split_follow.json']) && TextAI.SKILL_
 assert.ok(TextAI.SKILL_SCENES.some(s => s.key === 'split_follow'), 'SKILL_SCENES 缺 split_follow 场景');
 assert.ok(TextAI.PROMPTS.some(g => (g.items || []).some(it => it.key === 'split_follow')),
   'PROMPTS 缺 split_follow 的说明行');
-assert.ok(/split_follow\.json/.test(read('server/skills-store.js')), '服务端 CONTRACTS 白名单没有 split_follow.json');
+assert.ok(/split_follow\.json/.test(read('server/data-hub.js')), '服务端 CONTRACTS 白名单没有 split_follow.json');
 assert.ok(/输出\*\*?改后的完整方案|输出\*\*改后的完整方案\*\*/.test(TextAI.DEF.split_follow),
   'split_follow 必须写明「输出完整方案」（程序整份替换，只回改动几条会真丢镜头）');
 

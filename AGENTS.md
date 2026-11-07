@@ -67,11 +67,15 @@
 
 - 纯前端 Vue 3 SPA + 一个本地 Node 代理（`proxy.js` → `server/app.js`，默认 `http://localhost:5175`）。
 - 所有生成平台都经本地代理转发；平台密钥只保存在代理侧，页面只与同源地址通信。
-- 数据默认留在本机：`.data/`（结构化数据、云同步基线、本机资产账 `.data/local-assets/`、模型缓存
-  `.data/models/`）、`.skills/`（用户 Skill）；用户可见产物与归档在 `下载\成像\` 下按 `图片/` `视频/`
+- 数据默认留在本机：`.data/state.json`（全部业务键：设置、密钥、云同步状态与基线、ASR / 搜索 / Skill 状态）
+  与 `.data/backup.json`（最多 5 份带 sha256 的快照）是业务数据仅有的两份文件；另有本机资产账
+  `.data/local-assets/`、模型缓存 `.data/models/` 与代理运行态（`.cap-cache.json` / `.session` / `.proxy.lock`）。
+  `.skills/`（用户 Skill）；用户可见产物与归档在 `下载\成像\` 下按 `图片/` `视频/`
   `音频/` `其他/` 分，提示词归档在 `提示词/`。
+- `/data/<key>` 是 `state.json` 的逻辑视图：HTTP 契约不变，但盘上不再有单个 `<key>.json`，
+  覆盖前的备份也不再是 `<key>.bak.json`，统一进 `backup.json` 的快照。云同步仍按 key 展开上传 / 下载。
 - **一条产物只有一个本体**：落在 `<库根>\<类型>\<规范名>.<ext>`，账在 `.data/local-assets/`，与本体分家；
-  库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`。
+  库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > 状态仓里的 `sk_local_dir` 键 > `下载\成像`。
   提示词归档是库根下的 `提示词\`：跟着库根走，设置页不再单独给第二个位置（`PROMPTS_DIR` 只作部署 / 探针口子）。
 - `.renders/` 只剩 FCPXML 媒体包的临时落盘（`fcpxml-<stamp>/`）；持久工程目录在本机资产库下的 `FCPXML工程/<id>/`，与「存回本机」的素材同根。浏览器内合成成片，服务端没有 ffmpeg。
 - 七个页面：导演台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
@@ -94,13 +98,9 @@
 │  ├─ user-dirs.js              用户可见目录根（下载 / 提示词 / 顶层目录名）
 │  ├─ open-dir.js               打开本机目录（提示词归档 / FCPXML 工程共用；Windows 上把窗口拽到前台）
 │  ├─ win-fg.js                 前台锚定的 Win32 片段（选择文件夹与打开目录共用这一份）
-│  ├─ fs-atomic.js              原子写 / .bak / 余量与重试口径
-│  ├─ data-store.js             /data 读写、原子写、.bak 备份
-│  ├─ prompts-store.js          /prompts 提示词归档
-│  ├─ cloud-store.js            /cloud 云同步
-│  ├─ skills-store.js           .skills 清单 / 安装 / 启停
-│  ├─ asr-store.js              .data/asr.json（密钥只留盘上，读接口只回 hasKey）
-│  ├─ search-store.js           .data/search.json（同上）
+│  ├─ data-hub.js              唯一的数据层：原子写原语 / state.json 状态仓 / backup.json 快照仓 /
+│  │                            /data、/backup、/cloud、/prompts、ASR、搜索、Skill、提示词归档
+│  │                            （业务数据只落 .data/state.json 与 .data/backup.json 两份）
 │  ├─ channel-cred.js           设置页两条「通道」（识别 / 搜索）共用的取数小件（回环判定只有这一份）
 │  ├─ static.js                 静态文件：ETag / 预压缩（br→gzip→原文，请求与开机预热共用同一只在途压缩）/ CSP 头 / warmStatic
 │  ├─ security.js               同源、Cookie、出站 URL 护栏
@@ -613,7 +613,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   · 密钥默认收着，开关是名字右边那颗 `.keytoggle`；名字本身链官网（↗）；
     接口地址不在卡上改（预设那几家一律走官方地址，中转站 / 网关加成自定义供应商）。
   · 型号面板按槽（`keyId:档`）存「展开的是哪一格 / 刚取回的那一份」，两档同时开着不会串档；
-    落盘仍是账号级（`sk_model_<keyId>`、`.data/sk_model_prefs.json` 的 `typed` / `off` / `got`），
+    落盘仍是账号级（`sk_model_<keyId>`、状态仓里 `sk_model_prefs` 键的 `typed` / `off` / `got`），
     面板里那一行 hint 照实说「按账号存」；默认型号只有账号级这一层。
   · 添加供应商 = 卡片流末尾那张虚线卡，两个形态、同一张卡：常态列预设那几家（点「添加」请进界面并摊开
     密钥行，不写盘；填了密钥才由自动保存落 `sk_key_<keyId>`）；「＋ 自定义」让这张卡自己变成自定义表
@@ -644,7 +644,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   · **本机 / 浏览器内识别是设置页合成的一张常驻账号卡**（`LOCAL_ASR_KID = '__local_asr__'`）：
     永远在账号卡流里、永远可用、不需要密钥；卡上是语音识别路线（auto / browser / local / service）、
     语言、本机运行包状态、浏览器内模型状态、测试识别。云供应商卡只留在线识别（型号 / 地址 / 密钥），
-    两者各占一张卡。设置仍存服务端 `.data/asr.json`。
+    两者各占一张卡。设置仍存服务端状态仓的 `asr` 键。
   · 「本机环境」卡是只读体检，识别设置归上面两张卡。
   · 服务端按声明调：`asr.style` 是 `openai`（multipart `/audio/transcriptions`，模型 / 返回格式 /
     语言放哪儿都按声明）或 `chat-audio`（chat/completions 的 `input_audio`，百炼 qwen3-asr-flash）；
@@ -683,9 +683,14 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### 写入可靠性
 
-- 代理覆盖 / 删除 `.data/<key>` 前留 `<key>.bak.json`（最少 10 分钟，内容相同不留）。
-- 「读不出来」与「本来就没有」是两件事：拿读取结果当写入底座的地方，像 `data-store.js` 那样
-  再摸一次原始值；读坏就拒写并原样报错。
+- 覆盖 / 删除 / 云端拉取 / 恢复之前，`server/data-hub.js` 统一向 `.data/backup.json` 留一份快照
+  （最多 5 份、带 sha256、同内容不留）。删除 / 云端覆盖 / 迁移 / 恢复前 / 手动这几类**撤销点强制新增**，
+  只有逐字输入那类 `before-overwrite` 走 10 分钟去重 —— 否则「删除前那一刻」会被旧快照顶掉，
+  恢复回去找不回刚删的键。盘上不再写 `<key>.bak.json`（`writeJsonWithBak` 只留给资产索引等独立账本）。
+- `state.json` 的 `checksum` 覆盖全部键正文：读出来对不上就判 degraded，**拒绝任何写入**并原样报错，
+  由 `/backup/status` 把「哪一份坏了」报给设置页；不许把「读不出来」当成「本来就没有」再往上盖。
+- 一次性迁移：旧 `<key>.json` / `.bak.json` / `.cloud-*.json` 先合成 `state.json`，回读逐键比对
+  校验和与正文，全部通过才把旧文件挪进暂存目录逐个删除；任一步失败都保留旧字节。不做旧格式兼容层。
 - 任务号一落盘就等于一次已付的钱：提交拿到 `taskId` 就写盘；删 / 放弃前先看是否还在跑；
   放弃走「不等了」（按 registry 的 `cancel` 端点撤单，撤不掉照实说「可能还在计费」）。
 - 异步长任务抓住它自己那一集 / 那一条（`const mine = …`），收尾只碰自己那一份。
@@ -693,7 +698,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   `dir_ws_unload`（IndexedDB 异步，beforeunload 等不到）。
 - **装配完成之后才落盘**：导演台 `boot()` 读回工作区与把它挂上界面之间有一个网络往返的
   窗口，那段时间里的模块级 `WS` 还是空的默认值。关标签的 flush 与任何顺手排上的 `scheduleSave`
-  都可能在窗口里触发，把「一个工程都没有」同时盖进 IndexedDB 与 `.data/workspace.json`。
+  都可能在窗口里触发，把「一个工程都没有」同时盖进 IndexedDB 与状态仓的 `workspace` 键。
   两份落盘都先问 `web/director/engine.js` 的 `wsLoaded`（装配完成点置真）；判据
   `tests/e2e/director-boot-flush.cjs` 用拖慢 `/data` 的办法把窗口拉宽，复现那一次 flush。
 
@@ -760,8 +765,16 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### 云同步
 
-- `POST /cloud/sync`（双向）/ `resolve`（冲突二选一）/ `GET /cloud/backups` + `POST /cloud/restore`。
-- 冲突判定靠 `.data/.cloud-state.json` 基线，而不是「只看时间取新」。
+- WebDAV 三格按「设置页请求头 > `.env` 的 `CLOUD_WEBDAV_*`」取，页面填了就压过代理侧；
+  只有地址这一格还有第三档：`server/data-hub.js` 的 `CLOUD_DEFAULT_URL`
+  （`https://dav.jianguoyun.com/dav/imago/`，全项目唯一一份默认地址），页面与 `.env` 都空时才用；
+  账号与应用密码没有默认值。设置页输入框**不预填**默认地址（预填等于「页面填了」，会把 `.env` 压掉），
+  只从 `/cloud/status` 的 `defaultUrl` 取回去做 placeholder 提示。
+- `POST /cloud/sync`（双向）/ `resolve`（冲突二选一）；备份与恢复统一走 `/backup/*`
+  （`status` / `export` / `verify` / `create` / `preview` / `restore` / `import`），
+  旧的 `/cloud/backups` 与 `/cloud/restore` 已删除。
+- 冲突判定靠状态仓里的 `__cloud_baseline` 键，而不是「只看时间取新」；`__cloud_state` 存同步状态。
+  两者都不再是单独的 `.data/.cloud-*.json` 文件，也不进 `/data` 清单（内部键统一 `__` 前缀）。
 - 远端存在但读不下来 → 判 `error` 跳过，不 push；本地删除执行到底。
 - 浏览器对账的「体积相同」不能直接跳过（等长修改照比内容）；对账期间本地写入先进 held 暂存表。
 
@@ -822,8 +835,9 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | FCPXML 拼装 | `web/director/fcpxml.js`（单文件 / 媒体包 zip / 持久工程目录三档共用 `buildFCPXML`；转场按 FCPXML 1.10 的居中重叠写 `<transition>`，字幕样式写 `text-style`，不绑定任何剪辑软件） |
 | 浏览器内 ASR worker | `web/director/asr-worker.js`（module worker，Whisper q8；模型只走同源 `/models/`，`allowRemoteModels` 关死；取消 = `terminate()`，识别全程留在 worker 里） |
 | 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `AUTOSAVE_TOP_DIR` / `PROMPTS_DIR_NAME`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
-| 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > `.data/sk_local_dir.json` > `下载\成像`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成盘上那份 JSON —— 那份的正文就是 localStorage 原值：字符串类的键走 `window.LS.set`，落盘是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`；提示词归档是它下面的 `提示词\`，换根一起走，页面不再存第二份目录） |
-| 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，层外直接复用） |
+| 本机资产库根（本体住在哪） | `server/local-root.js`（`ASSETS_DIR` > 状态仓的 `sk_local_dir` 键 > `下载\成像`；设置页那一格写 `sk_local_dir`，由 `DataSync` 镜像成 `/data/sk_local_dir`，再经注入的 `readKey` 读出 `state.json` 里那一格 —— 正文就是 localStorage 原值：字符串类的键是裸文本（`D:\作品`，不是 JSON），只有对象类的键才是 `Store` 的信封 `{"data":…,"ts":…}`；读错形状不报错，表现是「改了位置、产物还往老地方写」，判据 `tests/local-root.cjs`；提示词归档是它下面的 `提示词\`，换根一起走，页面不再存第二份目录） |
+| 本体的落点与可移植身份 | `server/local-assets-store.js`（`bodyDirNameOf` / `newBodyPlace` / `fileFidOf` / `localSigOf` / `localAdopt`；层内那份目录对账快照 `dirScan` 只此一份，层外直接复用）。落盘名带可移植尾标 `<规范名>__la_xxx.<ext>`（`portableIdOfName` / `canonicalStemOfName`）：账丢了、换机器时按名认回**同一枚** `la_` 号，不用重新导入素材。三条只看库根的硬口径：`dirScan` 只扫当前库根（`提示词\` / `FCPXML工程\` / `.trash\` 跳过）；账里的落点经 `absInRoot` 夹一道，指到库根外面的按「不在这里」处理（不读盘、不进别名表）；`/local-assets/from-url` 与 `POST /local-assets`（base64）在落字节**之前**先 `adoptBodyByHint` 认盘 —— 前者按「规范名 + 字节数 + 可移植尾标」（缺字节数不认：同一镜头重做的那一版规范名一样而内容不同），后者按 `sampleSigOfBuffer` 的内容签名（size + 头尾各 1MB 的 sha1，与磁盘对账同一把尺子），认准就只补索引、零下载零写入；带来源 / 产物号的直传遇到身份不同的同一份字节不合并（那是两件作品，合并会丢一条回源身份）。项目文件导入走 `POST /local-assets/rebind` 批量重绑旧号：整批共用一份账与一份磁盘快照、最后一次落盘（不再逐条 `upsert` + 重扫），超过上限时 `total` 报请求条数、`omitted` 报没处理的尾巴；同来源账行还在但文件没了时 `from-url` 重下一份并**沿用原号**，不回 `reused` 假成功。按号补建只有 `adoptBodyByHint` 一份判据（`localAssetRepair` 只留 60 秒负缓存），命中已被别的账登记的文件时挂别名、不补第二条。判据 `tests/local-byte-reclaim.cjs` / `tests/local-first.cjs` |
+| 生成产物一律存本机（**只限导演台**） | `web/domain/local.js` 的 `wantSave` / `offer`：`mustSave` 的那一批（导演台候选「刚出结果」、关键帧；`gen-forms` 只是透传调用方给的标记）**不看** `sk_media_local` 开关，开关只决定「历史产物要不要补齐」（`sk_media_local_scope`）；关开关时只清非 `mustSave` 的队列与待办，导演台生成产物照排。开机 / 导入后的历史补扫（`web/director/engine/gen.js` 的 `announceDoneCandidates`）**不带** `mustSave`，否则关掉开关的人一打开老工程就会被强制下载一批旧候选。工作台（`pages/studio.js`）不传这个标记，仍听开关。「投过了」记在内存 WeakSet（`announcementSent`），不写回候选对象 —— 否则会随 `.data/workspace.json` 与项目文件序列化到新机器，历史补扫整批跳过 |
 | 一张「卡」背后那几条账 | `server/local-assets-store.js` 的 `localAssetSiblings`（与列表并卡同一把尺子：`localUpKey` 或 `sig`） |
 | 云端取不到时的本机回退 | `server/local-assets-store.js` 的 `localEntryByUpstream` / `localEntryByPlatformId`（`/getv`、`/fetch`、`/asset` 与 `resolveSrc` 共用；浏览器别名表只是当前会话的缓存，不是唯一凭据） |
 | 本机产物别名（哪条产物在本机是哪一份） | `web/domain/local.js` 的 `rowOfEntry` / `twinOf` / `decorate` + 代理 `/local-assets/aliases` / `/local-assets/locate`（`server/local-assets-store.js` 的 `aliasRowOf` / `localAliases` / `localLocateBatch`）；判据 `tests/local-first.cjs` |
@@ -839,6 +853,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 语义检索 | `web/domain/semantic.js` 的 `SemanticSearch.rank` |
 | 导演台台词面板 | `web/director/film.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档与配音列表共用） |
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
+| 导演台项目文件（完整工程导出 / 导入） | `web/director/project-pack.js` 的 `buildProjectPack` / `assertProjectPack` / `describeProjectPack` / `prepareProjectPackImport`（`PROJECT_PACK_VERSION` 现为 1）：包里带每一镜的**全部候选**（含未选用 / 失败 / 草稿）、提示词与台词、参考图与首尾帧、选用 / 裁剪 / 锁定、成片轨、画幅与项目组名；只认当前一版且带 `projects` 校验和，旧版 / 高版本 / 校验和对不上一律零写入拒绝。导出只清 `blob:` 临时地址 / `_objUrl` / 视口游标并记下清了几条，**项目组只带组名、`groupId` 抹掉**（组 id 是那台机器的身份，跨机器会认错组）；导入追加为新短片，撞 id 换一枚、撞名按「（导入）」→「（导入 2）」→「（导入 3）」往后编号（本机已有同名短片、以及同一批里刚分出去的名字都算，同一个包连导多次不会出现两部同名）、在途生成标成可重试，绝不覆盖现有作品；组按名字认领：本机没有同名组就新建；已有同名组**先问**「并入那个组 / 给导入的组改名（加「（导入）」后缀，本机原有的组不动）」。导入前还会用**内容指纹**（`projPackFingerprint`：id / 名字 / 组 / 面板算出来的 `combo`·`adv`·`duration`·空默认值都不进指纹，成片轨照比）扫一遍本机，内容完全一致的短片**先问**「跳过 / 照导并重命名」，全跳过时工作区一个字节都不写（`scanProjectPackConflicts` 只报事实，问不问、怎么落由 engine 决定）。视频字节不进包（本机素材走「导出媒体包」）。入口画在页头短片下拉（`#projMenu`）底部：默认折叠成一行「项目文件 · 导入 / 导出」（小字、次级色，是这一组的**头**），摊开后是一颗**导出拆分按钮**（主钮「导出当前短片」、尾钮摊开「导出当前项目组短片 / 导出全部短片」，窄范围在前）加一行「导入项目文件」；摊开的内容整组缩进在 `.pm-io-body` 的一条竖线里、行内文字用正文色（不用强调色），一眼看得出它们长在那行标题下面而不是与短片行同级；每次重开菜单都回到折叠态。选择器 `#projPackFile` 放菜单外（菜单整栏重画会把它冲掉）。判据 `tests/director-project-pack.mjs` / `tests/e2e/director-project-pack.cjs` |
 | 字幕 SRT | `web/director/srt.js`（`srtParse` / `srtSerialize` / `resegment`；时间一律成片秒） |
 | 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
 | 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `chainModelRepick` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
@@ -874,9 +889,12 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 程序性 focus 不抢视口 | `web/ui/ui.js` 的 `window.focusQuiet(el)`（`focus({ preventScroll: true })`） |
 | 文件类型筛选 | `web/ui/workbench.js` 的 `Wb.kindFilter`（`.ui-seg` 分段 + 每档计数 `.seg-n`；档位集合不变时就地更新；**页面给的每一档恒画**，计数为 0 也不藏；顺序由公共件按 `mediaKindRank` 现排，页面给的数组顺序不作数）。工作台 / 收藏 / 资产库三页的档位表都取 `window.mediaKindTabs(allKey)` —— 四档一次给全 |
 | 筛选工具条（搜索框 / 芯片 / AI 搜索 / 计数） | `web/ui/workbench.js` 的 `Wb.filterBar`（结构与接线只有 `bind` 这一份；就地改文本、不整片重画）。搜索只有三条出口：回车 / 失焦 = 普通搜索，清空输入框 = 当场取消筛选（普通词与 AI 条件一起收回）；搜索入口就是输入框本身与 AI 搜索颗。AI 已经把框里那句消化成条件 / 挑选集合时，页面调 `markApplied(text)` 登记 —— 失焦不会再当普通搜索重跑；页面的普通搜索会把 AI 条件收回（换词 = 重新找） |
+| 业务数据的保存 / 备份 / 云同步 / 归档 / 设置 | `server/data-hub.js` 的唯一一份实现（`createDataHub`）：`state.json` 状态仓 + `backup.json` 快照仓 + `/data` `/backup` `/cloud` `/prompts` 四条路由；判据 `tests/data-hub.cjs` |
+| 原子写原语 | `server/data-hub.js` 的 `atomicWrite` / `renameWithRetry` / `writeJsonWithBak`（`index-store.js`、资产库、FCPXML 媒体包与状态仓共用；`fs-atomic.js` 已并入，别再建第二份） |
 | 本机索引写入口 | `server/index-store.js` 的 `update(fn)` 串行队列 + `putInto` / `dropFrom`（跨 await 的读-改-写统一走这一处） |
 | 一行素材的身份键 | `AssetLib.entryKey`（页面与缓存）；裸工作台任务记录用 `Wb.taskKey` |
-| 整包备份的格式版本与导入摘要 | `web/ui/datasync.js` 的 `PACK_VERSION` / `assertPack` / `describePack`：导出写它，设置页确认框与 `importAll` 写入口同读一道闸；只认当前一版，高版本拒绝且零写入，写入失败在回执里报数（`tests/data-pack.cjs`） |
+| 整包备份的格式版本与导入摘要 | `web/ui/datasync.js` 的 `PACK_VERSION`（v2）/ `assertPack` / `describePack`：整包恒带 `/backup/export` 出的服务端快照（业务键 / 资产索引 / 归档 / 云同步状态 + sha256）；导出写它，设置页确认框与 `importAll` 写入口同读一道闸；只认 v2，旧版 / 高版本 / 缺服务端段一律拒绝且零写入，导入先过代理的校验和才动浏览器那半截，失败在回执里报数（`tests/data-pack.cjs`） |
+| 备份中心的端点与健康提示 | `server/data-hub.js` 的 `handleBackup` + `backupStatus`：`status` 的 `ok` 同时看两份文件（快照仓与状态仓都得健康），`stateDegraded` 把 state.json 校验失败报给设置页那张「数据与备份」卡 |
 | 全局命令面板 / 统一快捷键 | `web/ui/command.js` 的 `window.CommandPalette`：Ctrl/Cmd+K 是全局唯一唤起键，候选页只从 `WB_ROUTES.pages` 现取、跳页只走 `GoPage.go`，不登记第二份动作目录；↑↓ / Enter / Esc 在面板输入框内消化并截断，输入框与输入法合成中不抢键，导演台的键盘作用域岛优先（`tests/command-palette.cjs`） |
 
 ## Vue SPA
@@ -1081,7 +1099,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - **「素材范围优先」**（frontmatter 的 `assetGroups`）：一份 Skill 声明「这个项目优先用哪几个素材组」，
   拆分镜那一路的「素材范围」下拉把它们排在前面（不排除其它组）。读法只有 `WbSkills.refRule` 一处。
   它不是「项目引用规则」—— 那个指的是上面的变量占位符（在正文里，不在 frontmatter 里）。
-- **contract 白名单**在 `server/skills-store.js` 的 `CONTRACTS`：加一种新任务就在那里加一条，
+- **contract 白名单**在 `server/data-hub.js` 的 `CONTRACTS`：加一种新任务就在那里加一条，
   同时 `TextAI.SKILL_CONTRACT` 加一条（页面侧同一张表的另一半）。`board_assets.json` =
   拆分镜「判断哪些新角色 / 场景 / 物品要建档并出图」那一条。
 - **设置页的 Skill 卡：一级菜单 = 使用场景**（`TextAI.SKILL_SCENE_GROUPS` / `SKILL_SCENES`）。
@@ -1089,7 +1107,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   ② 这个场景的 Skill（这一 contract 下的每一份、哪一份在用）。
   全量清单退到「全部 Skill」一个二级入口。槽位灯说的是「这个 contract 槽现在被谁占着」：
   紫 = 我的、灰 = 内置 —— 槽里恒有一份在用，只有这两归属。
-- **占 contract 的场景恰好一份启用（服务端硬约束，`server/skills-store.js` 一份实现）**：
+- **占 contract 的场景恰好一份启用（服务端硬约束，`server/data-hub.js` 一份实现）**：
   · 启一份就把同 contract 的别的直接停掉（`displaceSameContract`，启停与安装两条路共用）：
     内置那份同样让位，用户那份之间也让位。让位的那几份 id 由服务端回传（`displaced`），
     前端点名说清「哪一份停了」。
@@ -1286,7 +1304,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   4 路并发，每条自起隔离 proxy + 独立 Chrome）。
 - `npm run test:e2e` 全量分两道：读数型先独跑（`ui-visual` / `director-perf` / `director-playback` /
   `perf/boot` / `boot-heavy`：并发负载会让截图指纹、帧预算、播放对齐与「启动收尾让路」的计时窗口这类读数失真），
-  其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。`tests/e2e/` 共 54 个文件（53 条判据 + harness），同一档还跑
+  其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。`tests/e2e/` 共 55 个文件（54 条判据 + harness），同一档还跑
   `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`。
   16 核 / 17 GB 本机实测全量约 10 分钟；单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例。
 - `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 `--e2e`。
@@ -1414,6 +1432,13 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   可用 `proj.fcpTitle` 或 `buildFCPXML` 的 `opts.titleStyle` 覆盖，默认常量只有 `fcpxml.js` 一处。
 - 纯拼装在 `web/director/*`（如 `fcpxml.js`）或 `web/domain/*`。
 - 缺失素材 / 段落一律报数（清单 / 状态行）。
+- **项目文件与上面四档不是一回事**：那四档只带「选中的画面」（成片或给剪辑软件的交换文件），
+  项目文件带的是作品本身（全部候选 / 提示词 / 剪辑状态），用来换机器或留档后导回导演台接着剪。
+  入口在页头短片下拉底部，默认折叠；摊开后整组缩进在一条竖线里、用正文色，上面是导出拆分按钮（当前 / 当前项目组 / 全部）、下面一行导入项目文件。
+  格式闸门、校验和、清洗与导入归一化只在 `web/director/project-pack.js` 一份，engine 只管下载 / 取文件 / 放回工作区。
+  项目组随包回来但只带组名：导入时本机没有同名组就新建，已有同名组会先问「并入 / 给导入的组改名」。
+  内容与本机某部完全一致的短片也会先问「跳过 / 照导并重命名」，全跳过时一个字节都不写。
+  导入一律追加为新短片；视频字节不进包，本机素材要换机器就另用「导出媒体包」一起搬。
 
 ### 扩展边界
 
@@ -1444,7 +1469,7 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
 | 共享纯逻辑 | `web/domain/<domain>.js`（挂一个 `window.<Domain>` 面） | 只暴露最小方法；规则只在这一份 |
 | 外壳 / 路由 / 生命周期 | `web/core/*.js`、`web/app.js` | 全局只留跨页能力；跨页桥走 `WBBridge` |
 | 新服务端路由 | `server/routes/<name>.js` | 在 `server/app.js` 构造依赖与分发；敏感路由加 `LOCAL_ONLY`；补 e2e |
-| 新数据 / 存储 | `server/<name>-store.js` | 原子写 + `.bak`；改结构先做迁移；补数据基线 |
+| 新数据 / 存储 | `server/data-hub.js` 的状态仓（业务键一律走 `readKey` / `writeKey`）；只有独立账本（本机资产索引）才另开 `index-store.js` | 整包原子重写 + sha256 + 覆盖前快照；改结构先做一次性迁移；补数据基线 |
 | 新供应商 | `server/registry-config.js` 的 `REGISTRY.providers` | `REGISTRY.version` +1（结构变了才加）、`providers/validate.js`、`tests/providers-validate.cjs` |
 | 新导演台纯算法 | `web/director/<domain>.js` | engine 只调用；补 `tests/director-<domain>.mjs`；涉及播放 / 导出再加 e2e |
 | 新导演台 DOM 交互 | `web/director/engine.js` 或已有域模块 | 编辑算法住在域模块；写入走 `beginEdit` / `filmEdited` |

@@ -1,4 +1,4 @@
-/* Skill HTTP 路由：只做参数/响应，解析与写盘全在 server/skills-store.js。
+/* Skill HTTP 路由：只做参数/响应，解析与写盘全在 server/data-hub.js。
    挂载点由 server/app.js 或 proxy.js 的 handleRequest 在 LOCAL_ONLY 闸之后调用。 */
 'use strict';
 const fs = require('fs');

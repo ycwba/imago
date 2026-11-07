@@ -1224,9 +1224,9 @@ const REGISTRY = {
 };
 
 // 自定义接口与型号偏好都要读 .data 里的文件，所以这两族做成工厂：
-// app 组合根把 dataStore 的 dataFileOf 与 security 的 safeOutboundUrl 注进来。
+// app 组合根把状态仓的 readKey 与 security 的 safeOutboundUrl 注进来。
 function createRegistryConfig(deps) {
-  const { dataFileOf, safeOutboundUrl } = deps;
+  const { readKey, safeOutboundUrl } = deps;
 
   /* ============================================================================
      用户在设置页「添加自定义供应商」时登记的接口（图片 / 视频 / 语音 / 文字 AI）
@@ -1280,25 +1280,23 @@ function createRegistryConfig(deps) {
   /* 缓存要连着 notice 一起存：以前只缓存了 provs，而 customNotice 是在**进函数时就清空**的，
      于是命中缓存的那一次（/registry 被连着问两次就是它）报回去的是「没有坏条目」——
      页面那句「有 N 条自定义平台没被本地代理认」会莫名消失，而坏条目其实还在清单里。
-     缓存键除了 mtime 还要带 **size**：同一毫秒里连着写两遍（一次添加连着触发两次读注册表就是这个情形）
-     可能拿到同一个 mtime，于是新加的那一家读不出来 —— 表现是「我明明添加了，下拉里没有」。
-     长度不同就不是同一份文件；长度与 mtime 都一样，那它本来就是同一份，命中无害。 */
-  let _customCache = { file: '', mtime: 0, size: -1, provs: [], reason: '', dropped: [] };
+     缓存键就是状态仓里那份正文：键已经不在单独的文件里，按内容比才不会漏掉一次改写。 */
+  let _customCache = { raw: null, provs: [], reason: '', dropped: [] };
   function customProviders() {
-    const file = dataFileOf('sk_custom');
-    let mtime = 0, size = -1;
-    try { const st = fs.statSync(file); mtime = st.mtimeMs; size = st.size; } catch { mtime = 0; }
-    if (_customCache.file === file && _customCache.mtime === mtime && _customCache.size === size) {
+    let text = null;
+    try { text = readKey('sk_custom'); }
+    catch (e) { customNotice.reason = '读取 sk_custom 失败：' + e.message; return []; }
+    if (_customCache.raw === text) {
       customNotice.reason = _customCache.reason;
       customNotice.dropped = _customCache.dropped;
       return _customCache.provs;
     }
     customNotice.reason = ''; customNotice.dropped = [];
-    if (!mtime) { _customCache = { file, mtime: 0, size, provs: [], reason: '', dropped: [] }; return []; }
+    if (!text) { _customCache = { raw: text, provs: [], reason: '', dropped: [] }; return []; }
     let raw = null;
-    try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
-      customNotice.reason = '读取 .data/sk_custom.json 失败：' + e.message;
-      _customCache = { file, mtime, size, provs: [], reason: customNotice.reason, dropped: [] };
+    try { raw = JSON.parse(text); } catch (e) {
+      customNotice.reason = '读取 sk_custom 失败：' + e.message;
+      _customCache = { raw: text, provs: [], reason: customNotice.reason, dropped: [] };
       return [];
     }
     const list = Array.isArray(raw) ? raw : (Array.isArray(raw && raw.data) ? raw.data : []);
@@ -1314,7 +1312,7 @@ function createRegistryConfig(deps) {
       if (bad) { customNotice.dropped.push({ id, why: bad }); return; }
       out.push(buildCustom(e, builtins.find(p => p.id === e.shape)));
     });
-    _customCache = { file, mtime, size, provs: out, reason: customNotice.reason, dropped: customNotice.dropped };
+    _customCache = { raw: text, provs: out, reason: customNotice.reason, dropped: customNotice.dropped };
     return out;
   }
   /* 一条自定义条目能不能用；能用返回 ''，不能用返回「为什么不能用」（界面与日志同一句话） */
@@ -1399,21 +1397,20 @@ function createRegistryConfig(deps) {
      分开合就会出现「设置页藏掉了、下拉里还在」。 */
   const MODEL_PREFS_KEY = 'sk_model_prefs';
   const modelPrefsNotice = { reason: '' };
-  /* 缓存键与 customProviders 同一套：mtime + size。少了 size 的话同一毫秒连写两遍拿到同一个 mtime，
-     刚勾掉的那个型号在注册表里还在 —— 表现是「藏了没生效，要等下一次刷新」。 */
-  let _prefsCache = { file: '', mtime: 0, size: -1, map: {} };
+  /* 缓存键与 customProviders 同一套：状态仓里那份正文。 */
+  let _prefsCache = { raw: null, map: {} };
   function modelPrefs() {
-    const file = dataFileOf(MODEL_PREFS_KEY);
-    let mtime = 0, size = -1;
-    try { const st = fs.statSync(file); mtime = st.mtimeMs; size = st.size; } catch { mtime = 0; }
-    if (_prefsCache.file === file && _prefsCache.mtime === mtime && _prefsCache.size === size) return _prefsCache.map;
-    if (!mtime) { _prefsCache = { file, mtime: 0, size, map: {} }; modelPrefsNotice.reason = ''; return {}; }
+    let text = null;
+    try { text = readKey(MODEL_PREFS_KEY); }
+    catch (e) { modelPrefsNotice.reason = '读取 ' + MODEL_PREFS_KEY + ' 失败：' + e.message; return {}; }
+    if (_prefsCache.raw === text) return _prefsCache.map;
+    if (!text) { _prefsCache = { raw: text, map: {} }; modelPrefsNotice.reason = ''; return {}; }
     let raw = null;
-    try { raw = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) {
+    try { raw = JSON.parse(text); } catch (e) {
       /* 读不动就当没勾过（退回上游清单），但要把原因留下：设置页那句「有 N 家勾过没被代理认」
          与「我明明藏了、它还挂着」只有这一处能说清。 */
-      modelPrefsNotice.reason = '读取 .data/' + MODEL_PREFS_KEY + '.json 失败：' + e.message;
-      _prefsCache = { file, mtime, size, map: {} };
+      modelPrefsNotice.reason = '读取 ' + MODEL_PREFS_KEY + ' 失败：' + e.message;
+      _prefsCache = { raw: text, map: {} };
       return {};
     }
     modelPrefsNotice.reason = '';
@@ -1431,7 +1428,7 @@ function createRegistryConfig(deps) {
         out[String(kid)] = { typed: list(v && v.typed), off: list(v && v.off) };
       });
     }
-    _prefsCache = { file, mtime, size, map: out };
+    _prefsCache = { raw: text, map: out };
     return out;
   }
   /* 用户手填的那个型号，能力声明从哪来（**只在这一处**答这个问题）：

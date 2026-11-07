@@ -30,10 +30,21 @@ const WRITE_OK = process.env.DATA_SNAPSHOT_WRITE === '1';
    所以盯的必须是搬完之后的那一个根 ——「整目录没了」在这里照红，那是用户产物消失的信号。 */
 const { localRootOf } = require('../server/local-root.js');
 const LIB_LABEL = '库根';
+const dataDir = path.join(root, process.env.DATA_DIR || '.data');
+/* 库根那一格现在住在 state.json 里（不再是 .data/sk_local_dir.json 单文件）。
+   这里不注入 readKey 的话 localRootOf 会静默退回默认根，比对的就变成另一个目录 ——
+   基线看着「✓ 未变」，其实盯错了地方。读不出来就让 localRootOf 自己回落。 */
+const readKey = k => {
+  try {
+    const st = JSON.parse(fs.readFileSync(path.join(dataDir, 'state.json'), 'utf8'));
+    const hit = st.keys && st.keys[k];
+    return hit ? hit.body : null;
+  } catch { return null; }
+};
 const DIRS = new Map([
-  ['.data', path.join(root, '.data')],
+  ['.data', dataDir],
   ['.renders', path.join(root, '.renders')],
-  [LIB_LABEL, localRootOf(root, path.join(root, process.env.DATA_DIR || '.data'))],
+  [LIB_LABEL, localRootOf(root, dataDir, readKey)],
 ]);
 /* 少于这么多文件就不值得起 worker 池（启动 + 通信开销约 80-120ms 就能盖过收益）。 */
 const PARALLEL_MIN_FILES = 12;

@@ -264,6 +264,9 @@ run('tests/director-split-ask.mjs', process.execPath, ['tests/director-split-ask
 run('tests/split-plan.mjs', process.execPath, ['tests/split-plan.mjs']);
 /* 项目组：老工程零迁移 / 建组 / 归组 / 删组 / 改名 / 树 / 组名即素材组名。 */
 run('tests/director-groups.mjs', process.execPath, ['tests/director-groups.mjs']);
+/* 项目文件（导出 / 导入完整工程）：全部候选与提示词 / 剪辑状态往返、格式闸门与校验和、
+   零写入、导入时撞 id / 撞名 / 在途任务 / 临时地址归一化。 */
+run('tests/director-project-pack.mjs', process.execPath, ['tests/director-project-pack.mjs']);
 /* 素材改名回填：@旧名 → @新名 的 token 边界（整名 / 资产 token 只换名段 / 更长的另一位不动）。 */
 run('tests/chars-rename.mjs', process.execPath, ['tests/chars-rename.mjs']);
 /* 发送前预览（dry-run）：预览与实发同源 / 不发网络请求 / 占位符 / 展示形状。 */
@@ -321,6 +324,9 @@ run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
    代码改了而文档没改，下一个人就照着过期文档写。 */
 run('tests/doc-contract.cjs', process.execPath, ['tests/doc-contract.cjs']);
 run('tests/data-pack.cjs', process.execPath, ['tests/data-pack.cjs']);
+/* 集中状态仓与快照仓：一次性迁移、校验和拒写、逻辑视图、轮转 / 校验 / 恢复、/backup/* 端点。
+   整份在 os.tmpdir 的探针目录里跑，不写共享 .data。 */
+run('tests/data-hub.cjs', process.execPath, ['tests/data-hub.cjs']);
 run('tests/command-palette.cjs', process.execPath, ['tests/command-palette.cjs']);
 /* 静态预压缩：br→gzip→原文 退档、ETag 带表示名、缓存命中不再压。
    常驻这一档不起实例（进程内驱动 serveStatic）；线上响应头与体积比对在同一条文件的 `--live` 档，
@@ -402,6 +408,12 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/raw-preview.cjs', process.execPath, ['tests/e2e/raw-preview.cjs'], { tier: 'browser' });
   /* 导演台项目组：分树 / 新建 / 老工程零迁移 / 删组不删短片。 */
   run('tests/e2e/director-groups.cjs', process.execPath, ['tests/e2e/director-groups.cjs'], { tier: 'browser' });
+  /* 导演台项目文件：下拉底部默认折叠 / 两颗同级入口（导出拆分按钮、导入）缩进在一条竖线里、
+     用正文色不用强调色 / 尾钮摊开「当前项目组」「全部」、未归组时按组导出不可用 /
+     项目组随包往返（只认组名；撞名先问「并入 / 改名」，没有则现建）/
+     内容完全一致的短片先问「跳过 / 照导并重命名」、全跳过时一部都不写 /
+     导出全量候选与剪辑状态、导入追加不覆盖、撞名按「（导入）」→「（导入 2）」往后编号、坏包零写入。 */
+  run('tests/e2e/director-project-pack.cjs', process.execPath, ['tests/e2e/director-project-pack.cjs'], { tier: 'browser' });
   run('tests/e2e/editing-assistant.cjs', process.execPath, ['tests/e2e/editing-assistant.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-contract.cjs', process.execPath, ['tests/e2e/ui-contract.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-shared.cjs', process.execPath, ['tests/e2e/ui-shared.cjs'], { tier: 'browser' });

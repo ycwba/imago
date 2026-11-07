@@ -7,11 +7,19 @@
 
 首次纳入语义化版本管理与自动化门禁。
 
+- **本机素材只认库根 · 换机器不用重新导入**：落盘名带可移植尾标 `<规范名>__la_xxx.<ext>`，账丢了 / 换机器时 `localAdopt` 与 `/asset/<旧号>` 按名认回**同一枚** `la_` 号；项目文件导出时附带每条本机素材的旧号 / 落点 / 字节数（`media` 段，独立校验和），导入时走新增的 `POST /local-assets/rebind` 批量重绑，老文件、改过名、只有媒体包 `media\` 的情况都能认回。`/local-assets/from-url` 与 `POST /local-assets`（base64）在落字节前先认盘：前者按规范名 + 可移植尾标，后者按内容签名（`sampleSigOfBuffer`，与磁盘对账同一把尺子），认准就只补索引，零下载零写入。新增 `absInRoot` 闸门：账里指到库根外面的落点按「不在这里」处理，索引 / 对账 / 播放都只在设置页选的那一个目录里找（`dirScan` 本来就只扫库根，跳过 `提示词\` / `FCPXML工程\` / `.trash\`），设置页把这条口径写在「本机资产库」卡上。
+- **导演台生成产物不受开关影响**：只有导演台「刚出结果」的候选与关键帧带 `mustSave`（`gen-forms` 只透传调用方给的标记），`sk_media_local` 关掉也照存；开机 / 导入后的历史补扫 `announceDoneCandidates` **不带**这个标记，不再因为打开老工程就强制下载一批旧候选；工作台不传，仍听开关。设置页两行文案随之改为「历史产物自动存本机 / 历史产物补存哪一档」。
+- **导演台短片菜单收整**：项目文件的导入 / 导出在页头短片下拉底部默认折叠，摊开后导出收成一颗拆分按钮（主钮「导出当前短片」、尾钮「导出全部短片」），导入仍是一行；删掉菜单里「全部候选 / 提示词 / 剪辑状态」与「视频字节不在包里…」两段说明（导出回执与导入确认框里的说明保留）。同一项目组下连点「＋ 新建短片」不再得到一排同名作品：默认名按组内序号排（`未命名短片 1/2/…`），序号**同组内连续**、不同组允许同名（菜单按组画成树，组名已经区分），不会再出现「甲组 1、2，乙组占掉 3，甲组下一部成 4」的空洞。判据在 `web/director/groups.js` 的 `nextProjectName`。`tests/director-groups.mjs` 与两条真浏览器 e2e 同步覆盖折叠、拆分按钮、导出全部与序号。
+- **本机素材链路的几处修补**：同来源账行还在、文件却被删时，`/local-assets/from-url` 重下一份并**沿用原号**（不再回 `reused` 假成功、让前端拿到 404）；`rebind` 整批共用一份表与一份快照、最后一次落盘，`total` 报请求条数、`omitted` 报没处理的尾巴；按号补建只剩 `adoptBodyByHint` 一份判据（`localAssetRepair` 只留负缓存），命中已被别的账登记的文件时只挂别名、不补第二条账，同号旧行补建时保留 `upstream/detail`；`from-url` 下载后的「裸行认回」与「内容指纹命中」合成一次查表；999 个同名后的兜底文件名把时间戳插在可移植尾标**前面**（号不再丢）；项目文件的素材线索校验失败改为只丢线索、作品照常导入，导出回执与确认框统一成「把视频文件放进库根即可认回」；「投过了」标记改存内存 WeakSet，不再随工作区 / 项目文件漂到新机器让历史补扫整批跳过。
+- **数据保存与备份收敛**：服务端 `data-store / cloud-store / prompts-store / fs-atomic / asr-store / search-store / skills-store` 七份合成 `server/data-hub.js` 一份，磁盘上的业务数据从一堆 `<key>.json` / `.bak.json` / `.cloud-*.json` 收成 `.data/state.json` 与 `.data/backup.json` 两份。旧文件一次性迁移：`state.json` 写齐后回读逐键比对校验和与正文，全通过才把旧文件挪进暂存目录逐个删除；不做旧格式兼容层。`server/local-root.js` / `registry-config.js` / 资产索引 / FCPXML / 本机资产路由改从状态仓读键，原子写原语也只留 `data-hub.js` 这一份。
+- **统一备份中心**：新增 `/backup/{status,export,verify,create,preview,restore,import}`。快照轮转 5 份、带 sha256，覆盖 / 删除 / 云端拉取 / 恢复前自动留一份；删除 / 云端覆盖 / 迁移 / 恢复前 / 手动这几类撤销点强制新增，普通覆写 10 分钟内去重。`state.json` 校验和不通过时拒绝写入并由 `/backup/status` 报出 degraded（两份文件都得健康才算 `ok`）；旧 `/cloud/backups` 与 `/cloud/restore` 删除。
+- **导演台项目文件（导出 / 导入完整工程）**：页头短片下拉底部新增「导出当前短片 / 导出全部短片 / 导入项目文件」三颗入口。包里带每一镜的全部候选（含未选用 / 失败 / 草稿）、提示词与台词、参考图与首尾帧、选用 / 裁剪 / 锁定、成片轨、画幅与项目组名；与页头那四档「只带选中画面」的导出互不替代。格式闸门 / 校验和 / 清洗 / 导入归一化收在新建的 `web/director/project-pack.js` 一份纯件里：只认 v1，旧版 / 高版本 / 校验和对不上一律零写入拒绝；导出只清 `blob:` 临时地址与视口游标并报数；导入追加为新短片，撞 id 换一枚、撞名加后缀、在途生成标成可重试，绝不覆盖现有作品。视频字节不进包；换机器时把视频文件（媒体包的 `media\` 也行）放进本机资产库，导入会按随包的素材线索认回旧号。新增 `tests/director-project-pack.mjs`（111 项）与 `tests/e2e/director-project-pack.cjs`（59 项，真浏览器点按钮、导出读字节、导入、坏包零写入）。
+- **整包备份 v2**：`web/ui/datasync.js` 的 `PACK_VERSION` 升到 2，包里恒带 `/backup/export` 出的服务端快照（业务键 / 资产索引 / 提示词归档 / 云同步状态与基线）。导入先让代理校验 checksum，对不上就一项都不写；提示词归档不再从 `PromptLog` 导第二份。设置页把数据、快照、设置导出与云同步收成一张「数据与备份」卡，覆盖前不再往下载目录丢 JSON，改留一份可在界面上直接恢复的快照。新增 `tests/data-hub.cjs`（迁移 / 降级 / 逻辑视图 / 轮转 / 恢复 / 端点，70 项）并登记进 `tests/all.cjs`。
 - 新增 `npm run ci`（`check` + `static` + `test`）与 `.github/workflows/ci.yml`：push / PR 在 Windows + Node 22 上跑秒级判据；浏览器 e2e 仍不作提交前置。
 - `/sys-status` 增加独立的「产品版本」字段，设置页「本机环境」与复制文本同时显示；`代理.版本` 仍是供应商注册表版本，语义不变。
 - `tests/doc-contract.cjs` 增加三条契约：README 的页面数 = 路由表条数、README 的 scripts 清单 = `package.json` 的 scripts、CHANGELOG 的最新版本 = `package.json` 的 version。
 - README 修正页面数、e2e 命令口径，补全 scripts 清单。
-- 整包备份导入加格式闸门：只认 v1，未来版本 / 无版本一律拒绝且零写入；确认框在导入前显示差异摘要（覆盖哪些、保留哪些、归档同名不覆盖）；写入失败的项在回执里报数，不再静默吞掉。新增 `tests/data-pack.cjs` 并登记进 `tests/all.cjs`。
+- 整包备份导入加格式闸门：只认当前一版（现为 v2），旧版 / 未来版本 / 无版本 / 缺服务端快照一律拒绝且零写入；确认框在导入前显示差异摘要（覆盖哪些、保留哪些、归档同名不覆盖）；写入失败的项在回执里报数，不再静默吞掉。新增 `tests/data-pack.cjs` 并登记进 `tests/all.cjs`。
 - 新增全局命令面板 `web/ui/command.js`（Ctrl/Cmd+K 唤起）：候选页只从 `WB_ROUTES.pages` 现取、跳页只走 `GoPage.go`；全局只占一个唤起键，↑↓ / Enter / Esc 在面板内消化并截断，避让导演台键盘作用域岛；输入框与输入法合成中不抢键。新增 `tests/command-palette.cjs`，`tests/spa.cjs` 首屏脚本预算按「为什么不能按需」记账 +1 枚。
 - 设置页只留标签与状态：删掉页面副标题、每张卡的说明行、`.pb-tip` 提示条、缓存逐项说明、Skill 区的解释文案、目录轨的组说明，以及账号卡上「不经过云供应商 / 转发到某地址」那几句；界面偏好与产物存放那几段长说明收成短句，账号摘要、同步状态与存档位说明一并压短。
 - 设置项右侧的说明文字一并删掉：界面偏好的三句（产物自动存本机 / 优先用本机文件 / 不显示云端任务）、素材库那五项（音色方式、默认生图型号、默认语音型号、出几张候选、出几条语音）、失败重试的「填 0 = 不重试」、反问档位的「也管导演台的拆分镜 / 改分镜」。`Chars.SET` 与 `UI_PREFS` 里对应的 `hint` 字段一并去掉，渲染处不再有 hint 分支（不留「声明了但没人读」的字段）。`tests/director-split-ask.mjs` 那一条从「文案里写清它也管拆分镜」改为守接线（设置页的键名 = `TextAI.askMode` 读的键）。
@@ -21,7 +29,7 @@
 - 设置页剩下的块级灰底一并收进同一口径：数据行（`.krow`：数据文件 / 浏览器存储 / 云同步 / 备份）、供应商卡里的能力子块（`.incard` / `.capform-text`）、型号清单面板（`.mpanel`）、Skill 预览与筛选条都改成卡片面。灰只留给小控件与状态牌（按钮 / 芯片 / 输入框 / 停用态）。
 - 新增控件阴影 `--shadow-ctl`（按钮 `.ghost` / `.pri` / `.tool`、下拉 `.dd-btn`、输入框与 `.ui-pill` 统一读它）：贴边 1px 的描边影 + 底边硬投影 + 一圈小光晕，上下左右四边都有边界；原来这些控件只带 `--shadow-1`（1px 2px 的小偏移），落在白卡上只剩底边一条、看着是平的。深色档换成浅描边影 + 黑投影（深底上黑描边看不见，控件会与卡片连成一片）。
 - 导演台「高级设置」里那颗时长数字框也改用 `--shadow-ctl`（描边让位给影，补 hover / focus 态），与同一张卡里的下拉、开关同一层厚度。
-- 提示词归档不再单独选位置：默认目录改成**库根下的 `提示词\`**（`server/prompts-store.js` 的默认值由注入的 `localRoot` 现算，白名单放行用户挑的库根），设置页那一格从输入框改成只读路径；`prompt_dir` 本地键与 `PromptLog.dir` / `setDir` 一并删除，云同步与整包导出不再传 `promptDir`，`user-dirs.promptsRoot` 随之删掉。`tests/local-root.cjs` 增加三条判据（与库根同根、换根跟着换、库根在下载目录之外也合法）。
+- 提示词归档不再单独选位置：默认目录改成**库根下的 `提示词\`**（`server/data-hub.js` 的默认值由注入的 `localRoot` 现算，白名单放行用户挑的库根），设置页那一格从输入框改成只读路径；`prompt_dir` 本地键与 `PromptLog.dir` / `setDir` 一并删除，云同步与整包导出不再传 `promptDir`，`user-dirs.promptsRoot` 随之删掉。`tests/local-root.cjs` 增加三条判据（与库根同根、换根跟着换、库根在下载目录之外也合法）。
 - 「打开目录」统一到 `server/open-dir.js`（提示词归档与 FCPXML 工程共用）：Windows 上先起 explorer，再用 `AttachThreadInput` + `SetForegroundWindow` 把那个窗口拽到应用前面。以前由后台代理拉起的资源管理器会被前台锁压在应用窗口后面 —— 点了「已导出 FCPXML 工程目录」，文件夹其实开了，用户只看见自己的窗口没动。前台锚定的 P/Invoke 片段抽到 `server/win-fg.js`，与设置页「选择文件夹」共用一份。
 - 任务卡动作区不再钉死两行（`ui.css` 去掉 `grid-template-rows: repeat(2, --sz-ctl)`，改 `grid-auto-rows`）：只有「展开详情 / 下载」两颗的完成卡，第二行原来整行空着，卡片底部多出 36px 空洞。等高仍成立 —— 同一排由更高的那张 stretch 定行高，多出的空间被 `.acts` 的 `margin-top:auto` 收在正文下方，按钮始终贴着卡片底边。资产库紧凑档与收藏页的 `card-acts` 同吃这一条。
 - 卡面「下载」从 10% 淡紫底改成 `--sel-bg` 淡紫底 + `--acc-line-32` 描边 + 强调色加粗 + 轻投影（实心 `--pri` 试过，用户回「过于深」，一屏六张卡各压一块深紫太重）；hover 只抬阴影，不加深填充。
@@ -38,3 +46,41 @@
 影响：三批都不改数据形状，不需要重打 `tests/data-baseline.json`；命令面板是新增外壳级浮层，默认隐藏，不进视觉回归画面。
 
 影响：只动文档、判据与一个只读状态字段，不改数据形状，不需要重打 `tests/data-baseline.json`。
+
+- WebDAV 默认云端文件夹名跟仓库名对齐：`ai-workbench` → `imago`（`web/pages/settings.js` 的 `CLOUD_DEFAULT_URL`；设置页输入框的 placeholder 由模板绑到同一份常量，不再两处各写一遍地址）。
+
+影响：只改默认地址，不改数据形状、不需要重打 `tests/data-baseline.json`。浏览器里已存过 `sk_cloud_url` 的机器不受影响（旧地址原样保留），要用新目录得在设置页自己改；云端旧目录里的文件不会自动搬。
+
+- 云同步修两处「`.env` 填了却像没生效」：`/cloud/status` 的 `envConfigured` 改按 `CLOUD_WEBDAV_USER` + `CLOUD_WEBDAV_PASS` 判定（地址常由设置页给，不该要求 `CLOUD_WEBDAV_URL` 也非空）；组合根给云同步 store 补注入 `writeKey`，此前同步状态与基线写不进 `state.json`（日志报 `writeKey is not a function`），设置页一直显示「还没有同步过」。设置页状态行改成「凭据在代理侧（账号密码留空即用）」，说清 `.env` 的账号密码不会回显。`tests/data-hub.cjs` 加 6 条判据（来源判定 / 页面覆盖 / 状态落盘 / 凭据回退）。
+
+影响：不改数据形状、不需要重打 `tests/data-baseline.json`；`.env` 里已配账号密码的机器，重开设置页就能在状态行看到凭据来源。
+
+- 设置页与 `.env` 的口径统一成「页面留空 = 用 `.env`，页面填了 = 以页面为准」：云同步地址栏不再把空串顶回默认地址（`initCloud` 只在本机从没存过这个键时给示例值），三格 placeholder 都点明留空用 `.env`；服务端 `cloudCfg` 原本就是这套优先级，这次给 URL 那一格补上回退/覆盖判据。`.env.example` 补上口径说明，并修正提示词归档目录那段过时注释（现在跟着库根走，设置页只读）。`tests/data-hub.cjs` 加 2 条、`tests/settings-schema.cjs` 加 3 条判据。
+
+影响：不改数据形状、不需要重打 `tests/data-baseline.json`；本机存过地址的老配置不会被自动清空，想改用 `.env` 的地址要自己在设置页清空地址栏（并在 `.env` 里填好 `CLOUD_WEBDAV_URL`）。
+
+- WebDAV 地址补最后一档内置默认 `https://dav.jianguoyun.com/dav/imago/`（文件夹名跟仓库名一致），三格口径收敛为「页面填了 > `.env` > 内置默认（只有地址有）」。默认地址只定义在 `server/data-hub.js` 的 `CLOUD_DEFAULT_URL`，经 `/cloud/status` 的 `defaultUrl` 下发给设置页做输入提示；设置页不再把默认地址预填进输入框（预填等于「页面填了」，会把 `.env` 写的地址压掉），账号与应用密码仍没有默认值。`server/app.js` / `.env.example` / `AGENTS.md` 同步口径，`tests/data-hub.cjs` 加 4 条（默认回退 / 空白视为留空 / 状态下发 / store 暴露）、`tests/settings-schema.cjs` 加 2 条改 1 条判据。
+
+影响：不改数据形状、不需要重打 `tests/data-baseline.json`；`.env` 里 `CLOUD_WEBDAV_URL` 留空、账号密码已配的机器，不用再补地址就能测试连接与同步（页面地址栏保持空），页面里已存过地址的本机仍以存的值为准。
+
+- 导演台短片菜单里三颗项目文件入口收成**同一层级**：`导出当前短片` / `导出全部短片` / `导入项目文件` 统一用 `.pm-io` 行（同样的图标位与右对齐 hint），删掉「导出拆分按钮 + 尾钮缩进子级」那套结构 —— 以前导出是带边框的按钮、导入是一行，导入看起来低了一级。`pmIOSplitOpen` 状态与 `.pm-io-split` / `.pm-io-sub` 样式一并删除；三行补上 `role="button"` 与 Enter / 空格键盘可达。`tests/e2e/director-project-pack.cjs` 改为守「三颗同级、顺序固定、没有拆分与子级」，`tests/all.cjs` 注释同步。
+
+影响：只动导演台短片菜单的结构与样式，不改工作区 / 项目包数据形状，不需要重打 `tests/data-baseline.json`；菜单默认折叠，页面级视觉基线不用重拍。
+
+- 导演台「项目文件」恢复**导出拆分按钮**并补第三档范围：左半「导出当前短片」直接导出，行尾 chevron 是单独一格热区（撑满整行高、竖细线分隔），摊开「导出全部短片」与新增的「导出当前项目组短片」（同组全部，hint 带组名与部数）；「导入项目文件」仍是并排同级的一行，不与导出分主次。当前短片没归组时按组导出那格标为不可用（`.pm-io-off` + `aria-disabled`），点一下把原因写进状态栏。`exportProjectPack(scope)` 由布尔改成 `'current' | 'all' | 'group'`（`true` 仍兼容为全部），按组导出的文件名带组名；`clearProjMenuStates` 一并复位尾钮。`tests/e2e/director-project-pack.cjs` 重写为 34 条（两颗同级入口 / 尾钮两种范围 / 三部短片分档：当前 1 · 全部 3 · 本组 2 / 未归组不可用 / 收起再摊开不残留次级），`tests/all.cjs` 注释同步。
+
+影响：只动导演台短片菜单的结构、样式与导出入口，不改工作区 / 项目包数据形状，不需要重打 `tests/data-baseline.json`；菜单默认折叠，页面级视觉基线不用重拍。
+
+- 导演台项目文件：导出尾钮里「导出当前项目组短片」挪到「导出全部短片」**之上**（窄范围在前、全量在后），组名与部数的 hint 不变。项目组随包往返改为**只认组名**：导出时把 `groupId` 抹掉（组 id 是导出那台机器的工作区身份，跨机器要么指空、要么撞进本地另一拨同 id 的组），只带 `groupName`；导入时本机有同名组就并进那个组、没有就按名字现建一个，同一份包导两次不会得到两个「默认组」。确认框先说明「本机没有同名组就新建、已有同名组就并进那个组」，导入回执分别报「新建 N 个项目组（组名）」与「N 个项目组并入了现有同名组」，导出回执加上组数。老包 / 手改过的包里若还留着 `groupId`，导入归一化会一并抹掉。`tests/director-project-pack.mjs` 加 8 条（组 id 不随包走 / 带 groupId 的老包要抹掉 / 组数统计 / 确认框说明），`tests/e2e/director-project-pack.cjs` 扩到 44 条（顺序 / 组名认领 / 同名并入现有组 / 无同名组现建 / 回执措辞），`tests/all.cjs` 注释与 `AGENTS.md` 同步。
+
+影响：只动导演台项目文件的导出顺序与组归位口径，不改工作区数据结构、不需要重打 `tests/data-baseline.json`；项目包仍是 v1（组名本来就在 `projects` 的校验和里），旧包照常能导，只是导入后不会再带着导出那台机器的组 id。菜单默认折叠，页面级视觉基线不用重拍。
+
+- 导演台项目文件导入：撞名后缀不再只判一次，改成往后连续编号 —— 第一次「X（导入）」、再撞「X（导入 2）」/「X（导入 3）」……。判定同时看**本机已有短片**与**这一批里刚分出去的名字**：同一个包连导两次（本机还留着原片和上一份「（导入）」）以前会得到两部都叫「X（导入）」的短片，包里本来就带两部同名短片时也一样，现在都能分开。实现在 `web/director/project-pack.js` 的 `pickProjectName`（`prepareProjectPackImport` 内），导入回执改成「N 部短片因重名加了「（导入）」后缀」。`tests/director-project-pack.mjs` 加 7 条（第二次 / 第三次导入接着编号、同一批同名当场分开、没撞名不改名），`tests/e2e/director-project-pack.cjs` 扩到 46 条（同一份包连导三次后组内与全菜单都不存在同名短片）。
+
+影响：只动导入归一化的命名规则，不改项目包格式（仍是 v1）、不改工作区数据结构，不需要重打 `tests/data-baseline.json`；已经导进来的重名短片不会被自动改名，只影响之后的导入。菜单默认折叠，页面级视觉基线不用重拍。
+
+- 导演台项目文件：导入前把两处「要不要动你的东西」的问句交回给用户，不再替人决定。① **项目组重名**：本机已有同名组时先问「并入现有同名组 / 给导入的组改名」——选改名就给导入的那一组加「（导入）」后缀（本机连这个名字也有就接着编 2、3…），同一个组里的几部只改一次名，本机原有的组与短片一个字节都不动；本机没有同名组时照旧直接新建，不问。② **内容完全一致**：按作品内容算指纹（`projPackFingerprint`，id / 名字 / 组 / 面板补的 `combo`·`adv`·`duration` / 空默认值都不进指纹，成片轨照比），包里的短片与本机某部一模一样时先问「跳过这些 / 照导并重命名」；选跳过就一部都不写、也不再问组名与确认框，回执直接说明「N 部与本机一致，一部都没重复导入」。两问都取消 = 整次导入放弃，工作区不动。实现：`web/director/project-pack.js` 新增 `scanProjectPackConflicts`（只报事实）与 `projPackFingerprint`，`prepareProjectPackImport` 接 `groupPolicy` / `groupTaken` / `skipIndexes` 三个口子并回报 `skipped` / `renamedGroups`；`web/director/engine.js` 串起两问与回执。
+- 导演台项目文件菜单：摊开后的入口不再用强调色（蓝色），改成正文色 —— 它们只是菜单里的一段，不该比短片行更抢眼；同时整组缩进进 `.pm-io-body` 的一条竖线里，一眼看得出是长在「项目文件 · 导入 / 导出」那一行下面，而不是与上面的短片行同级。
+- 判据：`tests/director-project-pack.mjs` 加 13 条（指纹只认内容 / 面板默认值不算 / 成片轨时长照比 / 组名撞车扫描 / 合并与改名两种策略 / 同组只改一次名 / 跳过不入列表），`tests/e2e/director-project-pack.cjs` 扩到 59 条（多窗导入的走法、改名后本机原组一部不少、全跳过时行数不变且不再弹确认框、入口缩进与配色），`tests/all.cjs` 注释、`AGENTS.md`、`README.md` 同步。顺带把「素材线索校验和对不上」那条判据改成现在代码的语义：只丢线索、作品照常导入。
+
+影响：只动导演台项目文件的导入交互与菜单观感，不改项目包格式（仍是 v1）、不改工作区数据结构，不需要重打 `tests/data-baseline.json`；本机已有的短片与组不会被改名或合并（改名只发生在**导入的那一份**上）。菜单默认折叠，页面级视觉基线不用重拍。

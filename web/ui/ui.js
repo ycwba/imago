@@ -1380,7 +1380,10 @@ window.UI_PREFS = {
       opts: window.VIEW_MODES },
     { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES },
-    { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
+    /* 这一档只管「历史产物 / 列表里的云端条目要不要补齐」：**导演台刚生成的**
+       产物一律存本机，不受它管（见 local.js 的 mustSave）。名字写清边界，免得关掉开关
+       的人以为新生成的片子也不会落盘。工作台产物不走 mustSave —— 那边仍听这一档。 */
+    { key: 'sk_media_local', group: 'store', name: '历史产物自动存本机', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']] },
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']] },

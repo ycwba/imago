@@ -11,7 +11,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { createLocalAssetsStore } = require('../server/local-assets-store.js');
+const { createLocalAssetsStore, portableIdOfName, portableFallbackName } = require('../server/local-assets-store.js');
 const { createLocalAssets } = require('../server/routes/local-assets.js');
 const { safeOutboundUrl } = require('../server/security.js');
 
@@ -93,6 +93,9 @@ const routes = createLocalAssets({
   invalidateScan: store.invalidateScan,
   localRootDir: () => assets,
   MIME,
+  /* 「盘上已有字节 → 只补索引」：这一份判据装的是真存储层，不用假件。 */
+  adoptBodyByHint: store.adoptBodyByHint,
+  rebindBodies: store.rebindBodies,
 });
 
 let BODY = Buffer.from('{}');
@@ -105,6 +108,17 @@ const post = spec => new Promise((resolve, reject) => {
     end(s) { let json = null; try { json = JSON.parse(String(s)); } catch (e) {} resolve({ code: this.code, json, text: String(s) }); },
   };
   Promise.resolve(routes.handleLocalAssets({ method: 'POST', url: '/local-assets/from-url' }, res, { pathname: '/local-assets/from-url' }))
+    .catch(reject);
+});
+/* base64 直传那一路（POST /local-assets）：任务卡 / 语音 / 成片走的就是它。 */
+const postRaw = spec => new Promise((resolve, reject) => {
+  BODY = Buffer.from(JSON.stringify(spec));
+  const res = {
+    code: 0,
+    writeHead(c) { this.code = c; },
+    end(s) { let json = null; try { json = JSON.parse(String(s)); } catch (e) {} resolve({ code: this.code, json, text: String(s) }); },
+  };
+  Promise.resolve(routes.handleLocalAssets({ method: 'POST', url: '/local-assets' }, res, { pathname: '/local-assets' }))
     .catch(reject);
 });
 
@@ -184,6 +198,203 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   ok('带平台号的那一行没被换身份', stillOwned && stillOwned.detail.asset === 'asset_belongs_to_other' && !String(stillOwned.upstream || '').trim(),
     JSON.stringify(stillOwned && { asset: stillOwned.detail && stillOwned.detail.asset, upstream: stillOwned.upstream }));
   ok('这一份另开新账（不并到别人那张卡上）', r4.json && r4.json.id !== owned.id && !!rowOf(r4.json.id), JSON.stringify(r4.json && r4.json.id));
+
+  /* ⑦ 可移植身份：文件名带着 la_ 号一起走 —— 新机器只拷视频文件、不搬索引时，
+     磁盘对账 / `/asset/<旧号>` 都能按名把**原来那一枚号**复原，不用重新导入素材。 */
+  ok('文件名尾标认得出本机号（含撞名 -2）',
+    portableIdOfName('视频/场景01-镜头03__la_ab12cd.mp4') === 'la_ab12cd'
+    && portableIdOfName('场景01-镜头03__la_ab12cd-2.mp4') === 'la_ab12cd'
+    && portableIdOfName('la_legacy.mp4') === 'la_legacy'
+    && portableIdOfName('用户自己的一段.mp4') === '', '');
+  const B_PORT = bytesOf(71);
+  const place = store.newBodyPlace({ name: '换机器要认回.png', id: 'la_portable1', format: 'png', mime: 'image/png' });
+  ok('新落盘的文件名带 __<本机号>', portableIdOfName(place.file) === 'la_portable1', place.file);
+  fs.writeFileSync(place.abs, B_PORT);
+  store.invalidateScan();
+
+  /* 「另一台机器」：同一个库根，账本整个是空的。 */
+  const mkFresh = sub => {
+    const d = path.join(tmp, sub);
+    fs.mkdirSync(path.join(d, 'local-assets'), { recursive: true });
+    return createLocalAssetsStore({
+      MIME, dataDirPath: () => d, log: () => {}, spawnSync: () => {},
+      localRoot: () => assets, fileSafe: s => String(s || 'x'),
+    });
+  };
+  const fresh = mkFresh('data-fresh');
+  const byOldId = String(fresh.localAssetFile('la_portable1') || '');
+  ok('账全空、只留文件时，`/asset/<旧号>` 一问就按名认回同一枚号',
+    !!byOldId && fs.existsSync(byOldId) && fs.readFileSync(byOldId).equals(B_PORT), byOldId);
+  ok('补建出来的那一行用的就是旧号', !!(fresh.localIndexRead().find(x => x && x.id === 'la_portable1')), '');
+  const adopted = mkFresh('data-adopted');
+  adopted.localAdopt(true);
+  const adoptedRow = adopted.localIndexRead().find(x => x && x.id === 'la_portable1');
+  ok('启动磁盘对账也复原旧号（不重新铸号）', !!adoptedRow && fs.existsSync(path.join(assets, adoptedRow.file)),
+    adoptedRow && adoptedRow.file);
+  ok('同一枚号不会补出第二张卡', adopted.localIndexRead().filter(x => x && x.id === 'la_portable1').length === 1, '');
+
+  /* ⑧ 老文件（没有尾标、还被改过名）：项目文件带的线索照样把旧号认回盘上那一份。 */
+  const B_OLD = bytesOf(72);
+  fs.writeFileSync(path.join(assets, '图片', '被用户改过名的旧素材.png'), B_OLD);
+  const rb = fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png',
+    file: path.join('图片', '被用户改过名的旧素材.png'), bytes: B_OLD.length,
+    format: 'png', assetId: 'asset_old_pc', taskId: 'job_old_pc',
+    upstream: 'https://cdn.example.com/results/old_pc.png?sig=1' }]);
+  ok('重绑回执给回旧号那一行', rb.bound === 1 && rb.rows[0] && rb.rows[0].id === 'la_from_old_pc',
+    JSON.stringify(rb));
+  ok('重绑只写账、不复制字节', bodies().filter(p => /被用户改过名的旧素材/.test(p)).length === 1, '');
+  ok('按旧号就取得到字节', fs.existsSync(String(fresh.localAssetFile('la_from_old_pc'))), '');
+  const oldRow = fresh.localIndexRead().find(x => x && x.id === 'la_from_old_pc');
+  ok('平台身份一并补进账', oldRow && oldRow.assetId === 'asset_old_pc' && /old_pc\.png/.test(String(oldRow.upstream)),
+    JSON.stringify(oldRow && { assetId: oldRow.assetId, upstream: oldRow.upstream }));
+  ok('重绑端点同一批线索（走路由那层也算）', (() => {
+    const r = fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png' }]);
+    return r.bound === 1 && r.rows[0].id === 'la_from_old_pc';
+  })(), '');
+
+  /* ⑨ 「盘上已经有这份字节 → 只补索引、零下载」：from-url 在取字节之前按规范名认盘。 */
+  const B_RECOG = bytesOf(73);
+  const recName = '盘上早就有的那一段__la_recog9.png';
+  fs.writeFileSync(path.join(assets, '图片', recName), B_RECOG);
+  store.invalidateScan();                       // 真实写盘会作废快照；探针手动写也一样
+  const fetchedBefore = fetched.length;
+  const r5 = await post({ url: 'https://cdn.example.com/results/recog9.png', name: '盘上早就有的那一段.png',
+    mime: 'image/png', format: 'png',
+    meta: { upstream: 'https://cdn.example.com/results/recog9.png', provider: 'sparkcine',
+      /* 字节数是认盘的必带线索之一：只给名字不给大小会把「同一镜头重做的那一版」认成旧的。 */
+      byteLength: B_RECOG.length,
+      detail: { asset: 'asset_recog9', task: 'job_recog9' } } });
+  ok('按规范名认回：回 200 且判成盘上复用', r5.code === 200 && r5.json && r5.json.recognized === true
+    && r5.json.reused === true, r5.code + ' ' + r5.text.slice(0, 200));
+  ok('一个字节都没下载（downloadTo 探针没被问到）', fetched.length === fetchedBefore,
+    '多取了 ' + (fetched.length - fetchedBefore) + ' 次');
+  ok('回的是文件名里那一枚号', r5.json && r5.json.id === 'la_recog9', r5.json && r5.json.id);
+  const recRow = rowOf('la_recog9');
+  ok('平台身份补写进账、落点没动', recRow && recRow.detail && recRow.detail.asset === 'asset_recog9'
+    && /la_recog9/.test(String(recRow.file)), JSON.stringify(recRow && { file: recRow.file, detail: recRow.detail }));
+  ok('没有多落一份字节', bodies().filter(p => /盘上早就有的那一段/.test(p)).length === 1, '');
+
+  /* ⑨b 只给规范名、不给字节数时**不许**认：同一个镜头重做一次候选，名字一样而内容不同，
+     凭名字认就会把上一版当成这一版（界面显示旧片，新的那份永远不下）。 */
+  const B_RE = bytesOf(77);
+  fs.writeFileSync(path.join(assets, '图片', '重做候选__la_redo1.png'), B_RE);
+  store.invalidateScan();
+  const noSize = store.adoptBodyByHint({ name: '重做候选.png', format: 'png',
+    upstream: 'https://cdn.example.com/results/redo1.png', requirePortable: true });
+  ok('只给名字不给字节数：不认盘', noSize === null, JSON.stringify(noSize && noSize.row));
+  const withSize = store.adoptBodyByHint({ name: '重做候选.png', format: 'png', bytes: B_RE.length,
+    upstream: 'https://cdn.example.com/results/redo1.png', requirePortable: true });
+  ok('名字 + 字节数两条线索齐了才认', !!withSize && withSize.row.id === 'la_redo1',
+    JSON.stringify(withSize && withSize.row));
+
+  /* ⑩ 只认库根：账里指到库根外面的那一条按「不在这里」处理 —— 既不报「本机有」，
+     也不顺着它去读盘。用户口径：只查设置里选的那一个目录，不翻机器上其它地方。 */
+  const outsideDir = path.join(tmp, 'outside-root');
+  fs.mkdirSync(outsideDir, { recursive: true });
+  const outsideFile = path.join(outsideDir, '库根外面这一份.png');
+  const B_OUT = bytesOf(74);
+  fs.writeFileSync(outsideFile, B_OUT);
+  fresh.localIndexUpsert({ id: 'la_outside', file: outsideFile, name: '库根外面这一份.png',
+    format: 'png', mime: 'image/png', byte_length: B_OUT.length, media_type: '图片',
+    created_at: new Date().toISOString(), provider: 'local' });
+  ok('库根外面的账行取不到字节', String(fresh.localAssetFile('la_outside') || '') === '', '');
+  ok('别名表不把它报成「本机有」', !fresh.localAliases().rows.some(x => x && x.id === 'la_outside'), '');
+  const rbOut = fresh.rebindBodies([{ id: 'la_outside2', file: outsideFile,
+    name: '库根外面这一份.png', bytes: B_OUT.length }]);
+  ok('重绑线索指到库根外面也不认', rbOut.bound === 0, JSON.stringify(rbOut.rows));
+
+  /* ⑪ base64 直传（任务卡 / 语音 / 成片）：盘上已经有同一份字节时只补索引、不再落第二份。
+     判据是内容而不是名字 —— 同名同大小、字节不同的是两份作品，不许吞掉新的一份。 */
+  const B_POST = bytesOf(75);
+  fs.writeFileSync(path.join(assets, '图片', '以前存过的同一份.png'), B_POST);
+  store.invalidateScan();
+  const r6 = await postRaw({ name: '任务卡产物.png', mime: 'image/png', format: 'png',
+    data: B_POST.toString('base64'), meta: { prompt: '同一份字节' } });
+  ok('直传先按内容认盘：回 200 且判成盘上复用', r6.code === 200 && r6.json && r6.json.recognized === true
+    && r6.json.reused === true, r6.code + ' ' + r6.text.slice(0, 200));
+  ok('没有再落第二份字节', bodies().filter(p => /以前存过的同一份|任务卡产物/.test(p)).length === 1,
+    bodies().filter(p => /以前存过的同一份|任务卡产物/.test(p)).join(' | '));
+  ok('认回来的那条落点就是盘上那一份', r6.json && /以前存过的同一份\.png$/.test(String(r6.json.file)),
+    r6.json && r6.json.file);
+
+  const B_OTHER = bytesOf(76);                       // 同长度、不同内容
+  const r7 = await postRaw({ name: '以前存过的同一份.png', mime: 'image/png', format: 'png',
+    data: B_OTHER.toString('base64'), meta: {} });
+  ok('同名同长度但字节不同：认不出，照常落新的一份', r7.code === 200 && !r7.json.recognized
+    && bodies().filter(p => /以前存过的同一份/.test(p)).length === 2,
+    r7.code + ' ' + bodies().filter(p => /以前存过的同一份/.test(p)).join(' | '));
+
+  /* ⑫ 同来源的账行还在、文件却没了（用户手删 / 盘满只剩账）：不许回 reused 假成功 ——
+     以前这里直接返回 /asset/<id>，前端拿到一个 404 而且再也不会重下。
+     重下一份，**沿用原号**，旧工程里的地址继续有效。 */
+  const B_GONE = bytesOf(77);
+  BY_URL.set(UP_B, B_GONE);
+  const goneSpec = { url: UP_B, name: '文件被删了的那一段.png', mime: 'image/png', format: 'png',
+    meta: { upstream: UP_B, detail: { asset: 'asset_gone', task: 'job_gone' } } };
+  const r8 = await post(goneSpec);
+  const id8 = r8.json && r8.json.id;
+  const file8 = id8 ? path.join(assets, String(rowOf(id8).file)) : '';
+  ok('先存了一份（打底）', r8.code === 200 && !!id8 && fs.existsSync(file8), r8.text.slice(0, 200));
+  fs.unlinkSync(file8);
+  store.invalidateScan();
+  const r9 = await post(goneSpec);
+  ok('文件没了不许回 reused', r9.code === 200 && r9.json && r9.json.reused !== true
+    && r9.json.id === id8, r9.code + ' ' + r9.text.slice(0, 200));
+  ok('字节按原号补回来了', fs.existsSync(path.join(assets, String(rowOf(id8).file))), String(rowOf(id8).file));
+  ok('还是一条账，没有同号两份', store.localIndexRead().filter(x => x && x.id === id8).length === 1, '');
+  ok('来源身份没丢', rowOf(id8).upstream === UP_B && rowOf(id8).detail && rowOf(id8).detail.asset === 'asset_gone', '');
+
+  /* ⑬ 按号补建（/asset/<旧号> 那一问）：同号旧行要保住 upstream，别拿新对象把它盖掉；
+     文件已经归给另一条账时只挂别名，绝不开第二条账指向同一份文件。 */
+  store.localIndexUpsert({ id: 'la_keep1', file: '图片/早就不在了.png', name: '早就不在了.png',
+    mime: 'image/png', format: 'png', byte_length: 1, upstream: 'https://keep.example.com/a.png?sig=1',
+    detail: { asset: 'asset_keep' }, provider: 'sparkcine' });
+  const keepBytes = bytesOf(78);
+  fs.writeFileSync(path.join(assets, '图片', '保留来源__la_keep1.png'), keepBytes);
+  store.invalidateScan();
+  const kept = store.localAssetRepair('la_keep1');
+  ok('同号旧行被认回', !!kept && kept.id === 'la_keep1', JSON.stringify(kept && kept.id));
+  ok('旧行的来源外链没被抹掉', kept && kept.upstream === 'https://keep.example.com/a.png?sig=1', kept && kept.upstream);
+  ok('落点换成了盘上这一份', kept && /保留来源__la_keep1\.png$/.test(String(kept.file)), kept && kept.file);
+
+  const conflictFile = '图片/别人的作品__la_conflict.png';
+  fs.writeFileSync(path.join(assets, conflictFile), bytesOf(79));
+  store.localIndexUpsert({ id: 'la_owner_row', file: conflictFile, name: '别人的作品.png',
+    mime: 'image/png', format: 'png', byte_length: 3, upstream: '', provider: 'local' });
+  store.invalidateScan();
+  const rowsBefore = store.localIndexRead().length;
+  const conflict = store.localAssetRepair('la_conflict');
+  ok('同一份文件不补第二条账', store.localIndexRead().length === rowsBefore, rowsBefore + ' → ' + store.localIndexRead().length);
+  ok('旧号挂成别名指回已有那一行', !!conflict && conflict.id === 'la_owner_row'
+    && Array.isArray(conflict.aliasIds) && conflict.aliasIds.includes('la_conflict'),
+    JSON.stringify(conflict && { id: conflict.id, aliasIds: conflict.aliasIds }));
+
+  /* ⑭ 999 个同名之后的兜底文件名：时间戳必须插在可移植尾标前面，
+     否则 portableIdOfName 认不出这一枚号，换机器时这份文件永远对不上原号。 */
+  const fb = portableFallbackName('片段__la_abc123.mp4', 'k3j4h5');
+  ok('兜底名保住可移植尾标', fb === '片段-k3j4h5__la_abc123.mp4', fb);
+  ok('兜底名仍认得出原号', portableIdOfName(fb) === 'la_abc123', portableIdOfName(fb));
+  ok('没有尾标的兜底名照旧加戳', portableFallbackName('片段.mp4', 'k3j4h5') === '片段-k3j4h5.mp4', '');
+
+  /* ⑮ 重绑超过单次上限时把尾巴如实报出来（以前 total 报的是截断后的数，用户看不出还有没认回的）。 */
+  const tmp2 = path.join(tmp, 'cap');
+  const assets2 = path.join(tmp2, 'assets');
+  const data2 = path.join(tmp2, 'data');
+  fs.mkdirSync(path.join(assets2, '图片'), { recursive: true });
+  fs.mkdirSync(path.join(data2, 'local-assets'), { recursive: true });
+  const capped = createLocalAssetsStore({
+    MIME, dataDirPath: () => data2, log: () => {}, spawnSync: () => {},
+    localRoot: () => assets2, fileSafe: s => String(s || 'x'), rebindMax: 1,
+  });
+  fs.writeFileSync(path.join(assets2, '图片', '第一条__la_cap1.png'), bytesOf(81));
+  fs.writeFileSync(path.join(assets2, '图片', '第二条__la_cap2.png'), bytesOf(82));
+  capped.invalidateScan();
+  const capOut = capped.rebindBodies([
+    { id: 'la_cap1', name: '第一条.png', bytes: bytesOf(81).length },
+    { id: 'la_cap2', name: '第二条.png', bytes: bytesOf(82).length },
+  ]);
+  ok('超过上限：total 报请求条数', capOut.total === 2, JSON.stringify(capOut.total));
+  ok('超过上限：omitted 报没处理的尾巴', capOut.omitted === 1 && capOut.bound === 1, JSON.stringify(capOut));
 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');

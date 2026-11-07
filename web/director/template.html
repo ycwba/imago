@@ -167,6 +167,44 @@
   .pm-add { margin-top: var(--sp-4); padding-top: var(--sp-8); border-top: var(--hair) solid var(--line); font-size: var(--fs-13);
     color: var(--acc); padding: var(--sp-8) var(--sp-8) var(--sp-4); border-radius: var(--radius-4); cursor: pointer; }
   .pm-add:hover { background: var(--panel2); }
+  /* 项目文件：菜单底部**默认折叠**的一组入口。标题行是这一组的「头」（小字、次级色），
+     摊开的内容整组缩进一条竖线里 —— 一眼看出这几行长在「项目文件 · 导入 / 导出」下面，
+     而不是与上面那串短片行同级。行内文字用正文色而不是强调色：它只是菜单里的一段，
+     不需要像主按钮那样抢眼。
+     单起一类，不复用 .pm-add —— 那边「＋ 新建项目组」是按 .pm-add 找出来点的。 */
+  .pm-io-box { margin-top: var(--sp-8); padding-top: var(--sp-4); border-top: var(--hair) solid var(--line); }
+  .pm-io-toggle { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8);
+    border-radius: var(--radius-4); font-size: var(--fs-12); color: var(--sub); cursor: pointer; }
+  .pm-io-toggle:hover { background: var(--panel2); color: var(--txt); }
+  .pm-io-toggle svg, .pm-io svg { flex: 0 0 auto; width: var(--sz-ico); height: var(--sz-ico); }
+  /* 摊开那一组的边界：左侧一条竖线 + 缩进。它就是「这几行属于上面那行」的那条边。 */
+  .pm-io-body { margin: 0 0 var(--sp-4) var(--sp-8); padding-left: var(--sp-8);
+    border-left: var(--hair-2) solid var(--line); }
+  .pm-io { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8);
+    border-radius: var(--radius-4); font-size: var(--fs-13); color: var(--txt); cursor: pointer; }
+  .pm-io:hover { background: var(--panel2); }
+  .pm-io-name { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pm-io-hint { color: var(--sub); font-size: var(--fs-11); white-space: nowrap;
+    max-width: 48%; overflow: hidden; text-overflow: ellipsis; }
+  /* 拆分按钮：整行仍是同样的内边距与字号，所以和「导入项目文件」一样高；
+     行尾那半格**撑满整行高**（自成一个热区），用一条竖细线分开，悬停只亮它自己。 */
+  .pm-io-split { padding: 0; align-items: stretch; }
+  .pm-io-split:hover { background: none; }
+  .pm-io-main { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--sp-8);
+    padding: var(--sp-8); border-radius: var(--radius-4) 0 0 var(--radius-4); }
+  .pm-io-main:hover { background: var(--panel2); }
+  .pm-io-more { flex: 0 0 auto; display: flex; align-items: center; padding: 0 var(--sp-8) 0 var(--sp-4);
+    border-left: var(--hair) solid var(--line); border-radius: 0 var(--radius-4) var(--radius-4) 0; color: var(--sub); }
+  .pm-io-more:hover { background: var(--panel2); color: var(--txt); }
+  .pm-io-more[aria-expanded="true"] { color: var(--txt); }
+  .pm-io-more[aria-expanded="true"] svg { transform: rotate(180deg); }
+  /* 拆分按钮摊开的次级：再缩进一格 + 左侧细线。不挂 absolute 浮层 —— #projMenu 自己是
+     max-height 的滚动容器，浮层会被裁掉；缩进的一行跟着菜单一起滚。 */
+  .pm-io-sub { margin: 0 0 var(--sp-4) var(--sp-8); padding-left: var(--sp-8);
+    border-left: var(--hair) solid var(--line); }
+  /* 当前短片没归组时的「按项目组导出」：位置留着，但点不动，一眼看出是没范围可导。 */
+  .pm-io-off { color: var(--sub); opacity: .6; cursor: default; }
+  .pm-io-off:hover { background: none; }
   /* 项目组头：组名 + 几部短片 + 改名 / 删组。组里的短片在下面缩进一格。
      「未分组」那一档没有组操作（它不是组，只是没归组的那些）。 */
   .pm-group { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8) var(--sp-4); margin-top: var(--sp-4);
@@ -1284,6 +1322,9 @@
     <span id="exportBtns"></span>
   </div>
   <input type="file" id="importMediaFile" accept="video/mp4,video/quicktime,video/webm,video/x-matroska" hidden>
+  <!-- 项目文件（完整工程 .json）的入口挂在 #projMenu 里，选择器本体放菜单外：
+       菜单每次会整栏重画，放在里面会把还没读的那个 input 一起冲掉。 -->
+  <input type="file" id="projPackFile" accept=".json,application/json" hidden>
 </header>
 <div id="banner" hidden></div>   <!-- 出错 / 异常时才出现；内容由 web/ui/ui.js 的 ErrBanner 写，样式在 ui.css -->
 

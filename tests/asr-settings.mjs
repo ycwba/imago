@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createAsrStore, toSrt, normSegments, srtTime } = require('../server/asr-store.js');
+const { createAsrStore, toSrt, normSegments, srtTime } = require('../server/data-hub.js');
 
 /* ---------- 纯函数 ---------- */
 assert.equal(srtTime(0), '00:00:00,000');
@@ -42,7 +42,22 @@ assert.deepEqual(segs[1], { start: 5, end: 5, text: '倒挂的终点' });
 /* ---------- 设置：白名单字段 / 密钥不回读 / 校验 ---------- */
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-asr-'));
 const logs = [];
-const mk = () => createAsrStore({ dataDir: dir, log: s => logs.push(s) });
+const writes = [];
+/* 状态仓把 asr / asr-jobs 收进 state.json：判据注入一份按键读写的状态后端，
+   写盘那份仍落到临时目录，重启与「密钥只在盘上」这些判据照旧成立。 */
+const mk = () => {
+  const mem = new Map();
+  const readKey = k => {
+    if (mem.has(k)) return mem.get(k);
+    try { return fs.readFileSync(path.join(dir, k + '.json'), 'utf8'); } catch { return null; }
+  };
+  const writeKey = (k, v) => {
+    mem.set(k, v);
+    writes.push({ k, v });
+    fs.writeFileSync(path.join(dir, k + '.json'), v);
+  };
+  return createAsrStore({ dataDir: dir, log: s => logs.push(s), readKey, writeKey });
+};
 let s = mk();
 
 let pub = s.settings();
@@ -89,8 +104,9 @@ assert.throws(() => s.patchSettings({ route: 'auto', service: { providerId: 'ope
 assert.equal(s.settings().route, snap.route, '失败的保存不能改掉路线');
 assert.equal(s.settings().service.providerId, snap.service.providerId, '失败的保存不能改掉服务商');
 
-/* 覆盖前留 .bak.json；第二次写入后它应存在且内容是上一版 */
-assert.ok(fs.existsSync(path.join(dir, 'asr.bak.json')));
+/* 覆盖前那一份由 backup.json 的快照统一留（见 tests/data-hub.cjs）：
+   这里确认设置真的写进了状态键，且密钥只出现在盘上那份里。 */
+assert.ok(writes.some(w => w.k === 'asr' && w.v.includes('sk-secret')));
 
 /* ---------- 任务账本 ---------- */
 s.putJob({

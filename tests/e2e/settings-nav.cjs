@@ -3,7 +3,7 @@
    判据要的是**能定位、能落盘、滚动落点真的让开钉住的组标题**，不是「页面能打开」：
      壳：这一页是**两栏两滚** —— 页面自己不滚，目录轨与右栏那条文档各滚各的
          （跟产品 `.wb` 工作台同一套做法）。切栏时整页不跳；
-     B1 目录轨：左边是一棵 5 组 15 行的目录（只有栏目标题，不摆当前值）；
+     B1 目录轨：左边是一棵 5 组 14 行的目录（只有栏目标题，不摆当前值）；
         组名与栏目标题都从 DOM 现读（JS 里不许有第二份清单）；
         点一行 → 右栏平滑滚到那一栏，当场就亮、落定不回跳；
      B6 滚动定位：右栏滚到哪一栏，轨上那一行就跟着亮；组标题钉在顶上；
@@ -69,8 +69,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(!shell.pageScrolls, '页面自己在滚（整页高度 ' + shell.docH + 'px）—— 这一页是「两栏两滚」：页面不滚，滚的是目录轨与右栏那条文档');
     must(shell.railRight <= shell.docLeft, '左轨压住了右栏（轨右缘 ' + shell.railRight + ' > 文档左缘 ' + shell.docLeft + '）：两栏的宽度只从一枚令牌来');
     must(Math.abs(shell.railW - shell.trackW) <= 1, '左轨（' + shell.railW + 'px）比它那一列（' + shell.trackW + 'px）宽/窄：轨填满自己那一列，不许自己写一份宽度');
-    must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：15 张卡排成一条，就得能一路滚到底');
-    must(shell.railRows === 15, '目录轨只有 ' + shell.railRows + ' 行（5 组 15 张卡：一张卡一行）');
+    must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：14 张卡排成一条，就得能一路滚到底');
+    must(shell.railRows === 14, '目录轨只有 ' + shell.railRows + ' 行（5 组 14 张卡：一张卡一行）');
     must(shell.groups === 5, '目录轨不是 5 组：' + shell.groups);
     must(shell.notes === 0, '目录轨里又长出组说明（' + shell.notes + ' 条）：这一页不写说明句');
     must(/第 \d+ \/ \d+ 项/.test(shell.pos), '状态行没说得出「现在在第几项」：' + shell.pos);

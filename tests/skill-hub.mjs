@@ -13,7 +13,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
-const { createSkillsStore } = require('../server/skills-store.js');
+const { createSkillsStore } = require('../server/data-hub.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'aii-skill-'));
 const write = (rel, text) => {
@@ -22,7 +22,17 @@ const write = (rel, text) => {
   fs.writeFileSync(full, text);
 };
 write('skills/builtin-a/SKILL.md', '---\nid: builtin-a\nname: 内置 A\ndescription: 内置测试\ntriggers: ["测试"]\npages: ["assets.html"]\ncontract: polish.image\nversion: 1\n---\n\n内置正文\n');
-const store = createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'), log: () => {} });
+const stateFile = k => path.join(root, '.data', k + '.json');
+const readKey = k => { try { return fs.readFileSync(stateFile(k), 'utf8'); } catch { return null; } };
+const writeKey = (k, v) => {
+  fs.mkdirSync(path.dirname(stateFile(k)), { recursive: true });
+  fs.writeFileSync(stateFile(k), v);
+};
+/* 状态仓不再直接读盘：每个 store 都得从注入的 readKey / writeKey 走。
+   重启 / 修老状态那两处也用同一套注入，测的才是真会跑的那条路径。 */
+const mkStore = () => createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'),
+  log: () => {}, readKey, writeKey });
+const store = mkStore();
 
 const sk = (id, contract, extra = {}) => [{
   path: 'SKILL.md',
@@ -99,13 +109,13 @@ fs.rmSync(path.join(dir, 'big.md'));
 fs.rmSync(path.join(dir, 'lines.md'));
 
 /* 重启后启停状态还在 */
-const store2 = createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'), log: () => {} });
+const store2 = mkStore();
 assert.equal(store2.get('my-a').enabled, true);
 
 /* 开机修一次老状态文件：多份启用的留 [builtin, user] 顺序里最后那份；一份都不启用的拉回内置 */
 write('skills/builtin-b/SKILL.md', '---\nid: builtin-b\nname: 内置 B\ndescription: 内置测试\ntriggers: ["测试"]\npages: ["assets.html"]\ncontract: story.json\nversion: 1\n---\n\n内置正文\n');
 write('.data/skills.json', JSON.stringify({ enabled: { 'builtin-a': true, 'my-a': true, 'builtin-b': false } }));
-const store3 = createSkillsStore({ root, userDir: path.join(root, '.skills'), dataDir: path.join(root, '.data'), log: () => {} });
+const store3 = mkStore();
 assert.equal(store3.get('builtin-a').enabled, false, '同 contract 多份启用 → 留顺序里最后那份（my-a）');
 assert.equal(store3.get('my-a').enabled, true);
 assert.equal(store3.get('builtin-b').enabled, true, '一份都不启用的场景把内置拉回来');

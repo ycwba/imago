@@ -57,8 +57,21 @@ const h = require('./harness.cjs');
 
     const cs = await call('/cloud/status');
     if (cs.status !== 200) throw new Error('GET /cloud/status 应 200，实际 ' + cs.status);
-    const cb = await call('/cloud/backups');
-    if (cb.status !== 200) throw new Error('GET /cloud/backups 应 200，实际 ' + cb.status);
+    /* 备份恢复统一走 /backup/*：旧的 /cloud/backups 与 /cloud/restore 已删除。 */
+    const bs = await call('/backup/status');
+    if (bs.status !== 200) throw new Error('GET /backup/status 应 200，实际 ' + bs.status);
+    const bsJson = await bs.json();
+    if (typeof bsJson.ok !== 'boolean' || !Array.isArray(bsJson.snapshots)) {
+      throw new Error('/backup/status 没回健康状态与快照清单');
+    }
+    const be = await call('/backup/export');
+    if (be.status !== 200) throw new Error('GET /backup/export 应 200，实际 ' + be.status);
+    const beJson = await be.json();
+    if (!beJson.pack || beJson.pack.version !== 2) throw new Error('GET /backup/export 没回 v2 整包');
+    const bv = await call('/backup/verify', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
+    if (bv.status !== 200) throw new Error('POST /backup/verify 应 200，实际 ' + bv.status);
+    const bvJson = await bv.json();
+    if (typeof bvJson.ok !== 'boolean') throw new Error('POST /backup/verify 没回校验结果');
     const ct = await call('/cloud/test', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
     if (ct.status !== 400) throw new Error('没配云端时 /cloud/test 应 400，实际 ' + ct.status);
 

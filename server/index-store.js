@@ -8,7 +8,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { atomicWrite, renameWithRetry } = require('./fs-atomic.js');
+const { atomicWrite, renameWithRetry } = require('./data-hub.js');
 
 const DEFAULT_MAX = 20000;
 const COMPACT_EVERY = 200;
