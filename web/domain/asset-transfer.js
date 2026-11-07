@@ -164,7 +164,7 @@
       if (!prov) throw new Error('找不到平台：' + provId);
       const ep = prov.endpoints || {};
       const up = ep.uploads;   // registry 只认这一种端点名（uploads / complete）
-      if (!up) throw new Error((prov.name || provId) + ' 暂无素材上传接口（可在 registry 里为它声明 endpoints.uploads）');
+      if (!up) throw new Error((prov.name || provId) + ' 没有素材上传接口');
       if (blob.size > MAX_BYTES) throw new Error('素材超过 ' + window.fmtBytes(MAX_BYTES) + '，无法上传');
       /* 槽位自己的体积上限（registry 的 inputRoles.maxBytes，例如 VGENV 参考音频 ≤ 50MB）：
          以前只在页面文案里写「≤ 50MB」却没人校验，超了要等上游报错才知道。 */

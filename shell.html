@@ -14,7 +14,7 @@
 <link rel="stylesheet" href="web/styles/chat.css">
 <link rel="stylesheet" href="web/styles/spa-director.css">
 <!-- 外壳自己的 ESM 图（web/app.js → 本地 Vue runtime → render/*、core/*）现在就取。
-     下面 body 里那 27 枚经典脚本是一段段解析阻塞的，模块脚本排在它们末尾 = 首屏最深的三条腿串行；
+     下面 body 里那 28 枚经典脚本是一段段解析阻塞的，模块脚本排在它们末尾 = 首屏最深的三条腿串行；
      modulepreload 只取字节与解析，执行时机仍由 body 末尾那枚模块脚本定，顺序约束一点没动。
      Vue runtime 单独点名：它是 app.js 的第一层静态依赖，只写 app.js 的话要等它下载并解析完
      才看得见这一份（首屏最大的一笔，113KB / br 39KB），多出来的正是这一趟往返。 -->
@@ -79,6 +79,9 @@
 <script src="web/domain/prompt-log.js"></script>
 <script src="web/domain/ai-find.js"></script>
 <script src="web/ui/sidebar.js"></script>
+<!-- 全局命令面板：外壳级公共件，七页都能唤起。排在路由表与 GoPage 之后、页面模块之前，
+     求值期只挂一枚全局键盘监听，浮层等第一次唤起才画。 -->
+<script src="web/ui/command.js"></script>
 <!-- 徽标判据与徽标标记（本机 / 云端 / 两者都有）只有一份：这里以 module 方式带进来，
      它顺带把 badgeOf / badgeHTML 挂成全局，供那几个只能拼字符串的经典脚本用（asset-picker）。 -->
 <script type="module" src="web/ui/badge-state.js"></script>

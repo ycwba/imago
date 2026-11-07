@@ -64,7 +64,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     }
     const m = String(e.message || e);
     if (/Failed to fetch|NetworkError|ERR_|fetch failed/i.test(m)) {
-      const err = new Error('连不上本地代理（proxy.js 没启动？改完 proxy.js 要重启）');
+      const err = new Error('连不上本地代理：proxy.js 没启动或没重启');
       err.__net = true;                       // 网络层失败：交给 fetch 判断代理到底活没活着（见下）
       return err;
     }
@@ -150,9 +150,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         if (alive) {
           const writing = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(method);
           lastErr = new Error(writing
-            ? '与本地代理的连接在提交过程中中断了（代理可能刚重启，或长连接被掐断）。'
-              + '提交可能已到达平台，先刷新核对。'
-            : '与本地代理的连接中断了（代理可能刚重启，或长连接被掐断）：重试一次通常就好。');
+            ? '与本地代理的连接在提交过程中断了。提交可能已到达平台，先刷新核对。'
+            : '与本地代理的连接断了：重试一次通常就好。');
           lastErr.maybeSubmitted = writing;
         }
       }

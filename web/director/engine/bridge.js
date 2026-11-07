@@ -78,7 +78,7 @@ export function createBridge(E, document, window) {
         const hit = (sc.shots || []).find(x => String(x.id) === String(a.shotId));
         if (hit) return { sc, sh: hit };
       }
-      return loose('找不到镜头 id「' + a.shotId + '」——先用 page_state / 当前界面快照看这一镜的 id');
+      return loose('找不到镜头 id「' + a.shotId + '」：先用 page_state 看这一镜的 id');
     }
     if (a.shot != null) {
       const sc = (a.scene != null) ? projOf().scenes[Number(a.scene) - 1] : (projOf().scenes[projOf().curScene] || projOf().scenes[0]);
@@ -176,7 +176,7 @@ export function createBridge(E, document, window) {
     const t = num(Timeline.playhead());
     const at = blocks.findIndex(b => t >= b.start - 0.001 && t < b.end - 0.001);
     if (at >= 0) return blocks[at];
-    return loose('指哪一块要说清：id（块 id）/ at（成片第几秒）/ index（第几块，1 起）。都不给就取播放头压着的那一块，现在播放头没有压在任何' + KIND_ZH[kind] + '上');
+    return loose('指哪一块要说清：id / at（成片第几秒）/ index（第几块，1 起）。都不给就取播放头压着的那一块，现在没压在任何' + KIND_ZH[kind] + '上');
   }
   /* 一次写入前压一份撤销快照（多字段合并成一条历史），收尾时补一次重画与「成片变过」；
      select 走 setSelectedCandidate（那一侧不带快照），所以也包在窗里。 */
@@ -211,7 +211,7 @@ export function createBridge(E, document, window) {
     const b = pick(a, 'clip'); if (b.err) return b;
     const lock = lockWhy('clip', b.item); if (lock) return loose(lock);
     if (way === 'merge' && !canMergeClips(b.item, filmOf().clips[b.index + 1])) {
-      return loose('相邻两段接不上（不同素材，或中间动过）：融合只对同一素材、源窗口首尾相接的两段有效');
+      return loose('相邻两段接不上（不同素材，或中间动过）');
     }
     let at = null;
     if (way === 'split' || way === 'left' || way === 'right') {
@@ -264,7 +264,7 @@ export function createBridge(E, document, window) {
     const rate = rateOf(it);
     const head = srcHeadOf(it), used = srcUsedOf(it);
     const hi = Math.max(srcLenOf(it), head + used);
-    if (!(hi > 0)) return { err: '这一块读不到素材原长（mediaDuration 是 0），改不了源窗口：先在素材上重新取一次信息' };
+    if (!(hi > 0)) return { err: '这一块读不到素材原长，改不了源窗口：先在素材上重新取一次信息' };
     const minSrc = MIN_CLIP_SECONDS * rate;
     const na = clamp(pos(a.srcStart != null ? a.srcStart : head), 0, Math.max(0, hi - minSrc));
     const nb = clamp(pos(a.srcEnd != null ? a.srcEnd : head + used), na + minSrc, hi);
@@ -283,7 +283,7 @@ export function createBridge(E, document, window) {
     const next = {};
     if (kind === 'clip') {
       if (a.speed != null) {
-        if (it.kind === 'image') return loose('图片段没有倍速（图片没有源窗口可伸缩）');
+        if (it.kind === 'image') return loose('图片段没有倍速');
         const v = Number(a.speed);
         if (!Number.isFinite(v) || v < 0.25 || v > 4) return loose('speed 要在 0.25–4 之间（1 = 原速）');
         next.speed = Math.round(v * 100) / 100;
@@ -304,7 +304,7 @@ export function createBridge(E, document, window) {
       }
       if (a.start != null) {
         const at = num(a.start);
-        if (at <= b.start + 0.0005) return loose('画面段的起点是从上一段累加出来的，不能往左挪：start 只能往后裁（把开头裁掉），要整体挪位置用 moveTo');
+        if (at <= b.start + 0.0005) return loose('起点不能往左挪：start 只能往后裁，要整体挪位置用 moveTo');
         if (!(at < b.end - MIN_CLIP_SECONDS)) return loose('start 裁得太狠：段的末尾至少要留 ' + MIN_CLIP_SECONDS + ' 秒');
         next.startAt = at;
       }
@@ -319,15 +319,15 @@ export function createBridge(E, document, window) {
         next.window = w;
       }
       if (a.slip != null) {
-        if (it.kind === 'image') return loose('图片段滑不动（没有源窗口）');
+        if (it.kind === 'image') return loose('图片段滑不动');
         next.slip = num(a.slip);
       }
       if (a.roll != null) {
-        if (!(b.index + 1 < filmOf().clips.length)) return loose('这一段是最后一段：roll 平移的是它与下一段之间的切点，后面得有下一段');
+        if (!(b.index + 1 < filmOf().clips.length)) return loose('这一段是最后一段：roll 需要后面有下一段');
         next.roll = num(a.roll);
       }
       if (a.slide != null) {
-        if (!(b.index > 0 && b.index + 1 < filmOf().clips.length)) return loose('滑动要左右两段都有邻居：首尾两段滑不动');
+        if (!(b.index > 0 && b.index + 1 < filmOf().clips.length)) return loose('滑动要左右两段都有邻居');
         next.slide = num(a.slide);
       }
       if (a.moveTo != null) {
@@ -335,7 +335,7 @@ export function createBridge(E, document, window) {
         next.moveTo = num(a.moveTo);
       }
       if (a.transition !== undefined && a.transition !== null) {
-        if (!(b.index + 1 < filmOf().clips.length)) return loose('转场挂在一段与下一段之间：这是最后一段，没有下一段可接');
+        if (!(b.index + 1 < filmOf().clips.length)) return loose('这是最后一段：没有下一段可接转场');
         next.transition = typeof a.transition === 'string' ? { id: a.transition } : a.transition;
       }
     } else {
@@ -352,12 +352,12 @@ export function createBridge(E, document, window) {
       if (a.fadeIn != null || a.fadeOut != null) {
         if (a.fadeIn != null) {
           const v = Math.max(0, num(a.fadeIn));
-          if (v > num(it.duration) / 2) return loose('fadeIn 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间（不能超过这一块的一半）');
+          if (v > num(it.duration) / 2) return loose('fadeIn 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间');
           next.fadeIn = round2(v);
         }
         if (a.fadeOut != null) {
           const v = Math.max(0, num(a.fadeOut));
-          if (v > num(it.duration) / 2) return loose('fadeOut 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间（不能超过这一块的一半）');
+          if (v > num(it.duration) / 2) return loose('fadeOut 要在 0–' + sec(num(it.duration) / 2) + ' 秒之间');
           next.fadeOut = round2(v);
         }
       }
@@ -392,7 +392,7 @@ export function createBridge(E, document, window) {
     }
     const geo = fields.filter(k => GEO_KEYS.includes(k));
     if (geo.length > 1 || (geo.length === 1 && fields.length > 1)) {
-      return loose('几何改动（start / end / srcStart·srcEnd / slip / roll / slide / moveTo）一次只做一处，也不与别的字段混给：每处都是一次独立的编辑');
+      return loose('几何改动（start / end / srcStart·srcEnd / slip / roll / slide / moveTo）一次只做一处，也不与别的字段混给');
     }
     return { kind, block: b, it, next, fields };
   }
@@ -449,7 +449,7 @@ export function createBridge(E, document, window) {
           patchData = {
             voices: (f.voices || []).map(x => (x && byId.has(x.id) ? { ...x, lane: byId.get(x.id) } : x)),
           };
-          bits.push('挪到第 ' + (byId.get(id) + 1) + ' 行（同一行的其它块跟着让位）');
+          bits.push('挪到第 ' + (byId.get(id) + 1) + ' 行');
         }
         if (!patchData) patchData = { [key]: list.map(x => (x && x.id === id ? cur : x)) };
         label = '把' + desc + '的' + fields.map(k => FIELD_ZH[k] || k).join('、') + '改掉（' + bits.join(' · ') + '）';

@@ -430,7 +430,7 @@ export function createEdit(E, document, window) {
       if (!changed) Timeline.render();
     } else if (rec.moved) {
       Timeline.render();
-      if (setStatus) setStatus('已取消这次拖动');
+      if (setStatus) setStatus('已取消拖动');
     } else if (rec.spec.onClick) rec.spec.onClick(rec);
   }
   const dragBusy = () => !!drag;
@@ -841,10 +841,10 @@ export function createEdit(E, document, window) {
       }));
     }
     const laneNote = target.isNew ? '松手就在下面新建一行' : `放到第 ${(lane || 0) + 1} 行`;
-    const stillNote = laid.why === 'non-contiguous' ? ' · 多选的段不相邻，波纹关着不挪'
+    const stillNote = laid.why === 'non-contiguous' ? ' · 不相邻，波纹关着不挪'
       : laid.clamped === 'prev' ? ' · 顶住前一段'
         : laid.clamped === 'next' ? ' · 顶住后一段'
-          : laid.gapBefore > 0.001 ? ` · 前面空 ${round2(laid.gapBefore)}s（后续段不动）` : '';
+          : laid.gapBefore > 0.001 ? ` · 前面空 ${round2(laid.gapBefore)}s` : '';
     setHint(laneNote + stillNote);
   }
   /* 换序之后的落点：被拖的那一组从**指针那一秒**开始（被上一段顶住就贴住上一段末尾），
@@ -868,7 +868,7 @@ export function createEdit(E, document, window) {
     if (!st) return false;
     /* 波纹关：只挪被拖的组（placeClipGroupStill 把后邻钉回原位），不换序、不推后面的段。 */
     if (st.still) {
-      if (!st.contiguous) { if (setStatus) setStatus('多选的段不相邻：波纹关着不挪（开波纹后再拖，或先把它们排成相邻）'); return false; }
+      if (!st.contiguous) { if (setStatus) setStatus('多选的段不相邻：开波纹后再拖，或先排成相邻'); return false; }
       const ids = originals.map(o => o.id);
       const laid = placeClipGroupStill(rec.work.clips, ids, st.time);
       let clips = laid.clips;
@@ -890,7 +890,7 @@ export function createEdit(E, document, window) {
       const laneNote = `挪到第 ${st.lane + 1} 行${st.isNew ? '（新开的一行）' : ''}`;
       const clampNote = st.clamped === 'prev' ? '，贴住前一段'
         : st.clamped === 'next' ? '，贴住后一段'
-          : laid.gapBefore > 0.001 ? `，前面留出 ${round2(laid.gapBefore)}s 空（后续段不动）` : '';
+          : laid.gapBefore > 0.001 ? `，前面留出 ${round2(laid.gapBefore)}s 空` : '';
       const label = !movedOnes.length
         ? `把${clipDesc(originals[0].it, originals[0].start, originals[0].start + originals[0].dur)}${laneNote}`
         : `把「${clipTitle(originals[0].it)}」换位置：${movedOnes.map(o => `「${clipTitle(o.it)}」从 ${fmtTenth(o.start)}s 挪到 ${fmtTenth(startAt(o.id))}s`).join('、')}`
@@ -1523,7 +1523,7 @@ export function createEdit(E, document, window) {
     if (act === 'link') {
       const f = filmOf();
       if (!linkableCount(f) && !allLinked(f) && !(f.captions || []).length) {
-        if (setStatus) setStatus('没有字幕可关联：字幕行现在是空的');
+        if (setStatus) setStatus('没有字幕可关联');
         return true;
       }
       return TOOL_ACTS['link-all']();
@@ -1572,14 +1572,14 @@ export function createEdit(E, document, window) {
         <div class="tl-mp-field"><span>类型</span><div class="tl-mp-types">${MARKER_TYPES.map(t => `<button type="button" class="tl-mp-chip${cur.type === t ? ' is-on' : ''}" data-mp-type="${t}">${esc(MARKER_TYPE_ZH[t])}</button>`).join('')}</div></div>
         <div class="tl-mp-field"><span>颜色</span><div class="tl-mp-colors">${colors}</div></div>
         <div class="tl-mp-field"><span>起点</span><input id="mpStart" type="number" min="0" step="0.1" value="${fmtTenth(cur.time)}">
-          <button type="button" class="tl-mp-chip" data-mp="use-playhead" title="用播放头这一刻">用播放头</button></div>
+          <button type="button" class="tl-mp-chip" data-mp="use-playhead">用播放头</button></div>
         ${cur.type === 'range' ? `<div class="tl-mp-field"><span>止点</span><input id="mpEnd" type="number" min="0" step="0.1" value="${fmtTenth(markerRangeOf(cur).end)}"></div>` : ''}
         <div class="tl-mp-acts">
           <button type="button" class="tl-mp-chip" data-mp="prev" title="上一处标记">${icon('stepBack', 12)}</button>
           <button type="button" class="tl-mp-chip" data-mp="next" title="下一处标记">${icon('stepNext', 12)}</button>
-          <button type="button" class="tl-mp-chip" data-mp="jump" title="把播放头挪到这个标记">${icon('skipBack', 12)}跳过去</button>
+          <button type="button" class="tl-mp-chip" data-mp="jump">${icon('skipBack', 12)}跳过去</button>
           <span class="tl-grow"></span>
-          <button type="button" class="tl-mp-chip is-danger" data-mp="del" title="删除这一枚标记">${icon('trash', 12)}删除</button>
+          <button type="button" class="tl-mp-chip is-danger" data-mp="del">${icon('trash', 12)}删除</button>
         </div>
       </div>` : ''}
       <div class="tl-mpanel-foot">

@@ -153,10 +153,7 @@ export function createDetail(ctx) {
     const hero = pic
       ? '<div class="md-hero">' + ctx.thumbImg(pic)
         + '<div class="md-hero-cap"><b>' + esc(c.name || '（无名）') + '</b><span>' + esc(kindLab) + '</span></div></div>'
-      : '<div class="md-hero"><div class="none"><b>还没有预览图</b><span>' + (D.isSceneItem(c)
-        ? '照下面描述出图。'
-        : D.isPropItem(c) ? '照下面描述出图。'
-          : '写清长什么样，或传一张。') + '</span></div></div>';
+      : '<div class="md-hero"><div class="none"><b>还没有预览图</b></div></div>';
     /* 这一处（预览图）现在用哪个型号：这一行挑的 → 设置页那个默认。 */
     const picModel = gens.pic.model || ctx.defImgModel();
     const cap = capOf('image', picModel);
@@ -283,7 +280,6 @@ export function createDetail(ctx) {
         : '')
       + '<label class="md-field"><span>' + esc(kf.bio.lab) + '</span>'
       + '<input class="ui-inp" data-f="bio" value="' + esc(c.bio || '') + '" placeholder="' + esc(kf.bio.ph) + '"></label>'
-      + (vo ? '<div class="ui-hint">只出声，不出画面。</div>' : '')
       + (D.isPropItem(c) ? '<div class="ui-hint">道具只有这一张图。</div>' : '')
       + '</section>');
 
@@ -295,7 +291,7 @@ export function createDetail(ctx) {
     if (uses.length) {
       out.push('<section class="md-sec"><div class="md-sec-t">使用关系 · ' + uses.length + ' 个镜头</div>'
         + uses.slice(0, 12).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
-        + (uses.length > 12 ? '<div class="ui-hint">还有 ' + (uses.length - 12) + ' 处没列出来。</div>' : '')
+        + (uses.length > 12 ? '<div class="ui-hint">还有 ' + (uses.length - 12) + ' 处</div>' : '')
         + '</section>');
     }
     return '<div class="md-doc-inner">' + out.join('') + '</div>';
@@ -315,7 +311,7 @@ export function createDetail(ctx) {
       + stat
       + '<span class="sp"></span>'
       + (isNew
-        ? '<span class="md-saved is-new">还没存进库 · 填完存进素材库</span>'
+        ? '<span class="md-saved is-new">还没存进库</span>'
         : '<span class="md-saved">' + (window.icon ? window.icon('check', 12) : '') + '已存到本机 · 刚刚存过</span>')
       + '</header>'
       + '<div class="md-body"><aside class="md-media">' + mediaHTML(c) + '</aside>'
@@ -326,7 +322,7 @@ export function createDetail(ctx) {
           + '<button class="pri" type="button" data-d-act="create">' + (window.icon ? window.icon('check', 12) : '') + '建好这一条</button>'
         : '<button class="ghost danger" type="button" data-d-act="del">' + (window.icon ? window.icon('trash', 12) : '') + '从库里删掉</button>'
           + '<span class="sp"></span>'
-          + '<span class="md-foot-tip">改完就地存 · 这一条已经在库里了</span>')
+          + '<span class="md-foot-tip">改完就地存</span>')
       + '</footer>';
   }
 
@@ -519,7 +515,7 @@ export function createDetail(ctx) {
     if (!tpl || !what) return;
     const custom = tpl.value === 'custom';
     what.disabled = !custom;
-    what.placeholder = custom ? '写清楚要画什么，例：雨天造型、侧脸特写' : '（只有选「自定义」时才用这一格）';
+    what.placeholder = custom ? '写清楚要画什么，例：雨天造型、侧脸特写' : '选「自定义」后可填';
   }
   function onFocusOut(e) {
     const t = e.target;
@@ -555,7 +551,7 @@ export function createDetail(ctx) {
       const n = siteCountOf('asset', cap, 1);
       const tpl = currentTpl();
       const what = currentWhat();
-      if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么，例：雨天造型、侧脸特写'); return; }
+      if (tpl === 'custom' && !what.trim()) { Toast.err('选「自定义」要写清楚要画什么'); return; }
       const lab = D.Cast.assetLabel(c, tpl) || '这张角色资产';
       const drama = ctx.dramaWith(model);
       const ok = await ctx.genRun('asset#new:' + tpl, c.id, c, '正在出「' + (c.name || '') + '」的' + lab + '…',
@@ -597,8 +593,8 @@ export function createDetail(ctx) {
     const got = await window.AssetPicker.open({
       types: ['图片'], multiple: false, limit: 1,
       title: '给「' + (c.name || '') + '」选一张' + pw,
-      note: D.isPropItem(c) ? '道具图就是道具自己：挑一张最像的，拍每一段时它都会作为参考图发出去'
-        : pw + '是三视图与拍摄时认脸的凭据，挑一张最像的',
+      note: D.isPropItem(c) ? '每一段都拿它当参考图'
+        : '挑一张最像的',
     });
     if (got && got[0]) {
       const s2 = await ctx.durablePic(got[0], (c.name || '素材') + '-' + pw);
@@ -607,7 +603,7 @@ export function createDetail(ctx) {
   }
   async function pickAsset(c) {
     const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
-      title: '给「' + (c.name || '') + '」加一张角色资产', note: '不靠生成，直接用现成的这一张' });
+      title: '给「' + (c.name || '') + '」加一张角色资产', note: '直接用现成的这一张' });
     if (got && got[0]) {
       const s2 = await ctx.durablePic(got[0], (c.name || '素材') + '-资产');
       if (s2) { D.Cast.addAsset(c, { name: currentName(), tpl: currentTpl(), src: s2 }); saveItem(c); paint(); }
@@ -628,7 +624,7 @@ export function createDetail(ctx) {
     const ok = !!ctx.libSave(c);
     ctx.render && ctx.render();
     if (!ok) return;
-    Toast.receipt('这条现在用这张。已经拍过的段还是旧参考图，要生效得重拍那一段', 'ok', 4200);
+    Toast.receipt('已经拍过的段还是旧参考图，要重拍那一段', 'ok', 4200);
     paint();
   }
   function dropCand(c, kind, s2) {
@@ -659,7 +655,7 @@ export function createDetail(ctx) {
   async function clearAsset(c, id, lab) {
     const btn = host.querySelector('[data-a="assetclear"][data-id="' + CSS.escape(id) + '"]');
     if (window.Confirm.arm(btn || host, '确认去掉' + (lab || '这一张'),
-      { note: '素材库里这一张会空出来；已经拉进某一集的那条不受影响' })) return;
+      { note: '素材库里这一张会空出来' })) return;
     D.Cast.removeAsset(c, id);
     saveItem(c);
     Toast.receipt('去掉了「' + (c.name || '') + '」的' + (lab || '这一张'));
@@ -680,7 +676,7 @@ export function createDetail(ctx) {
     const nm = String(inp.value || '').trim();
     const a = D.Cast.assetById(c, inp.dataset.id);
     if (!a) return;
-    if (!nm) { inp.value = D.Cast.assetName(a); Toast.err('名字不能是空的：这是角色资产，没名字就分不清是哪一张'); return; }
+    if (!nm) { inp.value = D.Cast.assetName(a); Toast.err('名字不能空着'); return; }
     if (nm === D.Cast.assetName(a)) return;
     D.Cast.setAssetName(c, a.id, nm);
     saveItem(c);
@@ -703,7 +699,7 @@ export function createDetail(ctx) {
     const r = D.Pipe.cloneFromCands(ctx.REG, voiceOpts(), c, src, name);
     if (!r.ok) { Toast.err(r.why); return; }
     saveItem(c);
-    Toast.receipt('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 'ok', 6000);
+    Toast.receipt('这一位以后按「' + r.name + '」念（复刻）', 'ok', 6000);
     paint();
   }
   async function takeNote(c) {
@@ -719,7 +715,7 @@ export function createDetail(ctx) {
         const r = D.Pipe.cloneFromLibEntry(ctx.REG, voiceOpts(), c, entry);
         if (!r.ok) { Toast.err(r.why); return; }
         saveItem(c);
-        Toast.receipt('这一位以后按「' + r.name + '」这个声音念（复刻），拉进下一集也是它', 'ok', 6000);
+        Toast.receipt('这一位以后按「' + r.name + '」念（复刻）', 'ok', 6000);
         paint();
       },
       say: () => {},
@@ -736,7 +732,7 @@ export function createDetail(ctx) {
     await D.Pipe.saveRefAudio(c, b, (it.prompt || it.name || '参考音频').slice(0, 20));
     saveItem(c);
     paint();
-    Toast.receipt('参考音频挂上了，可以试听');
+    Toast.receipt('参考音频挂上了');
   }
   async function clearRef(c) {
     await D.Pipe.clearRefAudio(c);
@@ -746,7 +742,7 @@ export function createDetail(ctx) {
   async function del(c) {
     const yes = await Confirm.ask({
       title: '删掉「' + (c.name || '这条素材') + '」？',
-      body: '会从素材库删掉这条；已写的 @名字 不受影响。',
+      body: '会从素材库删掉这条。',
       okLabel: '删掉', danger: true,
     });
     if (!yes) return;

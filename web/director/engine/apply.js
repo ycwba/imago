@@ -88,7 +88,7 @@ function renderSplitPanel() {
   const mine = splitUI;
   InlinePolish.ask(host, {
     title: mine.title || '拆分镜前，AI 想先问几个问题',
-    intro: '点一个候选，或在每题最后的输入框里自己写；没答的题按 AI 的默认理解走。'
+    intro: '点一个候选，或在输入框里自己写；没答的题按 AI 的默认理解走。'
       + '回答会当作硬约束带进这一次' + (mine.kind === 'edit' ? '修改' : '拆分') + '。',
     questions: mine.questions,
     state: mine.state || [],
@@ -255,8 +255,7 @@ async function aiStoryboard() {
   ];
   if (scopes.length) fields.push({ key: 'assetSrc', type: 'select', label: '素材范围',
     value: SplitAssets.last(), options: scopes,
-    hint: '先让 AI 从这份清单里挑相关的那几条，再把挑中那几条的完整描述喂给分镜；'
-      + '写进提示词的 @名字 在确认写入时挂成参考图（选「不导入素材」就一个字也不喂）' });
+    hint: '写进提示词的 @名字 在确认写入时挂成参考图（选「不导入素材」就一个字也不喂）' });
   fields.push({ key: 'note', type: 'text', label: '发给 AI 的备注（可选）',
     placeholder: '例：整体偏冷色 · 节奏快一点', hint: '只给 AI 看，不进提示词' });
   const v = await PromptForm.open({
@@ -481,7 +480,7 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
   };
   let items;
   try {
-    setStatus(append ? 'AI 正在往下拆分镜…（先读一遍现有分镜）' : 'AI 正在拆解分镜…（长剧本可能需要十几秒）');
+    setStatus(append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…（长剧本可能需要十几秒）');
     /* 反问那一轮（与「AI 润色」同一套两段式）：AI 自己判断这段剧本值不值得先问；
        问答面板摆在 #polishInline（splitUI 托管，整列重画不丢），回答当硬约束带进生成轮。
        问与拆共用同一份 sys（sysOfRun），所以素材挑选先做。 */
@@ -544,7 +543,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       await stageAssetsOf(next);
       return { items: next, assets: (newAssets && newAssets.plan) || [] };
     },
-    followPlaceholder: '还要怎么改？例：第 3 镜短一点 / 结尾加一个雨夜空镜 / 台词都删掉（写完按回车）',
+    followPlaceholder: '还要怎么改？例：第 3 镜短一点 / 结尾加一个雨夜空镜 / 台词都删掉',
     retryAssets: async () => {
       /* 「重新规划」只重问**第 4 段**（新素材判定，stageAssetsOf）：
        以前整体重跑 ask()，把拆分镜那次文字 AI 也再花一遍钱，而它的产物（新 items）
@@ -722,7 +721,7 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
   };
   let plan;
   try {
-    setStatus('AI 正在读现有分镜并改…（改好先给你看一遍）');
+    setStatus('AI 正在读现有分镜并改…');
     /* 反问那一轮（与拆新同源）：AI 看着这份修改要求判断要不要先问几句再动刀。 */
     await ensureStaged();
     const wt0 = wantAll();
@@ -748,7 +747,7 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
       followAsks.push(askText);
       return plan2.items;
     },
-    followPlaceholder: '还要怎么改？例：第 3 镜那条改短一点 / 只改画面别动台词（写完按回车）',
+    followPlaceholder: '还要怎么改？例：第 3 镜那条改短一点 / 只改画面别动台词',
   });
   if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
   const r = applyBoardPlan(reviewed, projOf().scenes);

@@ -1,6 +1,9 @@
 /* /pick-dir：弹系统文件夹选择框（异步 spawn，客户端断开时收掉子进程）。 */
 'use strict';
 const { sendJson } = require('./http');
+/* 前台锚定的 Win32 片段与「打开目录」共用一份（server/win-fg.js）：两处病根相同，
+   各抄一遍的话，改 AttachThreadInput 那条时只会改到其中一处。 */
+const { FG_CS } = require('../win-fg.js');
 
 function createPickDirRoute(ctx) {
   const { spawn, log, cap120, firstLine, readBody, root } = ctx;
@@ -20,17 +23,8 @@ function createPickDirRoute(ctx) {
          SetForegroundWindow，这是前台锁的标准解法），一旦前台已经是本进程就收手；③ 对话框
          关闭时在 finally 里把定时器与 owner 一并收掉。
          整段跑不了一律降级成「不抢前台」（catch 吞掉、退回无 owner 的 ShowDialog()）——
-         抢不了前台是小事，把本来能弹的框弄坏才是大事。 */
-      const FG_CS =
-        'using System;using System.Runtime.InteropServices;public class AiiFg{' +
-        '[DllImport("user32.dll")]static extern IntPtr GetForegroundWindow();' +
-        '[DllImport("user32.dll")]static extern uint GetWindowThreadProcessId(IntPtr h,out uint pid);' +
-        '[DllImport("user32.dll")]static extern bool AttachThreadInput(uint a,uint b,bool f);' +
-        '[DllImport("kernel32.dll")]static extern uint GetCurrentThreadId();' +
-        '[DllImport("user32.dll")]static extern bool SetForegroundWindow(IntPtr h);' +
-        /* 只用 C# 3 的语法（PS 5.1 的 Add-Type 编译器老，`out var` 这类新写法当场编不过） */
-        'public static bool FgIs(IntPtr h,int pid){IntPtr fg=GetForegroundWindow();if(fg==IntPtr.Zero)return false;uint p;GetWindowThreadProcessId(fg,out p);return fg==h||(int)p==pid;}' +
-        'public static bool Pull(IntPtr h){IntPtr fg=GetForegroundWindow();uint dummy;uint tid=0;if(fg!=IntPtr.Zero)tid=GetWindowThreadProcessId(fg,out dummy);uint cur=GetCurrentThreadId();if(tid!=0&&tid!=cur)AttachThreadInput(cur,tid,true);bool ok=SetForegroundWindow(h);if(tid!=0&&tid!=cur)AttachThreadInput(cur,tid,false);return ok;}}';
+         抢不了前台是小事，把本来能弹的框弄坏才是大事。
+         P/Invoke 那一小段（FG_CS）在 server/win-fg.js —— 与「打开目录」同一份。 */
       const SCRIPT = [
         "$ErrorActionPreference = 'Stop'",
         /* 5.1 会把「Preparing modules for first use.」这类进度流经 CLIXML 写进 stderr——

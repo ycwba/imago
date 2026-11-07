@@ -97,11 +97,14 @@ assert.ok(/renderPolishPanel\(sh\);[\s\S]{0,400}?renderSplitPanel\(\);/.test(pan
 assert.ok(/if \(!sh\) \{[\s\S]{0,400}?renderSplitPanel\(\);/.test(panelSrc),
   'renderEditor 的空态分支（空项目）没接 renderSplitPanel —— 拆一份新的从空项目发起时问答面板没有落点');
 
-/* ---- 设置页那一档的文案覆盖拆分镜 ---- */
+/* ---- 设置页那一档还在，且与读取端同一个键 ----
+   设置页的选项不再配说明文字（用户点名：设置页不留描述），所以这里不再要求文案里写「也管导演台」；
+   要守的是**接线**：这一行的键名必须与 TextAI.askMode 读的那个键是同一个，否则档位改了不生效。 */
 const settingsSrc = read('web/pages/settings.js');
-const askRow = /key: 'sk_polish_ask'[\s\S]{0,400}?hint: '([^']*)'/.exec(settingsSrc);
-assert.ok(askRow && askRow[1].includes('拆分镜'),
-  'sk_polish_ask 的说明没写清它也管拆分镜 / 改分镜');
+const askRow = /key: 'sk_polish_ask'[\s\S]{0,400}?opts: \[\['ai'/.exec(settingsSrc);
+assert.ok(askRow, 'sk_polish_ask 那一行不在设置页（AI 反问的档位就没有入口了）');
+assert.ok(/askMode\(\)\s*\{\s*return window\.LS\.get\('sk_polish_ask'\)/.test(read('web/domain/text-ai.js')),
+  '设置页那一档与 TextAI.askMode 读的键名漂开了');
 
 /* ---- 确认弹窗的「按这句再改」（split_follow）---- */
 assert.equal(bodyOf('skills/split-follow/SKILL.md'), TextAI.DEF.split_follow,

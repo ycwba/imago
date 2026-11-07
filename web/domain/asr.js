@@ -49,10 +49,10 @@
   }
   /* 「这一条路线是什么、扣不扣费」的说法只在这一处：设置页、导演台、助手回执都翻译它。 */
   function routeLabel(route) {
-    if (route === 'browser') return '浏览器内 Whisper（在本页 worker 里跑，不产生平台费用）';
-    if (route === 'local') return '本地 whisper（在本机跑，不产生平台费用）';
+    if (route === 'browser') return '浏览器内 Whisper（不产生平台费用）';
+    if (route === 'local') return '本地 whisper（不产生平台费用）';
     if (route === 'service') return '在线服务（按次计费）';
-    return '自动（按模型与运行包就绪情况挑一条）';
+    return '自动（按就绪情况挑一条）';
   }
   /* 浏览器内模型的状态：/models/status 回本机已落盘的文件，按 BROWSER_FILES 对「齐没齐」。 */
   async function browserStatus() {

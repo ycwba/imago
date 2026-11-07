@@ -249,8 +249,7 @@ export async function buildFCPXML(ctx, opts) {
   };
   const warnings = [];
   if (transitionByLeft.size) {
-    warnings.push(transitionByLeft.size + ' 处转场已写进 XML：按 FCPXML 语义以切点为中心做重叠'
-      + '（Cross Dissolve）；成片里是切点前淡入，导入后是切点两侧各半窗，时长与配音/字幕时间都不变');
+    warnings.push(transitionByLeft.size + ' 处转场已写进 XML：成片是切点前淡入，导入后是切点两侧各半窗');
     const custom = Array.from(new Set(Array.from(transitionByLeft.values()).map(x => x.id).filter(id => id && id !== 'fade')));
     if (custom.length) warnings.push('自制转场 ' + custom.join(' / ') + ' 在 FCPXML 里统一映射成 Cross Dissolve（交换格式没有对应特效）');
   }

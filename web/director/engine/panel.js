@@ -632,7 +632,7 @@ function promptLimitWhy(sh) {
 function promptLimitNote(sh) {
   const PL = promptLimitOf(sh);
   if (!PL) return '';
-  return `<span class="cnt" title="提交前按 ${esc(PL.who)} 的声明拦长度；不够长时生成按钮会禁用">${esc(window.CharLimits.range(PL))} 字</span>`;
+  return `<span class="cnt" title="${esc(PL.who)} 声明的范围">${esc(window.CharLimits.range(PL))} 字</span>`;
 }
 let edPromptTouched = false;      // 用户在这个镜的提示词框里动过手没有（决定底部那行要不要刷屏）
 /* 换型号那一次要「按新声明的默认值」重画型号布尔那一排（用户点过的保住，没点过的跟声明走）。
@@ -1197,9 +1197,9 @@ function showMention(sh, cands, range, rect) {
         + '<span class="mt-k">' + esc(c.meta || '') + '</span></div>';
     }).join('')
     : '<div class="mt-empty">' + (window.Chars && Chars.Lib
-      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具，它们就会出现在这里；已经有预览图的那几条，选中时会自动加进这一镜的参考图。'
+      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具。'
       /* 读不到模块和「库里没东西」是两件事，不能都说成「空的」—— 前者要说清是哪儿断了 */
-      : '读不到素材库模块（这一页没把 web/domain/chars.js 引进来）。刷新一次这一页；还不行就到「素材库」页确认一下它自己能不能打开。')
+      : '读不到素材库模块，刷新一次；还不行就到「素材库」页看看能否打开。')
       + '</div>';
   /* 用 mousedown + preventDefault 而不是 click：click 之前 textarea 会先 blur，
      浮层一收这一下就落空了（经典坑）。 */
@@ -1694,7 +1694,7 @@ function renderEditor() {
     ? (kfRefN
       ? '生成画面会带上这 ' + Math.min(kfRefN, kfRefCap) + ' 张参考图'
       + (kfRefN > kfRefCap ? ' · 这个生图型号一次最多收 ' + kfRefCap + ' 张，多出的 ' + (kfRefN - kfRefCap) + ' 张不带' : '')
-      : '这一镜还没有参考图 · 在上面的「参考图」槽位挑几张，画面会更贴同一个形象（这个型号一次最多收 ' + kfRefCap + ' 张）')
+      : '这一镜还没有参考图 · 在「参考图」槽位挑几张（这个型号一次最多收 ' + kfRefCap + ' 张）')
     : (kfRefN ? '这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + kfRefN + ' 张参考图不会带上）'
       : '这个生图型号没有「参考图」槽位，画面只按文字生成');
   /* 「四档之外」那三排在这一路上到底画得出几颗（决定整块出不出现）：
@@ -1723,13 +1723,13 @@ function renderEditor() {
   const edHtml = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
-      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" title="从素材库 / 这一镜已有的参考图里挑一条写进提示词（也可以直接在框里打 @）">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
+      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
       <div class="ta-wrap">
         <!-- 镜像层：textarea 没法给某几个字上色，所以在它下面铺一层同字号同内边距的副本，
              只给 @片段 画底（文字本身透明，看得见的还是 textarea 里那行字 ——
              中文输入法正在拼的那几个字照旧看得见）。见 atBackHTML / syncAtBack。 -->
         <div class="ta-back" id="edPromptBack" aria-hidden="true"></div>
-        <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…（打 @ 可以引用素材库）">${esc(promptTextOf(sh))}</textarea>
+        <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…">${esc(promptTextOf(sh))}</textarea>
       </div>
       ${/* 「提到素材」：这一镜真实会发出去的每一张图 / 一段视频 / 一段音频各一枚芯片，
            编号与提交前的 refTokenize、真正发出去的 content[] 同一份。
@@ -1813,7 +1813,7 @@ function renderEditor() {
         <em>${chainOn ? (sh.firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
       </label>
       <div class="assets-grid">
-        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? ' title="生成时自动截取上一镜的结尾当首帧"' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
         ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
           <div class="asset-slot kf">

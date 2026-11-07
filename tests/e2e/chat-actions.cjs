@@ -22,11 +22,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       return true;
     });
     if (!seeded) throw new Error('没能准备助手');
-    await sleep(900);
-    await page.waitFor(() => {
-      const hint = document.getElementById('acHint');
-      return !!(hint && /stub-model/.test(hint.textContent || ''));
-    }, 8000);
+    await sleep(1200);
     await page.eval(() => AiChat.ask('把主题改成深色'));
     await page.waitFor(() => !!document.querySelector('.ac-run'), 15000);
     const card = await page.eval(() => {

@@ -160,6 +160,9 @@ let seq = 0;
 let pendingBody = '';
 const pstore = createPromptsStore({
   root: tmpP,
+  /* 库根：归档默认目录是它下面的「提示词\」。这一族用 PROMPTS_DIR 把落点钉在探针里，
+     库根只给 `?dir=` 的白名单用，同样指到探针目录，一个字节都不碰用户成品目录。 */
+  localRoot: () => tmpP,
   log: () => {},
   readBody: () => Promise.resolve(Buffer.from(pendingBody)),
   localAssetEntry: () => null,

@@ -1,0 +1,21 @@
+name: 秒级判据
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      # check 内含 build:check（模板与 web/render/ 是否一致）；static 内含文档契约。
+      # 浏览器 e2e 不在这里跑：AGENTS.md 明确它不是提交与推送的前置条件，
+      # 且需要独立 Chrome 与隔离 proxy 实例，全量约十分钟。
+      - run: npm run ci

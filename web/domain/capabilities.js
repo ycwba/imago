@@ -221,7 +221,7 @@ const NORM_SHAPES = {
       keep.label = '智能参考';
       /* 这颗芯片与别的不一样：它不是「一种请求形状」，而是「形状由送上来的那批素材决定」，
          所以界面要在说明行把这句话讲出来（两个页面都读这一个字段，别在页面里按名字分支）。 */
-      keep.hint = '不放素材就是纯文字，放哪一批就是哪一种请求';
+      keep.hint = '放哪一批素材就是哪一种请求';
       keep.mode = '';    // 并档后没有唯一 mode；它本来也不是请求字段，只是声明的上下文（`when` 只比 intent）
       const roles = new Map();
       smartSrc.forEach(c => {
@@ -598,13 +598,13 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     if (out.missing.length) out.lines.push(at + '必须带上：' + out.missing
       .map(m => this.roleZh(m.role) + '（至少 ' + m.min + '，现在 ' + m.got + '）').join('、'));
     if (out.over.length) out.lines.push(at + '最多收：' + out.over
-      .map(m => this.roleZh(m.role) + ' ' + m.max + ' 个，现在 ' + m.got + ' 个，多出来的发不出去').join('、'));
+      .map(m => this.roleZh(m.role) + ' ' + m.max + ' 个，现在 ' + m.got + ' 个').join('、'));
     out.rejected.forEach(x => out.lines.push(
       (x.why === 'combo' && cb ? at + '不收已选的' : '当前型号不支持已选的')
       + this.roleZh(x.role) + '（已放 ' + x.got + ' 个）'));
     if (out.conflicts.length) out.lines.push('已同时选了互斥的两组：' + out.conflicts
       .map(([a, b]) => '「' + this.roleZh(a) + ' + ' + this.roleZh(b) + '」').join('、')
-      + '，一次请求只能用一组，请清空其中一组');
+      + '，请清空其中一组');
     return out;
   },
   /* 「有没有哪一档收得下这批素材」全站只有这一份判据：换型号 / 能力刷新后的回落、
@@ -639,7 +639,7 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     const s = (cb.roles || []).length
       ? '这一档收：' + cb.roles.map(r => this.roleZh(r.role)
         + (r.min > 0 ? '（至少 ' + r.min + '）' : '') + ' ≤' + (r.max || 0)).join(' · ')
-      : '这一档只用文字提示词，不需要参考素材';
+      : '这一档只用文字提示词';
     return cb.hint ? s + ' · ' + cb.hint : s;
   },
   /* 「输入模式」那一排芯片的画法（与上面 `AdvExtras.html.*` 同一立场：判据 + 画法一份，页面只接线）：
@@ -651,8 +651,7 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     const E = window.esc;
     return (list || []).map(c => '<button type="button" class="ui-pill' + (c.id === currentId ? ' on' : '')
       + '" data-cid="' + E(c.id) + '">' + E(this.comboLabel(c)) + '</button>').join('')
-      + '<span class="why">换模式只改「这一次能同时用哪几类素材」，已放好的不清掉；'
-      + '收不下的那一类会标出来，并在提交前拦住。</span>';
+      + '<span class="why">换模式只改这次能同时用哪几类素材，已放好的不清掉。</span>';
   },
   /* 当前模式下这一组参数的**取值范围与默认值**：有模式声明就按那一档的，
      没有就退回型号总表。平台在换人档里只给 768p / 没有 2x，界面就只给 768p ——

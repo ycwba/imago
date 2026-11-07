@@ -3,10 +3,11 @@
      · 不再用 iframe —— 页面与外壳同一份文档，切换只靠 KeepAlive；
      · 导演台对 DOM 的读写全部落在自己的 `.director-page` 根里（document 代理），
        不会去碰别的页面；键盘 / 指针这类 document/window 监听在页面不可见时直接放行；
-     · 页面样式只在可见时挂上，并用 `@scope` 圈在自己的根里，不会染到侧栏与其它页。
+     · 页面样式只在可见时挂上，选择器全部挂在 `.director-page` 名下，不会染到侧栏与其它页。
    等这一岛的边界稳定下来，再把内部一块块换成 Vue 组件。 */
 import { ref, onMounted, onActivated, onDeactivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { createEditorMedia } from './media.js';
+import { scopeCss } from './style-scope.js';
 import { render } from '../render/director.js';
 
 function extractTemplate(html) {
@@ -117,9 +118,11 @@ export default {
         const page = extractTemplate(html);
         if (!page.body) throw new Error('导演台模板取不出来');
         host.value.innerHTML = page.body;
-        /* 样式只在可见时挂；@scope 把选择器圈在页面根里（body/html 那几条由 spa-director.css 接住）。 */
+        /* 样式只在可见时挂；每条选择器挂到 `.director-page` 前缀下（body/html 那几条由 spa-director.css 接住）。
+           不用 @scope：强制夜间模式这类扩展按 CSSOM 规则类型逐条改写，@scope 整块会被跳过 ——
+           页面底变暗、左右栏与底栏仍白。 */
         styleEl = document.createElement('style');
-        styleEl.textContent = '@scope (.director-page) {\n' + page.style + '\n}';
+        styleEl.textContent = scopeCss(page.style, '.director-page');
         styleEl.setAttribute('data-spa-director', '1');
         document.head.appendChild(styleEl);
         if (window.fillIcons) window.fillIcons(host.value);

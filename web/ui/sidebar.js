@@ -29,7 +29,7 @@
      窄形态只留那颗齿轮：这一行是横排的（图标 + 全名），没有导航项那种「图标在上、短标签在下」的位子。 */
   const setPg = (window.WB_ROUTES && window.WB_ROUTES.byFile && window.WB_ROUTES.byFile['settings.html']) || {};
   sb.innerHTML =
-    '<div class="sb-brand"><span class="sb-logo" title="点击收起 / 展开侧边栏">AI</span>'
+    '<div class="sb-brand"><span class="sb-logo" title="收起 / 展开侧边栏">AI</span>'
     + '<span class="sb-brand-txt"><span class="sb-name">AI 创作工作台</span>'
     + '<span class="sb-sub">本地优先 · 数据留在本机</span></span></div>'
     + '<nav>' + items.map(i =>
@@ -40,7 +40,7 @@
     ).join('') + '</nav>'
     + '<div class="sb-bottom" id="sbBalance"></div>'
     + '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set" aria-label="' + window.esc(setPg.label) + '"><span class="ic">' + svgIc('gear') + '</span><span class="lb">' + window.esc(setPg.label) + '</span></a>'
-    + '<button class="sb-set" id="sbTheme" title="切换亮色 / 暗色背景"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
+    + '<button class="sb-set" id="sbTheme"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
 
   /* 点导航：不跳转整页，只让 web/app.js 切内容页（侧栏保持不动）；
      窄窗口里侧栏是浮层，选完就自动收回，否则内容一直被盖着一块。 */
@@ -185,10 +185,10 @@
   const toggle = () => setWant(!wantOpen());
   const logo = sb.querySelector('.sb-logo');
   asButton(logo, e => { e.stopPropagation(); toggle(); });
-  if (logo) logo.title = '点击收起 / 展开侧边栏';
+  if (logo) logo.title = '收起 / 展开侧边栏';
   const brand = sb.querySelector('.sb-brand');
   asButton(brand, toggle);
-  if (brand) brand.title = '点击收起 / 展开侧边栏';
+  if (brand) brand.title = '收起 / 展开侧边栏';
   // 换背景（亮 / 暗主题）：全站统一放在左下角
   const themeBtn = sb.querySelector('#sbTheme');
   const themeIcon = dark => svgIc(dark ? 'sun' : 'moon');
@@ -246,7 +246,7 @@
        界面上从头到尾一张卡都没有，最后「突然冒出来」N 张 ——
        与「一直显示着、一家一家填上」是两回事（后者还顺便说明了到底在问哪几家）。 */
     if (r.pending) {
-      return `<div class="sb-bal-card" data-kid="${window.esc(r.kid)}" title="${window.esc(r.name)}：正在查询…">
+      return `<div class="sb-bal-card" data-kid="${window.esc(r.kid)}" title="${window.esc(r.name)}">
         <div class="l1"><span class="nm">${window.esc(r.name)}</span><span class="am">—</span></div>
         <div class="l2"><span class="spin-dot"></span> 正在读取…</div></div>`;
     }
@@ -335,10 +335,7 @@
     const s2 = mirrorInfo || {};
     const mirror = sto ? '<div class="sb-bal-sum-mirror" title="' + window.esc(sto.tip) + '">'
       + '<span class="sb-mirror-n">' + (sto.busy ? '存 ' + sto.txt : (s2.count || 0) + ' 份') + '</span></div>' : '';
-    const t = [];
-    if (balShown !== null) t.push('账户余额 ' + balShown + ' 家');
-    if (sto) t.push(sto.tip);
-    if (balShown !== null) t.push('点击看详情');
+    const t = sto ? [sto.tip] : [];
     return '<div class="sb-bal-sum" title="' + window.esc(t.join(' · ')) + '">'
       + (balShown !== null
         ? '<div class="p"><b>' + balShown + '</b><span class="u">家余额</span></div>'
@@ -369,7 +366,7 @@
   function balBodyHTML(note, pop) {
     const shown = balList();
     const cards = balCardsHTML(shown, shown.length ? ''
-      : (note || (balRows.length ? '要显示哪几家在设置页「供应商与密钥」那张卡上勾「侧栏余额」' : '正在读取…')));
+      : (note || (balRows.length ? '没有勾选「侧栏余额」的平台' : '正在读取…')));
     const head = '<div class="sb-now-t"' + (pop ? '' : ' title="点击刷新"')
       + '>账户余额 <span class="n">' + shown.length + ' 家</span></div>';
     return '<div class="sb-bal">' + head
@@ -549,7 +546,7 @@
         ? '有 ' + s2.dead + ' 份存不进本机，已不再重试：' + (String(s2.deadWhy || '') || '原因未知')
           + '（选中它们按「存回本机」可再试一次）'
         : '最后一次没存成：' + window.esc(s2.lastErr))
-      : (busy || s2.on ? '' : '自动存本机关着，新产物只留平台地址。');
+      : (busy || s2.on ? '' : '新产物只留平台地址。');
     return '<div class="sb-mirror"'
       + (tip ? ' title="' + window.esc(tip) + '"' : '')
       + '>' + head
@@ -724,7 +721,7 @@
          下次开页面先画缓存、又把它们画回来 —— 「已经不用了」的东西永远消不掉。 */
       try { localStorage.setItem(BAL_KEY, JSON.stringify({ ts: Date.now(), rows: [], kids: [] })); } catch {}
       balRows = []; balKids = [];
-      paintBal(box, '还没有在用的平台 —— 填了密钥或添加进来的那几家会出现在这里');
+      paintBal(box, '还没有在用的平台');
       notifyBal();
       return;
     }
@@ -734,7 +731,7 @@
        全被藏起来时**保留缓存**（勾回来立刻有数），只画一张占位、一个请求都不发。 */
     const wanted = window.SbBal ? SbBal.filter(usable) : usable;
     if (!wanted.length) {
-      paintBal(box, '这几家都被你在设置页「供应商与密钥」那张卡上取消了「侧栏余额」');
+      paintBal(box, '这几家都没勾「侧栏余额」');
       return;
     }
     /* 算出要问哪几家之后**先画占位卡**，再发请求；哪一家先回来就换掉它那一张。

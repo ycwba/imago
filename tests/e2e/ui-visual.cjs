@@ -188,12 +188,8 @@ async function prepChatSources(page, proxy) {
   /* 助手是空闲装载的：全量跑时前面几档的时间早把它带起来了，点名单跑这一档就得自己等。 */
   await page.waitFor(() => !!window.AiChat, 25000).catch(() => {});
   await page.eval(() => { AiChat.open(); return true; });
-  /* 底栏提示是设置页那份供应方 / 型号回来之后才写的（paintHint）：不等它落定，
-     同一档第一次拍在写之前、第二次拍在写之后，四张画面里会出现两种底栏。 */
-  await page.waitFor(() => {
-    const h = document.getElementById('acHint');
-    return !!h && !!h.textContent.trim();
-  }, 15000).catch(() => {});
+  /* 底栏提示（paintHint）在配置齐全时是空的：等一小段让抽屉画稳即可，别等「写出来」。 */
+  await new Promise(r => setTimeout(r, 700));
   await page.waitFor(() => !!document.querySelector('.ac-src-a'), 15000).catch(() => {});
   const painted = await page.eval(() => document.querySelectorAll('.ac-src-a').length);
   if (painted < 2) {

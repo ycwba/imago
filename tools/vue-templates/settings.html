@@ -6,14 +6,13 @@
         <div class="phead-id">
           <h1 class="phead-h1">设置</h1>
         </div>
-        <p class="phead-sub">全部设置都在本机改。</p>
+        <p class="phead-sub"></p>
         <div class="phead-acts"></div>
       </header>
 
       <!-- 左：目录轨（索引，不是另一套页面）。
            点哪一行 → 右栏平滑滚到那一栏；右栏滚到哪一栏 → 轨上那一行亮起来。
-           每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，
-           就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 -->
+           轨上只放栏目标题，不摆当前值（值在右边那张卡里看）。 -->
       <aside class="set-rail">
         <div class="set-rail-h">目录</div>
         <div class="set-rail-top">
@@ -21,7 +20,7 @@
             placeholder="找一项设置" autocomplete="off" spellcheck="false">
           <button class="ghost" :hidden="!navHasFilter" @click="clearNav">清除</button>
         </div>
-        <div class="set-rail-note" :class="{ err: navSumErr }" v-if="navHasFilter">{{ navSum }}</div>
+        <div class="set-rail-note" :class="{ err: navSumErr }" v-if="navSumErr">{{ navSum }}</div>
         <div class="set-rail-scroll" ref="setRailEl"></div>
         <div class="set-rail-foot"><span class="dot"></span><span>{{ navSumShort }}</span></div>
       </aside>
@@ -33,7 +32,7 @@
         <div class="set-doc-scroll" ref="setDocEl">
             <div v-if="failed" class="card card-surface"><div class="ui-note err">{{ failed }} <button class="ghost mini" @click="retryLoad">重试</button></div></div>
 
-            <section class="set-group" data-group="keys" data-note="平台账号与两条通道">
+            <section class="set-group" data-group="keys">
               <h2 class="set-group-h">账户与密钥</h2>
 
               <div class="card card-surface" data-nav="providers">
@@ -109,7 +108,6 @@
                     </div>
                     <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
                     <div class="hint sm" v-if="(asr.route === 'service' || asr.route === 'auto') && !asrOnlineReady">先接一家支持语音识别的供应商。</div>
-                    <div class="hint sm">浏览器内首次识别会经代理下载模型（约 250–500MB）；本机运行包放在 tools/whisper/，或用 WHISPER_BIN / WHISPER_MODEL 指定。</div>
                   </div>
                   <!-- 联网搜索：同样只住在声明了搜索接口的那一家的账号卡里 -->
                   <div class="incard" id="searchCard" ref="searchFormEl">
@@ -242,7 +240,7 @@
               </div>
             </section>
 
-            <section class="set-group" data-group="ui" data-note="查看、翻页与外观">
+            <section class="set-group" data-group="ui">
               <h2 class="set-group-h">界面与列表</h2>
 
               <div class="card card-surface" data-nav="network">
@@ -253,7 +251,6 @@
 
               <div class="card card-surface" data-nav="paging">
                 <h2 class="card-h"><span class="card-ic" v-html="icList"></span>列表分页</h2>
-                <div class="sub">滚到底自动续拉。</div>
                 <div class="kcols" ref="pageBoxEl"></div>
               </div>
 
@@ -263,12 +260,11 @@
               </div>
             </section>
 
-            <section class="set-group" data-group="gen" data-note="产物存放与 AI 行为">
+            <section class="set-group" data-group="gen">
               <h2 class="set-group-h">生成与助手</h2>
 
               <div class="card card-surface" data-nav="storage">
                 <h2 class="card-h"><span class="card-ic" v-html="icFolder"></span>产物存放</h2>
-                <div class="sub">第三项要前两项都开着才生效。</div>
                 <div class="kcols" ref="storePrefsBoxEl"></div>
                 <!-- 自动存档位 + 左栏那两块开关：行本身由 SET_ROWS 声明；库根位置那一格由 renderLocalLib 画。 -->
                 <div class="kcols" ref="storeRowsEl"></div>
@@ -276,36 +272,28 @@
 
               <div class="card card-surface" data-nav="chars">
                 <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
-                <div class="sub">页内换的型号与张数只管那一次。</div>
                 <div class="kcols" ref="charsBoxEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="assistant">
                 <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>AI 助手</h2>
-                <div class="sub">读不用问；动手先确认。</div>
                 <!-- 四颗开关的行由 SET_ROWS 声明：勾法与写盘的三态都在那一行声明里。 -->
                 <div class="kcols" ref="assistantBoxEl"></div>
-                <div class="pb-tip">关掉只是不装，记录都留着。</div>
-                <div class="pb-tip">勾上后自动执行，不再确认。</div>
-                <div class="pb-tip">不随云同步。</div>
                 <details class="ref"><summary>通知授权</summary><div class="ref-body">
-                  拒绝过就去地址栏左侧「网站设置」里放开。</div></details>
+                  被拒后在地址栏「网站设置」里放开。</div></details>
               </div>
 
               <div class="card card-surface" data-nav="polish">
                 <h2 class="card-h"><span class="card-ic" v-html="icPencil"></span>润色行为</h2>
-                <div class="sub">正文由 Skill 提供，这里只管反问开关。</div>
                 <div class="polish-block">
-                  <div class="pb-head"><b>润色前要不要先反问</b><span class="used">用于润色入口</span></div>
+                  <div class="pb-head"><b>润色前要不要先反问</b></div>
                   <!-- 那一格下拉的行由 SET_ROWS 声明。 -->
                   <div class="kcols" ref="polishBoxEl"></div>
-                  <div class="pb-tip">「AI 判断」：AI 自己决定要不要先反问。</div>
                 </div>
               </div>
 
               <div class="card card-surface" data-nav="skill" id="skillCard">
                 <h2 class="card-h"><span class="card-ic" v-html="icBrain"></span>Skill</h2>
-                <div class="sub">按场景加载；输出格式由契约管。</div>
 
                 <div class="sk-scenes">
                   <!-- 左：场景轨 —— 一级菜单 = 「在哪儿用」。每一行是一处活儿（= 一个 contract），
@@ -342,7 +330,6 @@
                       <div class="sk-d-head">
                         <div class="sk-d-l">
                           <h3 class="sk-d-title">{{ skillScene.label }}</h3>
-                          <div class="sk-used">{{ skillScene.used }}</div>
                           <div class="sk-meta">
                             <code class="sk-code">{{ skillScene.contract || '（不占固定位）' }}</code>
                             <span class="ui-tag ok" v-if="skillSceneNow.active">正在生效：{{ skillSceneNow.active.name }}</span>
@@ -362,7 +349,6 @@
                             <span class="sk-vfrom">{{ v.from }}</span>
                             <span class="sk-vdesc">{{ v.desc }}</span>
                           </div>
-                          <div class="sk-vnote">填不上的留给 AI 补。</div>
                         </div>
                         <div v-else class="sk-vempty">不需要项目上下文。</div>
                         <div class="sk-warn" v-if="skillSceneUnknown.length">
@@ -372,7 +358,7 @@
                       </div>
 
                       <div class="sk-sec">
-                        <div class="sk-sec-h"><b>这个场景的 Skill</b><span class="hint">恰好一份在用 · 要换就启用另一份</span></div>
+                        <div class="sk-sec-h"><b>这个场景的 Skill</b></div>
                         <div v-if="!skillSceneNow.list.length" class="sk-vempty">还没有 Skill。</div>
                         <div v-for="s in skillSceneNow.list" :key="s.id" class="sk-item" :class="{ on: isSceneActive(s), off: !s.enabled }" :data-skill-id="s.id">
                           <span class="sk-bar"></span>
@@ -388,7 +374,7 @@
                             </div>
                           </div>
                           <div class="sk-acts">
-                            <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy || isLastEnabled(s)" :title="isLastEnabled(s) ? '每个场景至少要有一份 Skill 在用 —— 要换就启用另一份' : null" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                            <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy || isLastEnabled(s)" :title="isLastEnabled(s) ? '最后一份在用 · 先启用另一份' : null" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
                             <button class="ghost mini sk-edit-btn" v-if="s.source !== 'builtin'" type="button" :data-skill-id="s.id" :disabled="skillBusy" @click="openSkillEdit(s.id)">编辑正文</button>
                             <button class="ghost mini" v-if="s.source !== 'builtin'" type="button" :disabled="skillBusy" @click="pickSkillFile('update', s.id)">导入同 id 更新</button>
                             <button class="ghost mini danger sk-remove" type="button" :data-skill-id="s.id" :disabled="skillBusy || s.source === 'builtin'" @click="removeSkill(s.id, $event)">卸载</button>
@@ -406,8 +392,6 @@
                           </div>
                         </div>
                       </div>
-
-                      <div class="sk-foot">启用 / 停用下一轮生效。</div>
                     </template>
 
                     <!-- ② 全部 Skill（原来的全量清单退到这里，不再与一级菜单并排） -->
@@ -417,7 +401,7 @@
                           <h3 class="sk-d-title">全部 Skill</h3>
                         </div>
                         <div class="sk-acts">
-                          <button class="ghost" type="button" @click="closeSkillAll">回到场景</button>
+                          <button class="ghost" type="button" @click="closeSkillAll">返回场景</button>
                           <button class="ghost" type="button" :disabled="skillBusy" @click="pickSkillFile('import')">导入 .md / .zip</button>
                         </div>
                       </div>
@@ -439,7 +423,7 @@
                               <span class="ui-tag" :class="{ ok: s.enabled }">{{ s.enabled ? '已启用' : '已停用' }}</span>
                             </div>
                             <div class="sk-acts">
-                              <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy || isLastEnabled(s)" :title="isLastEnabled(s) ? '每个场景至少要有一份 Skill 在用 —— 要换就启用另一份' : null" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
+                              <button class="ghost mini sk-toggle" type="button" :data-skill-id="s.id" :disabled="skillBusy || isLastEnabled(s)" :title="isLastEnabled(s) ? '最后一份在用 · 先启用另一份' : null" @click="toggleSkillEnabled(s.id)">{{ s.enabled ? '停用' : '启用' }}</button>
                             </div>
                           </div>
                           <div v-if="!skillAllFiltered.length" class="empty sm">没有匹配的 Skill。</div>
@@ -452,10 +436,8 @@
                       <div class="sk-d-head">
                         <div class="sk-d-l">
                           <h3 class="sk-d-title">{{ skillForm.mode === 'edit' ? '编辑 Skill' : '添加新 Skill' }}</h3>
-                          <div class="sk-used">{{ skillForm.mode === 'edit' ? '保存后下一轮生效。' : '' }}</div>
                           <div class="sk-meta">
                             <code class="sk-code">contract：{{ skillForm.contract }}</code>
-                            <span class="sk-cnt">同一 contract 只有一份生效。</span>
                           </div>
                         </div>
                         <div class="sk-acts">
@@ -488,24 +470,21 @@
                             <textarea id="skFBody" class="sk-textarea" v-model="skillForm.body" rows="14" placeholder="可用 {变量} 占位"></textarea>
                           </label>
                         </div>
-                        <div class="sk-vnote">{变量} 按当前项目填，填不上留给 AI 补。</div>
                       </div>
                     </template>
                   </section>
                 </div>
 
                 <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
-                <div class="sk-hint">导入只接受 .md / .zip；内置 Skill 只读。</div>
                 <div v-if="skillMsg" class="hint sm sk-msg">{{ skillMsg }}</div>
               </div>
             </section>
 
-            <section class="set-group" data-group="data" data-note="云端同步与备份">
+            <section class="set-group" data-group="data">
               <h2 class="set-group-h">数据与同步</h2>
 
               <div class="card card-surface" data-nav="sync">
                 <h2 class="card-h"><span class="card-ic" v-html="icUpload"></span>数据与同步</h2>
-                <div class="sub">数据同时写进项目 <code>.data/</code>。</div>
                 <div class="kcols">
                   <div class="krow">
                     <span class="kicon"><span v-html="icFolder"></span></span>
@@ -530,7 +509,6 @@
                   <span class="hint sm">{{ dataMsg }}</span>
                 </div>
                 <label class="plabel" style="margin-top:var(--sp-16)">云同步（WebDAV）</label>
-                <div class="pb-tip" style="margin-bottom:var(--sp-8)">坚果云要填应用密码，不是登录密码。</div>
                 <div class="krow">
                   <span class="kicon"><span v-html="icLink"></span></span>
                   <input id="cloudUrl" v-model="cloudUrl" @change="saveCloud" placeholder="https://dav.jianguoyun.com/dav/ai-workbench/" style="flex:1">
@@ -566,10 +544,9 @@
                 <label class="plabel">归档目录</label>
                 <div class="krow">
                   <span class="kicon"><span v-html="icFolderDoc"></span></span>
-                  <input id="promptDir" ref="promptDirEl" v-model="promptDir" @change="onPromptDirChange" placeholder="留空 = 默认" style="flex:1">
-                  <span :title="promptInfoTitle" style="flex:0 0 auto">{{ promptInfo }}</span>
+                  <span class="set-path" :title="promptDir">{{ promptDir }}</span>
+                  <span style="flex:0 0 auto">{{ promptInfo }}</span>
                 </div>
-                <div class="pb-tip">~ 开头或绝对路径；不参与云同步。</div>
                 <div class="krow tight">
                   <button class="ghost" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
                   <button class="ghost" @click="promptRefresh">刷新清单</button>
@@ -581,7 +558,6 @@
               <!-- 整份设置的三个出口收在最下面这一张卡里，**不再做成浮动的保存条**。 -->
               <div class="card card-surface" data-nav="backup">
                 <h2 class="card-h"><span class="card-ic" v-html="icFolderDoc"></span>设置备份与恢复</h2>
-                <div class="sub">只管整份设置；导出默认不含密钥。</div>
                 <div class="krow tight">
                   <button class="ghost" @click="exportSetup"><span class="ic" data-icon="download" data-size="13"></span> 导出设置</button>
                   <button class="ghost" @click="pickImportSetup"><span class="ic" data-icon="upload" data-size="13"></span> 导入设置</button>
@@ -593,60 +569,51 @@
 
             <!-- 低频那一组默认收着：折叠状态走的是这一页已有的 fold-key 机制，
                  键没存过 = 收起，所以第一次打开这一页就只有四组摊开。 -->
-            <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint" data-note="本机环境、用量与清理">
+            <section class="set-group foldable" data-group="maint" data-fold-key="set_fold_maint">
               <h2 class="set-group-h">
                 <button class="tool fold-toggle" type="button" aria-expanded="false"><span class="fold-title">本机维护</span><span class="fold-txt">展开</span></button>
               </h2>
               <div class="fold-body">
                 <div class="card card-surface" data-nav="env">
                   <h2 class="card-h"><span class="card-ic" v-html="icGear"></span>本机环境</h2>
-                  <div class="sub">只读检查，不写盘。</div>
                   <div ref="sysRowsEl"><span class="hint sm">体检中…</span></div>
                   <div class="krow tight">
                     <button class="ghost" :disabled="sysBusy" @click="recheckSys">重新体检</button>
                     <button class="ghost" :disabled="sysCopyDisabled" @click="copySys"
-                      :title="sysCopyDisabled ? '还没读到结果' : '复制成文字'">复制体检结果</button>
+                      :title="sysCopyDisabled ? '还没读到结果' : ''">复制体检结果</button>
                     <span class="hint sm">{{ sysMsg }}</span>
                   </div>
-                  <div class="pb-tip">换浏览器、改目录权限后用，不用重启代理。</div>
                 </div>
 
                 <div class="card card-surface" data-nav="disk">
                   <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>资产库磁盘用量</h2>
-                  <div class="sub">只读检查，不写不删。</div>
                   <div ref="usageRowsEl"><span class="hint sm">数盘中…</span></div>
                   <div class="krow tight">
                     <button class="ghost" :disabled="usageBusy" @click="recountUsage">重新数一遍</button>
                     <button class="ghost" :disabled="usageCopyDisabled" @click="copyUsage"
-                      :title="usageCopyDisabled ? '还没读到结果' : '复制成文字'">复制这份读数</button>
+                      :title="usageCopyDisabled ? '还没读到结果' : ''">复制这份读数</button>
                     <span ref="usageGoSlotEl"></span>
                     <span class="hint sm">{{ usageMsg }}</span>
                   </div>
-                  <div class="pb-tip">这里只统计；清理在缓存那一栏。</div>
                 </div>
 
                 <div class="card card-surface" data-nav="cache">
                   <h2 class="card-h"><span class="card-ic" v-html="icTrash"></span>清理缓存</h2>
-                  <div class="sub">只清能重新生成的缓存，作品不动。</div>
                   <div class="kcols">
                     <div class="krow tight">
                       <span class="kn">平台接口应答</span>
-                      <span class="sub-line">平台返回数据的副本。</span>
                       <button class="ghost mini wide" :disabled="cacheBusy.api" @click="clearApiCache">{{ cacheBusy.api ? '清理中…' : '清空' }}</button>
                     </div>
                     <div class="krow tight">
                       <span class="kn">文字 AI 型号能力</span>
-                      <span class="sub-line">型号识图判定缓存。</span>
                       <button class="ghost mini wide" :disabled="cacheBusy.meta" @click="clearMetaCache">{{ cacheBusy.meta ? '清理中…' : '清空' }}</button>
                     </div>
                     <div class="krow tight">
                       <span class="kn">缩略图与体积探测</span>
-                      <span class="sub-line">缩略图与体积测量缓存。</span>
                       <button class="ghost mini wide" :disabled="cacheBusy.thumb" @click="clearThumbCache">{{ cacheBusy.thumb ? '清理中…' : '清空' }}</button>
                     </div>
                     <div class="krow tight">
                       <span class="kn">「没归档到」标记</span>
-                      <span class="sub-line">归档缺失标记缓存。</span>
                       <button class="ghost mini wide" :disabled="cacheBusy.missed" @click="clearMissedCache">{{ cacheBusy.missed ? '清理中…' : '清空' }}</button>
                     </div>
                   </div>

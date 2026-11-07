@@ -587,7 +587,7 @@ function info() {
       } else {
         /* 代理收了请求却没给资产号 = 这份字节其实没落地，回执必须报失败，
            不然按钮说「已存好 N 条」而索引里一条都没有。 */
-        throw new Error('代理没有返回资产号');
+        throw new Error('存不进本机');
       }
       /* 到这里就结束了：**产物只有这一份**。
          以前镜像之后还要再按类型拷一份到用户指定的文件夹，实测一次生成写两遍同样的字节
@@ -913,9 +913,9 @@ function info() {
     const bits = [];
     if (r.ok) bits.push('已存回本机 ' + r.ok + ' 条');
     if (r.kept) bits.push('本机早就有 ' + r.kept + ' 条');
-    if (r.busy) bits.push('后台那一轮正在存 ' + r.busy + ' 条，没重复排');
-    if (r.skip) bits.push('有 ' + r.skip + ' 条比本机镜像的上限还大，没存');
-    if (r.cant) bits.push('有 ' + r.cant + ' 条手上只剩转发地址、取不到原始外链，没法存');
+    if (r.busy) bits.push('后台正在存 ' + r.busy + ' 条，没重复排');
+    if (r.skip) bits.push('有 ' + r.skip + ' 条超过大小上限，没存');
+    if (r.cant) bits.push('有 ' + r.cant + ' 条取不到原始外链，没法存');
     if (r.fails && r.fails.length) bits.push('有 ' + r.fails.length + ' 条没成：' + r.fails.slice(0, 2).join('；') + (r.fails.length > 2 ? ' 等' : ''));
     return bits.join(' · ');
   }
@@ -956,7 +956,7 @@ function info() {
     const what = opts.what || '产物';
     if (!n) return opts.empty || (zone + '的' + what + '本机都已经有了');
     return zone + '有 ' + n + ' ' + (opts.unit || '条') + what
-      + '的字节还不在本机（外链一过期就是破图）：逐条取回本机资产库，已经在本机的一条都不会重下。'
+      + '不在本机，外链过期会变破图；已经在本机的一条不重下。'
       + (opts.more || '');
   }
   /* 三档回执（红 / 绿 / 灰）同一把尺子：一条都没落地就不能报绿。
@@ -1153,7 +1153,7 @@ function info() {
        · src 是平台外链挂了 → 按地址（剥签名）反查本机副本 → 换 /asset/<本机号>
        · 两边都试过还挂 → 标 lost，插一个「已丢失」角标（而不是留一张裂图让人猜）
      每个元素只回退一次：`dataset.fb` 在**同步**那一步就钉住，并发的第二个 error 直接判丢失。 */
-  const LB = '文件已丢失（本机副本与平台地址都没了）';
+  const LB = '文件已丢失';
   function lostTip(el) {
     const parent = el.parentElement;
     if (!parent) return;

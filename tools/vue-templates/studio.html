@@ -11,70 +11,84 @@
       </header>
 
       <div class="layout">
+        <!-- 左栏分三段：**正文一段滚**（.wb-body）+ **底部生成区钉住**（.wb-dock）。
+             以前整栏是一只滚动容器，生成按钮跟在内容最后 —— 提示词长、参考素材多的时候，
+             用户得把整栏滚到底才够得着按钮；窗口一高，内容又撑不满、按钮浮在半空、下面一大片空白。
+             现在与导演台右栏同一副：栏自己不滚，滚的只是正文，按钮永远贴在这一栏的底边。 -->
         <div class="col-left" data-r="leftCol">
-          <div class="st-top">
-            <div class="ui-seg" data-r="typeSeg" role="tablist" aria-label="生成类型"></div>
-            <div class="st-model"><select data-r="model"></select></div>
-          </div>
-          <div class="st-sub" data-r="stSub"></div>
-
-          <div class="prompt-box" data-r="promptBox">
-            <textarea data-r="prompt" spellcheck="false"></textarea>
-            <div class="prompt-hint" data-r="promptHint" hidden></div>
-            <div class="btn-row">
-              <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
-                   模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
-              <span class="btn-host" data-r="polishHost"></span>
-              <span class="btn-host" data-r="splitHost"></span>
-              <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
-              <button class="ghost" type="button" data-r="toImageBtn" title="把这段提示词填进图像栏"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>
-              <span class="sp"></span>
-              <button class="tool danger" data-r="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span><span class="tx">一键清空</span></button>
+          <div class="wb-body">
+            <div class="st-top">
+              <div class="ui-seg" data-r="typeSeg" role="tablist" aria-label="生成类型"></div>
+              <div class="st-model"><select data-r="model"></select></div>
             </div>
-            <div data-r="polishInline" hidden></div>
-            <div class="pinl" data-r="splitInline" hidden>
-              <div class="pinl-hd">
-                <span class="pinl-tt">拆分片段生成</span>
-                <span class="pinl-note">每张独立计费。</span>
+            <div class="st-sub" data-r="stSub"></div>
+
+            <div class="prompt-box" data-r="promptBox">
+              <textarea data-r="prompt" spellcheck="false"></textarea>
+              <div class="prompt-hint" data-r="promptHint" hidden></div>
+              <div class="btn-row">
+                <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
+                     模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
+                <span class="btn-host" data-r="polishHost"></span>
+                <span class="btn-host" data-r="splitHost"></span>
+                <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
+                <button class="ghost" type="button" data-r="toImageBtn"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>
+                <span class="sp"></span>
+                <button class="tool danger" data-r="clearAll" title="清空提示词、素材与参数"><span class="ic" data-icon="trash" data-size="14"></span><span class="tx">一键清空</span></button>
               </div>
-              <!-- 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层
-                   window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，
-                   这里只留一块空宿主，页面挂载时灌进去。 -->
-              <div data-r="splitOpts"></div>
-              <label class="fill-video-row">
-                <input type="checkbox" data-r="splitFillVideo">
-                <span>生成后填入视频栏参考素材（生成完自动就位）</span>
-              </label>
-            </div>
-            <div class="style-row" data-r="styleRow" hidden>
-              <label>风格 / 音色描述 <span style="color:var(--err)">*</span></label>
-              <input data-r="style" class="ui-inp" placeholder="例：温柔女声，语速偏慢">
-              <div style="margin-top:var(--sp-8)">
-                <button class="ghost" data-r="stylePick">取一位素材的音色描述</button>
+              <div data-r="polishInline" hidden></div>
+              <div class="pinl" data-r="splitInline" hidden>
+                <div class="pinl-hd">
+                  <span class="pinl-tt">拆分片段生成</span>
+                  <span class="pinl-note">每张独立计费。</span>
+                </div>
+                <!-- 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层
+                     window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，
+                     这里只留一块空宿主，页面挂载时灌进去。 -->
+                <div data-r="splitOpts"></div>
+                <label class="fill-video-row">
+                  <input type="checkbox" data-r="splitFillVideo">
+                  <span>生成后填入视频栏参考素材</span>
+                </label>
               </div>
+              <div class="style-row" data-r="styleRow" hidden>
+                <label>风格 / 音色描述 <span style="color:var(--err)">*</span></label>
+                <input data-r="style" class="ui-inp" placeholder="例：温柔女声，语速偏慢">
+                <div style="margin-top:var(--sp-8)">
+                  <button class="ghost" data-r="stylePick">取一位素材的音色描述</button>
+                </div>
+              </div>
+              <div class="ed-label" data-r="modeHead" hidden><span>输入模式</span><span class="cnt" data-r="modeHeadNote"></span></div>
+              <div class="mode-row" data-r="modeRow" hidden></div>
+              <div class="ed-label" data-r="slotHead" hidden><span>参考素材</span><span class="cnt" data-r="slotHeadNote"></span></div>
+              <div class="slot-wrap" data-r="inputArea"></div>
             </div>
-            <div class="ed-label" data-r="modeHead" hidden><span>输入模式</span><span class="cnt" data-r="modeHeadNote"></span></div>
-            <div class="mode-row" data-r="modeRow" hidden></div>
-            <div class="ed-label" data-r="slotHead" hidden><span>参考素材</span><span class="cnt" data-r="slotHeadNote"></span></div>
-            <div class="slot-wrap" data-r="inputArea"></div>
-          </div>
 
-          <div class="adv" data-r="adv">
-            <div class="adv-head" data-r="advHead">
-              <h2><span data-icon="gear" data-size="14"></span> <span data-r="advTitle">高级设置</span></h2>
-              <span class="sum"><span data-r="advSum"></span><span class="chev">▼</span></span>
+            <div class="adv" data-r="adv">
+              <div class="adv-head" data-r="advHead">
+                <h2><span data-icon="gear" data-size="14"></span> <span data-r="advTitle">高级设置</span></h2>
+                <span class="sum"><span data-r="advSum"></span><span class="chev">▼</span></span>
+              </div>
+              <div class="adv-body" data-r="advBody"></div>
+              <div class="hint" data-r="capHint" style="font-size:var(--fs-12);color:var(--sub);margin-top:var(--sp-8)"></div>
             </div>
-            <div class="adv-body" data-r="advBody"></div>
-            <div class="hint" data-r="capHint" style="font-size:var(--fs-12);color:var(--sub);margin-top:var(--sp-8)"></div>
-          </div>
 
-          <div class="costbar"><span data-r="costTxt">估价中…</span><span class="note" data-r="mode">文生视频</span></div>
-          <button type="button" class="go pri" data-r="go">生成视频</button>
-          <div class="hint" data-r="goWhy"></div>
-          <div data-r="status"></div>
-          <div data-raw-host></div>
-          <div data-r="balTip" hidden></div>
-          <div class="hint" data-r="pendingHint" style="display:none;font-size:var(--fs-12);margin-top:var(--sp-8)"></div>
+            <!-- 原始请求（预览 / 实发）跟着正文滚：它是一份可以展开的老长的 JSON，
+                 钉在底栏里一展开就把按钮挤走。它预览的又是「上面这些参数将要发什么」，
+                 放在正文末尾比放在按钮下面更贴它的意思。 -->
+            <div data-raw-host></div>
+          </div><!-- /.wb-body -->
+
+          <!-- 钉底那一段：估价 · 生成按钮 · 不可用原因 · 状态行 · 余额 / 重复提交提示。
+               只放「点下去之前要看、点完之后要读」的东西；它自己不滚，正文滚到尽头接在分隔线下面。 -->
+          <div class="wb-dock">
+            <div class="costbar"><span data-r="costTxt">估价中…</span><span class="note" data-r="mode">文生视频</span></div>
+            <button type="button" class="go pri" data-r="go">生成视频</button>
+            <div class="hint" data-r="goWhy"></div>
+            <div data-r="status"></div>
+            <div data-r="balTip" hidden></div>
+            <div class="hint" data-r="pendingHint" style="display:none;font-size:var(--fs-12);margin-top:var(--sp-8)"></div>
+          </div>
         </div>
 
         <div class="col-right">
@@ -91,7 +105,7 @@
               <span class="fb-host" data-r="searchHost"></span>
               <span class="pgsep"></span>
               <button class="ghost" id="multiBtn" data-r="multiBtn"><span data-icon="checkBox" data-size="13"></span> 多选</button>
-              <button class="ghost" data-r="sync" title="重新取回列表"><span data-icon="refresh" data-size="13"></span> 刷新</button>
+              <button class="ghost" data-r="sync"><span data-icon="refresh" data-size="13"></span> 刷新</button>
               <span class="pgsep"></span>
               <!-- 搜索 / 多选 / 刷新与翻页（上一页 · 第几页 · 下一页 · 跳页 · 跳转）并成同一排：
                    都只影响这一屏列表。这一组按「尽量一行」设计，右栏被拖窄时才自己换行。

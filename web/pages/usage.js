@@ -193,7 +193,7 @@ export default {
             val: (r.currency === 'CNY' || !r.currency ? '¥' : '') + Number(r.amount).toFixed(2),
             ex: [r.extra, c.source, r.available === false ? '不可用' : ''].filter(Boolean).join(' · ') });
         } else if (r.unsupported) {
-          cards.push({ kid: c.kid, ic: window.icon('brain', 15), name: label, model, unit: '', val: '无余额接口', ex: [c.source, '该平台不提供余额查询'].filter(Boolean).join(' · ') });
+          cards.push({ kid: c.kid, ic: window.icon('brain', 15), name: label, model, unit: '', val: '无余额接口', ex: c.source });
         } else {
           cards.push({ kid: c.kid, ic: window.icon('brain', 15), name: label, model, unit: '', val: '—', ex: '查询失败：' + r.reason });
         }
@@ -211,7 +211,7 @@ export default {
           if (!kid || !has(kid) || taken.has(kid)) return;
           taken.add(kid);
           cards.push({ kid, ic: window.icon('coin', 15), name: p.displayName || p.name || kid, unit: '', val: '无余额接口',
-            ex: [p.site ? '到 ' + p.site + ' 的账户页查' : '', '该平台不提供余额查询'].filter(Boolean).join(' · ') });
+            ex: p.site ? '到 ' + p.site + ' 的账户页查' : '' });
         });
       }
       /* 同一把密钥只画一张卡：保留先到的那张（生成平台那条更准），把另一条的说明并进来，型号只记一次。 */
@@ -310,13 +310,13 @@ export default {
       billNoteHtml.value = window.Wb ? window.Wb.loadNote(billErrs.value, 'billRetry') : '';
       // 计数写清楚「只显示了前 N 条」「还有几页没读」
       billCntText.value = `${rows.length} 条`
-        + (rows.length > LIMIT ? `（表格只列出前 ${LIMIT} 条，导出 CSV 含已加载的全部）` : '')
+        + (rows.length > LIMIT ? `（表格只列出前 ${LIMIT} 条）` : '')
         + (billMore.value ? ' · 只读了最近 2 页' : '')
         + ` · 积分 ${ROUND(scSum)}`
         + (yuanSum ? ' · 金额 ¥' + yuanSum.toFixed(4) : '')
         + (tkSum ? ' · 文字 AI ' + tkSum.toLocaleString() + ' tokens' : '')
         + (noPrice ? ` · ${noPrice} 条平台未返回价格` : '')
-        + (billErr.value ? ' · 生成记录读取失败：' + billErr.value + '（下方仍显示本地文字 AI 记录）' : '');
+        + (billErr.value ? ' · 生成记录读取失败：' + billErr.value : '');
       billRows.value = shown;
       billLoading.value = false;
       billDownHtml.value = '';
@@ -467,7 +467,7 @@ export default {
         pt: all.pt,
         ct: all.ct,
       };
-      aiPriceNote.value = usage.length ? '' : '还没有调用记录。';
+      aiPriceNote.value = usage.length ? '' : '还没有调用记录';
       aiModelRows.value = [...byModel.entries()]
         .sort((a, b) => (b[1].pt + b[1].ct) - (a[1].pt + a[1].ct))
         .map(([model, v]) => ({ model, ...v }));
@@ -492,7 +492,7 @@ export default {
       chartHtml.value = tip;
       billLoading.value = false;
       billDownHtml.value = tip;
-      upd.value = '代理没起来 —— 三块面板都取不到数';
+      upd.value = '代理没起来';
     }
 
     /* 请求代际号：连点「刷新」或按 R 会同时跑两趟，旧那趟后回来会把新数据盖回去。
@@ -522,7 +522,7 @@ export default {
         let s = '更新于 ' + window.fmtHMS(Date.now());
         if (billErr.value) s += ' · 生成记录读取失败：' + billErr.value;
         const errN = Object.keys(billErrs.value || {}).length;
-        if (errN) s += ' · 有 ' + errN + ' 个来源没读回来（见账单上方）';
+        if (errN) s += ' · 有 ' + errN + ' 个来源没读回来';
         if (billMore.value) s += ' · 账单只读了各平台最近 2 页';
         if (mine()) upd.value = s;
       } catch (e) {
@@ -568,7 +568,7 @@ export default {
         console.warn('[usage] workbench.js 没就绪：', e && e.message);
       }
       if (!window.Api || !window.AssetLib || !window.TextAI || !window.Net || !window.Toast) {
-        failed.value = '公共模块没有就绪（ui.js / assetlib.js）';
+        failed.value = '公共模块没有就绪';
         if (window.PageReport) PageReport.pageFail('用量', failed.value);
         reloading.value = false;
         return;

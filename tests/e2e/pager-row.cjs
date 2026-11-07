@@ -82,8 +82,38 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(st, '工作台的翻页那一行没画出来（宿主没登记？）');
     must(st.prevOn && st.nextOn, '工作台的翻页按钮不可见：' + JSON.stringify(st));
 
+    /* 动态加载档的跳页落点（公共件 `Wb.viewport.revealPage`，工作台右栏与资产库共用）：
+       按「第几页 × 每页多少条」算序号并滚到那一条；超出实际页数就落到最后一条。
+       用户要的是「输入 3 就看见第 3 页的头一条」，只把内容取回、画面不动等于没跳。 */
+    const rv = await page.eval(() => {
+      if (!window.Wb || !window.Wb.viewport || !window.Wb.viewport.revealPage) return null;
+      const box = document.getElementById('result');
+      if (!box) return null;
+      const keep = box.innerHTML;
+      box.innerHTML = '';
+      for (let i = 0; i < 40; i++) {
+        const d = document.createElement('div');
+        d.className = 'task';
+        d.style.height = '314px';
+        box.appendChild(d);
+      }
+      const cards = [...box.querySelectorAll('.task')];
+      const host = window.Wb.viewport.host(box) || box;
+      window.Wb.viewport.revealPage(cards, 20, 2);        // 第 20 页 / 每页 2 条 → 第 39 张
+      const cr = host.getBoundingClientRect();
+      const r = cards[38].getBoundingClientRect();
+      const hit = r.top >= cr.top - 2 && r.bottom <= cr.bottom + 2;
+      const scrolled = host.scrollTop > 0;
+      window.Wb.viewport.revealPage(cards, 999, 2);       // 超出实际页数 → 最后一张
+      const rl = cards[39].getBoundingClientRect();
+      const last = rl.top < cr.bottom + 2 && rl.bottom > cr.top - 2;
+      box.innerHTML = keep;
+      return { hit, last, scrolled };
+    });
+    must(rv && rv.hit && rv.last && rv.scrolled, '动态加载档的跳页没有落到目标条目：' + JSON.stringify(rv));
+
     console.log('✓ 翻页组件：资产库 / 收藏 / 角色库 / 工作台 四页的翻页行都画出来了'
-      + '（宿主登记 · 按钮可见 · 上一页/下一页在）');
+      + '（宿主登记 · 按钮可见 · 上一页/下一页在）；动态加载档的跳页按每页条数落到目标条目');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

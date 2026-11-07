@@ -1,13 +1,17 @@
 /* 提示词归档：目录校验、front matter、索引重建、/prompts 路由、云端文件清单。
-   目录 root 注入；fileSafe / dirStamp / timeText / readBody / localAssetEntry 由 app 注入。 */
+   目录 root 与库根 localRoot 注入；fileSafe / dirStamp / timeText / readBody / localAssetEntry 由 app 注入。 */
 'use strict';
 const fs = require('fs');
 const path = require('path');
 const { atomicWrite } = require('./fs-atomic');
+const { openDir } = require('./open-dir.js');
 const userDirs = require('./user-dirs.js');
 
 function createPromptsStore(opts) {
   const root = opts.root;
+  /* 库根（本机资产库本体住在哪）：归档默认目录是它下面的「提示词\」，
+     与产物共用同一个根 —— 用户只挑一次位置。 */
+  const localRoot = opts.localRoot;
   const log = opts.log || (() => {});
   const readBody = opts.readBody;
   const localAssetEntry = opts.localAssetEntry;
@@ -17,12 +21,14 @@ function createPromptsStore(opts) {
   const PROMPT_INDEX = '_index.json';
   const PROMPT_PACK_MAX_FILES = 20000, PROMPT_PACK_MAX_BYTES = 64 * 1024 * 1024;
 
-  /* 归档默认目录 = 下载\成像\提示词（与产物本体共用「下载\成像」这一个根，根下按类别分子目录）。
-     PROMPTS_DIR 环境变量仍优先（部署口子，不是版本兼容）。
+  /* 归档默认目录 = 库根\提示词：与产物本体共用**用户挑的那一个根**（设置页「本机资产库」），
+     根下按类别分子目录。库根由 app.js 注入的 localRoot 现读，换根后归档跟着搬过去 ——
+     这一格不再单独给位置（以前是页面存 prompt_dir，与库根各指一处，换根后归档留在老地方）。
+     PROMPTS_DIR 环境变量仍优先（部署 / 探针口子，不是版本兼容）。
      ⚠ 只认这一个目录 —— 项目内的老 prompts/ 已经搬走并且不存在了，不做双读。 */
   const promptsDefaultDir = () => process.env.PROMPTS_DIR
     ? path.resolve(root, process.env.PROMPTS_DIR)
-    : path.resolve(userDirs.promptsRoot());
+    : path.join(localRoot(), userDirs.PROMPTS_DIR_NAME);
   function promptsDir(raw) {
     const s = String(raw == null ? '' : raw).trim();
     if (!s) return promptsDefaultDir();
@@ -30,12 +36,13 @@ function createPromptsStore(opts) {
     const home = process.env.HOME || process.env.USERPROFILE || '';
     const p = (/^~($|[\\/])/.test(s) && home) ? path.join(home, s.slice(1)) : s;
     const abs = path.resolve(p);
-    /* 白名单：项目目录 / 用户目录 / 下载根（成像那一族的家）——
-       下载被搬到 D:\下载 时不在 home 之下，不加这一支默认目录自己都进不了白名单。 */
-    const roots = [path.resolve(root), path.resolve(userDirs.downloadsRoot())];
+    /* 白名单：项目目录 / 用户目录 / 下载根（成像那一族的家）/ 用户挑的库根——
+       下载被搬到 D:\下载 时不在 home 之下，不加这一支默认目录自己都进不了白名单；
+       库根可能被指到任何一块盘（D:\作品），归档跟着它走，这一支也得放行。 */
+    const roots = [path.resolve(root), path.resolve(userDirs.downloadsRoot()), path.resolve(localRoot())];
     if (home) roots.push(path.resolve(home));
     const inside = roots.some(r => abs === r || abs.startsWith(r + path.sep));
-    if (!inside) throw new Error('提示词目录只能在项目目录、下载目录或用户目录之下：' + abs);
+    if (!inside) throw new Error('提示词目录只能在项目目录、下载目录、用户目录或本机资产库之下：' + abs);
     return abs;
   }
   const promptIndexPath = dir => path.join(dir, PROMPT_INDEX);
@@ -214,10 +221,11 @@ function createPromptsStore(opts) {
       return true;
     }
     if (req.method === 'POST' && where === 'open') {
-      const cmd = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
       try {
         fs.mkdirSync(dir, { recursive: true });
-        require('child_process').spawn(cmd, [dir], { detached: true, stdio: 'ignore' }).unref();
+        /* 打开目录走公共件：Windows 上 explorer 由后台进程拉起会被前台锁压在应用后面，
+           那一层「再把窗口拽到前台」只在 open-dir.js 一处（FCPXML 工程目录同一条路）。 */
+        openDir(dir);
         json(200, { ok: true, dir });
       } catch (e) { json(500, { error: { message: '打不开目录：' + e.message } }); }
       return true;

@@ -388,7 +388,7 @@ export default {
       const isLocal = it.kind === 'local';
       const ok = await Confirm.ask({
         title: '取消收藏？', danger: true, okLabel: '取消收藏',
-        body: isLocal ? '本地文件会一起删除。' : '资产库素材不受影响。',
+        body: isLocal ? '本地文件会一起删除。' : '',
       });
       if (!ok) return;
       Fav.remove(it.key);
@@ -496,7 +496,7 @@ export default {
       if (!sel.length) { window.Toast.warn('先勾选'); return; }
       const ok = await window.Confirm.ask({
         title: '取消 ' + sel.length + ' 条收藏？', danger: true, okLabel: '取消收藏',
-        body: '资产库素材不受影响。',
+        body: '',
       });
       if (!ok) return;
       /* 移出收藏走公共件那一份收藏动作（Wb.multi 的 fav 那一族）：
@@ -772,7 +772,7 @@ export default {
         return;
       }
       if (!window.Wb || !window.Fav || !window.AssetLocal) {
-        failed.value = '收藏依赖的公共模块没有就绪（workbench.js / assetlib.js）';
+        failed.value = '收藏依赖的公共模块没有就绪';
         if (window.PageReport) PageReport.pageFail('收藏', failed.value);
         return;
       }

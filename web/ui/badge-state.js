@@ -6,8 +6,8 @@ export function badgeOf(state, show = true) {
   if (!local && !cloud) return { show: false, label: '', cls: '', why: '' };
   const cls = local && cloud ? 'both' : local ? 'local' : 'cloud';
   const label = local && cloud ? '本机+云端' : local ? '本机' : '云端';
-  const why = local && cloud ? '本机资产库有副本，平台也有这一条'
-    : local ? '只在本机（本地上传或本机资产库）' : '本机还没有这份字节，只有平台地址';
+  const why = local && cloud ? '本机与平台各有一份'
+    : local ? '只在本机（本地上传或本机资产库）' : '只有平台地址';
   return { show: true, label, cls, why };
 }
 

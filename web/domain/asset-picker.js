@@ -65,7 +65,7 @@ window.AssetPicker = {
              （页面上已经选了一半时，只写「最多 4 个」会让人以为这个槽位只收 4 个） */
           (total && cap && total > cap ? ['本槽位最多 ' + total + ' 个', '还能加 ' + cap + ' 个'] : (cap ? ['最多选 ' + cap + ' 个'] : (total ? ['最多 ' + total + ' 个'] : [])))
             .concat([ruleText]).filter(Boolean).map(esc).join(' · ')
-        }${o.multiple ? '　·　点一下选一张、再点一下取消；<b>Shift</b> 连选一段；选完按「确定」' : '　·　点一张选中，按「确定」确认'}</div>` : ''}
+        }${o.multiple ? '　·　<b>Shift</b> 连选一段' : ''}</div>` : ''}
         <div class="ap-body">
           <div class="ap-grid" id="apGrid"></div>
           <div class="ap-empty" id="apEmpty" hidden></div>
@@ -160,7 +160,7 @@ window.AssetPicker = {
               const st = AL.stateOf(e);
               return st.cloud && !st.local;
             }).length;
-            if (cloudOnly && window.Toast) Toast.warn('有 ' + cloudOnly + ' 条素材本机没有字节，生成时用的是平台地址；地址过期会失败，建议先在资产库「存回本机」。');
+            if (cloudOnly && window.Toast) Toast.warn('有 ' + cloudOnly + ' 条素材本机没有字节，地址过期会失败；建议先「存回本机」。');
           } catch (err) {}
           if (o.onPick) { try { es.forEach(e => o.onPick(e)); } catch {} }
           close(es);

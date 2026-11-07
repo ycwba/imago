@@ -63,10 +63,10 @@ function keepBodyScroll(el, fn) {
        图标一会儿是强调色、一会儿跟字同色，还原之后就成了另一副样子。 */
     btnHTML(o) {
       const opt = o || {};
-      const what = '文字 AI 改写' + (opt.scope || '这一版提示词');
+      const what = opt.scope || '这一版提示词';
       return window.aiBtnHTML({ id: opt.id, disabled: opt.disabled, label: 'AI 润色', busy: '润色中…',
         busyOn: opt.busyOn,
-        title: what + (opt.extra ? '；' + opt.extra : '') + '（密钥在「设置」配置）' });
+        title: what + (opt.extra ? '；' + opt.extra : '') });
     },
     /* 「按这句再改」那一行的两颗状态：结果面板（这份文件上面）与审阅弹窗（下面那一份）画的是
        同一件事，话只写这一处，两处都读它。 */
@@ -102,7 +102,7 @@ function keepBodyScroll(el, fn) {
         <div class="pinl-think" hidden></div>
         <pre class="pinl-out" spellcheck="false"></pre>
         <div class="pinl-ft">
-          ${o.onStop ? '<button class="ghost" data-act="stop">停止（已经写出来的会留着）</button>' : '<span class="pinl-load"><span class="spin-dot"></span>正在接收…</span>'}
+          ${o.onStop ? '<button class="ghost" data-act="stop">停止这一轮</button>' : '<span class="pinl-load"><span class="spin-dot"></span>正在接收…</span>'}
           <span class="pinl-len"></span>
         </div>
       </div>`;
@@ -149,10 +149,10 @@ function keepBodyScroll(el, fn) {
           <span class="pinl-tt">${icon('sparkles', 13)} AI 润色结果</span>
           <span class="pinl-note">${esc(o.note || '')}</span>
         </div>
-        <textarea class="pinl-ta" spellcheck="false" placeholder="润色结果（可直接改）"></textarea>
+        <textarea class="pinl-ta" spellcheck="false" placeholder="润色结果"></textarea>
         <div class="pinl-talk" hidden></div>
         ${o.onFollow ? `<div class="pinl-chat">
-          <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？写完按回车')}">
+          <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？')}">
           <button class="ghost" data-act="follow">${icon('sparkles', 13)} ${InlinePolish.FOLLOW.again}</button>
         </div>` : ''}
         <div class="pinl-ft">
@@ -255,7 +255,7 @@ function keepBodyScroll(el, fn) {
           if (busy) { stop(); return; }              // 正在跑：这一颗现在是「停止」
           const askTxt = String(finp.value || '').trim();
           if (!askTxt) {
-            noteEl.textContent = '先在上面那一格写一句要怎么改（写完按回车，或点右边那颗按钮）';
+            noteEl.textContent = '先写一句要怎么改';
             window.focusQuiet(finp);
             return;
           }
@@ -263,7 +263,7 @@ function keepBodyScroll(el, fn) {
           const keep = ta.value, keepNote = noteEl.textContent;
           let acc = '';
           setBusy(true);
-          noteEl.textContent = '正在按这句再改一版…';
+          noteEl.textContent = '正在按这句再改…';
           const ctl = {
             push(piece, kind) {
               if (kind === 'reasoning' || !piece) return;   // 模型草稿不进正文
@@ -279,7 +279,7 @@ function keepBodyScroll(el, fn) {
             const gone = ab && ab.signal && ab.signal.aborted;
             noteEl.textContent = keepNote;
             el.insertAdjacentHTML('afterbegin', `<div class="pinl-err">${gone
-              ? '这一轮已经停下（屏幕上还是你改之前那一版）'
+              ? '这一轮已经停下'
               : '这一轮没改成：' + esc(errText(e))}</div>`);
             ab = null; setBusy(false);
             return;
@@ -287,7 +287,7 @@ function keepBodyScroll(el, fn) {
           const next = (r && typeof r === 'object') ? r : { after: r };
           if (next.after) { ta.value = next.after; if (o.onEdit) o.onEdit(ta.value); }
           rounds.push(askTxt); paintTalk();
-          noteEl.textContent = [next.note, '已按你这句话再改过一版（不满意就接着说，或直接改上面那一段）']
+          noteEl.textContent = [next.note, '已按这句再改一版']
             .filter(Boolean).join(' · ');
           finp.value = '';
           paintLen(); grow();
@@ -321,7 +321,7 @@ function keepBodyScroll(el, fn) {
         ${o.intro ? `<div class="pinl-note" style="display:block">${esc(o.intro)}</div>` : ''}
         <div class="pinl-qs"></div>
         <div class="pinl-ft">
-          <button class="pri" data-act="go">${esc(o.submitLabel || '按这些回答继续润色')}</button>
+          <button class="pri" data-act="go">${esc(o.submitLabel || '按回答继续润色')}</button>
           <button class="ghost" data-act="skip">${esc(o.skipLabel || '跳过，直接润色')}</button>
           <span class="pinl-len"></span>
         </div>
@@ -342,7 +342,7 @@ function keepBodyScroll(el, fn) {
           + (opts.length ? `<div class="pinl-opts">${opts.map((t, j) => `<button class="pinl-opt" data-i="${i}" data-j="${j}"></button>`).join('')}`
             /* 「其他」永远是最后一个候选：点了就进自由输入 —— 候选覆盖不到的写法有个明确的入口，
                不必自己去找那个输入框（找不到就等于没有这个功能）。 */
-            + `<button class="pinl-opt pinl-other" data-i="${i}" data-j="other" title="这些都不合适？点这里自己写"><span class="ic">${icon('pencil', 12)}</span>其他</button></div>` : '')
+            + `<button class="pinl-opt pinl-other" data-i="${i}" data-j="other"><span class="ic">${icon('pencil', 12)}</span>其他</button></div>` : '')
           /* 自由输入永远是每题的最后一块 —— 候选里没有的写法靠它 */
           + `<div class="pinl-own"><input type="text" data-i="${i}" placeholder="或者自己写…"></div>`;
         wrapEl.querySelector('.pinl-qt').textContent = q.q;
@@ -355,7 +355,7 @@ function keepBodyScroll(el, fn) {
           const onOther = state[i].own.trim().length > 0;
           if (otherChip) otherChip.classList.toggle('on', onOther);
           inp.classList.toggle('on', onOther);
-          inp.placeholder = onOther ? '在这里写你要的答案…' : '或者自己写…';
+          inp.placeholder = onOther ? '写下你的答案…' : '或者自己写…';
         };
         chips.forEach(c => c.onclick = () => {
           const j = c.dataset.j;
@@ -411,7 +411,7 @@ function keepBodyScroll(el, fn) {
          设置里选「从不问」时 o.ask 干脆不传，直接进润色。 */
       if (o.ask) {
         asked = true;
-        this.loading(host, '正在读你的描述，判断还缺什么…');
+        this.loading(host, '正在判断还缺什么…');
         let r = [];
         try { r = (await o.ask()) || []; } catch (e) { r = []; }
         questions = Array.isArray(r) ? r : (r.need ? (r.questions || []) : []);
@@ -434,7 +434,7 @@ function keepBodyScroll(el, fn) {
           const msg = errText(e);
           if (ab && ab.signal.aborted) {
             self.clear(host);
-            if (o.onStatus) o.onStatus('已经停下（这次没写完，原文没动）', false);
+            if (o.onStatus) o.onStatus('已停下，原文没动', false);
             return null;
           }
           if (lv) { lv.fail(msg); return null; }   // 写出来的字留着，原因补在顶上
@@ -530,7 +530,7 @@ function keepBodyScroll(el, fn) {
       <div class="pr-fnote" hidden></div>
       <div class="pr-followrow">
         <input class="pr-followin" type="text" spellcheck="false"
-          placeholder="${window.esc(o.followPlaceholder || '还要怎么改？写一句，AI 在当前这份上再改一轮（写完按回车）')}">
+          placeholder="${window.esc(o.followPlaceholder || '还要怎么改？')}">
         <button class="ghost pr-followbtn">${icon('sparkles', 13)} ${window.InlinePolish.FOLLOW.again}</button>
       </div>`;
     foot.parentNode.insertBefore(wrap, foot);
@@ -561,7 +561,7 @@ function keepBodyScroll(el, fn) {
     const run = async () => {
       if (busy) { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经收尾的话再 abort 无害，兜住就好 */ } } return; }   // 跑着时这一颗是「停止」
       const askText = String(inp.value || '').trim();
-      if (!askText) { fnote('先在上面那一格写一句要怎么改（写完按回车）', true); window.focusQuiet(inp); return; }
+      if (!askText) { fnote('先写一句要怎么改', true); window.focusQuiet(inp); return; }
       if (typeof AbortController === 'function') ab = new AbortController();
       setBusy(true);
       fnote('', false);
@@ -580,12 +580,12 @@ function keepBodyScroll(el, fn) {
         const fresh = (r && typeof r === 'object' && !Array.isArray(r)) ? r : { items: r };
         hooks.install(fresh.items || fresh, fresh.assets);
         rounds.push(askText); paintTalk();
-        fnote('已按你这句话改过一版（不满意就接着说，或直接改上面的条目）', false);
+        fnote('已按你这句话改过一版', false);
         inp.value = '';
         window.InlinePolish.clear(liveHost);   // 清单已经换掉，流式那一段不再留
       } catch (e) {
         const gone = ab && ab.signal && ab.signal.aborted;
-        const msg = gone ? '这一轮已经停下（下面还是你改之前的那一版）' : ('这一轮没改成：' + errText(e));
+        const msg = gone ? '这一轮已经停下' : ('这一轮没改成：' + errText(e));
         if (lv) lv.fail(msg); else fnote(msg, true);
         /* 失败不清 live：已经写出来的字就是这一轮唯一拿到的结果 */
       }
@@ -679,13 +679,13 @@ function keepBodyScroll(el, fn) {
       const bodyCell = o.lineEditable
         ? `<div class="bcol">${textCell}<div class="bline">
             <input class="pb-who" data-u="${r.u}" value="${esc(r.who)}" placeholder="说话的人" aria-label="说这句话的人">
-            <textarea class="pb-line" data-u="${r.u}" placeholder="这一镜的台词（没有就留空）">${esc(r.line)}</textarea>
+            <textarea class="pb-line" data-u="${r.u}" placeholder="这一镜的台词">${esc(r.line)}</textarea>
           </div></div>`
         : textCell;
       const chain = r.chain === 'tail'
         ? '<span class="bchain" title="尾帧接首帧">接上一镜</span>' : '';
       return `<div class="pr-row brow${r.edited ? ' pin' : ''}" data-u="${r.u}" data-scene="${esc(r.scene)}">
-        <span class="grip" draggable="true" title="按住这里在本场景内上下拖动排序">${icon('list', 12)}</span>
+        <span class="grip" draggable="true" title="在本场景内拖动排序">${icon('list', 12)}</span>
         <span class="no">${r.no}</span>
         <input class="pb-name" data-u="${r.u}" value="${esc(r.name)}" placeholder="镜头名" aria-label="这一镜的名字">
         ${dur}
@@ -702,7 +702,7 @@ function keepBodyScroll(el, fn) {
           ? sceneGroups().map(g => `<div class="pr-grp" data-scene="${esc(g.scene)}">
               <div class="gh"><b>${esc(g.scene)}</b><span class="gn">${g.items.length} 镜</span></div>
               ${g.items.map(rowHTML).join('')}</div>`).join('')
-          : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头，请点「重新规划」或取消')}</div>`);
+          : `<div class="pr-loading">${esc(o.empty || '没有可用的镜头')}</div>`);
       });
       okBtn.disabled = !rows.length;
       bindRows();
@@ -869,9 +869,9 @@ function keepBodyScroll(el, fn) {
     function assetRowsHTML() {
       if (!canAssets) return '';
       if (!assets.length) return '<div class="pr-assets"><div class="gh"><b>待建素材</b>'
-        + '<span class="gn">0 条</span></div><div class="pr-note">这一份方案里没有要新建的素材</div></div>';
+        + '<span class="gn">0 条</span></div><div class="pr-note">没有要新建的素材</div></div>';
       return '<div class="pr-assets"><div class="gh"><b>待建素材</b>'
-        + '<span class="gn">' + assets.length + ' 条 · 确认后建档并出图</span></div>'
+        + '<span class="gn">' + assets.length + ' 条</span></div>'
         + assets.map((a, i) => `<div class="pr-arow" data-a="${i}">
             <input class="pa-name" data-a="${i}" value="${esc(a.name || '')}" placeholder="名字" aria-label="这一条素材的名字">
             <span class="pa-kind">${esc(kindZh(a.kind))}</span>
@@ -964,7 +964,7 @@ function keepBodyScroll(el, fn) {
         try { fresh = normAll(await o.retry()); } catch (e) { why = errText(e); }
         if (why) {
           rows = mine; paint();
-          note('重新规划失败：' + why + '（下面还是这一版，一条没丢）', true);
+          note('重新规划失败：' + why, true);
         } else {
           const m = mergeFresh(fresh);
           rows = m.out;
@@ -984,7 +984,7 @@ function keepBodyScroll(el, fn) {
           }
           paint();
           note(m.pinned ? '已留着改过的 ' + m.pinned + ' 条'
-            + (m.orphan ? '，其中 ' + m.orphan + ' 条在新方案里没有对应、原样保留' : '') : '', false);
+            + (m.orphan ? '，其中 ' + m.orphan + ' 条原样保留' : '') : '', false);
         }
         retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新规划';
       };
@@ -995,11 +995,11 @@ function keepBodyScroll(el, fn) {
   window.PromptReview = {
     open(o) {
       return new Promise(resolve => {
-        const dlg = mount(o.title || 'AI 润色结果（确认后再采用）', o.sub);
+        const dlg = mount(o.title || 'AI 润色结果', o.sub);
         const body = dlg.querySelector('#prBody');
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用这段提示词';
-        dlg.querySelector('#prHint').textContent = o.hint || '右侧内容可以直接编辑';
+        dlg.querySelector('#prHint').textContent = o.hint || '';
         const paint = after => {
           keepBodyScroll(body, () => {
             body.innerHTML = `<div class="pr-cols">
@@ -1030,11 +1030,11 @@ function keepBodyScroll(el, fn) {
 
     openList(o) {
       return new Promise(resolve => {
-        const dlg = mount(o.title || 'AI 规划结果（确认后再生成）', o.sub);
+        const dlg = mount(o.title || 'AI 规划结果', o.sub);
         const body = dlg.querySelector('#prBody');
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用并开始生成';
-        dlg.querySelector('#prHint').textContent = o.hint || '可以逐条修改或删掉不想生成的画面';
+        dlg.querySelector('#prHint').textContent = o.hint || '';
         /* 分镜那一种走上面那一套分组审阅，**当场 return**：下面这份平铺实现不认识 mode，
            时间切片与图像拆段那些调用方（不传 mode）走的还是原路 —— 一条 if 之外的字节都不动。 */
         if (o.mode === 'board') { openBoard(o, dlg, body, okBtn, resolve); return; }
@@ -1051,7 +1051,7 @@ function keepBodyScroll(el, fn) {
                 <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
                 <textarea data-i="${i}">${esc(it.text || '')}</textarea>
                 <button class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
-              </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面，请点「重新润色」或取消')}</div>`;
+              </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面')}</div>`;
           });
           okBtn.disabled = !items.length;
           body.querySelectorAll('textarea').forEach(ta => ta.oninput = () => { items[+ta.dataset.i].text = ta.value; });
@@ -1142,7 +1142,7 @@ function keepBodyScroll(el, fn) {
        「再点一次就真删了」，等于在告诉用户一件根本没发生的事。
        所以默认说法从 label 里取动词：删除的地方照旧读成「真删了」，
        不删的地方读成它自己那个动词，一处判据、不用每个调用方各写一句。 */
-    el.setAttribute('title', a.hint || ('再点一次就「' + (a.label || '执行') + '」 · 点别处或过一会儿自动取消'));
+    el.setAttribute('title', a.hint || ('再点一次就「' + (a.label || '执行') + '」 · 会自动取消'));
   }
   function disarm() {
     const a = armed; if (!a) return;

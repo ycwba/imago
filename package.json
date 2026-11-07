@@ -1,7 +1,7 @@
 {
   "name": "imago",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "本地优先的 AI 创作工作台（运行时零构建；开发期用 tools/precompile-vue.cjs 预编译模板）",
   "scripts": {
     "build": "node tools/precompile-vue.cjs",
@@ -13,7 +13,8 @@
     "test:all": "node tests/all.cjs --e2e:fast",
     "test:director": "node tests/director-film.mjs && node tests/director-strip.mjs && node tests/director-tl-edit.mjs && node tests/director-slice.mjs && node tests/director-e-deps.cjs && node tests/e2e/director-core.cjs",
     "test:e2e": "node tests/all.cjs --e2e",
-    "test:watch": "node tests/watch.cjs"
+    "test:watch": "node tests/watch.cjs",
+    "ci": "npm run check && npm run static && npm run test"
   },
   "devDependencies": {
     "@babel/parser": "7.29.9",

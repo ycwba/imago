@@ -352,8 +352,12 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        里摘掉 `sk_reuse` 那一个名字和那句旁注，短了几个字节。
        同批删掉的 `Wb.reuse`（workbench.js）、素材库的 dHash 那一族（pages/chars.js）与工作台那头的
        消费端（pages/studio.js）都不在这 29 枚里：workbench.js 按页补载、页面组件走模块图。
-       没有新挂脚本，也没有把按需件挪进来。实跑 29 枚 / 848281 字节（登记上限 848500）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 29, FIRST_SCREEN_MAX_BYTES = 848500;
+       没有新挂脚本，也没有把按需件挪进来。实跑 29 枚 / 848281 字节（登记上限 848500）。
+     ·  +1 枚（2026-11-06，全局命令面板）：`web/ui/command.js` 挂在首屏。唤起键是 document 捕获阶段的
+        一枚 keydown 监听，用户在任何一页、页面刚出来那一帧都可能按；按需补载会漏掉第一次按键
+        （补载完还得等用户再按一次）。浮层本身已推迟到第一次唤起才画，所以只多这一枚薄脚本，
+        字节上限不用动。实跑 30 枚 / 844594 字节。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 848500;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

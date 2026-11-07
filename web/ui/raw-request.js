@@ -69,7 +69,7 @@
     const st = reqStateOf(tag);
     return '<b class="raw-title">原始请求</b>'
       + '<span class="raw-chip ' + (st.kind === 'sent' ? 'ok' : '') + '">' + E(st.chip) + '</span>'
-      + (st.diff ? '<span class="raw-warn" title="平台在提交那一刻改写了请求体（或当时的预览算得不准）">这次发出去的与当时的预览不一致</span>' : '');
+      + (st.diff ? '<span class="raw-warn" title="平台改写了请求体，或预览算得不准">这次发出去的与当时的预览不一致</span>' : '');
   }
 
   /* 预览这一块只显示**本次输入将要发出的那一份**：改了提示词 / 参数它就跟着变。
@@ -82,7 +82,7 @@
     return '<details class="raw-req live' + (pv ? ' has-snap' : ' waiting') + '"'
       + attrs(t, opts) + ' data-raw-live="1" data-raw-livetag="' + E(t) + '"' + open + '>'
       + '<summary>' + pvHeadHTML(t) + '</summary>'
-      + '<pre>' + E(pv ? bodyText(pv) : '（还没有可预览的内容：先把提示词与参数填上）') + '</pre>'
+      + '<pre>' + E(pv ? bodyText(pv) : '（还没有可预览的内容）') + '</pre>'
       + '</details>';
   }
 
@@ -102,7 +102,7 @@
     return '<details class="raw-req' + (snap ? ' has-snap' : ' waiting') + '"'
       + attrs(t, opts) + open + '>'
       + '<summary' + (snap && snap.label ? ' title="' + E(snap.label) + '"' : '') + '>' + headHTML(t) + '</summary>'
-      + '<pre>' + E(snap ? bodyText(snap) : '这一格还没发过 —— 生成一次后，这里会显示实际发给供应商的请求体（不含密钥 / Cookie）。') + '</pre>'
+      + '<pre>' + E(snap ? bodyText(snap) : '还没发过；生成一次后这里显示实际发出的请求体。') + '</pre>'
       + '</details>';
   }
   function htmlList(tags, opts) {
@@ -167,7 +167,7 @@
         const sum = el.querySelector('summary');
         if (sum) sum.innerHTML = pvHeadHTML(t);
         const pre = el.querySelector('pre');
-        if (pre) pre.textContent = snap ? bodyText(snap) : '（还没有可预览的内容：先把提示词与参数填上）';
+        if (pre) pre.textContent = snap ? bodyText(snap) : '（还没有可预览的内容）';
         el.classList.toggle('has-snap', !!snap);
         el.classList.toggle('waiting', !snap);
       });

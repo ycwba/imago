@@ -103,7 +103,7 @@ export function createCaptionDomain(E, document, window) {
     }
     const before = (f.captions || []).length;
     const ok = patchCaps([...(f.captions || []), ...fresh],
-      `按配音补出 ${fresh.length} 条字幕（时间是块自己的成片秒；之后块挪位与变长，字幕跟着走）`);
+      `按配音补出 ${fresh.length} 条字幕`);
     if (ok && setStatus) setStatus(`<span class="ok">✓ 新增 ${fresh.length} 条字幕（全片现在 ${before + fresh.length} 条）：每条接在自己那句配音上</span>`);
     return ok;
   }
@@ -359,7 +359,7 @@ export function createCaptionDomain(E, document, window) {
       <div class="btn-row">
         <button class="tool" id="capImport" title="导入 .srt（时间就是成片秒，不覆盖）">${icon('upload', 14)} 导入 SRT</button>
         <button class="tool" id="capExport" title="把全片字幕导出成 .srt">${icon('download', 14)} 导出 SRT</button>
-        <button class="tool" id="capAsr" title="${busy ? '再点一下掐掉在途的识别，字幕不会改动' : '识别播放头指着那一段素材里的话（浏览器内 Whisper 首次要先下模型，可能等几分钟）'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
+        <button class="tool" id="capAsr" title="${busy ? '' : '识别播放头指着那一段素材里的话（首次可能等几分钟）'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
       </div>
       <div class="adv-grid">
         <div><label>每行字数</label><input type="number" id="capMaxChars" min="8" max="120" step="1" value="${RESEGMENT_DEFAULT_CHARS}"></div>

@@ -751,7 +751,7 @@ function renderVoiceCol(col, sh) {
         </div>
         <div class="adj-row" id="rowVol">
           <span class="lab" id="adjVolLab">这一段音量</span>
-          <span class="tl-vol" title="0–400%，线性：200% 就是两倍振幅">
+          <span class="tl-vol" title="0–400%">
             ${icon('speaker', 12)}
             <input type="range" id="adjVol" min="0" max="400" step="1" value="100" aria-label="音量">
             <span class="vv" id="adjVolVal">100%</span>
@@ -773,7 +773,7 @@ function renderVoiceCol(col, sh) {
              音轨上没有一个块可点，收掉就等于第一句永远加不上。 -->
         <div class="adj-row" id="rowSpd">
           <span class="lab" id="adjSpdLab">这一段倍速</span>
-          <span class="tl-vol" title="0.25–4：只换成片里占多宽，素材窗口不动">
+          <span class="tl-vol" title="0.25–4，素材窗口不动">
             ${icon('chart', 12)}
             <input type="range" id="adjSpd" min="0.25" max="4" step="0.05" value="1" aria-label="倍速">
             <span class="vv" id="adjSpdVal">×1</span>
@@ -877,7 +877,7 @@ function renderVoiceCol(col, sh) {
         ${window.aiBtnHTML({ id: 'voiceAdd', label: '合成并加到这一轨',
           disabled: !(voiceCanSynth && !vLenWhy),
           title: wayWhy || vLenWhy || '会真发一次请求并计费，点第二下确认' })}
-        <button class="tool" id="voiceFile" title="从资产库 / 我的收藏挑现成音频，或上传本机文件（不发请求、不计费）"><span class="ic">${icon('upload', 14)}</span><span class="tx">放一条音频（库里 / 本机）</span></button>
+        <button class="tool" id="voiceFile" title="不发请求、不计费"><span class="ic">${icon('upload', 14)}</span><span class="tx">放一条音频（库里 / 本机）</span></button>
       </div>
       <!-- AI 润色「要念的话」：那颗按钮与工作台、镜头编辑器那一颗是同一副画法、同一个名字（公共层
            InlinePolish.btnHTML，作用域只写进说明句），面板也是同一个（InlinePolish）。
@@ -1081,7 +1081,7 @@ function renderVoiceCol(col, sh) {
       /* 第四个来源「素材库」：那位身上挂着的参考音频就是它的音色复刻材料，
          字节由选择器在点「确定」那一刻现取（开弹窗时不读几十 MB）。 */
       chars: 'audio',
-      rule: rule, note: '这一条只用来让平台复刻音色，不会被铺到轨道上；要铺一句成品请用下面的「放一条音频」。',
+      rule: rule, note: '这一条只用来复刻音色，不铺到轨道上；要铺成品用「放一条音频」。',
     });
     if (!got || !got.length) return;
     const it = got[0];
@@ -1134,7 +1134,7 @@ function renderVoiceCol(col, sh) {
     const got = await AssetPicker.open({
       types: ['音频', '音乐'], multiple: false, limit: 1,
       title: '挑一条音频铺到这一轨上',
-      note: '这一条会作为配音铺在插针指着的那一秒（不发请求、不计费）；本机文件也可以，选择器里会先把它存成本机素材。',
+      note: '这一条会作为配音铺在插针指着的那一秒（不发请求、不计费）。',
     });
     if (!got || !got.length) return;
     const it = got[0];
@@ -1387,8 +1387,7 @@ async function addVoiceAtPin(opts) {
          选中的型号与真正发出去的那一个对不上。这两条都在这一句里给出来，下次一眼能断。 */
       setStatus('<span class="err">合成失败：' + esc(String(errText(e))) + '</span>'
         + '<span class="meta">（发给 ' + esc((target.prov.displayName || target.prov.id || '?'))
-        + ' · ' + esc(target.model.id || target.model.name || '?') + '）</span>'
-        + (bal ? ' —— 声音栏里有「去用量与余额」的入口' : ''));
+        + ' · ' + esc(target.model.id || target.model.name || '?') + '）</span>');
       if (bal) renderEditor();
       return;
     }

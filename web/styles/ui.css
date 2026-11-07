@@ -118,7 +118,7 @@ body.wb-splitting-y * { user-select: none !important; }
 .toolbar input[type="search"], .toolbar input[type="number"], .search { box-sizing: border-box; }
 .ghost { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8);
   height: var(--sz-ctl); font-size: var(--fs-13); font-weight: 500; color: var(--txt); background: var(--control-bg); border: var(--hair) solid transparent;
-  border-radius: var(--radius-6); padding: 0 var(--sp-12); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-1);
+  border-radius: var(--radius-6); padding: 0 var(--sp-12); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-ctl);
   transition: background var(--dur-180) var(--ease), border-color var(--dur-180), color var(--dur-180), box-shadow var(--dur-180); }
 .ghost:hover:not(:disabled):not(.active) { color: var(--txt); background: var(--control-hover); }
 .ghost:active:not(:disabled):not(.active) { background: var(--control-pressed); box-shadow: none; }
@@ -138,7 +138,7 @@ body.wb-splitting-y * { user-select: none !important; }
    所以「按下去了」用描边与阴影说，不用加深填充。 */
 .pri { display: inline-flex; align-items: center; justify-content: center; gap: var(--sp-8); box-sizing: border-box;
   height: var(--sz-ctl); background: var(--sel-bg); border: 0; color: var(--acc); font-weight: 600; border-radius: var(--radius-6);
-  padding: 0 var(--sp-12); font-size: var(--fs-13); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-1);
+  padding: 0 var(--sp-12); font-size: var(--fs-13); cursor: pointer; white-space: nowrap; box-shadow: var(--shadow-ctl);
   transition: box-shadow var(--dur-180) var(--ease), color var(--dur-180) var(--ease); }
 .pri:hover:not(:disabled) { box-shadow: var(--shadow-2), 0 0 0 var(--hair) var(--acc-line-32); }
 .pri:active:not(:disabled) { box-shadow: inset 0 0 0 var(--hair) var(--acc); }
@@ -195,6 +195,7 @@ body.wb-splitting-y * { user-select: none !important; }
 .krow :where(input:not([type="checkbox"], [type="radio"], [type="range"], [type="file"], [type="color"])) {
   box-sizing: border-box; height: var(--sz-ctl); padding: 0 var(--sp-12); border: var(--hair) solid transparent;
   border-radius: var(--radius-6); background: var(--input); color: var(--txt); font-size: var(--fs-13);
+  box-shadow: var(--shadow-ctl);
   transition: border-color var(--dur-180), background var(--dur-180), box-shadow var(--dur-180); }
 .toolbar input[type="search"], .search { min-width: 150px; }
 /* .ui-inp 常常挤在 flex 行的中间（素材行、参数格、批量条），得让它压得下去。 */
@@ -297,8 +298,19 @@ body.wb-splitting-y * { user-select: none !important; }
 .acts .card-act:hover .ic, .acts .card-act[aria-expanded="true"] .ic, .acts .card-act[aria-pressed="true"] .ic { opacity: 1; }
 .acts .card-act.ghost:hover:not(:disabled) { color: var(--txt); border-color: var(--line); background: var(--panel2); }
 .acts .card-act.ghost:active:not(:disabled) { transform: translateY(var(--hair)); }
-.acts .card-act.ghost.card-act-primary { color: var(--acc); background: var(--acc-tint-10); }
-.acts .card-act.ghost.card-act-primary:hover:not(:disabled), .acts .card-act.ghost[aria-pressed="true"],
+/* 下载那一颗（cards 的 `.dl2`，primary:true）是卡片里唯一的「主操作」：
+   以前是 10% 淡紫底 + 紫字、没有描边，与旁边的「展开详情」几乎同一个分量，落在白卡上看着发灰
+   （2026-11-06 用户点名）。先试过实心 --pri，用户当场回「过于深了」—— 一屏六张卡各压一块深紫太重。
+   落在中间那一档：底抬到 `--sel-bg`（选中态同一枚，浅 18% / 深 14%）、紫字加粗、补一圈
+   `--acc-line-32` 描边与轻投影。它比普通 ghost 按钮亮一档，但仍是浅底紫字，不抢过卡片里的画面。
+   hover 只抬阴影，不再加深填充：这一格的强调字就压在淡紫底上，18% 已是量过读得出字的那一档。 */
+.acts .card-act.ghost.card-act-primary { color: var(--acc); background: var(--sel-bg);
+  border-color: var(--acc-line-32); font-weight: 600; box-shadow: var(--shadow-1); }
+.acts .card-act.ghost.card-act-primary .ic { opacity: 1; }
+.acts .card-act.ghost.card-act-primary:hover:not(:disabled) { color: var(--acc); background: var(--sel-bg);
+  border-color: var(--acc-line-32); box-shadow: var(--shadow-2); }
+.acts .card-act.ghost.card-act-primary:active:not(:disabled) { box-shadow: var(--shadow-1); }
+.acts .card-act.ghost[aria-pressed="true"],
 .acts .card-act.ghost[aria-expanded="true"] { color: var(--acc); background: var(--acc-tint-10); border-color: var(--acc-line-32); }
 .acts .card-act.ghost.danger { color: var(--err); }
 .acts .card-act.ghost.danger:hover:not(:disabled) { background: var(--err-tint);
@@ -313,10 +325,13 @@ body.wb-splitting-y * { user-select: none !important; }
 .task-grid .task .acts,
 .view-compact .task .acts,
 .view-compact .card-acts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
-  /* 动作区一律占满两行（行高 = .card-act 的 min-height 同一枚令牌）：在跑的那一张只有「展开详情 / 取消」
-     两颗按钮，塌成一行就比出图那一张矮 38 像素 —— 与失败那一格合起来，同一屏的卡片有三种高度。
-     第三行只有本机语音那种五颗按钮的卡才排得下。 */
-  grid-template-rows: repeat(2, var(--sz-ctl)); grid-auto-rows: var(--sz-ctl); }
+  /* 行数跟着按钮数走（行高 = .card-act 的 min-height 同一枚令牌）。
+     这里原来钉死两行：只有「展开详情 / 下载」两颗的完成卡，第二行整行空着，
+     卡片底部多出 36px 空洞（2026-11-06 用户点名的那一处）。
+     钉两行本是为了同屏等高，但等高其实由卡片在网格行里 stretch 得到 ——
+     同一排里更高的那张定行高，矮的那张被拉齐，多出的空间由 .acts 的 margin-top:auto 收在
+     正文下方（按钮始终贴着卡片底边），所以按钮下方不再留空，同一排的卡片照样一样高。 */
+  grid-auto-rows: var(--sz-ctl); }
 /* 定高行里按钮不许换行：换一行就顶穿这一档行高，卡片高度又跟着内容漂。
    截掉的字样在 title 里（actsHTML 没给 title 时补按钮文字本身）。 */
 :where(.task-grid, .view-compact) .acts .card-act { min-width: 0; }
@@ -457,7 +472,7 @@ html[data-embedded] #lightbox { inset: 0; }
 .dd select { display: none; }
 .dd-btn { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); width: 100%;
   height: var(--sz-ctl); padding: 0 var(--sp-12); background: var(--panel); color: var(--txt);
-  border: var(--hair) solid transparent; border-radius: var(--radius-6); font-size: var(--fs-13); box-shadow: var(--shadow-1);
+  border: var(--hair) solid transparent; border-radius: var(--radius-6); font-size: var(--fs-13); box-shadow: var(--shadow-ctl);
   cursor: pointer; transition: border-color var(--dur-180), background var(--dur-180), box-shadow var(--dur-180); user-select: none; }
 .dd-btn:hover:not(:disabled) { background: var(--control-hover); border-color: var(--acc-line-32); }
 .dd-btn:active:not(:disabled) { background: var(--control-pressed); }
@@ -548,7 +563,7 @@ input[type="number"] { font-family: inherit; }
    display:contents 让按钮直接成为 .btn-row 的弹性子项 —— 套一层盒子会多出一个排版项，间距就变了。 */
 .btn-host { display: contents; }
 .tool { flex: 0 0 auto; display: inline-flex; align-items: center; gap: var(--sp-8); height: var(--sz-ctl);
-  padding: 0 var(--sp-12); background: var(--control-bg); box-shadow: var(--shadow-1);
+  padding: 0 var(--sp-12); background: var(--control-bg); box-shadow: var(--shadow-ctl);
   border: var(--hair) solid transparent; border-radius: var(--radius-6); color: var(--txt);
   font-size: var(--fs-13); font-weight: 500; line-height: 1; white-space: nowrap; cursor: pointer;
   transition: color var(--dur-180), border-color var(--dur-180), background var(--dur-180);
@@ -682,7 +697,7 @@ button.armed { min-width: 4.6em; }
 .ui-seg > button.on .seg-n { background: var(--panel); color: var(--acc); }
 .ui-pill { display: inline-flex; align-items: center; gap: var(--sp-4); border: var(--hair) solid var(--line);
   background: var(--panel); color: var(--txt); border-radius: var(--radius-999); height: var(--sz-chip); padding: 0 var(--sp-12);
-  font-size: var(--fs-13); cursor: pointer; font-family: inherit; white-space: nowrap; }
+  font-size: var(--fs-13); cursor: pointer; font-family: inherit; white-space: nowrap; box-shadow: var(--shadow-ctl); }
 .ui-pill:hover:not(.on):not(:disabled) { border-color: var(--acc); color: var(--acc); }
 .ui-pill.on { background: var(--sel-bg); border-color: transparent; color: var(--acc); font-weight: 600; }
 .ui-pill:disabled { opacity: var(--a-50); cursor: not-allowed; }
@@ -1526,8 +1541,7 @@ button.phead-chip:hover b { color: var(--acc); }
 /* 音频那一格的两团强调色渐变同样压在不透明面板上：这一整块牌是**替掉画面**铺满缩略图槽的，
    背后既可能是槽底色也可能是还没落定的画面，透明淡底会让「强调色字 × 底」这一对比没个定数。 */
 .plate--audio { color: var(--acc);
-  background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), var(--panel)),
-    color-mix(in srgb, var(--acc2) var(--a-16), var(--panel))); }
+  background: linear-gradient(135deg, var(--acc-soft), var(--acc2-soft)); }
 .plate-bar { width: 100%; height: var(--hair-2); border-radius: var(--radius-4);
   background: color-mix(in srgb, currentColor var(--a-24), transparent); overflow: hidden; }
 .plate-bar i { display: block; height: 100%; background: currentColor; border-radius: var(--radius-4); }
@@ -1576,3 +1590,23 @@ button.phead-chip:hover b { color: var(--acc); }
 .band-tether::before { content: ""; position: absolute; top: 0; left: calc(-1 * var(--sp-4));
   border-left: var(--sp-4) solid transparent; border-right: var(--sp-4) solid transparent;
   border-bottom: var(--sp-4) solid var(--acc); }
+
+/* 全局命令面板（外壳级浮层，由 web/ui/command.js 第一次唤起时才画出来） */
+.cmd-palette { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start;
+  justify-content: center; padding-top: var(--sp-64); background: var(--pal-scrim); }
+.cmd-palette[hidden] { display: none; }
+.cmd-box { width: calc(100% - var(--sp-64)); max-width: calc(var(--sp-64) * 8);
+  background: var(--panel); color: var(--txt); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); box-shadow: var(--shadow-1); overflow: hidden; }
+.cmd-input { box-sizing: border-box; width: 100%; height: var(--sz-ctl-lg);
+  padding: 0 var(--sp-16); border: 0; border-bottom: var(--hair) solid var(--line);
+  background: var(--input); color: var(--txt); font-size: var(--fs-14); outline: none; }
+.cmd-list { max-height: calc(var(--sp-64) * 5); overflow-y: auto; padding: var(--sp-8); }
+.cmd-item { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-12);
+  min-height: var(--sz-ctl); padding: 0 var(--sp-12); border-radius: var(--radius-6);
+  font-size: var(--fs-13); cursor: pointer; }
+.cmd-item.is-sel { background: var(--sel-bg); color: var(--pri); }
+.cmd-hint { color: var(--sub); font-size: var(--fs-11); }
+.cmd-none { padding: var(--sp-16); color: var(--sub); font-size: var(--fs-13); }
+.cmd-foot { padding: var(--sp-8) var(--sp-16); border-top: var(--hair) solid var(--line);
+  color: var(--sub); font-size: var(--fs-11); }

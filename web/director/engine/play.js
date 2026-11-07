@@ -454,13 +454,13 @@ export function createPlay(E, document, window) {
     if (!pbTime) return;
     pbTime.textContent = (fmtClock ? fmtClock(pos) : String(Math.round(pos * 10) / 10)) + ' / '
       + (fmtClock ? fmtClock(total()) : String(Math.round(total() * 10) / 10));
-    pbTime.title = '读数 = 成片里的秒数（各段按倍速折算后接起来）';
+    pbTime.title = '读数是成片秒';
   }
 
   function paintMute() {
     if (!pbMute) return;
     pbMute.innerHTML = icon(muted ? 'speakerOff' : 'speaker', 14);
-    pbMute.title = muted ? '已静音（点击开启声音）' : '声音已开启（点击静音）';
+    pbMute.title = muted ? '已静音' : '声音已开启';
   }
 
   function syncMain(t, force) {

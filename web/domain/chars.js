@@ -80,7 +80,6 @@ window.Chars = (function () {
        换一家只有预设型号的语音平台时，auto 落到预设上并照实说明，
        而不是把一排固定音色摆出来让人猜哪个像。 */
     ttsMode: { key: 'char_tts_mode', kind: 'opt', def: 'auto', label: '音色怎么定',
-      hint: '默认「自动」：优先让 AI 按角色的外貌与性格现造嗓子，这一家没有这类型号时才退回预设音色。',
       options: [{ id: 'auto', label: '自动（优先生成音色）' }, { id: 'design', label: '按描述生成音色' },
         { id: 'clone', label: '复刻参考音频' }, { id: 'preset', label: '从固定音色里挑' }] },
     /* 素材页的默认生图型号（2026-10 用户要求：「去除页面里显示的本页默认，
@@ -90,12 +89,10 @@ window.Chars = (function () {
        素材库页面上不再有「本页默认」面板，但每一处生成位仍能当场换型号 ——
        换的那一次只管那一处，不写回这里（写回来就成了「按上次那个跑」）。 */
     imgModel: { key: 'char_img_model', kind: 'model', modelKind: 'image', mode: 'text_to_image', def: '',
-      label: '默认生图型号',
-      hint: '素材库出图的默认型号。空 = 自动；每处可当场换。' },
+      label: '默认生图型号' },
     /* 默认语音型号：同上，那一处是出声音与定音色。 */
     ttsModel: { key: 'char_tts_model', kind: 'model', modelKind: 'audio', mode: 'text_to_speech', def: '',
-      label: '默认语音型号',
-      hint: '素材库出声音的默认型号。空 = 自动。' },
+      label: '默认语音型号' },
     /* 候选张数：角色、场景、道具**一次出几张**让你挑。
        它是**下限**，实际张数由两个数取小的那个：
          ① 这个设置（这里，1~8）—— 它是**默认值**：页面每一处都能当场改，改完只管那一处；
@@ -104,14 +101,12 @@ window.Chars = (function () {
        一次出 3 张 = 3 倍的钱，所以默认值取 3（够挑、又不像「再出 4 张」那么肉疼），
        想要更省就改 1（等于回到只出一张、挑不了）。 */
     candN: { key: 'char_cand_n', kind: 'num', def: '3', unit: '张', step: '1', min: '1', max: '8',
-      label: '默认一次出几张候选',
-      hint: '素材库各处出图默认一次几张（页面每一处都能当场改，改完只管那一处）。调大就是多画几张：每张换一条提示词（背景 / 光线 / 表情），是几个可挑的路子；上限看生图平台一次能让几张' },
+      label: '默认一次出几张候选' },
     /* 语音候选的条数：一次合成几条声音让你试听挑。
        与图那项**分开设**：图说「张」、语音说「条」，混成一项就没法只调一边
        （想多画两张图不代表想多合成四条声音）。 */
     voiceN: { key: 'char_voice_n', kind: 'num', def: '3', unit: '条', step: '1', min: '1', max: '8',
-      label: '默认一次出几条语音',
-      hint: '素材库里一次合成几条声音候选让你试听挑（与上面「出几张候选」是两项，图与语音各调各的）。从固定音色里挑的那家还会夹到它声明的音色清单长度 —— 清单只有两把就只出两条' },
+      label: '默认一次出几条语音' },
   };
   /* 「这一次要出几张候选」：**判据只有这一处**（页面按钮文案、生图提交、界面上标的上限都读它）。
      夹到 `previewCap`（上游声明的上限）—— 请求一个上游只让出 1 张的模型出 3 张，
@@ -235,8 +230,8 @@ window.Chars = (function () {
     try { p = JSON.parse(raw); } catch { return '这份' + label + '在本机解析不了（可能写坏了）'; }
     const isEnv = p && typeof p === 'object' && !Array.isArray(p) && 'data' in p;
     /* 不是信封 = 旧格式（历史上存过裸值）。Store.read 对它也返回默认值，同样是「看起来没有」。 */
-    if (!isEnv) return '这份' + label + '是旧格式（不是 { data, ts } 信封），现在读不出来';
-    if (!Array.isArray(p.data)) return '这份' + label + '的结构不对（不是一串记录）';
+    if (!isEnv) return '这份' + label + '是旧格式，现在读不出来';
+    if (!Array.isArray(p.data)) return '这份' + label + '的结构不对';
     return '';
   }
   function libBroken() { return brokenOf(K_CHARS, '素材库数据'); }
@@ -278,20 +273,20 @@ window.Chars = (function () {
      但表仍然留在数据层 —— 表单一旦挪回页面，再加第二个入口时就会重新漂一遍。 */
   const KIND_FIELDS = {
     actor: {
-      look: { lab: '外貌 / 人物特点（预览图与角色资产都靠它）', ph: '例：二十出头，齐肩黑发，总穿米色风衣' },
-      bio: { lab: '一句话人设（发给文字 AI 当「人物特点」）', ph: '例：嘴硬心软的师姐，嘴上不饶人但每次都替别人收尾' },
-      tip: '预览图与角色资产在这里出，声音也在这里定',
+      look: { lab: '外貌 / 人物特点', ph: '例：二十出头，齐肩黑发，总穿米色风衣' },
+      bio: { lab: '一句话人设（发给文字 AI）', ph: '例：嘴硬心软的师姐，嘴上不饶人但每次都替别人收尾' },
+      tip: '接下来在这一条里出图、定声音',
     },
     scene: {
-      look: { lab: '场景描述（出场景图靠它）', ph: '例：教学楼天台，傍晚，铁栏杆与晾衣绳' },
-      bio: { lab: '一句话说明（这一处是什么地方：只进搜索与文字 AI，不影响出图）', ph: '例：两人摊牌的地方，视野开阔但没有能躲的角落' },
-      time: { lab: '时段（出这张场景图时那句「…的光线」用的就是它）', hint: '不在下面几档里的值会照实列出来，改回哪一档由你点' },
-      tip: '光线按上面那一档「时段」走（没动就还是默认的深夜），出图那句「…的光线」用的就是它',
+      look: { lab: '场景描述', ph: '例：教学楼天台，傍晚，铁栏杆与晾衣绳' },
+      bio: { lab: '一句话说明（不影响出图）', ph: '例：两人摊牌的地方，视野开阔但没有能躲的角落' },
+      time: { lab: '时段' },
+      tip: '光线按「时段」那一档走',
     },
     prop: {
-      look: { lab: '道具描述（出道具图就靠它）', ph: '例：牛皮纸旧信封，边角磨白，盖一枚红蓝邮票' },
-      bio: { lab: '一句话用途（剧情里这件东西干什么用，发给文字 AI）', ph: '例：用来交代那半页没写完的地址' },
-      tip: '道具就靠上面那句描述画一张图，没有角色资产那一套，也不出声',
+      look: { lab: '道具描述', ph: '例：牛皮纸旧信封，边角磨白，盖一枚红蓝邮票' },
+      bio: { lab: '一句话用途（发给文字 AI）', ph: '例：用来交代那半页没写完的地址' },
+      tip: '道具只出那一张图',
     },
   };
   const kindF = k => KIND_FIELDS[k] || KIND_FIELDS.actor;
@@ -377,8 +372,8 @@ window.Chars = (function () {
     libWriteErr = (r && r.ok === false) ? String(r.error || '本机存储写不进去') : '';
     return r;
   }
-  const LIB_STOP = '：已停止保存，磁盘上原来的数据一个字没动。先别在素材库页上继续改'
-    + '（继续改会拿这一条把整库覆盖掉）；到「设置」导出一次整包备份确认数据还在，再回来。';
+  const LIB_STOP = '：已停止保存，磁盘上原来的数据一个字没动。先别继续改'
+    + '（会把整库覆盖掉）；到「设置」导出一次整包备份确认数据还在，再回来。';
 
   /* 「这一条素材能被搜到哪些字」只有这一份表。三个读它的地方：
      ① 素材库页的关键词过滤；② 那一行搜索说明（从这张表现拼，加一栏就一起变）；
@@ -598,9 +593,9 @@ window.Chars = (function () {
       if (!o || !nw) return { n: 0, why: '组名不能是空的' };
       if (window.nameKey(o) === window.nameKey(nw)) return { n: 0, why: '' };
       const lb = libBroken();
-      if (lb) return { n: 0, why: '这一组没改：' + lb + '。已停手，磁盘上原来的数据一个字没动。' };
+      if (lb) return { n: 0, why: '这一组没改：' + lb + '。磁盘上原来的数据一个字没动。' };
       const stored = readStoredGroups();
-      if (stored.why) return { n: 0, why: '这一组没改：' + stored.why + '。已停手。' };
+      if (stored.why) return { n: 0, why: '这一组没改：' + stored.why };
       const list = Lib.list();
       /* 按 `groupMatch` 认这一组（含近名变体），不是按字面比。 */
       const hit = list.filter(c => c && Lib.groupMatch(c, o));
@@ -641,7 +636,7 @@ window.Chars = (function () {
       const lb = libBroken();
       if (lb) {
         libWriteErr = '这一条没删掉：' + lb
-          + '。已停手，磁盘上原来的数据一个字没动；到「设置」导出一次整包备份确认数据还在，再来删。';
+          + '。磁盘上原来的数据一个字没动；到「设置」导出一次整包备份确认数据还在，再来删。';
         return false;
       }
       writeLib(Lib.list().filter(c => c && c.id !== id));
@@ -670,14 +665,14 @@ window.Chars = (function () {
         api.set('time', { hidden: k !== 'scene' });
       };
       const v = await PromptForm.open({
-        title: '新建一条素材（存进素材库）', okLabel: '存进库',
+        title: '新建一条素材', okLabel: '存进库',
         fields: [
           { key: 'name', label: '名字', type: 'text', placeholder: '例：小雅 / 天台 / 旧信封' },
           { key: 'kind', label: '类型', type: 'select', value: 'actor',
             options: Object.keys(LIB_KINDS).map(k => ({ v: k, t: LIB_KINDS[k] })) },
           /* 分组带当前这一档：正看着「校园篇主要角色」这一组、顺手新建一位，
              十有八九是要加进这一组 —— 让人再抄一遍组名是多余的一步（筛到「未分组」时不带）。 */
-          { key: 'group', label: '分组（可留空；素材库页能按整组筛与查找）', type: 'text',
+          { key: 'group', label: '分组（可留空）', type: 'text',
             value: opt.group || '', placeholder: '例：校园篇主要角色' },
           /* 描述排在「人设」前面：它是出图与出资产的依据，先写「长什么样」再写「是什么人」更顺。
              （以前两行是反的，填表时很容易把外貌写成性格。） */
@@ -687,7 +682,7 @@ window.Chars = (function () {
              选来的那张会先落成本机资产（本地上传的 blob: 地址一刷新就没了，
              工作台与资产库那边也认不出它）。 */
           { key: 'pic', label: '预览图（可留空）', type: 'pic', pickLabel: '挑一张',
-            hint: '从资产库 / 我的收藏 / 本机文件里挑一张现成的；留空也行，存好后还能按描述出图',
+            hint: '从资产库 / 我的收藏 / 本机文件里挑',
             pick: async api => {
               const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1,
                 title: '给这一条选一张预览图' });
@@ -713,7 +708,7 @@ window.Chars = (function () {
           if (!nm) return '名字不能空着';
           const cut = nm.slice(0, 20);
           if (Lib.list().some(x => x && x.name === cut && libKindOf(x) === f.kind)) {
-            return '素材库里已经有「' + cut + '」这条' + (LIB_KINDS[f.kind] || '') + '了：同名会被当成同一条，换个名字';
+            return '素材库里已经有「' + cut + '」这条' + (LIB_KINDS[f.kind] || '') + '了，换个名字';
           }
           return '';
         },
@@ -723,7 +718,7 @@ window.Chars = (function () {
       /* 兜底再查一次：表单开着的时候库可能被别的标签页改过（storage 事件那边会重画页面）。
          走到这里才失败属于极少数，照旧返回 error 由调用方说话。 */
       if (Lib.list().some(x => x && x.name === name && libKindOf(x) === v.kind)) {
-        return { error: '素材库里已经有「' + name + '」这条' + LIB_KINDS[v.kind] + '了：同名会被当成同一条' };
+        return { error: '素材库里已经有「' + name + '」这条' + LIB_KINDS[v.kind] + '了，换个名字' };
       }
       /* 场景也带上那句说明：`newScene` 是给剧侧用的（那边场景只有描述 / 图 / 时段三项，没有这一栏），
          而**库里**这一条的 bio 有人读 —— 关键词搜索（`Lib.SEARCH_FIELDS` 的「人设」）、
@@ -762,7 +757,7 @@ window.Chars = (function () {
       const name = String((f && f.name) || '').trim().slice(0, 20);
       if (!name) return { error: '名字不能空着' };
       if (Lib.list().some(x => x && x.name === name && libKindOf(x) === kind)) {
-        return { error: '素材库里已经有「' + name + '」这条' + (LIB_KINDS[kind] || '') + '了：同名会被当成同一条' };
+        return { error: '素材库里已经有「' + name + '」这条' + (LIB_KINDS[kind] || '') + '了，换个名字' };
       }
       const item = kind === 'scene'
         ? Object.assign(newScene({ name, desc: f.look, time: f.time || '深夜', group: f.group }), { bio: f.bio || '' })
@@ -1020,7 +1015,7 @@ window.Chars = (function () {
         if (en && en.err) notes.push('身份锚点没能发给生图 AI（' + en.err + '），这一批是按文字重画的');
         else if (en) inputEntries = [en];
       } else {
-        notes.push('这个生图型号没有「参考图」槽位：这一批按文字重画，身份锚点没有发出去');
+        notes.push('这个生图型号没有「参考图」槽位：这一批按文字重画');
       }
     }
     const usePrompts = inputEntries
@@ -1125,7 +1120,7 @@ window.Chars = (function () {
     const name = String((o && o.name) || '').trim() || assetLabel(item, tpl) || tpl || '资产';
     const label = name;
     const base = refPicOf(item);
-    if (!base) throw new Error('先出预览图，再出' + label + '：没有预览图就只能凭文字重画一个样子');
+    if (!base) throw new Error('先出预览图，再出' + label);
     const notes = [];
     let inputEntries = null;
     if (refImageRule(v.model)) {
@@ -1267,7 +1262,7 @@ window.Chars = (function () {
      preset 给平台声明的音色清单，design / clone 给对应型号（没有就 null）。 */
   function ttsWays(REG, opts) {
     const v = pickProvModel(REG, 'audio', opts && opts.ttsModel, 'text_to_speech');
-    if (!v) return { ok: false, why: '还没配语音接口 —— 到设置页填一个语音平台的密钥', preset: [], design: null, clone: null, prov: null };
+    if (!v) return { ok: false, why: '还没配语音接口：到设置页填一个语音平台的密钥', preset: [], design: null, clone: null, prov: null };
     const by = ttsModelsOf(v.prov);
     const preset = by.preset ? voices(REG, opts, 'preset') : [];
     return { ok: !!(by.design || by.clone || preset.length), why: '这个语音平台既没有可选的预设音色，也没有音色设计 / 复刻的型号',
@@ -1289,8 +1284,8 @@ window.Chars = (function () {
     if (!ttsModeUsable(v.prov, v.model, mode)) {
       return { ok: false, chosen: v, target: v, model: v.model, prov: v.prov, mode: 'none',
         why: (mode === 'design'
-          ? '这个型号的声音描述在这一家的请求体里没有位置放（发出去会被上游静默丢掉）'
-          : '这个型号在请求体里没有位置放参考音频') + ' —— 换一家声明了它的型号，或改用预设音色那一个' };
+          ? '这个型号在这家放不进声音描述'
+          : '这个型号在这家放不进参考音频') + ' —— 换一个型号，或改用预设音色' };
     }
     return { ok: true, chosen: v, target: v, model: v.model, prov: v.prov, mode: mode, why: '' };
   }
@@ -1366,10 +1361,10 @@ window.Chars = (function () {
   function saveVoiceNote(name, note) {
     const nm = String(name || '').trim();
     const t = String(note || '').trim();
-    if (!nm) return { ok: false, why: '这一句没有说话人：写回素材库要靠名字找人' };
+    if (!nm) return { ok: false, why: '这一句没有说话人' };
     if (!t) return { ok: false, why: '没有音色描述可写' };
     const lb = libBroken();
-    if (lb) return { ok: false, why: '没写回去：' + lb + '。已停手，磁盘上原来的数据一个字没动。' };
+    if (lb) return { ok: false, why: '没写回去：' + lb + '。磁盘上原来的数据一个字没动。' };
     const k = window.nameKey ? window.nameKey(nm) : nm.toLowerCase();
     const hit = Lib.list().find(x => x && window.nameKey
       ? window.nameKey(String(x.name || '').trim()) === k
@@ -1437,7 +1432,7 @@ window.Chars = (function () {
     const nm = String(name || '').trim();
     const m = String(mode || '');
     if (!nm) return { found: false, name: '', refName: '', note: '', blob: null,
-      why: '台词里没写说话人：音色请在下拉里手挑（AI 拆分时写进 speaker 的那一句会自动找素材库）' };
+      why: '台词里没写说话人：音色请在下拉里手挑' };
     const kOf = window.nameKey || (x => String(x || '').trim().toLowerCase());
     const key = kOf(nm);
     const ch = key ? Lib.list().find(x => x && kOf(x.name) === key) : null;
@@ -1447,13 +1442,13 @@ window.Chars = (function () {
     if (m === 'design') {
       const note = String(ch.voiceNote || '').trim();
       if (!note) return { found: true, name: who, refName: '', note: '', blob: null,
-        why: '素材库「' + who + '」还没写音色描述：这一格仍是空的，补一段或换一位' };
+        why: '素材库「' + who + '」还没写音色描述：补一段或换一位' };
       return { found: true, name: who, refName: '', note, blob: null, why: '' };
     }
     if (m === 'clone') {
       const raw = String(ch.refAudio || '').trim();
       if (!raw) return { found: true, name: who, refName: '', note: '', blob: null,
-        why: '素材库「' + who + '」没挂参考音频：复刻仍缺料，到素材库给她挂一段' };
+        why: '素材库「' + who + '」没挂参考音频：到素材库挂一段' };
       const label = String(ch.refAudioName || '参考音频').trim() || '参考音频';
       let blob = null;
       try { blob = await refAudioBlob(raw); } catch (e) { blob = null; }
@@ -1601,8 +1596,8 @@ window.Chars = (function () {
        不必为了它临时凑一整集角色出来 —— 那样一次要花的钱是它的好几倍）。
        判据还是「名字非空 + 在 o.only 里」，与上面那道同一份，不另立一套。 */
     const pick = o.only && o.only.length ? chars.filter(c => o.only.indexOf(c.name) >= 0) : chars;
-    if (!chars.length) return { changed: [], skipped: [], why: '这一集还没有角色 —— 先拆完剧本或自己加两位' };
-    if (!pick.length) return { changed: [], skipped: [], why: '挑中的那几位在库里找不到（可能已经删掉了）' };
+    if (!chars.length) return { changed: [], skipped: [], why: '这一集还没有角色：先拆完剧本或自己加两位' };
+    if (!pick.length) return { changed: [], skipped: [], why: '挑中的那几位在库里找不到' };
     const can = [];
     /* 顺序即优先级（2026-10 用户要求：「自动调用生成音色的模型，而不是让我选择音色」）。
        以前三行平铺，文字 AI 经常挑 preset —— 从一份固定清单里选一个 id，于是每个角色的嗓子
@@ -1694,7 +1689,7 @@ window.Chars = (function () {
   function ttsErrText(prov, model, msg) {
     return '配音没出来：' + ((prov && (prov.displayName || prov.name)) || '语音平台')
       + ' · ' + ((model && (model.name || model.id)) || '未知型号') + ' —— ' + msg
-      + '（这一家此刻不通或密钥不对；到设置页「语音」那一档换一家，或先点那一张卡上的「测试」）';
+      + '。到设置页换一家语音平台';
   }
   async function ttsOnce(REG, o) {
     const mode = o.mode || (o.char && o.char.voiceMode) || '';
@@ -1713,8 +1708,8 @@ window.Chars = (function () {
     if (real === 'clone') {
       const ref = o.refAudio || await refAudioOf(o.char);
       if (!ref || !ref.base64) {
-        throw new Error('「' + model.name + '」是音色复刻型号，要有参考音频：到「认角色」那一步给'
-          + ((o.char && o.char.name) || '这个角色') + '上传一段声音（或换一个预设音色型号）');
+        throw new Error('「' + model.name + '」这型要参考音频：到「认角色」那一步给'
+          + ((o.char && o.char.name) || '这个角色') + '上传一段声音，或换一个预设音色型号');
       }
       voice = 'data:' + (ref.mime || 'audio/mpeg') + ';base64,' + ref.base64;
     }
@@ -1807,11 +1802,11 @@ window.Chars = (function () {
       const r = voiceReady(REG, opts, char);
       if (!r.ok) {
         return { n: 0, pickable: false, mode: w.mode, list: [],
-          why: (r.why || '这一位还没定声音') + ' —— 先在上面写一句声音描述，或点「AI 定音色」让文字 AI 按人设写，再出试听' };
+          why: r.why || '这一位还没定声音' };
       }
       return { n: want, pickable: false, mode: w.mode, list: [], why: '' };
     }
-    if (!list.length) return { n: 0, pickable: true, mode: 'preset', list: [], why: '这个预设音色型号没有声明任何音色，出不了候选' };
+    if (!list.length) return { n: 0, pickable: true, mode: 'preset', list: [], why: '这个型号没声明可选音色，出不了候选' };
     return { n: Math.min(want, list.length), pickable: true, mode: 'preset', list: list, why: '' };
   }
   /* 出候选的顺序：这位**现在用的那把**排第一 —— 一排里没有对照，就听不出新挑的那把到底换没换。 */
@@ -1875,7 +1870,7 @@ window.Chars = (function () {
   function cloneFromCands(REG, opts, char, src, name) {
     const w = ttsWays(REG, opts);
     if (!w.ok) return { ok: false, why: w.why };
-    if (!w.clone) return { ok: false, why: '这个平台没有「音色复刻」型号 —— 拿生成的语音去克隆要它有那一档' };
+    if (!w.clone) return { ok: false, why: '这个平台没有「音色复刻」型号' };
     const cand = ((char && char.voiceCands) || []).find(x => x && x.src === src);
     if (!cand) return { ok: false, why: '这一条试听已经不在了' };
     /* 体积判据走 `refAudioRule(REG, opts).rule` —— **与界面上传参考音频读的是同一份**。
@@ -1913,9 +1908,9 @@ window.Chars = (function () {
   function cloneFromLibEntry(REG, opts, char, entry) {
     const w = ttsWays(REG, opts);
     if (!w.ok) return { ok: false, why: w.why };
-    if (!w.clone) return { ok: false, why: '这个平台没有「音色复刻」型号 —— 拿别人的参考音频来克隆要它有那一档' };
+    if (!w.clone) return { ok: false, why: '这个平台没有「音色复刻」型号' };
     const src = String((entry && entry.refAudio) || '').trim();
-    if (!src) return { ok: false, why: '素材库里的「' + String((entry && entry.name) || '那一位') + '」没有挂参考音频 —— 先给它传一段或用它合成一条' };
+    if (!src) return { ok: false, why: '素材库里的「' + String((entry && entry.name) || '那一位') + '」没挂参考音频：先给它传一段' };
     if (char && entry && char.id && entry.id && char.id === entry.id) {
       return { ok: false, why: '这一位就是它自己' };
     }
@@ -2123,7 +2118,7 @@ window.Chars = (function () {
      没配语音平台时明说「设置页配好语音接口才有音色」，不摆三个假的「声音 1/2/3」。 */
   function voiceChips(REG, opts, c) {
     const vs = voices(REG, opts, c && c.voiceMode);
-    if (!vs.length) return '<span class="ui-hint">这个语音型号没有可选的预设音色 —— 它靠下面那一栏定声音</span>';
+    if (!vs.length) return '<span class="ui-hint">这个语音型号没有可选的预设音色</span>';
     /* 角色身上那个 id 可能是**别家的**（换了语音型号、或从素材库拉进来的）：
        配音时会退回这个型号的第一个音色，但这件事必须当场说出来，不能让人以为还在用自己挑的那个。 */
     const v = voiceOf(REG, { opts: opts }, c);
@@ -2159,10 +2154,10 @@ window.Chars = (function () {
   function voiceBoxHTML(REG, opts, c) {
     const w = voiceWay(c, REG, opts);
     const vm = w.mode;
-    if (vm === 'none') return '<span class="ui-hint">还没配语音接口 —— 到设置页填一个语音平台的密钥，才能定声音</span>';
+    if (vm === 'none') return '<span class="ui-hint">还没配语音接口：到设置页填一个语音平台的密钥</span>';
     const mn = esc((w.model || {}).name || '这个型号');
     /* 要的方式这一家没有型号：界面必须说「其实这次按 X 念」，不能继续显示复刻上传框 */
-    const fb = w.fellback ? `<span class="ui-tag warn">这位想要「${esc(WAY_LABEL[w.want] || w.want)}」，这个平台没有对应型号 —— 现在按「${esc(WAY_LABEL[vm])}」的型号出声</span>` : '';
+    const fb = w.fellback ? `<span class="ui-tag warn">这位想用「${esc(WAY_LABEL[w.want] || w.want)}」，这个平台没有对应型号，现在按「${esc(WAY_LABEL[vm])}」出声</span>` : '';
     /* 「用素材库里的另一位」这两条（用户要求：「使用素材进行描述或克隆」）：
        · description 档 —— 拿别人写好的**音色描述**填进这一格（不另造一段）；
        · clone 档 —— 拿别人挂着的**参考音频**当这一位的嗓子。
@@ -2171,19 +2166,19 @@ window.Chars = (function () {
     const libNotes = vm === 'design' ? libVoiceEntries('note') : [];
     const libAudios = vm === 'clone' ? libVoiceEntries('audio') : [];
     const takeNote = libNotes.length
-      ? `<button class="ghost" data-act="vnotepick" title="从素材库里挑一位，把他写的那段音色描述填进这一格">${ic('users', 12)} 用素材的音色描述</button>` : '';
+      ? `<button class="ghost" data-act="vnotepick" title="从素材库挑一位">${ic('users', 12)} 用素材的音色描述</button>` : '';
     const takeAudio = libAudios.length
-      ? `<button class="ghost mini" data-act="vaudiopick" title="从素材库里挑一位，用他挂着的参考音频克隆这一位的声音">${ic('users', 12)} 用素材的声音克隆</button>` : '';
+      ? `<button class="ghost mini" data-act="vaudiopick" title="从素材库挑一位">${ic('users', 12)} 用素材的声音克隆</button>` : '';
     if (vm === 'design') return fb + '<input class="ui-inp ui-in" data-act="voicenote" placeholder="描述这个人的声音：男/女、年纪、清亮还是沙哑、语速快慢、情绪底子" '
       + 'value="' + esc(c.voiceNote || '') + '">'
-      + `<span class="ui-hint">「${mn}」按这段描述出声，写完就能试听${(c.voiceBy === 'ai' && String(c.voiceNote || '').trim()) ? '（这段是 AI 按人设写的，可以直接改）' : ''}`
+      + `<span class="ui-hint">「${mn}」按这段描述出声${(c.voiceBy === 'ai' && String(c.voiceNote || '').trim()) ? '（AI 按人设写的）' : ''}`
       /* 说清它会跟着这一位走（用户要求「同一个角色下次用之前的音色提示词」）：
          描述随角色进素材库、拉进下一集时一起带过去，所以同一个人不用每集重写一遍。 */
-      + '。这段描述随这一位进素材库，拉进下一集也带过去</span>'
+      + '。这段描述随这一位进素材库，下一集也带过去</span>'
       + takeNote;
     if (vm === 'clone') return fb + (c.refAudio
         ? `<span class="ui-tag ok">参考音频：${esc(String(c.refAudioName || '已挂的那一段').slice(0, 18))}</span>`
-        : '<span class="ui-hint">还没有参考音频 —— 这个型号靠参考音频克隆音色（3~10 秒干净的人声即可）</span>')
+        : '<span class="ui-hint">还没有参考音频：这一段要 3~10 秒干净的人声</span>')
       + `<button class="ghost mini" data-act="refaudio">${c.refAudio ? '换一段' : ic('upload', 12) + ' 上传参考音频'}</button>`
       + (c.refAudio ? '<button class="ui-linkbtn" data-act="refclear">去掉</button>' : '')
       + takeAudio;
@@ -2293,13 +2288,13 @@ window.Chars = (function () {
       const cloned = !!(c.refAudio && c.refAudio === x.src);
       return '<span class="ui-cand' + (on ? ' on' : '') + '">'
         + '<button class="ui-linkbtn" data-act="vplay" data-src="' + esc(x.src) + '"'
-        + ' title="播本机存着的这一段（就是刚才合成的那一条，不再合一遍）">' + ic('play', 11) + '</button>'
+        + ' title="播本机存着的这一段">' + ic('play', 11) + '</button>'
         + '<span class="t">' + esc(nm) + (x.dur ? ' · ' + x.dur + 's' : '') + '</span>'
         + (cap.pickable ? '<button class="ui-linkbtn" data-act="vuse" data-vid="' + esc(x.voice || '')
           + '" data-vname="' + esc(nm) + '"' + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一条') + '</button>' : '')
         + (canClone ? '<button class="ui-linkbtn" data-act="vclone" data-src="' + esc(x.src) + '"'
           + ' data-name="' + esc(nm) + '"' + (cloned ? ' disabled' : '')
-          + ' title="把这条音频挂成这一位的参考音频、方式切到复刻 —— 以后都按这个声音念">' + (cloned ? '正在用它' : '拿这条去克隆') + '</button>' : '')
+          + ' title="挂成这一位的参考音频">' + (cloned ? '正在用它' : '拿这条去克隆') + '</button>' : '')
         + '</span>';
     }).join('');
     const gen = cap.n > 1 ? '<button class="ghost mini" data-act="vgen" data-n="' + cap.n + '">一次出 ' + cap.n + ' 条试听</button>' : '';
@@ -2307,8 +2302,8 @@ window.Chars = (function () {
     const bad = failed.length
       ? '<span class="ui-hint err">有 ' + failed.length + ' 条没出来：' + esc(failed.map(x => x.err).join('；').slice(0, 160)) + '</span>' : '';
     const note = (!cap.pickable && list.length)
-      ? '<span class="ui-hint">这几条是同一种声音多试几遍，挑哪条都不改变以后拍出来的声音'
-        + (canClone ? '；想固定其中一条，按「拿这条去克隆」' : '') + '</span>' : '';
+      ? '<span class="ui-hint">这几条是同一种声音'
+        + (canClone ? '；想固定一条按「拿这条去克隆」' : '') + '</span>' : '';
     return '<div class="ui-cands"><span class="lab">声音候选</span>' + rows + bad + gen + why + note + '</div>';
   }
   /* 试听圆钮 + 声波 + 方式选择 + 声音控件 + 声音候选那一排
@@ -2330,7 +2325,7 @@ window.Chars = (function () {
       /* 两条留痕：定成了说一句「AI 按人设定的」（人可以直接改），没定成写清**为什么** ——
          不写的话「自动定音色」失败在界面上就是无声消失，用户到第 4 步才发现没人说话。 */
       + (c.voiceAuto ? '<div class="ui-hint">画完角色时 AI 按人设定成了这个声音：' + esc(String(c.voiceAuto).slice(0, 40))
-          + '（下面可以直接改）</div>' : '')
+          + '</div>' : '')
       + (c.voiceErr ? '<div class="ui-note err">没定成声音：' + esc(String(c.voiceErr).slice(0, 160))
           + '<button class="ui-linkbtn" data-act="revoice">再让 AI 定一次</button></div>' : '')
       + voiceCandsHTML(REG, opts, c, o) + '</div>';
@@ -2365,10 +2360,10 @@ window.Chars = (function () {
   function voiceReady(REG, opts, c) {
     const w = voiceWay(c, REG, opts);
     const vm = w.mode;
-    if (vm === 'none') return { ok: false, mode: 'none', why: '还没配语音接口 —— 到设置页填一个语音平台的密钥' };
-    if (vm === 'clone') return c.refAudio ? { ok: true, mode: vm } : { ok: false, mode: vm, why: '这位用音色复刻，要有参考音频：先「上传参考音频」（3~10 秒干净人声）' };
+    if (vm === 'none') return { ok: false, mode: 'none', why: '还没配语音接口：到设置页填一个语音平台的密钥' };
+    if (vm === 'clone') return c.refAudio ? { ok: true, mode: vm } : { ok: false, mode: vm, why: '要有参考音频：先「上传参考音频」（3~10 秒干净人声）' };
     if (vm === 'design') return String(c.voiceNote || '').trim()
-      ? { ok: true, mode: vm } : { ok: false, mode: vm, why: '这位用声音描述出声：先写一句（男/女、年纪、清亮还是沙哑）' };
+      ? { ok: true, mode: vm } : { ok: false, mode: vm, why: '先写一句声音描述（男/女、年纪、清亮还是沙哑）' };
     const vs = voices(REG, opts, vm);
     if (c.voice) return { ok: true, mode: vm };
     return vs.length ? { ok: false, mode: vm, why: '先在下面挑一个音色' } : { ok: false, mode: vm, why: '这个型号没有可选的预设音色' };

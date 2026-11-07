@@ -1,7 +1,6 @@
 /* PromptLog — 提示词归档（写 /prompts、按任务号回查、标题由文字 AI 起、整包导出恢复）。
    从 web/domain/assetlib.js 拆出；只依赖 window.Api / TextAI / Net / Store 这些公开面。 */
 (function () {
-  const DIR_KEY = 'prompt_dir';
   const cache = new Map();          // '平台|任务号' → 提示词（同步读，供资产库补显示）
   const byTask = new Map();         // 任务号 → 提示词：归档时写的平台名可能和列表来源不一样
                                     //（如媒体路由把 sparkcine 的视频条目归到 sparkcine-video），只按「平台|任务号」查就会 miss
@@ -19,15 +18,6 @@
   const inflight = new Map();
   let loadedAt = 0, loading = null, warned = false;
 
-  const dir = () => { try { return localStorage.getItem(DIR_KEY) || ''; } catch (e) { return ''; } };
-  /* 写不进去（配额满 / 隐私模式）要能告诉调用方：以前 `catch (e) {}` 吞掉，
-     设置页照样打 ✓，而归档目录其实还是旧的那个。 */
-  const setDir = d => {
-    try {
-      if (d) localStorage.setItem(DIR_KEY, d); else localStorage.removeItem(DIR_KEY);
-      return true;
-    } catch (e) { return false; }
-  };
   const promptKeyOf = (provId, id) => (provId || '') + '|' + id;
 
   async function req(path, opts) {
@@ -51,13 +41,13 @@
   }
 
   /* 归档的整包导出 / 恢复（走代理的 POST /prompts/export 与 /prompts/import）。
+     目录一律由代理现算（库根下的「提示词\」）：页面不再持有第二个位置。
      以前归档只躺在磁盘上的一堆 .md 里：不在 .data/（云同步带不走），
      也不在 localStorage / IndexedDB 里（整包备份同样带不走）——
      换机器、清浏览器数据、误删目录，就只剩「没了」这一种结果。 */
-  const dirQuery = () => { const d = dir(); return d ? '?dir=' + encodeURIComponent(d) : ''; };
-  async function exportAll() { return await req('/export' + dirQuery(), { method: 'POST', body: '{}' }); }
+  async function exportAll() { return await req('/export', { method: 'POST', body: '{}' }); }
   async function importAll(files) {
-    return await req('/import' + dirQuery(), {
+    return await req('/import', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ files: files || [] }), timeout: 120000, retry: 0,
     });
@@ -107,7 +97,6 @@
     try {
       const title = String((info.title || '')).trim() || (await aiTitle(REG, prompt)) || fallbackTitle(prompt);
       const body = {
-        dir: info.dir !== undefined ? info.dir : dir(),
         title, type: info.type || '任务', prompt,
         provider: info.provider || '', model: info.model || '',
         task: info.task || '', meta: info.meta || null,
@@ -127,7 +116,7 @@
     loading = (async () => {
       try {
         // limit 默认 300 太少：索引里没有的老任务，卡片就只能显示「（该平台接口不返回提示词）」
-        const d = await req('?dir=' + encodeURIComponent(dir()) + '&limit=800', { timeout: 15000 });
+        const d = await req('?limit=800', { timeout: 15000 });
         (d.recent || []).forEach(r => { if (r.p && r.i) remember(r.p, r.i, r.pr || ''); });
         loadedAt = Date.now();
         return cache.size;
@@ -251,9 +240,9 @@
       return n;
     });
   }
-  /* 归档目录信息（设置页展示） */
-  const list = () => req('?dir=' + encodeURIComponent(dir()));
-  const open = () => req('/open?dir=' + encodeURIComponent(dir()), { method: 'POST' });
+  /* 归档目录信息（设置页展示）：dir 由代理现算，跟着「本机资产库」那个根走 */
+  const list = () => req('');
+  const open = () => req('/open', { method: 'POST' });
   /* 平台默认类型：页面没指定时按平台种类给一个（图片 / 视频 / 语音 / 文字）。
      名字带「归档」是因为这是**提示词归档里那一行任务是什么**的说法（图片生成 / 语音合成），
      与设置页那一排档名（`ui.js` 的 `provKindZh`：图片 / 语音）不是一张表 —— 2026-10-15 把它从
@@ -273,5 +262,5 @@
      刚往归档目录里手工补了文件、或换了归档目录时用它，不用刷新页面。 */
   const clearMissed = () => { const n = missed.size; missed.clear(); saveMissed(); loadedAt = 0; return n; };
 
-  window.PromptLog = { save, load, cached, cachedById, findByTask, missedFor, askId, refill, clearMissed, list, open, dir, setDir, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
+  window.PromptLog = { save, load, cached, cachedById, findByTask, missedFor, askId, refill, clearMissed, list, open, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
 })()

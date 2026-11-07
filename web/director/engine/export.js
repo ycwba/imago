@@ -210,7 +210,7 @@ async function exportFilm(opts) {
       const who = plan.missing.slice(0, 6).map(m => '第 ' + (m.index + 1) + ' 段「' + m.name + '」').join('、')
         + (plan.missing.length > 6 ? ' 等 ' + plan.missing.length + ' 段' : '');
       setStatus('<span class="err">导出停下：' + who + ' 没有可用素材（本地文件可能已被清理）——'
-        + '补回素材或换一条候选再导；导出媒体包不受这一段影响，会把它写成离线素材并点名</span>');
+        + '补回素材或换一条候选再导；导出媒体包不受影响</span>');
       return { ok: false, err: who + ' 没有可用素材', missing: plan.missing.length };
     }
     if (o.onStarted) { try { o.onStarted({ clips: plan.clips.length, subtitles: plan.captions.length }); } catch (e) { /* 回调是调用方给的，它抛错不该把已经提交的导出带崩 */ } }
@@ -325,7 +325,7 @@ function projectDialog(r) {
         + (r.missingCount ? ' · ' + r.missingCount + ' 份没取到' : ' · 没有缺失') + '</div>'
         + (r.missingCount ? '<div class="dlg-warn">取不到的素材名单在同目录的 missing.txt；导入后会显示离线，补齐文件再重新链接</div>' : '')
         + '<div class="dlg-hint">在 Final Cut Pro 或支持 FCPXML 的剪辑软件里用「文件 → 导入 → XML / 时间线」打开目录里的 project.fcpxml；素材会自动从 media/ 链接，字幕另存为 subtitles.srt。</div>'
-        + '<div class="dlg-hint">要发给别人或换一台机器，用「导出媒体包」拿 zip：这个目录里不再放一份压缩副本。</div>';
+        + '<div class="dlg-hint">要发给别人或换机器，请用「导出媒体包」拿 zip。</div>';
     },
     actions: [
       { label: '打开文件夹', value: 'open', primary: true,

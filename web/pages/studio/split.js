@@ -187,7 +187,7 @@ export function createSplit(d) {
       if (uncertain) { try { await loadServer(1, true); } catch (e) {} }
       const taskImgs = created.reduce((a, x) => a + (Number(x.extra && x.extra.count) || 1), 0);
       const accepted = taskImgs + syncN;
-      const parts = ['已提交 ' + accepted + ' / ' + totalImgs + ' 张' + (accepted ? '（右栏已列出）' : '')];
+      const parts = ['已提交 ' + accepted + ' / ' + totalImgs + ' 张'];
       parts.push(withRef + ' 条带参考图 / ' + (segs.length - withRef) + ' 条不带');
       if (failed) parts.push(failed + ' 次失败：' + failWhy.slice(0, 2).join('；') + (failWhy.length > 2 ? ' 等' : ''));
       if (syncNotes.length) parts.push(syncNotes.length + ' 张没存进资产库：' + syncNotes.slice(0, 2).join('；') + (syncNotes.length > 2 ? ' 等' : ''));

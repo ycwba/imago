@@ -79,7 +79,7 @@ function playerEmptyText(sh) {
   if (!sh.prompt.trim()) return ['这一镜还没有画面描述',
     '先在右边写一句就能生成 —— 例：「她站在天台栏杆边，风把头发吹起来，背影」'];
   if (!sh.candidates.length) return ['画面还没生成', '点右侧「生成这一镜（' + (sh.draw || 1) + ' 条）」开始生成'];
-  if (sh.candidates.some(c => Wb.stLive(c.status))) return ['正在生成这一镜…', '排队位置与进度见下方候选卡片'];
+  if (sh.candidates.some(c => Wb.stLive(c.status))) return ['正在生成这一镜…', ''];
   if (sh.candidates.every(c => ['failed', 'cancelled'].includes(c.status))) return ['这一镜生成失败', '候选卡上有失败原因，改改提示词或换个型号再来一次'];
   return ['候选还没有画面', '稍等片刻，或点右侧再生成一条'];
 }
@@ -186,7 +186,7 @@ function renderMid() {
         ${cands.length ? `<span class="cand-pager">
           <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}</button>
           <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
-          <span class="cand-count" title="第 ${projOf().curCand + 1} 条候选，共 ${cands.length} 条（左右两颗切换）">${projOf().curCand + 1} / ${cands.length}</span>
+          <span class="cand-count">${projOf().curCand + 1} / ${cands.length}</span>
           <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
         </span>` : ''}
       </div>
@@ -223,7 +223,7 @@ function renderMid() {
     col.querySelector('#trimBtn').onclick = () => {
       const on = !midEditTrimOf();
       setTrimMode(on);
-      setStatus(on ? '剪辑模式：调这一段的入出点、拖轨道上的块' : '已退出剪辑模式');
+      setStatus(on ? '已切到剪辑模式' : '已退出剪辑模式');
     };
     /* 剪辑态时间线板（`.tl-board`，铺满页宽）与三栏平级：生成态整块 hidden，剪辑态画出来。
        播放器仍在中栏 —— 两种模式切换时中栏那几块一个像素不动。
@@ -296,7 +296,7 @@ function wireMidPlayer(col, ctx) {
           e.stopPropagation();
           pl.muted = !pl.muted;
           mb.innerHTML = icon(pl.muted ? 'speakerOff' : 'speaker', 14);
-          mb.title = pl.muted ? '已静音（点击开启声音）' : '声音已开启（点击静音）';
+          mb.title = pl.muted ? '已静音' : '声音已开启';
           window.LS.set('dir_muted', pl.muted ? '1' : '0');
         };
       }

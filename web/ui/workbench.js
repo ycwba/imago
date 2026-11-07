@@ -12,6 +12,7 @@
      Wb.actsHTML(t, o)  卡片底部那排按钮的 HTML（顺序/文案/危险色三台一致）
      Wb.actsHTML(t, { items })  非任务卡的私有动作条也走这一份（结构 / 危险色 / 转义一致）
      Wb.bindActs(el, t, o)  给上面那排按钮接线（取消/重试/删除都带确认与报错）
+     Wb.favBtnHTML(e) / Wb.bindFavBtn(el, e)  卡面那颗星（★ 收藏），资产库与工作台共用
      Wb.History.read(kind) / Wb.History.write(kind, list)   带版本与上限的本地历史
      Wb.Blobs.put(k, blob) / get(k) / del(k)               大文件（参考音频等）存 IndexedDB
      Wb.blob(url) / Wb.save(url, name)                       产物下载（先判 HTTP 状态，再走浏览器默认下载）
@@ -66,7 +67,7 @@
      新页面不再写它，但用户的 localStorage 里还有，所以规格留着 —— 设置页「清缓存」那一节
      按这张表渲染，直接删掉这一条会让这份用户数据既没人写、也没人能清。 */
   const HISTORY = {
-    image: { key: 'sparkcine_gallery', cap: 2000, label: '生图历史（合并前的旧工作台，已不再写入）',
+    image: { key: 'sparkcine_gallery', cap: 2000, label: '生图历史（已不再写入）',
       strip: it => { const o = { ...it }; delete o._blob; return o; } },
     audio: { key: 'audio_tasks', cap: 2000, label: '语音任务',
       // 参考音频的 base64 有十几 MB，绝不能进 localStorage（以前就是它把整批历史写崩的）
@@ -688,6 +689,16 @@
       const to = Math.max(0, Math.min(c.scrollHeight - c.clientHeight, Math.round(want)));
       if (to !== Math.round(c.scrollTop)) c.scrollTop = to;
     },
+    /* 把第 pageNo 页的头一条滚进视野（动态加载档跳页的落点）：工作台右栏与资产库同一份算式。
+       cards 是页面上按列表顺序排好的卡片节点；条目不够那一页（平台没有那么多页）就落到最后一条。
+       只滚、不重画 —— 调用方在 render 之后调它（卡片得先在 DOM 里）。 */
+    revealPage(cards, pageNo, pageSize) {
+      const list = (cards || []).filter(el => el && el.isConnected);
+      if (!list.length) return;
+      const size = Math.max(1, Number(pageSize) || 20);
+      const idx = Math.min(list.length - 1, Math.max(0, (Math.max(1, pageNo) - 1) * size));
+      this.reveal(list[idx], { pad: 8 });
+    },
   };
 
   /* 页头与列表之间的那点几何（普通页 .page-shell 这一族）。
@@ -903,7 +914,7 @@
          调用方拿这些原语的路径（导演台切片）都在取活之前 await 过 `_mbReady()`。 */
       _video() {
         const mb = window.MediaBackend;
-        if (!mb || !mb._video) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js）');
+        if (!mb || !mb._video) throw new Error('浏览器内媒体后端没加载起来');
         return mb._video;
       },
       el(src) { return this._video().el(src); },
@@ -915,14 +926,14 @@
          返回 { blob, w, h }。转发给 MediaBackend.grab（主档 mediabunny → 兜底 <video>）。 */
       async grab(src, which, atSeconds) {
         const mb = await this._mbReady();
-        if (!mb) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js），取不了帧');
+        if (!mb) throw new Error('浏览器内媒体后端没加载起来，取不了帧');
         return mb.grab(src, which, atSeconds);
       },
       /* 抓一帧 → 最长边 maxSide（默认 1600）的 JPEG dataURL：直接当首帧图存放（要写本地存档，不能太大）。
          转发给 MediaBackend.dataURL（它内部走 grab → 缩放 → JPEG）。 */
       async dataURL(src, which, atSeconds, maxSide) {
         const mb = await this._mbReady();
-        if (!mb) throw new Error('浏览器内媒体后端没加载起来（/web/media-backend.js），取不了帧');
+        if (!mb) throw new Error('浏览器内媒体后端没加载起来，取不了帧');
         return mb.dataURL(src, which, atSeconds, maxSide);
       },
       async dataURLFromFile(f, which, maxSide) {
@@ -1657,7 +1668,7 @@
       },
       _shell(prompt) {
         return this._promptHTML(prompt)
-          + '<div class="det-sep"></div><div class="det-body">加载详情…</div><div class="det-extra"></div>';
+          + '<div class="det-sep"></div><div class="det-body">加载中…</div><div class="det-extra"></div>';
       },
       /* 本机归档的提示词在索引里只存了前 300 字（省内存、省流量，够列表卡片用）：
          详情面板要给人看全文，就按任务号回源取整份再换掉这一段。
@@ -1910,7 +1921,7 @@
         const extra = host.querySelector('.det-extra');
         let g = null, err = '';
         try { g = await this._fetch(item); }
-        catch (e) { err = '详情接口读取失败：' + e.message + '（以下为本地记录）'; }
+        catch (e) { err = '详情读取失败：' + e.message + '（以下为本机记录）'; }
         if (!host.isConnected || host._detSeq !== seq) return;   // 面板关掉了，或已经被别的条目重画过
         body.innerHTML = (err ? '<div class="det-row"><span class="k">详情</span><span>' + esc(err) + '</span></div>' : '')
           + this._rowsHTML(this._rows(item, g));
@@ -1941,7 +1952,7 @@
       const list = (items || []).filter(x => x && (x.url || x.dl || x.src));
       if (!list.length) { window.Toast.warn('选中的条目里没有可下载的产物'); return { ok: 0, fail: 0 }; }
       const go = await window.Confirm.ask({
-        title: '批量下载', body: '下载选中的 ' + list.length + ' 个产物？浏览器会连续保存多个文件。',
+        title: '批量下载', body: '下载选中的 ' + list.length + ' 个产物？',
         okLabel: '开始下载', cancelLabel: '取消',
       });
       if (!go) return { ok: 0, fail: 0, canceled: true };
@@ -1956,7 +1967,7 @@
         try { await this.save(a.url || a.dl || a.src, name); ok++; }
         catch (e) { fail++; console.warn('[Wb] 下载失败', a, e); }
       }
-      prog.done(fail ? ('下载完成：成功 ' + ok + ' 个，失败 ' + fail + ' 个（可重试或单独打开）')
+      prog.done(fail ? ('下载完成：成功 ' + ok + ' 个，失败 ' + fail + ' 个')
         : ('已下载 ' + ok + ' 个文件'), fail ? 9000 : 3200);
       return { ok, fail };
     },
@@ -2256,7 +2267,7 @@
       }
       if (o.saveLocal) B.push(button({ cls: 'sv', icon: 'download', label: '再存一次本机' }));
       if (o.remove) B.push(button({ cls: 'del', icon: 'trash', label: '删除记录', danger: true }));
-      if (o.removeFile) B.push(button({ cls: 'delfile', icon: 'trash', label: '删除文件', danger: true, title: '删除本机文件（上游没有资产存储）' }));
+      if (o.removeFile) B.push(button({ cls: 'delfile', icon: 'trash', label: '删除文件', danger: true, title: '删除本机文件' }));
       return B.join('') + (o.extraHTML || '');
     },
     /* 给动作区接线。回调都由页面提供，但「取消 / 删除」的确认、报错、按钮忙碌态在这里统一处理 */
@@ -2283,7 +2294,7 @@
       on('.cx', async btn => {
         const ok = await window.Confirm.ask({
           title: '取消这个任务？', danger: true, okLabel: '取消任务', cancelLabel: '继续等',
-          body: '取消后会通知平台停止生成。已经产生的部分可能仍会计费。',
+          body: '取消后可能仍会计费。',
         });
         if (!ok) return;
         await busy(btn, '取消中…', async () => {
@@ -2297,7 +2308,7 @@
         if (this.isUncertain(t)) {
           window.Confirm.ask({
             title: '这条的结果还没核对清楚', danger: true, okLabel: '仍然重发', cancelLabel: '先去核对',
-            body: '上一次提交可能已经被平台受理（可能已经扣费）。先刷新列表 / 资产库确认没有这一条，再点重发。',
+            body: '上一次提交可能已扣费，先刷新核对再重发。',
           }).then(ok => { if (ok) retry(btn); });
           return;
         }
@@ -2317,7 +2328,7 @@
         catch (e) {
           uncertain = !!Api.maybeSubmitted(e);
           window.btnText(btn, uncertain ? '结果未知 · 先去核对' : '重试失败');
-          if (uncertain) window.Toast.warn('这次重试的提交结果没核对清楚：平台上可能已经建了新任务（已扣费）。先刷新列表核对，别急着再发一次。');
+          if (uncertain) window.Toast.warn('这次重发可能已建新任务并扣费，先刷新核对。');
           else window.Toast.err(e);
         } finally {
           delete btn.dataset.busy; btn.removeAttribute('aria-busy');
@@ -2333,14 +2344,14 @@
       on('.del', async () => {
         const ok = await window.Confirm.ask({
           title: '删除这条记录？', danger: true, okLabel: '删除', 
-          body: '只删本地这条记录（平台上的任务与已生成的文件不受影响）。',
+          body: '只删本地记录，平台上的任务与文件不受影响。',
         });
         if (ok && o.onRemove) o.onRemove(t);
       });
       on('.delfile', async () => {
         const ok = await window.Confirm.ask({
           title: '删除本机文件？', danger: true, okLabel: '删除文件',
-          body: '这个产物存在本机（.assets 目录），删除后不可恢复。',
+          body: '删除后不可恢复。',
         });
         if (ok && o.onRemoveFile) await o.onRemoveFile(t);
       });
@@ -2384,6 +2395,46 @@
         if (timer) return;                       // 已经排了末尾那一次
         const wait = every - (Date.now() - last);
         if (wait <= 0) go(); else timer = setTimeout(go, wait);
+      };
+    },
+
+    /* ---------- 卡面那颗星（★ 收藏 / ★ 已收藏）：资产库与工作台共用 ----------
+       收藏的身份与落盘在 domain/fav.js（Fav.assetKey / isEntry / toggleEntry）。
+       **ui 层不读 domain 的收藏表**（分层方向），所以：
+         · favBtnHTML(on)  只按「在不在收藏里」画按钮，on 由页面给；
+         · bindFavBtn(el, act)  收 / 拿是 act.toggle()，当前状态是 act.isOn()，都由页面接进来。
+       按钮结构、切完的字与亮灭、提示只有这一份 —— 两个页面各写一份的话，
+       迟早会漂成两套（资产库那份曾经就是这么长出来的）。
+       两个页面的条目字段本来就不一样（资产库 src / type / duration，工作台 raw / mtype / durationSec），
+       归一化只在 favEntryOf 里做一次：src 优先取原始地址（raw），media 是已经拼好的播放地址，
+       拿它去存收藏会带上会话参数。没有产物号的任务收不进收藏（还没字节），
+       页面按「有没有 assetId」决定画不画这颗星。 */
+    favEntryOf(e) {
+      return {
+        provider: e.provider || '', providerName: e.providerName || '',
+        assetId: e.assetId || e.id || '', genId: e.genId || e.taskId || '', taskId: e.taskId || '',
+        type: e.type || e.mtype || '', prompt: e.prompt || '',
+        src: e.src || e.raw || e.media || '', dl: e.dl || '', rawSrc: e.rawSrc || '',
+        format: e.format || '',
+        duration: e.duration != null ? e.duration : (e.durationSec != null ? e.durationSec : null),
+      };
+    },
+    favBtnHTML(on) {
+      const starred = !!on;
+      return this.actsHTML(null, { items: [{ act: 'favorite', cls: 'favbtn',
+        icon: starred ? 'starFill' : 'star', label: starred ? '已收藏' : '收藏', pressed: starred }] });
+    },
+    bindFavBtn(el, act) {
+      const fb = el && el.querySelector('.favbtn');
+      if (!fb || !act) return;
+      fb.onclick = ev => {
+        ev.stopPropagation();
+        const before = !!act.isOn();
+        const on = !!act.toggle();
+        fb.setAttribute('aria-pressed', String(on));
+        window.iconSet(fb, on ? 'starFill' : 'star', 15);
+        window.btnText(fb, on ? '已收藏' : '收藏');
+        if (on !== before) window.Toast.ok(on ? '已收藏' : '已取消收藏');   // 星标自己会亮，归安静档
       };
     },
 
@@ -2447,7 +2498,7 @@
           fails++;
           if (fails >= 3 && !warned) {
             warned = true;
-            window.Toast.warn(`${label}状态刷新连续失败：${bad[0].reason && bad[0].reason.message ? bad[0].reason.message : '网络异常'}（会自动重试）`);
+            window.Toast.warn(`${label}状态刷新连续失败：${bad[0].reason && bad[0].reason.message ? bad[0].reason.message : '网络异常'}`);
           }
         } else { fails = 0; warned = false; }
         /* 单任务持续失败也要说一声：以前只统计「全军覆没」，
@@ -2460,7 +2511,7 @@
             taskFails.set(t, n);
             if (n === 3) {
               const msg = (r.reason && r.reason.message) ? r.reason.message : '上游没有返回状态';
-              window.Toast.warn(`${label}：有一条任务连续 ${n} 次刷新失败：${msg}（会继续自动重试）`);
+              window.Toast.warn(`${label}：有一条任务连续 ${n} 次刷新失败：${msg}`);
             }
           } else taskFails.delete(t);
         });
@@ -2499,7 +2550,7 @@
 
     /* ---------- 搜索框旁的说明：视频 / 语音台只能过滤「已加载」的条目 ---------- */
     searchNote(n) {
-      return n + ' 条已加载（搜索只筛已加载的内容，翻页可加载更多）';
+      return n + ' 条已加载（搜索只筛已加载的）';
     },
 
     /* ---------- 列表「部分来源没取回来」的提示条 ----------
@@ -2513,7 +2564,7 @@
       const detail = ks.slice(0, 3).map(k => esc(k) + '：' + esc(String(errs[k] || '读取失败'))).join('；')
         + (ks.length > 3 ? ' 等 ' + ks.length + ' 个平台' : '');
       return '<div class="list-note"><span class="txt">有 ' + ks.length + ' 个平台的任务这次没取回来（'
-        + detail + '）。下面显示的是已经取到的部分。</span>'
+        + detail + '）。下面只列已取到的。</span>'
         + '<button class="ghost mini" id="' + (retryId || 'listRetry') + '">重试</button></div>';
     },
 
@@ -3140,7 +3191,7 @@
           btn = document.createElement('button');
           btn.className = 'ghost';
           btn.id = 'lbDetailBtn';
-          btn.title = '查看这条产物的完整信息（提示词 / 参数 / 用量 / 任务号）';
+          btn.title = '查看这条产物的完整信息';
           bar.appendChild(btn);      // 放最右，和资产库灯箱同序：信息 · 下载 · 详情
         }
         btn.textContent = this._cfg.label || '详情';
@@ -3401,7 +3452,7 @@
           el.onerror = () => {
             const tip = document.createElement('div');
             tip.className = 'lb-hint';
-            tip.textContent = '这条视频 / 音频现在读不出来（文件可能已被移走或清理，上游地址也可能过期了）—— 本机产物回资产库重新「存回本机」，成片回导演台再导出一次就好';
+            tip.textContent = '读不出来：文件可能被移走或清理，上游地址也可能过期。重新「存回本机」或再导出一遍。';
             stage.innerHTML = '';
             stage.appendChild(tip);
           };
@@ -3487,7 +3538,7 @@
       /* 平台对象必须由调用方给准：这里不再回退到某一家平台 —— 任务号在别家平台上可能是另一条（还扣着钱的）任务，
          猜错家等于取消别人的任务。 */
       const p = prov || null;
-      if (!p) throw new Error('不知道这条任务属于哪个平台（条目缺 provider），先刷新列表再取消');
+      if (!p) throw new Error('不知道这条任务属于哪个平台，先刷新列表再取消');
       if (!window.Api.canCancel(p)) throw new Error(window.Wb.cancelWhyNot(p));
       await window.Api.cancel(p, id);
     },
@@ -3495,7 +3546,7 @@
        说清后果（任务会跑完、可能计费）而不是只说「不支持」，否则用户会以为按钮坏了。 */
     cancelWhyNot(prov) {
       const n = prov && (prov.displayName || prov.name || prov.id) || '这个平台';
-      return n + ' 没有提供取消任务的接口：本机松手之后，平台上那条任务还是会跑完并计费。';
+      return n + ' 不支持取消：任务还是会跑完并计费。';
     },
   };
 })();

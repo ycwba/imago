@@ -322,7 +322,8 @@ const READ = `(() => {
     must(buckets.length === 1, '卡片高度分了 ' + buckets.length + ' 档（' + JSON.stringify(buckets) + '）：'
       + JSON.stringify(fin.all.map(c => ({ key: c.key, st: c.st, h: c.h, btns: c.btns, b: c.blocks }))));
     /* 单档之外还有一条上限：等高可以由「每格都留得很宽」轻易做到，那是把整列撑高换来的。
-       318 是这一版的预算（缩略图 2/1 + 正文两行 + 动作两行），留 14 像素给字号度量的舍入。 */
+       318 是这一版的预算（缩略图 2/1 + 正文两行 + 动作两行 = 展开详情 / 收藏 / 下载），
+       留 14 像素给字号度量的舍入。 */
     must(buckets[0] <= 332, '卡片高度 ' + buckets[0] + ' 超出预算（这一档是 318 + 舍入余量）：'
       + JSON.stringify(fin.all.map(c => ({ key: c.key, h: c.h, blocks: c.blocks }))));
     /* 失败那一张要有原因可看，同时不许把卡片撑出第三行 —— 两格都算在同一个高度里。 */
@@ -331,6 +332,28 @@ const READ = `(() => {
     /* 没有任何一张是「还在转圈却什么都没有」：空盒只许出现在终态（失败）上。 */
     const stuck = fin.all.filter(c => (c.media === 'blank' || c.media === 'none') && c.st !== '生成失败' && c.st !== '已完成');
     must(stuck.length === 0, '有 ' + stuck.length + ' 张卡既不显示媒体也不是终态：' + JSON.stringify(label(stuck)));
+
+    /* ⑧ 卡面那颗星（★ 收藏 / ★ 已收藏）：与资产库同一颗（公共件 Wb.favBtnHTML / bindFavBtn）。
+          有产物号的卡都要画得出来，点一下要真的进「我的收藏」；没有字节的卡不许画
+          （收进去也没有地址 —— 与批量收藏的 can 同一条判据）。 */
+    const star = await page.eval(`(() => {
+      const cards = [...document.querySelectorAll('#result .task')];
+      const has = cards.filter(c => (c._item || {}).assetId);
+      const none = cards.filter(c => !(c._item || {}).assetId);
+      const pick = has.find(c => c.querySelector('.favbtn'));
+      const before = pick ? pick.querySelector('.favbtn').textContent.trim() : '';
+      if (pick) pick.querySelector('.favbtn').click();
+      const fresh = (has[0] && document.querySelector('#result .task .favbtn')) || null;
+      return { hasN: has.length, starOn: has.filter(c => c.querySelector('.favbtn')).length,
+        noneN: none.length, starOnNone: none.filter(c => c.querySelector('.favbtn')).length,
+        before, after: fresh ? fresh.textContent.trim() : '',
+        pressed: fresh ? fresh.getAttribute('aria-pressed') : '',
+        favN: (window.Fav && window.Fav.list().length) || 0 };
+    })()`);
+    must(star.hasN >= 4 && star.starOn === star.hasN, '有产物号的卡没有全画上收藏星：' + JSON.stringify(star));
+    must(star.noneN >= 1 && star.starOnNone === 0, '没有字节的卡也画了收藏星（收进去没有地址）：' + JSON.stringify(star));
+    must(star.before === '收藏' && star.after === '已收藏' && star.pressed === 'true' && star.favN >= 1,
+      '点收藏星没有真的收进「我的收藏」：' + JSON.stringify(star));
 
     const jsErr = (page.errors || []).filter(e => !/probe-asset|\/asset\//.test(String(e)));
     must(jsErr.length === 0, '页面报错：' + JSON.stringify(jsErr.slice(0, 5)));

@@ -37,7 +37,7 @@
      深色档不在任何地方写第二份色值：html[data-theme="dark"] 用
        oklch(from var(--x-base) <L> c h)
      只换亮度，色相与彩度跟着基色走 —— 换一套配色，深浅两档一起换。
-     ⚠ 相对色语法要 Chrome / Edge 119+（本项目本来就要 118+ 的 @scope）。 */
+     ⚠ 相对色语法要 Chrome / Edge 119+。 */
   --bg-base:#f3f6fb; --panel-base:#ffffff; --panel2-base:#e9eff7; --line-base:#d7e0eb;
   --txt-base:#182333; --sub-base:#465568; --acc-base:#5b48a8; --acc2-base:#5b48a8;
   --ok-base:#167449; --warn-base:#955a06; --err-base:#b8383b; --pri-base:#5b48a8; --input-base:#e9f0f9;
@@ -81,6 +81,11 @@
   --ok-tint:color-mix(in srgb, var(--ok) var(--a-10), var(--panel));
   --err-tint:color-mix(in srgb, var(--err) var(--a-10), var(--panel));
   --warn-tint:color-mix(in srgb, var(--warn) var(--a-12), var(--panel));
+  /* 强调色淡实底：与上面三枚同构造（压在不透明面板上），给替掉画面 / 铺在轨道上的
+     强调色表面用（音频占位牌、配音块、转场菱形）。必须走令牌引用：声明里直接写
+     color-mix(…) 会被强制夜间模式那类扩展整条跳过，浅底留在变黑了的页面上。 */
+  --acc-soft:color-mix(in srgb, var(--acc) var(--a-16), var(--panel));
+  --acc2-soft:color-mix(in srgb, var(--acc2) var(--a-16), var(--panel));
   --control-bg:color-mix(in srgb, var(--txt) var(--a-4), var(--panel));
   --control-hover:color-mix(in srgb, var(--txt) var(--a-8), var(--control-bg));
   --control-pressed:color-mix(in srgb, var(--txt) var(--a-14), var(--control-bg));
@@ -168,14 +173,20 @@
   /* 强调色条（选中标记、inset 色带）的厚度 */
   --accent-bar:3px;
 
-  /* ---------- 阴影（终表 5 档，按角色）----------
-     抬升 / 浮层 / 重浮层 / 模态 / 深底小浮起。
-     每一档的字面量就是它的角色，别再按「第几号」记。 */
+  /* ---------- 阴影（终表 5 档 + 控件一档，按角色）----------
+     抬升 / 浮层 / 重浮层 / 模态 / 深底小浮起 / 控件。
+     每一档的字面量就是它的角色，别再按「第几号」记。
+     --shadow-ctl 是「控件比它坐着的卡片凸出来一圈」：上、下、左、右四边都要有边界。
+     三层叠出来 —— 贴边 1px 的描边影（四边齐）+ 底边一道硬投影（有厚度）+ 一圈小光晕（柔和过渡）。
+     只写 --shadow-1 那种「1px 2px」的偏移量，控件在浅色卡上只剩底边一条，看着是平的。 */
   --shadow-1:0 1px 2px rgba(24,34,52,.04), 0 2px 4px rgba(24,34,52,.03);
   --shadow-2:0 2px 6px rgba(24,34,52,.04), 0 8px 24px rgba(24,34,52,.07);
   --shadow-3:0 4px 12px rgba(24,34,52,.06), 0 16px 40px rgba(24,34,52,.10);
   --shadow-4:0 8px 24px rgba(24,34,52,.08), 0 24px 64px rgba(24,34,52,.16);
   --shadow-5:0 2px 10px rgba(0, 0, 0, .35);                                 /* 深底小浮起：媒体上的播放钮 */
+  --shadow-ctl:0 0 0 var(--hair) rgba(24,34,52,.18),
+               0 1px 2px rgba(24,34,52,.14),
+               0 3px 10px rgba(24,34,52,.10);
 
   /* ---------- 动效（终表 5 档）----------
      时长按**毫秒值**命名（--dur-120 就是 120ms），与尺寸档位同一套规则。
@@ -234,6 +245,11 @@ html[data-theme="dark"] {
   --mark-mute: oklch(from var(--mark-mute-base) 0.735 c h);
   --mark-loud: oklch(from var(--mark-loud-base) 0.837 c h);
   --shadow-1:0 1px 2px rgba(0,0,0,.35); --shadow-2:0 8px 24px rgba(0,0,0,.45);
+  /* 深色档的控件：描边影换成**浅**的一圈（深底上黑描边看不见，控件与卡片会连成一片），
+     投影仍是黑的 —— 亮边 + 暗影，控件才像浮在卡片上。 */
+  --shadow-ctl:0 0 0 var(--hair) rgba(255,255,255,.18),
+               0 1px 2px rgba(0,0,0,.55),
+               0 3px 10px rgba(0,0,0,.40);
 }
 
 /* ---------- 配色块：只换强调色，其余语义色不动 ----------

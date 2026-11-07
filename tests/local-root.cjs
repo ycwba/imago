@@ -159,6 +159,40 @@ try {
   } finally {
     if (savedAutosave === undefined) delete process.env.AUTOSAVE_DIR; else process.env.AUTOSAVE_DIR = savedAutosave;
   }
+  /* ⑮ 提示词归档跟着库根走：默认目录 = 库根\提示词，与产物本体同一个根。
+     这一格以前单独存一份 prompt_dir（页面另挑一个位置），换库根后归档留在老地方 ——
+     现在只有库根这一个位置，判据钉住「同一个根」与「库根在下载目录之外也认」。 */
+  const savedAuto2 = process.env.AUTOSAVE_DIR, savedPromptsDir = process.env.PROMPTS_DIR;
+  try {
+    process.env.AUTOSAVE_DIR = path.resolve(tmp, '归档基座');
+    delete process.env.PROMPTS_DIR;
+    delete require.cache[require.resolve('../server/user-dirs.js')];
+    delete require.cache[require.resolve('../server/prompts-store.js')];
+    const { createPromptsStore } = require('../server/prompts-store.js');
+    const promptStoreOf = root => createPromptsStore({
+      root: ROOT, localRoot: () => root, log: () => {},
+      readBody: () => Promise.resolve(Buffer.from('{}')),
+      localAssetEntry: () => null, fileSafe: s => String(s || ''),
+      dirStamp: () => 'probe', timeText: () => '',
+    });
+    const rootA = path.resolve(tmp, '作品根');
+    ok('提示词默认目录 = 库根下的「提示词」',
+      promptStoreOf(rootA).promptsDefaultDir() === path.join(rootA, '提示词'),
+      'got ' + promptStoreOf(rootA).promptsDefaultDir());
+    const rootB = path.resolve(tmp, '另一块盘');
+    ok('换库根，归档目录跟着换（同一个位置，不是两处）',
+      promptStoreOf(rootB).promptsDefaultDir() === path.join(rootB, '提示词'));
+    /* 库根可能指到下载目录与用户目录之外（D:\作品）：归档跟着它，白名单不能把它拒掉 */
+    const outside = path.join(path.parse(ROOT).root, 'imago-作品库');
+    ok('库根在下载目录之外时归档路径照样合法',
+      promptStoreOf(outside).promptsDir(path.join(outside, '提示词')) === path.join(outside, '提示词'),
+      'got ' + outside);
+  } finally {
+    if (savedAuto2 === undefined) delete process.env.AUTOSAVE_DIR; else process.env.AUTOSAVE_DIR = savedAuto2;
+    if (savedPromptsDir === undefined) delete process.env.PROMPTS_DIR; else process.env.PROMPTS_DIR = savedPromptsDir;
+    delete require.cache[require.resolve('../server/prompts-store.js')];
+    delete require.cache[require.resolve('../server/user-dirs.js')];
+  }
 } catch (e) {
   bad++; console.log('  ✗ 判据本身抛出：' + ((e && e.message) || e));
   if (e && e.stack) console.log(e.stack.split('\n').slice(1, 4).join('\n'));

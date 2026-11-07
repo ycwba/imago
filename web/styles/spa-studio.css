@@ -75,7 +75,9 @@
 .studio-page .adv-grid + .adv-grid { margin-top: var(--sp-8); }
 .studio-page .adv-grid input { width: 100%; }
 .studio-page .adv-grid .dd { width: 100%; }
-.studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8); margin-top: var(--sp-12);
+/* 估价一行已经住在左栏的钉底段（.wb-dock）里，那一段自己有上边距 —— 这里不再加 margin-top，
+   否则按钮会被推开二十来像素。 */
+.studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8);
   font-size: var(--fs-13); color: var(--sub); flex-wrap: wrap; }
 .studio-page .costbar .note { color: var(--sub); }
 .studio-page .hint { font-size: var(--fs-12); color: var(--sub); }

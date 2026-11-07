@@ -1,6 +1,6 @@
 /* 导演台迁移岛的宿主样式。
    导演台原页面把 body 当成了布局根（font / background / overflow:hidden），
-   这里把那几条搬到 .director-page 上；其余规则由 web/director/index.js 用 @scope 注入。 */
+   这里把那几条搬到 .director-page 上；其余规则由 web/director/index.js 加上 .director-page 前缀注入。 */
 .director-page {
   position: absolute; inset: 0;
   overflow: auto;

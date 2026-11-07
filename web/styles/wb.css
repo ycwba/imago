@@ -47,29 +47,48 @@
   width: 100%; margin: 0; padding: var(--sp-16) var(--shell-px);
   flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; position: relative;
 }
-.wb .col-left { overflow-y: auto; min-height: 0; min-width: 0; padding-right: var(--sp-4); scrollbar-gutter: stable; }
+/* 左栏分两段：正文自己滚（.wb-body）+ 生成区钉在栏底（.wb-dock）。
+   以前整栏是一只滚动容器，按钮跟在内容最末 —— 内容长（提示词高、参考素材多）要一路滚到底
+   才够得着按钮；内容短的时候按钮又浮在半空，下面留一大片空白。
+   现在与导演台右栏（#edCol 的 ed-body + ed-footer）同一副：栏自己不滚，滚的只是正文。 */
+.wb .col-left { display: flex; flex-direction: column; overflow: hidden; min-height: 0; min-width: 0; }
+.wb .col-left > .wb-body {
+  flex: 1 1 auto; min-height: 0; min-width: 0; overflow-y: auto;
+  padding-right: var(--sp-4); padding-bottom: var(--sp-12); scrollbar-gutter: stable;
+}
 .wb .col-right { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
 .wb .col-right .tasks-head { flex: 0 0 auto; }
 .wb .col-right #result {
   flex: 1 1 auto; overflow-y: auto; min-height: 0; min-width: 0;
   padding-right: var(--sp-4); scrollbar-gutter: stable;
 }
-.wb .col-left::-webkit-scrollbar,
+.wb .col-left > .wb-body::-webkit-scrollbar,
 .wb .col-right #result::-webkit-scrollbar { width: var(--sz-scroll); }
-.wb .col-left::-webkit-scrollbar-track,
+.wb .col-left > .wb-body::-webkit-scrollbar-track,
 .wb .col-right #result::-webkit-scrollbar-track { background: transparent; }
-.wb .col-left::-webkit-scrollbar-thumb,
+.wb .col-left > .wb-body::-webkit-scrollbar-thumb,
 .wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
-html[data-theme="dark"] .wb .col-left::-webkit-scrollbar-thumb,
+html[data-theme="dark"] .wb .col-left > .wb-body::-webkit-scrollbar-thumb,
 html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { background: var(--scroll); }
 
+/* 钉底那一段（估价 · 生成按钮 · 不可用原因 · 状态行）。
+   底色取 --panel，与导演台右栏的 .ed-footer 同一档；上缘一道分隔线，说明「这一条不跟着正文滚」。
+   `margin-top:auto` 是给「正文没占满」那一档的：那时 .wb-body 不增长，按钮仍然贴着栏底，
+   不会浮在半空。 */
+.wb .wb-dock { flex: 0 0 auto; margin-top: auto; padding-top: var(--sp-8);
+  border-top: var(--hair) solid var(--line); background: var(--panel); }
+
 /* 生成按钮 + 它下面那两行说明。
-   #goWhy 默认不显示，由 workbench.js 的 Wb.ready 在用户动过手之后才显出来。 */
+   「为什么不能点」那一行默认不显示，由 workbench.js 的 Wb.ready 在用户动过手之后才显出来。
+   ⚠ 这两条原来写的是 `#status` / `#goWhy`：Vue 版工作台这两只元素只有 `data-r` 名字、没有 id
+   （模板里不写 id —— 页面池里同时挂着好几页，id 会重），于是从迁到 SPA 起就一直没命中过，
+   状态行按正文默认字号与颜色在画。按 `data-r` 选才对得上。 */
 .wb button.go {
   margin-top: var(--sp-12); width: 100%; height: auto; padding: var(--sp-12); font-size: var(--fs-14);
 }
-.wb #status { margin-top: var(--sp-8); font-size: var(--fs-13); color: var(--sub); min-height: 17px; white-space: pre-wrap; }
-.wb #goWhy { display: none; margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--warn); }
+.wb .wb-dock [data-r="status"] { margin-top: var(--sp-8); font-size: var(--fs-13); color: var(--sub);
+  min-height: 17px; white-space: pre-wrap; }
+.wb .wb-dock [data-r="goWhy"] { display: none; margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--warn); }
 
 /* 窄窗口：两栏并成单列，由 .layout 自己滚。
    滚动**不能交给 .wb**：它是 absolute inset:0 + overflow:hidden 的定高壳，一改 height:auto
@@ -80,7 +99,13 @@ html[data-theme="dark"] .wb .col-right #result::-webkit-scrollbar-thumb { backgr
      拉成等高去填满 .layout（flex 撑出来的定高），内容比行高多就溢出到下一列的行盒上叠画。 */
   .wb .layout { grid-template-columns: minmax(0, 1fr); grid-auto-rows: max-content;
     align-content: start; height: auto; overflow-y: auto; overflow-x: hidden; }
-  .wb .col-left, .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
+  /* 单列之后滚的是整个 .layout，栏里那两段的分工就得换一种写法：正文放开成普通流，
+     钉底那一段改成 sticky —— 不然「按钮贴底」在这一档只剩「排在内容最末」，又回到要滚到底才够得着。
+     sticky 认的是最近一只真在滚的祖先（这里就是 .layout），.col-left 的 overflow 已经放开了。 */
+  .wb .col-left { display: block; overflow: visible; }
+  .wb .col-left > .wb-body { overflow: visible; padding-right: 0; scrollbar-gutter: auto; }
+  .wb .wb-dock { position: sticky; bottom: 0; }
+  .wb .col-right #result { overflow: visible; scrollbar-gutter: auto; }
 }
 @media (max-width: 760px) { .wb { --shell-px: var(--sp-16); } }
 @media (max-width: 760px) { .wb .layout { padding: var(--sp-12) var(--shell-px); gap: var(--sp-16); } }

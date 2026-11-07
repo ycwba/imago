@@ -285,6 +285,9 @@ run('tests/director-strip.mjs', process.execPath, ['tests/director-strip.mjs']);
 run('tests/director-tl-edit.mjs', process.execPath, ['tests/director-tl-edit.mjs']);
 /* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
 run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pack.mjs']);
+/* 模板样式的挂根：每条选择器加零权重 `:where(.director-page)` 前缀（@scope 会被强制夜间扩展整块跳过），
+   分组规则递归、关键帧不碰；真实模板整份转一遍。 */
+run('tests/director-style-scope.mjs', process.execPath, ['tests/director-style-scope.mjs']);
 /* 拖素材的引用载荷：字段白名单、两个 MIME、标签拼装；老载荷与本机号都只按号走。 */
 run('tests/asset-ref.mjs', process.execPath, ['tests/asset-ref.mjs']);
 /* 任务详情：号反查 / 六种原因码 / 批量共用一轮；平台用桩替，不发一个真请求。 */
@@ -317,6 +320,8 @@ run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
    断点档 / 判据条数 / 画面档数）必须与代码一致 —— 文档不许说谎，
    代码改了而文档没改，下一个人就照着过期文档写。 */
 run('tests/doc-contract.cjs', process.execPath, ['tests/doc-contract.cjs']);
+run('tests/data-pack.cjs', process.execPath, ['tests/data-pack.cjs']);
+run('tests/command-palette.cjs', process.execPath, ['tests/command-palette.cjs']);
 /* 静态预压缩：br→gzip→原文 退档、ETag 带表示名、缓存命中不再压。
    常驻这一档不起实例（进程内驱动 serveStatic）；线上响应头与体积比对在同一条文件的 `--live` 档，
    登记在下面 e2e 段。 */
@@ -406,6 +411,10 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 工作台左右两栏可拖：把手在本页 .layout（不是文档级选择器命中别的页）·
     拖得动且跟手 · **拖动全程页面左右两端的空白不变**（两栏块不许按内容定宽）· 落盘 · 复位 · 切页不丢。 */
   run('tests/e2e/wb-split.cjs', process.execPath, ['tests/e2e/wb-split.cjs'], { tier: 'browser' });
+  /* 工作台左栏两段式：正文一段滚（.wb-body）+ 生成区钉在栏底（.wb-dock）。
+     内容短时按钮也得贴栏底（不许浮在半空）、内容长时正文滚而按钮不动、换类型不丢、
+     单列（≤1100）时 dock 改 sticky 贴视口底。 */
+  run('tests/e2e/studio-dock.cjs', process.execPath, ['tests/e2e/studio-dock.cjs'], { tier: 'browser' });
   /* 文件类型筛选（图片 / 视频 / 音频）：收藏 / 工作台 / 资产库共用公共件 Wb.kindFilter
      （分段 + 每档计数 · 点一下换档 · 空档不画）。用户点名：这几页该用工作台那一副。 */
   run('tests/e2e/kind-filter.cjs', process.execPath, ['tests/e2e/kind-filter.cjs'], { tier: 'browser' });

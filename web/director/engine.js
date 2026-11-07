@@ -1269,13 +1269,13 @@ function candThumbInner(c, isCur, i) {
 }
 /* 没有候选时的占位卡：点了就按这一镜的配置生成一条 */
 function candPlaceholder() {
-  return `<div class="cand-thumb addcand big" data-add="1" title="新增候选">
+  return `<div class="cand-thumb addcand big" data-add="1">
       <span class="plusic">${icon('plus', 18)}</span><span class="pt">还没有候选</span><span class="pd">点这里新增</span>
     </div>`;
 }
 /* 有候选时行尾的小加号：再抽一条 */
 function candAddTile() {
-  return `<div class="cand-thumb addcand" data-add="1" title="新增一个空候选：先写这条候选的描述，再点「生成这条」">${icon('plus', 16)}</div>`;
+  return `<div class="cand-thumb addcand" data-add="1" title="先写这条候选的描述，再点「生成这条」">${icon('plus', 16)}</div>`;
 }
 let midCandExpand = window.LS.get('dir_cand_expand') === '1';
 /* 播放器下方那一排控件**只有一份标记**：剪辑态那个预览面与候选播放器以前各抄一遍
@@ -1288,8 +1288,8 @@ function pbBarHTML() {
         <button class="pb-btn" id="pbBtn" title="播放 / 暂停">${icon('play', 15)}</button>
         <span class="pb-time" id="pbTime">00:00 / 00:00</span>
         <span class="sp"></span>
-        <button class="pb-btn" id="pbMute" title="${muted ? '已静音（点击开启声音）' : '声音已开启（点击静音）'}">${icon(muted ? 'speakerOff' : 'speaker', 14)}</button>
-        <button class="pb-btn" id="pbFull" title="全屏观看（再点一次退出）">${icon('expand', 14)}</button>
+        <button class="pb-btn" id="pbMute" title="${muted ? '已静音' : '声音已开启'}">${icon(muted ? 'speakerOff' : 'speaker', 14)}</button>
+        <button class="pb-btn" id="pbFull" title="全屏观看">${icon('expand', 14)}</button>
       </div>`;
 }
 /* 全屏：整块 `.player-box` 进去，控件跟着一起（只让 <video> 进全屏的话，
@@ -1662,7 +1662,7 @@ function healStaleUrls() {
     },
   }).then(n => {
     setStatus(n ? '<span class="ok">✓ 已换新 ' + n + ' 个镜头的外链地址</span>'
-      : '这些镜头的外链换不到新地址（平台列表里没有它，或接口失败）——画面可能已被平台清理');
+      : '这些镜头的外链换不到新地址——画面可能已被平台清理');
     return n;
   }).catch(() => 0);
 }
@@ -1815,9 +1815,9 @@ function paintSceneThumb(btn, sc) {
   if (!btn) return;
   const pic = scenePicOf(sc);
   btn.classList.toggle('none', !pic);
-  btn.title = sc.img ? '这个场景自己挑的场景图 · 点击换一张'
-    : pic ? '场景图认的是素材库里同名那条（「' + (sc.name || '') + '」）· 点击换成自己挑的'
-      : '还没有场景图：点一下挑一张，这个场景里新建的镜头会自动带上它当参考图';
+  btn.title = sc.img ? '这个场景自己挑的场景图'
+    : pic ? '场景图认的是素材库里同名那条（「' + (sc.name || '') + '」）'
+      : '还没有场景图；挑一张后，新建的镜头会自动带它当参考图';
   /* 还是同一张图 → 节点一个都不动。class 与 title 上面已经就地改过（改名那句要说的是新名字），
      所以「图没换、说法变了」这一种也能当场跟上，不必为了它把图重新加载一遍。 */
   if (scenePicStamp.get(btn) === pic && btn.firstElementChild) return;
@@ -1833,7 +1833,7 @@ function pickScenePic(sc) {
   AssetPicker.open({
     types: ['图片'], multiple: false, limit: 1, aiSearch: true,
     title: '给场景「' + (sc.name || '未命名') + '」挑一张图',
-    note: '挑中之后，这个场景里新建的每个镜头都会自动把它带进参考图（已经建好的镜头不动）。',
+    note: '只对之后新建的镜头生效，已建好的不动。',
     onPick: e => setScenePic(sc, e),
   });
 }
@@ -1856,7 +1856,7 @@ async function setScenePic(sc, e) {
 function clearScenePic(sc) {
   sc.img = ''; sc.noPic = true;
   renderScenes(); scheduleSave();
-  setStatus('已让「' + esc(sc.name || '这个场景') + '」不再自动带场景图（点那一格可以重新挑）');
+  setStatus('已让「' + esc(sc.name || '这个场景') + '」不再自动带场景图');
 }
 /* 图标：垃圾桶（内联 SVG，颜色跟着按钮走，深浅主题都干净） */
 const TRASH_SVG = icon('trash', 14);
@@ -2128,7 +2128,7 @@ function renderEditLeft(box) {
     rows.push('<button type="button" class="hist-row' + (isNow ? ' now' : '') + (e.kind !== 'edit' ? ' mark' : '') + '"'
       + ' data-hist-i="' + i + '"'
       + ' title="' + esc(kindTxt + ' · ' + window.fmtHM(e.at) + '：' + e.label)
-      + (isNow ? '（现在生效的就是这一版）' : '（点一下回退到这一版；回退会在末尾留一条记录）') + '">'
+      + (isNow ? '（现在生效的就是这一版）' : '（点一下回退到这一版）') + '">'
       + '<span class="hk">' + esc(kindTxt) + '</span>'
       + '<span class="hn">' + esc(e.label) + '</span>'
       + '<span class="ht">' + window.fmtHM(e.at) + '</span></button>');
@@ -2156,7 +2156,7 @@ function renderEditLeft(box) {
           return;
         }
         setStatus('<span class="ok">✓ 已回退到「' + esc((historyLog[i] || {}).label || '那一步')
-          + '」那一版（历史里留了一条记录，前面那些一条都没删）</span>');
+          + '」那一版</span>');
       };
     });
   });
@@ -2494,9 +2494,9 @@ async function polishVoiceText(col) {
     await InlinePolish.interactive(host, {
       ask: TextAI.shouldAsk() ? ask : null, run: run, before: original,
       askTitle: 'AI 想先问几个问题',
-      askIntro: '点一个候选；都不合适就点最后一个「其他」自己写（会原样发给 AI）；没答的按默认理解走',
+      askIntro: '没答的按默认理解走',
       onFollow: follow,
-      followPlaceholder: '还要怎么改？例：再短一点 / 语气急一点 / 数字写成中文读法（写完按回车）',
+      followPlaceholder: '还要怎么改？例：再短一点 / 语气急一点 / 数字写成中文读法',
       onApply: v => {
         ta.value = v;
         voiceDraft.text = v;
@@ -2812,7 +2812,7 @@ async function importMediaFile(file) {
     if (autoSel) setSelectedCandidate(sh, cand);
     filmEdited();
     setStatus('<span class="ok">✓ 已导入「' + esc(name) + '」为本镜候选'
-      + (autoSel ? '，并已选用为这一镜的画面（成片按它算）' : '')
+      + (autoSel ? '，并已选用为这一镜的画面' : '')
       + (info ? '（' + (Number(info.duration) > 0 ? Math.round(Number(info.duration) * 10) / 10 + ' 秒' : '时长未知')
         + (info.width && info.height ? ' · ' + info.width + '×' + info.height : '') + '）' : '')
       + '；文件已存进本机资产库</span>');
@@ -2834,7 +2834,7 @@ function autoLocalize(jobs) {
   AssetLocal.pullMany(list, {}).then(s => {
     const txt = AssetLocal.pullSummaryText ? AssetLocal.pullSummaryText(s) : '';
     if (!txt) return;
-    if (s.ok && !(s.fails || []).length && !s.cant && !s.skip) Toast.receipt('第三方素材已自动存一份到本机（剪辑与导出直接用本机文件）：' + txt);
+    if (s.ok && !(s.fails || []).length && !s.cant && !s.skip) Toast.receipt('第三方素材已自动存一份到本机：' + txt);
     else Toast.warn('第三方素材自动存本机：' + txt);
   }).catch(e => console.warn('[director] 自动存本机失败：', errText(e)));
 }
@@ -2852,7 +2852,7 @@ function openLibDlg(sh) {
     types: ['视频'],
     multiple: false, limit: 1,
     rule: rVid,
-    title: '导入视频作为本镜画面（资产库 / 收藏 / 本地文件）',
+    title: '导入视频作为本镜画面',
     aiSearch: true,
     onPick: e => useLibEntry(sh, e),
   });
@@ -2935,7 +2935,7 @@ async function pickRefMedia(sh, kind) {
        所以规则里的数量按 1 显示 —— 平台声明的 max 再大也没地方放，照抄会出现
        「弹窗写『还能加 1 个』、却又只能点一张」。类型与体积上限仍照平台声明走。 */
     rule: Object.assign({}, rule, { max: 1 }),
-    title: '选择' + label + '（来自资产库，也可上传本地文件' + (note ? '，' + note : '') + '）',
+    title: '选择' + label + (note ? '（' + note + '）' : ''),
     upload: rule.accept ? { accept: rule.accept } : undefined,
   });
   if (!list || !list.length) return;
@@ -2993,7 +2993,7 @@ function renderPolishPanel(sh) {
   if (polishUI.phase === 'ask' && polishUI.questions && polishUI.questions.length) {
     InlinePolish.ask(host, {
       title: 'AI 想先问几个问题',
-      intro: '点一个候选，或者在最后那个输入框里自己写；没答的按默认理解走',
+      intro: '没答的按默认理解走',
       questions: polishUI.questions,
       state: polishUI.answers || [],
       onChange: st => { if (polishUI) polishUI.answers = st; },
@@ -3031,7 +3031,7 @@ function renderPolishPanel(sh) {
     onFollow: polishUI.follow ? (askText, current, ctl) =>
       polishUI.follow(askText, current, ctl, { answers: polishUI.answersText || '' }) : null,
     talk: polishUI.talk,
-    followPlaceholder: '还要怎么改？例：运镜写成具体动作 / 光线改成正午 / 只留一句（写完按回车）',
+    followPlaceholder: '还要怎么改？例：运镜写成具体动作 / 光线改成正午 / 只留一句',
     onReask: polishUI.questions && polishUI.questions.length
       ? () => { polishUI.phase = 'ask'; renderPolishPanel(sh); }   // 回到问答改答案
       : null,
@@ -3251,7 +3251,7 @@ function openPickDlg(sh, kind) {
        「标题说还能加 1 张、弹窗里写着上限 9」的两张口（limit 与 rule 得同一个口径）。 */
     rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role, sh.combo) : null,
     title: isFirst ? '选一张开头画面' : kind === 'last' ? '选一张结尾画面' : '选参考图（还能加 ' + room + ' 张）',
-    note: isFirst ? '图片直接用；选视频则取它的<b>最后一帧</b>当开头画面（全在本机取帧）' : '',
+    note: isFirst ? '图片直接用；选视频则取它的<b>最后一帧</b>当开头画面' : '',
     aiSearch: true,
     extraLabel: prev ? prev.label : '',
     extraAction: prev ? () => usePrevTail(sh, prev) : null,
@@ -3608,8 +3608,7 @@ async function boardEstimate(list) {
        与真正落盘时各自解析到的型号未必是同一家 —— 所以文案里要写明「按默认档估算」，
        不冒充精确报价。 */
   return nm + ' · 约 ' + (Math.round(sum * 100) / 100) + (cur ? ' ' + cur : '')
-    + '（按默认型号档估算；各镜落盘时的型号可能不同）'
-    + (bands.size > 1 ? '（按 ' + bands.size + ' 档时长各问一次）' : '');
+    + '（按默认型号档估算；各镜落盘时的型号可能不同）';
 }
 
 /* ---------- 时间切片参考图（画面素材）---------- */
@@ -3850,12 +3849,12 @@ async function generateKeyframes(sh) {
     // ①.5 先把规划结果给用户过一遍（可改文案 / 删掉不想生成的），确认后再出占位图并开始生成
     const kfEst = await kfEstText(sh, plan.length);
     const reviewed = await PromptReview.openList({
-      title: '画面切片规划（文字 AI 出的提示词）',
+      title: '画面切片规划',
       sub: `第 ${allShots().indexOf(sh) + 1} 镜 · 时长 ${dur} 秒 · 共 ${plan.length} 张 · 画质 ${QUALITY_ZH[kfQ] || kfQ || '平台默认'}`
         + (kfEst ? ' · 预计 ' + kfEst : ''),
       items: plan.map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
       applyLabel: '采用并开始生成',
-      hint: '可以逐条修改或删掉；确认后立即出占位图并开始生成',
+      hint: '可以逐条修改或删掉',
       retry: async () => (await planKeyframes(sh, dur)).map((f, i) => ({ label: `画面 ${i + 1} · ${f.t}s`, text: f.prompt })),
     });
     if (reviewed == null) { setStatus('已取消，未生成任何画面'); return; }
@@ -4156,7 +4155,7 @@ function renderProjMenu() {
       gAdd.className = 'pm-newg';
       const inp = document.createElement('input');
       inp.type = 'text'; inp.className = 'pm-edit'; inp.autocomplete = 'off'; inp.placeholder = '新项目组名称';
-      inp.title = '组名同时是素材库里的分组名：这一组下的短片拆分镜时，新建的素材落进同名的那一组\n改完按回车建组 · Esc 取消';
+      inp.title = '组名同时是素材库里的分组名，拆分镜的新素材会落进同名组\n改完按回车建组 · Esc 取消';
       const ok = document.createElement('button');
       ok.type = 'button'; ok.className = 'ghost mini'; ok.textContent = '建组';
       ok.onclick = e => { e.stopPropagation(); createProjGroup(inp.value); };
@@ -4398,7 +4397,7 @@ function editScript() {
   UiDialog.open({
     id: 'scriptEditDlg',
     title: '剧本',
-    sub: '当前分镜写成的一份稿子。逐镜一段「画面」；台词不在这里，在剪辑右栏「台词」那一档改。',
+    sub: '逐镜一段「画面」；台词在剪辑右栏「台词」那一档改。',
     body(el) {
       el.innerHTML = '<textarea class="ui-ta" spellcheck="false" aria-label="剧本正文"'
         + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-13);line-height:1.65"></textarea>'

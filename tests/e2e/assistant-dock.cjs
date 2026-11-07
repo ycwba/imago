@@ -185,7 +185,7 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     a = await layout();
     must(!a.dock && a.inline === '', '800 宽窗口不该再挤页面：' + JSON.stringify(a));
     must(a.pressed === 'true', '窄窗口只是暂时浮层，偏好不该被改掉：' + a.pressed);
-    must(/窄于 900/.test(a.title), '窄窗口的按钮 title 没说明为什么没挤：' + a.title);
+    must(/太窄/.test(a.title), '窄窗口的按钮 title 没说明为什么没挤：' + a.title);
     must(inView(a), '800 宽窗口里浮窗越出视口：' + JSON.stringify(a));
     must(nearBall(a), '窄窗口退回浮层后没贴住球：' + JSON.stringify({ gap: gapOf(a), a }));
     await page.setSize(1440, 900);

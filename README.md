@@ -1,7 +1,8 @@
 # 成像 · AI 创作工作台
 
-本地优先的 AI 创作工作台：七个页面（导演台 / 素材库 / 工作台 / 收藏 / 资产库 /
-用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node 代理转发与落盘。
+本地优先的 AI 创作工作台：七个页面（路由表 `web/core/routes.js` 共 7 条：导演台 / 素材库 /
+工作台 / 收藏 / 资产库 / 用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node
+代理转发与落盘。产品版本见 `package.json` 与 `CHANGELOG.md`。
 
 - 运行时零构建：浏览器直接加载静态文件。
 - 严格 CSP：运行时没有模板编译器，模板在开发期预编译成 render 函数。
@@ -94,7 +95,7 @@ shell.html                    SPA 外壳
 web/
   app.js                      路由 + KeepAlive 页面池
   core/                       路由表、页面桥、页面上下文、动作注册表
-  pages/                      八个 Vue 页面组件
+  pages/                      六个 Vue 页面组件（导演台在 director/index.js，合计 7 个页面）
   director/                   导演台作用域岛 + 引擎 + 纯算法模块
   render/                     预编译 render 函数（生成物）
   ui/ net / store / kv / toast / datasync / skills / workbench / sidebar
@@ -156,16 +157,30 @@ create / inputRoles / inputTemplates / uploadFields / pricing），页面不改�
 
 ## 开发与验证
 
+| 命令 | 作用 |
+| --- | --- |
+| `npm run build` | 改了 `tools/vue-templates/*.html` 后重生成 `web/render/*.js` |
+| `npm run build:check` | 只比对模板与生成物，不写盘 |
+| `npm run check` | 每次保存后：`build:check` + 语法判据 |
+| `npm run static` | 动了样式 / 令牌后：裸值体检、令牌引用、静态与文档契约 |
+| `npm run test` | 合并 / 提交与推送前：常驻判据全量 |
+| `npm run test:fast` | 按 `tests/map.cjs` 的映射挑改动相关的判据 |
+| `npm run test:all` | 常驻判据 + 浏览器冒烟 6 条 |
+| `npm run test:director` | 改剪辑核时的纯件与一次装配冒烟 |
+| `npm run test:e2e` | 浏览器全量（按需手动跑，不是提交前置） |
+| `npm run test:watch` | 连续改码时前台观察，800ms 防抖 |
+| `npm run ci` | `check` + `static` + `test`，本地与 GitHub Actions 共用这一条 |
+
 ```bash
 npm run build:check
 npm run test
 ```
 
 改完跑这两条就够（模板一致 + 常驻判据全量，几秒）。
-浏览器档（`node tests/all.cjs --e2e`）**不是提交与推送的前置条件**，要跑再手动跑：
+浏览器档（`npm run test:e2e`）**不是提交与推送的前置条件**，要跑再手动跑：
 
 ```bash
-node tests/all.cjs --e2e
+npm run test:e2e
 ```
 
 `--e2e` 包括视觉回归（七条路由、工作台按三型分档，加上先喂状态才画得出来的字幕编辑区与助手来源卡片，

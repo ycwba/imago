@@ -16,7 +16,7 @@
    ⚠ 页面本身**不滚**：滚的是目录轨自己的清单与右栏那条文档（跟产品 `.wb` 工作台同一套做法）——
    切栏时整页不跳；栏内上下滚也不会把外面的东西带走。
    ⚠ 两栏的宽度**只从一枚令牌来**（--setrail-w）：网格列与轨本身都读它，
-   轨不许比它那一列宽 —— 宽出去就是压住右栏（轨的值速记被切、卡的左缘被盖）。
+   轨不许比它那一列宽 —— 宽出去就是压住右栏（轨的标题被切、卡的左缘被盖）。
    --setanchor 是「卡顶停在钉住的组标题下面」那一条：组标题多高就让多少，
    由 settings.js 量出来写进来（这里只给一个初始值，不是写死的数）。 */
 .settings-page {
@@ -77,7 +77,6 @@
 .settings-page .card { position: relative; padding: var(--sp-24) var(--sp-24) var(--sp-24); margin-bottom: var(--sp-16);
   border-radius: var(--radius-14); }
 .settings-page .card h2 { font-size: var(--fs-16); margin-bottom: var(--sp-4); }
-.settings-page .card .sub { font-size: var(--fs-13); color: var(--sub); margin-bottom: var(--sp-16); max-width: 74ch; line-height: 1.6; }
 /* 卡内的分组小标题（「导出目录」「本机资产库」）：以前只有 class 没有样式，
    渲染出来跟正文一样，读起来像漏了标题。这里给它一条底线，跟组标题同族、小一号。 */
 .settings-page .sect-t { display: block; font-size: var(--fs-13); font-weight: 600; color: var(--txt);
@@ -103,6 +102,12 @@
 .settings-page .krow .clr { flex: 0 0 auto; padding: var(--sp-8) var(--sp-8); line-height: 1; }
 /* 小按钮一档：用公共的 .ghost.mini，这一页不再有第三档（原 .ghost.xs / .ghost.wide 已收进按钮族）。 */
 .settings-page .krow.tight { gap: var(--sp-8); flex-wrap: wrap; }
+/* 卡里的「块」一律用卡片面（浅色档纯白），层次只靠发丝描边。
+   数据行（.krow：数据文件 / 浏览器存储 / 云同步 / 备份）原来铺的是公共那份 --panel2 灰蓝，
+   与卡里的供应商卡、能力子块、型号清单、Skill 预览叠在一起，一页里深浅不一的方块把版面切碎；
+   用户在截图里点名的那两行就是它。灰只留给「小控件与状态牌」（按钮 / 芯片 / 输入框 / 停用态），
+   让可点的东西与容器分开。 */
+.settings-page .krow:not(.thin) { background: var(--panel); }
 /* 自定义下拉（ui.js 的 Dropdowns 会在 select 外面包一层 .dd）也要参与伸缩 ——
    不然它在 flex 行里会缩成一小条（供应方 / 识图能力那两行就是这个毛病）。 */
 .settings-page .krow .dd { flex: 1 1 320px; min-width: 200px; max-width: 560px; }
@@ -133,7 +138,7 @@
 .settings-page .fchip.on .n { color: var(--acc); }
 .settings-page .fsum { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; min-height: 0;
   margin-top: var(--sp-8); padding: var(--sp-8) var(--sp-12); border-radius: var(--radius-10);
-  border: var(--hair) solid var(--line); background: var(--panel2); font-size: var(--fs-13); }
+  border: var(--hair) solid var(--line); background: var(--panel); font-size: var(--fs-13); }
 .settings-page .fsum:empty { display: none; }
 .settings-page .fsum b { color: var(--txt); }
 .settings-page .fsum .sp { flex: 1 1 auto; }
@@ -146,7 +151,7 @@
   gap: var(--sp-12); align-items: start; }
 /* 卡片骨架（账号卡 / 添加卡共用这一副）：卡高固定，中段滚。 */
 .settings-page .fcard { display: flex; flex-direction: column; gap: var(--sp-8);
-  padding: var(--sp-16); border: var(--hair) solid transparent; border-radius: var(--radius-10); background: var(--panel2); }
+  padding: var(--sp-16); border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel); }
 .settings-page .fcard:hover { border-color: var(--acc-line-32); }
 .settings-page .acct { height: var(--sz-acct); box-sizing: border-box; }
 .settings-page .acct-off { opacity: .62; }
@@ -156,7 +161,7 @@
 .settings-page .add-tile:hover { border-style: solid; }
 .settings-page .fcard-h { display: flex; align-items: flex-start; gap: var(--sp-8); }
 .settings-page .fcard-ic { flex: 0 0 auto; width: var(--sp-24); height: var(--sp-24); border-radius: var(--radius-6);
-  background: var(--panel); color: var(--sub); font-family: var(--font-mono); font-size: var(--fs-12);
+  background: var(--panel2); color: var(--sub); font-family: var(--font-mono); font-size: var(--fs-12);
   display: flex; align-items: center; justify-content: center; }
 .settings-page .fcard-tt { flex: 1 1 auto; min-width: 0; }
 .settings-page .fcard-t { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
@@ -165,9 +170,6 @@
 .settings-page .fcard-t a:hover { color: var(--acc); }
 .settings-page .fcard-t .ext { margin-left: var(--sp-2); font-size: var(--fs-11); color: var(--sub); }
 .settings-page .fcard-t a:hover + .ext { color: var(--acc); }
-.settings-page .fcard-d { margin-top: var(--sp-4); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
-.settings-page .fcard-d code { padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-4);
-  border: var(--hair) solid var(--line); background: var(--panel2); font-size: var(--fs-11); }
 .settings-page .fcard-badge { flex: 0 0 auto; margin-left: auto; }
 .settings-page .fcard-acts { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
   padding-top: var(--sp-8); border-top: var(--hair) solid var(--line);
@@ -264,18 +266,16 @@
 
 /* 某一档的全局项（识图 / 语音识别 / 联网搜索）：画在顶着这一档那张卡里、那一行下面。 */
 .settings-page .capform-text, .settings-page .incard { border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  background: var(--panel2); padding: var(--sp-8) var(--sp-8); margin: 0 0 var(--sp-8); }
+  background: var(--panel); padding: var(--sp-8) var(--sp-8); margin: 0 0 var(--sp-8); }
 .settings-page .capform-text .tai-h { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
   font-size: var(--fs-12); font-weight: 600; margin-bottom: var(--sp-4); }
 .settings-page .capform-text .krow, .settings-page .incard .krow { border-top: 0; }
-.settings-page .incard .sub { margin: 0 0 var(--sp-8); font-size: var(--fs-12); line-height: 1.7; }
-.settings-page .incard .pb-tip { margin-top: var(--sp-8); }
 .settings-page .formslot:empty { display: none; }
 
 /* 型号清单面板（就地展开，不另起一层）：四态取回 / 逐个决定去留 / 自己填 id。 */
 .settings-page .mpanel { display: flex; flex-direction: column; gap: var(--sp-8); margin: 0 0 var(--sp-8);
   padding: var(--sp-8) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  background: var(--panel2); }
+  background: var(--panel); }
 .settings-page .mpanel-h { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
   font-size: var(--fs-12); color: var(--sub); }
 .settings-page .mpanel-h .t { font-size: var(--fs-12); font-weight: 600; color: var(--txt); }
@@ -397,15 +397,14 @@
   font-size: var(--fs-11); transition: transform var(--dur-180); }
 .settings-page .foldable.open .fold-toggle::before, .settings-page .fold-toggle[aria-expanded="true"]::before { transform: rotate(90deg); }
 .settings-page .polish-block { border: var(--hair) solid var(--line); border-radius: var(--radius-10); padding: var(--sp-12) var(--sp-16); margin-bottom: var(--sp-12);
-  background: var(--panel2); transition: border-color var(--dur-180); }
+  background: var(--panel); transition: border-color var(--dur-180); }
 .settings-page .polish-block:hover { border-color: var(--acc); }
 .settings-page .polish-block .pb-head { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-bottom: var(--sp-8); }
 .settings-page .polish-block .pb-head b { font-size: var(--fs-13); }
-.settings-page .polish-block .pb-head .used { font-size: var(--fs-12); color: var(--sub); }
 .settings-page .polish-block .pb-head .ghost.mini { margin-left: auto; font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-6); }
 .settings-page .polish-block textarea { min-height: 92px; background: var(--panel); }
-/* .pb-tip 是「一段小灰说明」的通用类，八处都在用：字号/行高写在顶层，不要挂在 .polish-block 下面，
-   否则出了润色卡就继承 body 的 --fs-15，看着像一段放大的正文。 */
+/* .pb-tip 是「一段小灰说明」的通用类（账号卡里的校验回执也用它）：字号/行高写在顶层，
+   不要挂在 .polish-block 下面，否则出了润色卡就继承 body 的 --fs-15，看着像一段放大的正文。 */
 .settings-page .pb-tip { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; margin-top: var(--sp-8); }
 .settings-page .pb-tip.err { color: var(--err); }
 .settings-page .pb-tip code { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4);
@@ -415,12 +414,11 @@
 /* ---------- 左：目录轨（索引） ----------
    它不是「另一套页面」，是这一页那 15 栏的一张索引：点哪一行，右边滚到那一栏；
    反过来，右边滚到哪一栏，那一行就亮着（settings.js 的 navFollow）。
-   每一行右边那一小段是它的**当前值**（值速记）：这一页最该一眼看到的事，
-   就是「这个旋钮现在拧在哪」—— 以前这些值散在每一行里，要滚完整页才拼得出来。 */
+   轨上只放栏目标题：不摆当前值（用户点名：右边那一列压短字太吵，值到卡里看）。 */
 .settings-page .set-rail {
   /* 宽度**由网格列给**（--setrail-w），这里不再写死一份：
      以前这里写死 272px、网格列却用 --rail-w（208px）—— 两处各写一个宽度，
-     轨就比它那一列宽出 64px，压在右栏那条文档上（轨的值速记被切、卡的左缘被盖）。
+     轨就比它那一列宽出 64px，压在右栏那条文档上（轨的标题被切、卡的左缘被盖）。
      现在一个宽度只从令牌来，轨填满自己那一列。 */
   width: 100%; min-width: 0; min-height: 0;
   display: flex; flex-direction: column; overflow: hidden;
@@ -451,14 +449,12 @@
   font-size: var(--fs-11); color: var(--sub); }
 .settings-page .set-rail-foot .dot { width: var(--sp-8); height: var(--sp-8); border-radius: var(--radius-999);
   background: var(--ok); flex: 0 0 auto; }
-/* 轨上的树：组 → 每一项（名字 + 引点 + 值速记）。 */
+/* 轨上的树：组 → 每一项（只有名字）。 */
 .settings-page .set-rail-g { display: flex; align-items: center; gap: var(--sp-8);
   margin-top: var(--sp-16); padding: var(--sp-4) var(--sp-8) var(--sp-2); }
 .settings-page .set-rail-g .t { font-size: var(--fs-12); font-weight: 600; color: var(--sub); }
 .settings-page .set-rail-g .n { margin-left: auto; padding: 0 var(--sp-4); border-radius: var(--radius-999);
   background: var(--panel2); font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; }
-/* 组说明（这一组管什么）写在 <section data-note> 里，现读。 */
-.settings-page .set-rail-scroll .set-rail-note { padding: 0 var(--sp-8) var(--sp-4); }
 .settings-page .set-rail-i { display: flex; align-items: center; gap: var(--sp-8);
   min-height: 38px; padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-6); cursor: pointer;
   color: var(--txt); text-decoration: none; position: relative;
@@ -468,21 +464,12 @@
 .settings-page .set-rail-ic svg { width: var(--sz-ico); height: var(--sz-ico); }
 .settings-page .set-rail-i:hover { background: var(--panel2); }
 .settings-page .set-rail-i:hover .set-rail-ic { color: var(--acc); }
-.settings-page .set-rail-i:hover .set-rail-v { color: var(--txt); }
 .settings-page .set-rail-i.on { background: var(--acc-tint-10); color: var(--acc); font-weight: 600; }
 .settings-page .set-rail-i.on .set-rail-ic { color: var(--acc); }
 .settings-page .set-rail-i.on::before { content: ''; position: absolute; left: 0; top: var(--sp-8); bottom: var(--sp-8);
   width: var(--hair-2); border-radius: var(--radius-4); background: var(--acc); }
 .settings-page .set-rail-i.dim { opacity: .45; }
 .settings-page .set-rail-n { flex: 0 0 auto; font-size: var(--fs-13); white-space: nowrap; }
-/* 引点：名字与「现在是什么」之间用点线连起来 —— 排版手法，不是装饰：
-   它说明「这一项有一个值，值在右边」。 */
-.settings-page .set-rail-lead { flex: 1 1 auto; align-self: baseline; height: 0;
-  border-bottom: var(--hair) dotted var(--line); margin: 0 var(--sp-2); transform: translateY(var(--sp-4)); }
-.settings-page .set-rail-i.on .set-rail-lead { border-bottom-color: var(--acc-line-32); }
-.settings-page .set-rail-v { flex: 0 0 auto; font-family: var(--font-mono); font-size: var(--fs-11); font-variant-numeric: tabular-nums;
-  color: var(--sub); white-space: nowrap; max-width: 45%; overflow: hidden; text-overflow: ellipsis; }
-.settings-page .set-rail-i.on .set-rail-v { color: var(--acc); opacity: .85; }
 
 /* ---------- 右：那条连续的文档 ----------
    15 张卡从上到下排成一条：滚到哪一栏就接着滚到下一栏，卡与卡之间没有黑屏、没有跳。
@@ -537,7 +524,7 @@
 .settings-page .ref code { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4); padding: 0 var(--sp-4); }
 
 /* 云同步面板里那两排（冲突 / 备份）：原来是用行内 style 拼的，原样搬成类 */
-.settings-page .cloud-box { margin-top: var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); background: var(--panel2); }
+.settings-page .cloud-box { margin-top: var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); background: var(--panel); }
 .settings-page .cloud-box .cb-title { font-size: var(--fs-13); font-weight: 600; margin-bottom: var(--sp-4); }
 .settings-page .cloud-box .cb-hint { font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-8); }
 .settings-page .cloud-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) 0; }
@@ -553,11 +540,15 @@
 .settings-page .search-dom { margin-left: var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
 .settings-page .search-snip { margin-top: var(--sp-2); font-size: var(--fs-12); line-height: 1.6; color: var(--txt); overflow-wrap: anywhere; }
 .settings-page .search-read { margin-top: var(--sp-8); max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
-  background: var(--panel2); border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12);
   font-size: var(--fs-12); line-height: 1.6; color: var(--sub); font-family: inherit; }
 
 /* 提示词归档的最近清单与缓存那一节的两行说明（原来是两段行内 style） */
 .settings-page .prompt-recent { font-size: var(--fs-13); color: var(--sub); line-height: 1.9; margin-top: var(--sp-8); }
+/* 归档目录只读显示：跟着「本机资产库」那个根走，这一格不再是输入框 ——
+   长路径单行省略，右边那份「几份归档」不让位。 */
+.settings-page .set-path { flex: 1 1 auto; min-width: 0; overflow: hidden;
+  text-overflow: ellipsis; white-space: nowrap; }
 .settings-page .cache-line { margin-top: var(--sp-8); }
 .settings-page #cacheMsg { min-height: var(--sp-16); }
 
@@ -607,7 +598,6 @@
 .settings-page .sk-d-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--sp-16); flex-wrap: wrap; }
 .settings-page .sk-d-l { min-width: 0; }
 .settings-page .sk-d-title { margin: 0 0 var(--sp-8); font-size: var(--fs-16); }
-.settings-page .sk-used { font-size: var(--fs-13); color: var(--sub); line-height: 1.6; max-width: 72ch; }
 .settings-page .sk-meta { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-8); }
 .settings-page .sk-code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12);
   background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4);
@@ -629,10 +619,8 @@
   border-radius: var(--radius-4); padding: var(--sp-2) var(--sp-8); }
 .settings-page .sk-vfrom { font-size: var(--fs-13); }
 .settings-page .sk-vdesc { font-size: var(--fs-13); color: var(--sub); }
-.settings-page .sk-vempty { font-size: var(--fs-13); color: var(--sub); background: var(--panel2);
+.settings-page .sk-vempty { font-size: var(--fs-13); color: var(--sub); background: var(--panel);
   border: var(--hair) dashed var(--line); border-radius: var(--radius-6); padding: var(--sp-12) var(--sp-16); line-height: 1.6; }
-.settings-page .sk-vnote { font-size: var(--fs-12); color: var(--sub); margin-top: var(--sp-8); line-height: 1.6; }
-.settings-page .sk-vnote code { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--acc); }
 .settings-page .sk-warn { display: flex; gap: var(--sp-8); align-items: flex-start; margin-top: var(--sp-8);
   font-size: var(--fs-12); line-height: 1.6; color: var(--warn);
   background: var(--warn-tint);
@@ -671,7 +659,7 @@
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
 .settings-page .sk-sz { color: var(--sub); font-size: var(--fs-11); flex: 0 0 auto; }
 .settings-page .sk-prev { min-width: 0; min-height: 0; display: flex; flex-direction: column;
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); overflow: hidden; background: var(--panel2); }
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); overflow: hidden; background: var(--panel); }
 .settings-page .sk-prev-bar { flex: 0 0 auto; display: flex; align-items: center; gap: var(--sp-8);
   padding: var(--sp-8) var(--sp-8); border-bottom: var(--hair) solid var(--line); font-size: var(--fs-12); }
 .settings-page .sk-fname { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; color: var(--txt); }
@@ -680,15 +668,12 @@
 .settings-page .sk-pre { flex: 1 1 auto; margin: 0; overflow: auto; padding: var(--sp-12);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: 1.6;
   color: var(--txt); white-space: pre-wrap; word-break: break-word; tab-size: 2; max-height: 420px; }
-.settings-page .sk-foot { margin-top: var(--sp-16); padding-top: var(--sp-12);
-  border-top: var(--hair) solid var(--line); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
-.settings-page .sk-hint { margin-top: var(--sp-12); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
 .settings-page .sk-msg { margin-top: var(--sp-8); }
 
 /* ---------- 「全部 Skill」（原来的全量清单退到这里） ---------- */
 .settings-page .sk-filters { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
   padding: var(--sp-8) var(--sp-12); margin-bottom: var(--sp-12);
-  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2); }
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel); }
 .settings-page .sk-filters .sk-search { flex: 0 1 260px; }
 .settings-page .sk-alllist { display: flex; flex-direction: column; gap: var(--sp-8); }
 .settings-page .sk-allrow { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: var(--sp-12);
@@ -747,11 +732,8 @@
   .settings-page .set-rail-scroll { display: flex; align-items: center; gap: var(--sp-4);
     margin: 0; padding: var(--sp-2) 0; overflow-x: auto; overflow-y: hidden; }
   .settings-page .set-rail-scroll .set-rail-g { display: none; }
-  .settings-page .set-rail-scroll .set-rail-note { display: none; }
   .settings-page .set-rail-i { flex: 0 0 auto; align-items: center; padding: var(--sp-4) var(--sp-8);
     border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel2); }
-  .settings-page .set-rail-i .set-rail-lead,
-  .settings-page .set-rail-i .set-rail-v { display: none; }
   .settings-page .set-rail-i.on { border-color: var(--acc-line-32); background: var(--acc-tint-10); }
   .settings-page .set-rail-i.on::before { display: none; }
   /* 窄屏那一档的轨底是 --panel、每行自己是 --panel2 的胶囊：

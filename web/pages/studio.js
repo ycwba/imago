@@ -163,8 +163,8 @@ const StudioView = {
         if (!b) return;
         iconSet(b, undo ? 'undo' : 'trash', 14);
         btnText(b, undo ? '撤销清空' : '一键清空');
-        b.title = undo ? ('点一下把刚才清掉的提示词、素材与参数放回来（' + (CLEAR_UNDO_MS / 1000) + ' 秒内有效）')
-          : '清空提示词、素材与参数（会先问你一次）';
+        b.title = undo ? ('把清掉的提示词、素材与参数放回来（' + (CLEAR_UNDO_MS / 1000) + ' 秒内有效）')
+          : '清空提示词、素材与参数';
       }
       /* 过期 / 切类型 / 真的撤销了，都走这一条收摊。 */
       function dropClearShot() {
@@ -194,7 +194,7 @@ const StudioView = {
         if ($('prompt')) $('prompt').value = shot.prompt || '';
         if ($('style')) $('style').value = shot.style || '';
         renderInputArea(); renderParams(); updateMode(); refreshEst(); updateGoState();
-        Toast.receipt('已撤销清空：提示词、素材与参数都放回来了', 'ok');
+        Toast.receipt('已撤销清空', 'ok');
       }
 
       /* ============================ ① 类型 ============================ */
@@ -563,7 +563,7 @@ const StudioView = {
         const blockers = slots.filter(s => slotItems(s.kind).length).map(s => label(s.kind));
         const blocked = slots.filter(s => blockedKinds.has(s.kind)).map(s => label(s.kind));
         return blocked.length
-          ? '「' + blockers.join(' / ') + '」与「' + blocked.join(' / ') + '」不能同时使用（本型号声明一次请求只能选一组），清空后可切换'
+          ? '「' + blockers.join(' / ') + '」与「' + blocked.join(' / ') + '」不能同时使用，清空后可切换'
           : '';
       }
       let slotHintTimer = null;
@@ -603,7 +603,7 @@ const StudioView = {
         const files = [...fileList];
         const def = SLOT_DEF[kind] || SLOT_DEF.image;
         const sl = slots.find(x => x.kind === kind);
-        if (!sl) { setStatus('<span class="err">当前型号不支持「' + def.label + '」这类素材（可用入口见输入框下方的小方块）</span>'); return 0; }
+        if (!sl) { setStatus('<span class="err">当前型号不支持「' + def.label + '」这类素材</span>'); return 0; }
         const max = sl.max;
         if (blockedSlotKinds().has(kind)) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return 0; }
         let added = 0;
@@ -615,7 +615,7 @@ const StudioView = {
           if (isVid) {
             if (def.videoFrame) {
               setStatus('正在从视频《' + (f.name || '') + '》取' + (def.videoFrame === 'last' ? '尾' : '首') + '帧…');
-              try { arr.push(await Wb.vframe.fromFile(f, def.videoFrame)); arr[arr.length - 1].kind = kind; added++; setStatus('<span class="ok">✓ 已取该视频的最后一帧作为' + def.label + '</span>'); }
+              try { arr.push(await Wb.vframe.fromFile(f, def.videoFrame)); arr[arr.length - 1].kind = kind; added++; setStatus('<span class="ok">✓ 已取最后一帧作为' + def.label + '</span>'); }
               catch (err) { setStatus('<span class="err">取帧失败：' + err.message + '</span>'); }
               continue;
             }
@@ -679,7 +679,7 @@ const StudioView = {
               const vf = new File([blob], name, { type: blob.type || 'video/mp4' });
               const it = await Wb.vframe.fromFile(vf, def.videoFrame); it.kind = sl.kind;
               arr.push(it); added++;
-              setStatus('<span class="ok">✓ 已取该视频的最后一帧作为' + def.label + '</span>');
+              setStatus('<span class="ok">✓ 已取最后一帧作为' + def.label + '</span>');
             } catch (err) { skipped.push('取帧失败：' + err.message); }
             continue;
           }
@@ -709,7 +709,7 @@ const StudioView = {
         const cap = def.label + (items.length > 1 ? ' ' + (i + 1) : '');
         if (it.pending) {
           return '<div class="asset-slot is-pending" data-slot="' + sl.kind + '" data-i="' + i + '"'
-            + ' title="' + window.esc('「' + (it.label || '拆分片段') + '」正在生成，完成后自动填入（点 × 移除）') + '">'
+            + ' title="' + window.esc(it.label || '拆分片段') + '">'
             + '<span class="ic">' + icon(def.ic, 18) + '</span>'
             + '<span class="sub">生成中' + (it.label ? ' · ' + window.esc(it.label) : '') + '…</span>'
             + '<button class="x iconbtn on-dark" title="移除这个占位">' + icon('close', 11) + '</button>'
@@ -721,7 +721,7 @@ const StudioView = {
           ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + window.esc(name) + '</span>'
           : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image' });
         return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
-          + ' title="' + window.esc(cap + '：' + name + fromVid + '（点 × 移除）') + '">'
+          + ' title="' + window.esc(cap + '：' + name + fromVid) + '">'
           + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
       }
       function wideSlotHTML(sl, it, i, blocked) {
@@ -733,7 +733,7 @@ const StudioView = {
             ? '<span class="rvthumb">' + Wb.thumbs.mediaHTML(mediaOf(it)) + '</span>'
             : '<span class="ic">' + icon(def.ic, 18) + '</span>';
           return '<div class="slot-wide asset-slot has-media' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
-            + ' title="' + window.esc(def.label + '：' + name + '（点 × 移除）') + '">'
+            + ' title="' + window.esc(def.label + '：' + name) + '">'
             + thumb + '<span class="rvmeta"><b>' + window.esc(name) + '</b><span>' + def.label + (note ? ' · ' + window.esc(note) : '') + '</span></span>'
             + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button></div>';
         }
@@ -742,8 +742,8 @@ const StudioView = {
         if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
         if (note) sub.push(note);
         return '<div class="slot-wide asset-slot' + (blocked ? ' blocked' : '') + '" data-slot="' + sl.kind + '"'
-          + ' title="' + window.esc(blocked ? def.label + '：与已选素材互斥（一次请求只能选一组），清空已选后可添加'
-            : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传）') + '">'
+          + ' title="' + window.esc(blocked ? def.label + '：与已选素材互斥，清空已选后可添加'
+            : def.label + '：从资产库 / 我的收藏 / 本地上传挑') + '">'
           + '<span class="ic">' + icon(def.ic, 18) + '</span><span>' + (items.length ? '再加一个' : def.label) + '</span>'
           + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '') + '</div>';
       }
@@ -798,8 +798,9 @@ const StudioView = {
           ta.title = slots.length ? '可上传素材，或拖素材卡进来'
             : (comboNow() ? '当前模式不带素材' : '当前型号只支持纯文字');
         }
-        /* 重建这一段罩在公共件里。要稳住的容器不是 `#inputArea` 自己：宽窗里滚的是左栏 `.wb .col-left`，
-           ≤960px 那一档 CSS 把左栏放开成 `overflow:visible`、改由 `.wb .layout` 整块滚（滚动容器搬家了，
+        /* 重建这一段罩在公共件里。要稳住的容器不是 `#inputArea` 自己：宽窗里滚的是左栏正文那一段
+           （`.wb-body`，见 wb.css —— 生成区钉在栏底，栏自己不再滚），
+           ≤1100px 那一档 CSS 把正文放开成 `overflow:visible`、改由 `.wb .layout` 整块滚（滚动容器搬家了，
            调用点不判窗宽，现问 `Wb.viewport.host`）。`area.innerHTML = ''` 之后逐格 appendChild，
            上面这一段矮下去时浏览器会把滚动位夹回上限 —— 表现是「点一颗槽位上的 × 移除素材，左栏弹回顶」。
            移除 / 清空那两路都走这一份，所以只在重建处罩一次。
@@ -817,8 +818,8 @@ const StudioView = {
           const head = $('slotHead'), headNote = $('slotHeadNote');
           if (head) {
             head.hidden = false;
-            if (headNote) headNote.textContent = slots.length ? '点槽位选素材 · 同类内顺序即提交顺序'
-              : (comboNow() ? '这一档不带参考素材（换上面一档就能加）' : '当前型号只支持纯文字生成，换个型号可解锁参考素材');
+            if (headNote) headNote.textContent = slots.length ? '同类内顺序即提交顺序'
+              : (comboNow() ? '这一档不带参考素材（换上面一档就能加）' : '当前型号只支持纯文字生成，换个型号能加参考素材');
           }
           if (!slots.length) return;              // 没有槽位：建完空的一栏就收，收尾那句在下面照旧跑
           const blockedKinds = blockedSlotKinds();
@@ -848,9 +849,8 @@ const StudioView = {
                 a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
                   + (items.length ? '<span>再加一个</span>' : '<span>' + window.esc(def.label) + '</span>')
                   + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '');
-                a.title = blocked ? def.label + '：与已选素材互斥（本型号一次请求只能选一组），清空已选后可添加'
-                  : def.label + '：点击选择素材（资产库 / 我的收藏 / 本地上传'
-                    + (items.length ? '，已有 ' + items.length + ' / ' + sl.max : '') + '）';
+                a.title = blocked ? def.label + '：与已选素材互斥，清空已选后可添加'
+                  : def.label + '：从资产库 / 我的收藏 / 本地上传挑';
                 a.onclick = e => {
                   e.stopPropagation();
                   if (blocked) { flashSlotHint(conflictHint(blockedKinds) || (def.label + '与已选素材互斥，不能同时使用')); return; }
@@ -1005,7 +1005,7 @@ const StudioView = {
         paintAdv(plan);
         const dc = plan.kinds.count;
         $('drawHint').textContent = dc.list.length > 1
-          ? '单次最多 ' + dc.list.length + ' 条（按平台声明）· 视频一条一个任务提交' : '';
+          ? '单次最多 ' + dc.list.length + ' 条 · 视频一条一个任务提交' : '';
         renderBoolRows(model, changed);
         paintVideoHints(model);
       }
@@ -1114,7 +1114,7 @@ const StudioView = {
         paintAdv(plan);
         const cnt = plan.kinds.count, fmt = plan.kinds.output_format;
         $('countHint').textContent = cnt.list.length > 1
-          ? '单次最多 ' + cnt.list.length + ' 张（按平台声明）' : '该型号单次只能 1 张';
+          ? '单次最多 ' + cnt.list.length + ' 张' : '该型号单次只能 1 张';
         const src = (window.Capabilities && Capabilities.sourceOf) ? Capabilities.sourceOf(currentModel().prov) : null;
         const where = src ? Capabilities.srcTextOf(src) : '';
         $('formatHint').textContent = fmt.list.length > 1
@@ -1126,7 +1126,7 @@ const StudioView = {
         const hint = RATIO_HINT[r];
         const px = sizePxText(val('size'));
         $('ratioHint').innerHTML = hint ? '<span class="' + hint[1] + '">' + hint[0]
-          + (px ? ' · 按声明输出 ' + px : '') + '</span>' : '';
+          + (px ? ' · ' + px : '') + '</span>' : '';
         $('advSum').textContent = advPlan(curImageModel(), 'image').summary;
       }
       function curAudioModel() {
@@ -1225,7 +1225,7 @@ const StudioView = {
           syncDropdowns();
           hint.textContent = Capabilities.srcTextOf(Capabilities.sourceOf(prov));
         } catch (e) {
-          hint.textContent = '能力接口读取失败：' + e.message + '（仍按平台声明展示）';
+          hint.textContent = '能力接口读取失败：' + e.message;
         }
         paintSubNote();
       }
@@ -1253,7 +1253,7 @@ const StudioView = {
           return;
         }
         const cb = comboNow();
-        if (!model || !model.id) { put(prov.name + ' · <span class="note">型号还没取到，取到之后自动重算</span>'); return; }
+        if (!model || !model.id) { put(prov.name + ' · <span class="note">型号还没取到</span>'); return; }
         const bools = readBoolParams();
         const ex = advExtras(bools);
         const ap = advPlan(model, TYPE === 'image' ? 'image' : 'video').payload;
@@ -1289,19 +1289,19 @@ const StudioView = {
       const BLOCK_ZH = {
         'no-provider': () => '注册表里没有可用的' + TYPES[TYPE].zh + '型号',
         'no-model': () => '注册表里没有可用的' + TYPES[TYPE].zh + '型号',
-        'key-not-configured': v => '「' + ((v.args || {}).name || '') + '」还没配密钥，提交一定失败（设置页配好再来）',
-        'provider-off': v => '「' + ((v.args || {}).name || '') + '」你在设置页里停用了，这一栏的下拉不该再有它（要去设置页重新启用）',
-        'kind-text': () => '这一栏不提交文字任务（文字 AI 是给助手对话用的）',
+        'key-not-configured': v => '「' + ((v.args || {}).name || '') + '」还没配密钥：到设置页配好再来',
+        'provider-off': v => '「' + ((v.args || {}).name || '') + '」你在设置页里停用了：到设置页重新启用',
+        'kind-text': () => '这一栏不提交文字任务',
         'kind-audio': () => '这一栏不提交语音合成',
         'empty-prompt': v => (v.args || {}).kind === 'audio' ? '请输入要合成的文本' : '请输入提示词',
-        'param-value': v => '参数取值不在这一型号的声明里：' + (((v.args || {}).key) || '') + '（这一档能取的值请看「高级设置」）',
+        'param-value': v => '参数取值不在这一型号的声明里：' + (((v.args || {}).key) || ''),
         /* 这三条的措辞本来就由公共层给（谁声明的规矩谁说话），这里只把它接出来。 */
         'tts-way': v => ((v.args || {}).why || ''),
         'char-limits': v => ((v.args || {}).why || ''),
         'shape-field': v => ((v.args || {}).why || ''),
         'slot-shape': v => (((v.args || {}).lines) || []).join('；'),
         'slot-pairs': v => (((v.args || {}).lines) || []).join('；'),
-        'slot-source': v => '第 ' + (((v.args || {}).i) + 1) + ' 项素材取不到字节（换页之后本机的引用早失效了），重新选一次',
+        'slot-source': v => '第 ' + (((v.args || {}).i) + 1) + ' 项素材取不到字节，重新选一次',
         'slot-template': v => '注册表没声明 ' + (((v.args || {}).role || '（没写槽位）')) + ' 的提交形状，这个槽位发不出去',
         'slot-bytes': v => '「' + (((v.args || {}).name) || '这份素材') + '」' + window.fmtBytes((v.args || {}).bytes || 0)
           + ' 超过 ' + ((v.args || {}).role) + ' 的单文件上限 ' + window.fmtBytes((v.args || {}).maxBytes || 0),
@@ -1330,7 +1330,7 @@ const StudioView = {
       function submitBlockReason() {
         /* 判据没装载完就**不许提交**（与动作注册表那侧同一立场：拿不到判据不等于判据通过）。
            正常路径下 shell.html 先把 web/domain/gen-rules.js 挂上，这里只是兜住加载顺序坏掉的情况。 */
-        if (!window.GenRules || !GenRules.whyNot) return '提交判据还没有装载完（gen-rules.js 没加载），先刷新页面再试';
+        if (!window.GenRules || !GenRules.whyNot) return '提交判据没装载完，先刷新页面再试';
         const v = GenRules.whyNot(genFacts());
         return v ? blockText(v) : '';
       }
@@ -1340,7 +1340,7 @@ const StudioView = {
         if (!window.Wb) return;
         /* 「提交中」也算不就绪：Wb.ready 只看这条函数给的原因，动一下输入框就不会把在提交中的按钮重新点亮。 */
         Wb.ready({ btn: $('go'), tip: $('goWhy'), scope: $('leftCol'),
-          reason: () => (submitting ? '正在提交这一轮生成（等平台响应），先等它落定' : submitBlockReason()) });
+          reason: () => (submitting ? '正在提交，先等这一轮落定' : submitBlockReason()) });
       }
       $('prompt').addEventListener('input', () => { updateGoState(); paintPromptHint(); if (TYPE === 'audio') refreshEst(); refreshPreview(); });
       $('prompt').addEventListener('change', updateGoState);
@@ -1351,15 +1351,15 @@ const StudioView = {
         const nSlots = Object.keys(m).reduce((n, k) => n + (m[k] || []).length, 0);
         const hasText = !!((($('prompt').value || '') + ' ' + ($('style').value || '')).trim());
         /* 本来就是空的：这不是「做完了」而是「你点了但什么都没发生」，必须出声（warn 一定弹）。 */
-        if (!nSlots && !hasText) { Toast.warn('这一栏本来就是空的：没有提示词，也没有参考素材'); return; }
+        if (!nSlots && !hasText) { Toast.warn('这一栏本来就是空的'); return; }
         const parts = [];
         if (hasText) parts.push(TYPE === 'audio' ? '要合成的文本与音色描述' : '提示词');
         if (nSlots) parts.push(nSlots + ' 个参考素材');
         parts.push('参数');
         const ok = await Confirm.ask({
           title: '清空这一栏？',
-          body: '将清掉' + parts.join('、') + '（' + TYPES[TYPE].zh + '台当前这一栏，其他类型的不动）。'
-            + '清掉后 ' + (CLEAR_UNDO_MS / 1000) + ' 秒内再点这个按钮可以撤销；过了这个窗口或切走类型就找不回来了。',
+          body: '将清掉' + parts.join('、') + '（只清' + TYPES[TYPE].zh + '这一栏）。'
+            + '清掉后 ' + (CLEAR_UNDO_MS / 1000) + ' 秒内再点这个按钮可以撤销，过期或切走类型就找不回。',
           okLabel: '清空', cancelLabel: '先不清', danger: true,
         });
         if (!ok) return;
@@ -1494,11 +1494,11 @@ const StudioView = {
         try {
           await InlinePolish.interactive(host, {
             ask: TextAI.shouldAsk() ? ask : null, run, before: original,
-            askTitle: 'AI 想先问几个问题', askIntro: '点一个候选，或选「其他」自己写。',
+            askTitle: 'AI 想先问几个问题', askIntro: '没答的按默认理解走',
             onFollow: follow,
             followPlaceholder: TYPE === 'audio'
-              ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法（写完按回车）'
-              : '还要怎么改？例：运镜写具体动作 / 光线改成正午 / 只留一句（写完按回车）',
+              ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法'
+              : '还要怎么改？例：运镜写具体动作 / 光线改成正午 / 只留一句',
             onApply: v => {
               ta.value = v;
               /* 走手打同一条链：草稿 / 闸门 / 估价 / **原始请求预览**都跟着刷新 ——
@@ -1560,13 +1560,13 @@ const StudioView = {
         const { prov, model } = currentModel();
         let fillOn = false;
         try {
-          btn.textContent = '规划片段…'; setStatus('正在请文字 AI 拆分片段…');
+          btn.textContent = '规划片段…'; setStatus('正在拆分片段…');
           const planned = await split.planImageSegments();
           setStatus('');
           const est = await split.estimateLine(prov, model,
             planned.length * Math.max(1, Number(val('count')) || 1));
           const items = await PromptReview.openList({
-            title: '片段拆分方案（文字 AI 出的提示词）',
+            title: '片段拆分方案',
             sub: '按图像栏现在的设置逐条提交：' + split.settingsLine(model) + (est ? ' · ' + est : ''),
             items: planned.map(sg => ({ label: sg.label, text: sg.prompt, useRef: sg.useRef, sub: split.reviewSub(sg) })),
             applyLabel: '采用并生成这批图',
@@ -1635,7 +1635,7 @@ const StudioView = {
         const late = () => Date.now() - at > SUBMIT_UI_MS;
         const settled = Promise.resolve().then(work).then(r => {
           rec.state = 'settled';
-          if (late()) Toast.receipt('平台刚受理（等了 ' + Math.round((Date.now() - at) / 1000) + ' 秒）：任务已取回列表');
+          if (late()) Toast.receipt('平台刚受理（等了 ' + Math.round((Date.now() - at) / 1000) + ' 秒）');
           prunePending();
           renderPendingHint();
           return r;
@@ -1651,7 +1651,7 @@ const StudioView = {
           }
           if (maybeSubmitErr(e)) {
             rec.state = 'uncertain'; rec.note = errText(e) || '请求中断';
-            setStatus('<span class="warn">平台可能已受理（' + rec.note + '），正在后台核对列表…</span>');
+            setStatus('<span class="warn">平台可能已受理（' + rec.note + '）</span>');
             loadServer(1, true).catch(() => {}).then(r => {
               /* loadServer 把单页失败咽进 serverErrs 里照样 resolve：核对真做成了才算落定，
                  否则「已核对列表」这句话只是把「不知道」说成了「放心」。 */
@@ -1840,7 +1840,7 @@ const StudioView = {
       }
       async function createVideoOnce(prov, model, prompt, entries) {
         const modelId = (model && model.id) || String(model || '');
-        if (!modelId) throw new Error('没选出要用的视频型号 —— 在左栏「型号」里挑一个再点生成');
+        if (!modelId) throw new Error('没选出要用的视频型号：在左栏「型号」里挑一个');
         const cb = comboNow();
         const shape = { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
         const ap = advPlan(model, 'video').payload;
@@ -2014,7 +2014,7 @@ const StudioView = {
           try { await p; } catch (e) { failed++; }
         }
         if (created.length) {
-          setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务，右栏已经能看到（生成完成会自动出现在上面）</span>'
+          setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务</span>'
             + (failed ? '<span class="warn">（另有 ' + failed + ' 条没提交出去）</span>' : ''));
           adoptTasks(created).catch(() => {});
         } else setStatus('<span class="err">创建失败</span>' + (failed ? '（' + failed + ' 条都提交失败）' : ''));
@@ -2071,7 +2071,7 @@ const StudioView = {
           loadServer(1); tally.run(true);
         }
         if (created.length) {
-          setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务，右栏已经能看到（生成完成会自动出现在上面）</span>');
+          setStatus('<span class="ok">✓ 已提交 ' + created.length + ' 条任务</span>');
           adoptTasks(created).catch(() => {});
         } else if (!synced.length) setStatus('<span class="err">创建失败</span>');
       }
@@ -2101,7 +2101,7 @@ const StudioView = {
           if ($('balTip')) { $('balTip').hidden = true; $('balTip').innerHTML = ''; }
           Object.assign(t, { status: 'done', assetId: r.assetId, url: r.url, dl: Api.assetDl(r.assetId, (t.text || 'voice').slice(0, 16) + '.' + r.format),
             format: r.format, bytes: r.bytes, localAsset: true, usageText: r.usageText || '', priceText: r.priceText || '', transcript: r.transcript || '' });
-          setStatus('<span class="ok">✓ 合成完成，已存入资产库（大类型：音频）</span>');
+          setStatus('<span class="ok">✓ 合成完成，已存入资产库</span>');
           loadServer(1); tally.run(true);
           return r;
         }));
@@ -2363,7 +2363,7 @@ const StudioView = {
           } catch (e) {
             console.warn('[studio] 历史列表加载失败：', e);
             const msg = window.Api.errText(e);
-            if (gen === serverGen) setStatus('<span class="warn">历史列表这次没取回来（' + window.esc(msg) + '）—— 点右上角「刷新」重试</span>');
+            if (gen === serverGen) setStatus('<span class="warn">历史列表这次没取回来（' + window.esc(msg) + '），点「刷新」再试</span>');
             return { ok: false, stale: gen !== serverGen, errors: { load: msg } };
           } finally {
             serverLoading = Math.max(0, serverLoading - 1);
@@ -2574,6 +2574,9 @@ const StudioView = {
         it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts, it.progress || 0,
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
         (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-',
+        /* 收藏位：另一页收 / 拿之后回到这一页，卡片要靠它重画出「已收藏」那颗星。
+           没有产物号的任务收不进收藏，这一位固定 '-'（别让 'a:平台:' 这种空身份进判断）。 */
+        it.assetId ? (window.Fav && window.Fav.isEntry(Wb.favEntryOf(it)) ? 'F' : '-') : '-',
         multiMode ? 'M' : '-', (multiMode && selected.has(taskKeyOf(it))) ? 'S' : '-'].join('|');
       function mediaBox(it) {
         /* 任务态的占位牌与资产库同一份（Wb.plateHTML）：进行中 / 排队 / 失败 / 结果未知
@@ -2621,6 +2624,10 @@ const StudioView = {
             retry: (bad || unc) && !it.noResend && !!(it.prompt || it.local),
             saveLocal: !!it.keepKey,
             remove: !!(it.local && !it.localAsset), removeFile: !!(it.local && it.localAsset && it.assetId),
+            /* 卡面那颗星：与资产库同一颗（公共件 Wb.favBtnHTML），插在「展开详情」之后。
+               还没有产物号的任务收不进收藏（收藏项存的是产物地址），这一档不画。 */
+            afterDetailHTML: it.assetId
+              ? Wb.favBtnHTML(!!(window.Fav && window.Fav.isEntry(Wb.favEntryOf(it)))) : '',
           }),
           detailHTML: '',
         });
@@ -2680,7 +2687,7 @@ const StudioView = {
           onRetry: () => retryItem(it),
           onSaveLocal: async () => {
             const t = it.srcRef;
-            if (!t || !t.keepKey) { Toast.err('这一条的音频留底已经不在了（换过页），只能重新合成'); return; }
+            if (!t || !t.keepKey) { Toast.err('这一条的音频留底已经不在了，只能重新合成'); return; }
             const r = await AiGen.retrySaveTts(t.keepKey);
             Object.assign(t, { status: 'done', assetId: r.assetId, url: r.url, keepKey: '', noResend: false, error: '',
               dl: Api.assetDl(r.assetId, (t.text || 'voice').slice(0, 16) + '.' + r.format),
@@ -2690,6 +2697,11 @@ const StudioView = {
           },
           onRemove: () => { audioTasks = audioTasks.filter(x => x !== it.srcRef); saveAudioTasks(); renderAll(); tally.run(true); },
           onRemoveFile: () => deleteLocalAsset(it),
+        });
+        /* 收藏那颗星（★/☆）的接线在公共层：收 / 拿在 domain/fav.js 一份（与资产库同一个键）。 */
+        Wb.bindFavBtn(d, {
+          isOn: () => !!(window.Fav && window.Fav.isEntry(Wb.favEntryOf(it))),
+          toggle: () => window.Fav.toggleEntry(Wb.favEntryOf(it)),
         });
         /* 多选态：点卡片就是勾选（不是打开大图）—— 与资产库同一套手感。
            勾选块是绝对定位的，卡片自己得是定位祖先（spa-studio.css 里给 .task 补了 position）。 */
@@ -2777,7 +2789,7 @@ const StudioView = {
       async function deleteLocalAsset(it) {
         try {
           const res = await AssetLib.remove(it);
-          if (res && res.alreadyGone) Toast.warn('平台上这条已经不在了：列表已经清掉，没有删成别的东西');
+          if (res && res.alreadyGone) Toast.warn('平台上这条已经不在了，列表已清掉');
           else Toast.receipt('已删除这条' + (it.mtype || '文件'));
         } catch (e) { Toast.err('删除失败：' + errText(e)); return; }
         audioTasks = audioTasks.filter(t => t.assetId !== it.assetId);
@@ -2840,11 +2852,15 @@ const StudioView = {
       tally.onDone.push(() => { try { renderAll(); } catch (e) {} });
       const pgRow = $('stPgRow');
       if (pgRow) pgRow.innerHTML = Wb.pager.rowHTML('st', { info: '第 1 页' });
-      /* 动态加载档没有翻页按钮（资产库那一档也是把整行藏起来），跳页那一格改成「取到第 N 页」。 */
+      /* 动态加载档没有翻页按钮（资产库那一档也是把整行藏起来），
+         跳页那一格按「每页多少条」把第 N 页取回来并落到那一页的头一条。 */
       if (PAGE_MODE !== 'page') {
         if (pgRow) pgRow.hidden = true;
         const goto = $('gotoBtn');
-        if (goto) { goto.textContent = '取到第 N 页'; goto.title = '把第 N 页之前的内容都取回来（动态加载档没有翻页按钮）'; }
+        if (goto) {
+          goto.textContent = '跳页';
+          goto.title = '按每页 ' + PAGE_SIZE + ' 条跳页';
+        }
       }
       /* 取到第 N 页：把该页之前的内容都取回来（动态加载档的「跳页」就是这一句）。
          资产库那一页用同一份语义（gotoPageInput 里算 want 再续拉）。 */
@@ -3004,7 +3020,7 @@ const StudioView = {
           renderInputArea(); updateMode(); updateGoState();
           return { ok: true, kind, name };
         }
-        if (!src && !p.fileKey && !p.file) return { ok: false, code: 'nosrc', why: '这条素材既没有本机地址也没有本机文件号，取不到字节' };
+        if (!src && !p.fileKey && !p.file) return { ok: false, code: 'nosrc', why: '这条素材取不到字节' };
         let blob = p.file || null;
         if (!blob) {
           setStatus('正在取回素材字节…');
@@ -3185,7 +3201,7 @@ const StudioView = {
           tally.run(true);
           /* 取砸了不动列表也不翻回第 1 页：用户在第 5 页找东西，一次网络失败不该把他弹回开头，
              更不该让他以为那一屏的历史没了。 */
-          if (r.lost) Toast.warn('历史列表这次没取回来 —— 上面还是刷新前的那一份，点「刷新」可以再试');
+          if (r.lost) Toast.warn('历史列表这次没取回来：上面还是刷新前的那一份，点「刷新」再试');
           renderAll();
         } finally {
           b.disabled = false; b.innerHTML = icon('refresh', 13) + ' 刷新';
@@ -3196,12 +3212,14 @@ const StudioView = {
          more 档的 go() 只改页码不补条目，回车直接走 pager.gotoInput 会「输入框清空了、列表没动」。 */
       const gotoNow = async () => {
         if (PAGE_MODE === 'page') { pager.gotoInput('gotoPage'); return; }
-        /* 动态加载档：跳页 = 把第 N 页之前的内容都取回来（与资产库同一份语义）。
-           这一档不滚回顶上：用户是要把后面的内容取进来接着看，弹回开头就等于白取。 */
+        /* 动态加载档：跳页 = 按「每页多少条」把第 N 页取回来，再落到这一页的头一条。
+           以前只取不落：输入 3 之后画面还停在第一条，看着像没跳（列表只是变长了）。
+           落点条目由页数 × 每页条数算 —— 每页条数就是设置页那一档（PAGE_SIZE）。 */
         const n = Math.max(1, Math.floor(Number($('stGotoPage').value) || 1));
         $('stGotoPage').value = '';
         await fillPages(n);
         renderAll();
+        Wb.viewport.revealPage(filteredItems().map(it => cardList.el(itemKey(it))), n, PAGE_SIZE);
       };
       $('gotoBtn').onclick = gotoNow;
       $('stGotoPage').addEventListener('keydown', e => {
@@ -3258,14 +3276,9 @@ const StudioView = {
         favRemove: ok => { const d = $('bulkFavRemove'); if (d) d.disabled = !ok; },
       };
       /* 收藏：这一页的条目是任务，右栏那一批产物 —— 收进「我的收藏」时用**产物号**当身份，
-         与资产库里那一条是同一条（同一个收藏键，不会收两次）。 */
-      function studioFavEntry(it) {
-        return {
-          provider: it.provider || '', providerName: it.providerName || '', assetId: it.assetId || '',
-          prompt: it.prompt || '', type: it.mtype || '图片', src: it.raw || it.media || '',
-          dl: it.dl || '', format: it.format || '', duration: it.durationSec || null, ts: it.ts || Date.now(),
-        };
-      }
+         与资产库里那一条是同一条（同一个收藏键，不会收两次）。
+         条目归一在公共层（Wb.favEntryOf）：卡面那颗星、批量那两颗、翻页与详情里的收藏读同一份字段表。 */
+      function studioFavEntry(it) { return Wb.favEntryOf(it); }
       function studioBulkFavAdd() {
         const n = taskMulti().favAdd();
         if (!n) { Toast.warn('选中的这些都已经在收藏里了'); return; }
@@ -3438,9 +3451,9 @@ const StudioView = {
 
       /* ---------- 左栏整块重画（切类型 / 换型号之后） ----------
          这一串里每一处都可能改左栏那一列的高度（型号换了槽位就增删、参数区按声明重画、
-         提示词框自己按内容长高），而左栏整体是一只滚动容器：用户在下面打字，切一次类型
-         不该把视线甩回顶。要稳住的是**当下真正在滚的那一只**（宽窗是 `#leftCol`，
-         ≤960px 那一档 CSS 把它放开成 overflow:visible、改由整块布局滚），所以现问 host。 */
+         提示词框自己按内容长高），而左栏正文是一只滚动容器：用户在下面打字，切一次类型
+         不该把视线甩回顶。要稳住的是**当下真正在滚的那一只**（宽窗是 `#leftCol` 里的 `.wb-body`，
+         ≤1100px 那一档 CSS 把它放开成 overflow:visible、改由整块布局滚），所以现问 host。 */
       function paintLeft() {
         Wb.viewport.keep(Wb.viewport.host($('leftCol')) || $('leftCol'), () => {
           renderModelOptions();
@@ -3550,6 +3563,11 @@ const StudioView = {
       window.addEventListener('pagehide', onPageHide);
       disposers.push(() => window.removeEventListener('pagehide', onPageHide));
       if (offSaveHook) disposers.push(offSaveHook);
+      /* 收藏在别的页 / 别的标签页变了：卡面那颗星要跟着亮 / 灭。
+         重画走签名（签名里带 F 位），只动真的变了的那几张 —— 与资产库听的是同一个事件名。 */
+      const onStudioFavChange = () => { try { renderAll(); } catch (e) {} };
+      window.addEventListener('fav-change', onStudioFavChange);
+      disposers.push(() => window.removeEventListener('fav-change', onStudioFavChange));
 
       /* 外壳那条通道：类型切换（Vue 组件不在 iframe 里，web/app.js 的 iframe 钩子够不着）。 */
       window.setType = (t, fromUser) => setType(t, fromUser);
@@ -3590,7 +3608,7 @@ const StudioView = {
       }
       if (!window.Wb || !window.Api || !window.AssetLocal || !window.AssetLib) {
         const st = pageEl.value.querySelector('[data-r="status"]');
-        if (st) st.innerHTML = '<span class="err">工作台依赖的公共模块没有就绪（workbench.js / assetlib.js）</span>';
+        if (st) st.innerHTML = '<span class="err">工作台依赖的公共模块没有就绪</span>';
         return;
       }
       if (disposed) return;

@@ -140,7 +140,7 @@
     if (out.missing.length) out.lines.push(at + '必须带上：' + out.missing
       .map(m => zh(m.role) + '（至少 ' + m.min + '，现在 ' + m.got + '）').join('、'));
     if (out.over.length) out.lines.push(at + '最多收：' + out.over
-      .map(m => zh(m.role) + ' ' + m.max + ' 个，现在 ' + m.got + ' 个，多出来的发不出去').join('、'));
+      .map(m => zh(m.role) + ' ' + m.max + ' 个，现在 ' + m.got + ' 个').join('、'));
     return out;
   }
 

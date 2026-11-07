@@ -335,8 +335,8 @@ export function createAccountCards(deps) {
       short: '设置页里存着的（sk_key_' + kid + '）',
       tip: '点「清除」才会真的没有。',
     };
-    if (env) return { short: '服务端环境密钥（.env）', tip: '密钥来源：服务端环境密钥（.env 或系统环境变量）' };
-    return { short: '还没有密钥', tip: '密钥来源：还没有（在上面填一把，或在 .env 里配同名变量）' };
+    if (env) return { short: '服务端环境密钥（.env）', tip: '来自 .env 或系统环境变量' };
+    return { short: '还没有密钥', tip: '在上面填一把，或在 .env 里配同名变量' };
   }
   const keySourceNote = kid => keySourceOf(kid).short;
   function refreshProvNotes() {
@@ -371,11 +371,11 @@ export function createAccountCards(deps) {
      白底 = 备用、压暗 = 停用 / 还没接上。点它做什么必须写在 title 里（两档的语义不一样）。 */
   function plateTitle(m, cap, st) {
     if (st === 'off') {
-      if (acctOff(m)) return '这一家勾了「暂时不用」—— 点一下取消（按账号存：它名下 ' + m.kindLabel + ' 一起恢复）';
-      return '这一档还没接上：点名字右边那颗「密钥」填一把才算接上';
+      if (acctOff(m)) return '点一下取消「暂时不用」（它名下 ' + m.kindLabel + ' 一起恢复）';
+      return '还没接上：点「密钥」填一把';
     }
     if (!SOLO_CAP.has(cap)) {
-      return '这一档在用 · 点一下把这一家「暂时不用」（按账号存，它名下 ' + m.kindLabel + ' 一起停）';
+      return '点一下把这一家「暂时不用」（它名下 ' + m.kindLabel + ' 一起停）';
     }
     return st === 'pri'
       ? '这一档现在走这家'
@@ -400,7 +400,7 @@ export function createAccountCards(deps) {
       acctOffSet.set(m.keyId, true);
       markChanged();
       renderProv();
-      Toast.receipt('「' + m.name + '」暂时不用：这一停是按账号停的，它名下 ' + m.kindLabel + ' 一起不进型号下拉（历史任务照常能看）', 'ok');
+      Toast.receipt('「' + m.name + '」暂时不用（它名下 ' + m.kindLabel + ' 一起不进型号下拉）', 'ok');
       return;
     }
     if (st === 'pri') { Toast.receipt('这一档走「' + m.name + '」', 'info'); return; }
@@ -409,7 +409,7 @@ export function createAccountCards(deps) {
       textPickDraft = (p && p.id) || '';
       markChanged();
       renderProv();
-      Toast.receipt('文字对话改走「' + m.name + '」（润色、识图、助手都发给它）—— 原本那家降为备用', 'ok');
+      Toast.receipt('文字对话改走「' + m.name + '」（原本那家降为备用）', 'ok');
       return;
     }
     if (cap === 'asr') {
@@ -476,8 +476,7 @@ export function createAccountCards(deps) {
           + ' title="' + (open ? '收起型号清单' : '展开型号清单') + '">'
           + (open ? '收起型号 ' : '型号 ') + '<b data-mcount="' + es + '"></b></button>')
       + (isManual
-        ? '<button class="ghost mini" type="button" data-cap-rm="' + es + '"'
-          + ' title="撤掉这份声明">撤掉</button>'
+        ? '<button class="ghost mini" type="button" data-cap-rm="' + es + '">撤掉</button>'
         : '')
       /* 文字档的型号下拉 + 测试放在**主行之后**（.crow-sub 独占一整行）：
          主行因此只剩「能力名 + 状态牌 + 型号 n/m」，与别的档对齐；下拉拿到整行宽，型号 id 读得全。 */
@@ -531,12 +530,9 @@ export function createAccountCards(deps) {
         + (canFetch
           ? '<button class="ghost mini" type="button" data-tfetch="' + es + '"'
             + ' title="只读，不花钱">取一次型号清单</button>'
-          : '<span class="hint sm">没有型号接口，自己填 id</span>')
+          : '')
       + '</div>'
-      + '<div class="mpanel-h"><span class="hint" data-mnote="' + es + '"></span><span class="sp"></span>'
-        + '<span class="hint">' + (text
-          ? '点一行 = 全站润色用它。'
-          : '勾掉 = 下拉里隐藏。') + '</span></div>'
+      + '<div class="mpanel-h"><span class="hint" data-mnote="' + es + '"></span></div>'
       + '<div class="mlist" data-tchips="' + es + '"></div>'
       + '<div class="krow thin"><span class="kn">自己填</span>'
         + '<input data-tmnew="' + es + '" placeholder="逗号分隔">'
@@ -552,13 +548,10 @@ export function createAccountCards(deps) {
     const miss = allCaps().filter(c => MANUAL_OK.indexOf(c) >= 0 && m.caps.indexOf(c) < 0);
     const es = window.esc(m.keyId);
     const open = capPickOpen.has(m.keyId);
-    if (!miss.length) {
-      return open ? '' : '<div class="capadd"><span class="hint">这一家能手动加的那几档都加上了</span></div>';
-    }
+    if (!miss.length) return '';
     if (!open) {
       return '<div class="capadd"><button class="ghost mini" type="button" data-cap-pick="' + es + '">'
-        + '＋ 手动加一档能力</button>'
-        + '<span class="hint">型号自己填</span></div>';
+        + '＋ 手动加一档能力</button></div>';
     }
     return '<div class="capadd capadd-open">'
       + '<div class="capadd-h"><span>手动加一档能力</span><span class="sp"></span>'
@@ -566,7 +559,6 @@ export function createAccountCards(deps) {
       + '<div class="pickrow">' + miss.map(c => '<button class="ghost mini pickchip" type="button"'
         + ' data-cap-add="' + es + '" data-cap="' + window.esc(c) + '">'
         + capGlyph(c) + ' ' + window.esc(capZh(c)) + '</button>').join('') + '</div>'
-      + '<span class="hint">只是声明；生成类需 REGISTRY 补端点。</span>'
       + '</div>';
   }
   function capStripHTML(m) {
@@ -604,14 +596,12 @@ export function createAccountCards(deps) {
     const kid = window.esc(m.keyId);
     return '<div class="acct fcard local-asr" data-acct="' + kid + '">'
       + '<div class="fcard-h"><span class="fcard-ic">本</span>'
-        + '<div class="fcard-tt"><div class="fcard-t"><span>本机 / 浏览器内识别</span></div>'
-          + '<div class="fcard-d">不经过任何云供应商</div></div>'
+        + '<div class="fcard-tt"><div class="fcard-t"><span>本机 / 浏览器内识别</span></div></div>'
         + '<span class="fcard-badge"><span class="st on">无需密钥</span></span></div>'
       + capStripHTML(m)
       + '<div class="acct-mid" data-mid="' + kid + '">'
         + m.caps.map(cap => capRowHTML(m, cap) + priFormHTML(m, cap)).join('')
       + '</div>'
-      + '<div class="fcard-acts"><span class="hint sm">路线在下面选；本机运行包放 tools/whisper/</span></div>'
       + '</div>';
   }
   /* 卡底右侧那枚余额：取数 / 解析 / 缓存都在外壳那一份（`window.SbBalance`，与侧栏「账户余额」
@@ -660,12 +650,6 @@ export function createAccountCards(deps) {
     const off = acctOff(m);
     const kb = keyBadge(m);
     const open = keyOpen.has(m.keyId) || pendingAdds.has(m.keyId);
-    /* 只有自定义那几家需要一句「这一家的地址在哪」：预设那几家的地址是注册表的事，
-       卡上不摊官网地址、也不写「卡上不再改地址」那种话（用户点名不要）。 */
-    const meta = m.custom
-      ? ('转发到 <code>' + window.esc(m.prov.base) + '</code> · 接口形状取自「' + window.esc(m.shapeName) + '」'
-        + ' · 名字 / 地址 / 型号清单点下面那颗「编辑」改')
-      : '';
     const mid = (open ? keyRowHTML(m) : '')
       + m.caps.map(cap => capRowHTML(m, cap)
         + (((cap === 'asr' && m.local) || hostKidOf(cap) === m.keyId) ? priFormHTML(m, cap) : '')
@@ -680,20 +664,19 @@ export function createAccountCards(deps) {
               + window.esc(m.site) + '">' + window.esc(m.name) + '</a><span class="ext">↗</span>'
             : '<span>' + window.esc(m.name) + '</span>')
           + '<button class="keytoggle' + (open ? ' on' : '') + '" type="button" data-ktoggle="' + kid + '"'
-            + ' title="密钥设置' + (open ? '（点一下收起来）' : '（默认收着，点一下才摊开）') + '">密钥 '
+            + ' title="密钥设置">密钥 '
             + (open ? '▴' : '▾') + '</button>'
           + (m.custom ? '<span class="st alt">自定义</span>' : '')
-          + '</div>' + (meta ? '<div class="fcard-d">' + meta + '</div>' : '') + '</div>'
+          + '</div></div>'
         + '<span class="fcard-badge"><span class="st ' + kb.cls + '">' + kb.zh + '</span></span></div>'
       + capStripHTML(m)
       + '<div class="acct-mid" data-mid="' + kid + '">' + mid + '</div>'
       + '<div class="fcard-acts">'
-        + '<label class="check' + (m.credits ? '' : ' dim') + '" title="'
-          + (m.credits ? '勾选后在左侧栏「账户余额」里显示这一家的余额（改完自动存进本机）'
-            : '这一家没有提供余额查询接口，勾了也不会显示余额')
+        + '<label class="check' + (m.credits ? '' : ' dim') + '"'
+          + (m.credits ? '' : ' title="这一家没有余额查询接口，勾了也不显示"')
           + '"><input type="checkbox" data-bal="' + kid + '"' + (window.SbBal && SbBal.isOff(m.keyId) ? '' : ' checked') + '>侧栏余额</label>'
-        + '<label class="check" title="勾上 = 这一家不进工作台的型号下拉（按账号停：它名下 '
-          + window.esc(m.kindLabel) + ' 一起停；历史任务照常能看）。改完自动存进本机">'
+        + '<label class="check" title="勾上 = 不进工作台的型号下拉（它名下 '
+          + window.esc(m.kindLabel) + ' 一起停，历史任务照常能看）">'
           + '<input type="checkbox" data-off="' + kid + '"' + (off ? ' checked' : '') + '>暂时不用</label>'
         + '<span class="sp"></span>'
         + (m.custom
@@ -761,9 +744,9 @@ export function createAccountCards(deps) {
     const localN = all.length - cloud.length;
     if (cap === 'all') {
       el.className = 'fsum';
-      el.innerHTML = '<b>' + all.length + ' 家账号</b><span class="hint sm">密钥已经配上 '
-        + (cloud.length - noKey) + ' 家' + (noKey ? ' · 还差密钥 ' + noKey + ' 家' : '')
-        + (localN ? ' · 本机 ' + localN + ' 家（无需密钥）' : '')
+      el.innerHTML = '<b>' + all.length + ' 家账号</b><span class="hint sm">已配 '
+        + (cloud.length - noKey) + ' · 待配 ' + noKey
+        + (localN ? ' · 本机 ' + localN : '')
         + '</span>';
       return;
     }
@@ -774,8 +757,7 @@ export function createAccountCards(deps) {
     el.className = 'fsum';
     el.innerHTML = '<b>做「' + window.esc(capZh(cap)) + '」的 ' + list.length + ' 家</b>'
       + '<span class="hint sm">在用 ' + on + ' 家' + (alt ? ' · 备用 ' + alt + ' 家' : '')
-      + (off ? ' · 没接上 ' + off + ' 家' : '') + ' —— 按「在用 → 备用 → 没接上」排，'
-      + '同档里能力多的在前；被筛的那一格在能力条上圈了出来。</span>'
+      + (off ? ' · 没接上 ' + off + ' 家' : '') + '。</span>'
       + '<span class="sp"></span><button class="ghost mini" type="button" data-fchip="all">看全部 '
       + all.length + ' 家</button>';
   }
@@ -784,7 +766,7 @@ export function createAccountCards(deps) {
     const el = acctToolsEl.value;
     if (!el) return;
     const chip = (id, zh, n) => '<button class="fchip' + (acctFilter.value === id ? ' on' : '') + '"'
-      + ' type="button" data-fchip="' + id + '" title="' + window.esc('只看有「' + zh + '」这一档的那几家（数字是账号数）') + '"><span>'
+      + ' type="button" data-fchip="' + id + '" title="数字是账号数"><span>'
       + window.esc(zh) + '</span>' + (n == null ? '' : '<b class="n">' + n + '</b>') + '</button>';
     el.innerHTML = '<div class="filters">' + chip('all', '全部', lastAcctAll.length)
       + allCaps().map(c => chip(c, capZh(c), lastAcctAll.filter(m => m.caps.indexOf(c) >= 0).length)).join('')
@@ -820,7 +802,7 @@ export function createAccountCards(deps) {
     const mp = regOf().modelPrefs;
     if (mp && mp.reason) {
       lines.push('「自己填的型号」与「隐藏 / 展示」那份记录读不懂：' + mp.reason
-        + ' —— 修好之前在这里勾了也不会变，工作台上看到的仍是接口给的那一份原始清单。');
+        + ' —— 修好之前这里勾了也不会变。');
     }
     el.innerHTML = lines.map(t => '<div class="msg err">' + window.esc(t) + '</div>').join('');
   }
@@ -937,7 +919,7 @@ export function createAccountCards(deps) {
         'msg ' + (ok ? 'ok' : r.state === 'invalid' ? 'err' : ''));
       return;
     }
-    setMsg(kid, '正在用这一栏里的密钥问一次「' + via.label + '」…', 'msg');
+    setMsg(kid, '正在问「' + via.label + '」…', 'msg');
     let r = { ok: false, detail: '', why: '' };
     try { r = await Api.verify(p, { key: draftKey(kid), base: null }); } catch (e) { r.why = errText(e); }
     btn.disabled = false;
@@ -1039,8 +1021,7 @@ export function createAccountCards(deps) {
       const inp = q('[data-key="' + window.esc(kid) + '"]');
       /* 摊开的是密钥那一行：reveal 把输入框带进卡内视野，pin 让它所属的那一行不被顶出去。 */
       if (inp) { window.focusQuiet(inp); window.Wb.viewport.reveal(inp, { pin: inp.closest('.krow') }); }
-      Toast.receipt('已把「' + ((provRows.get(kid) || {}).name || kid) + '」请进界面 —— 这一步什么都没写；'
-        + '在摊开的那一栏填一把密钥才算接上（改完自动存进本机）', 'ok');
+      Toast.receipt('已把「' + ((provRows.get(kid) || {}).name || kid) + '」请进界面；填一把密钥才算接上', 'ok');
       return;
     }
     const eye = t.closest && t.closest('[data-eye]');
@@ -1063,8 +1044,8 @@ export function createAccountCards(deps) {
       keyCleared.add(kid);
       markChanged();
       clr.textContent = '已清除';
-      clr.title = '这一项已经排队存进本机（顶栏那一句会说存好了没有）';
-      setTimeout(() => { clr.textContent = '清除'; clr.title = '清掉本机存的这把密钥（存进本机后生效）'; }, 1500);
+      clr.title = '已排队，顶栏回执照说';
+      setTimeout(() => { clr.textContent = '清除'; clr.title = '清掉本机存的这把密钥'; }, 1500);
       refreshProvNotes();
       return;
     }

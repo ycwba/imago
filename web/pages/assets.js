@@ -139,7 +139,7 @@ export default {
       if (!bits.length) return '';
       return '<div class="empty" style="color: var(--warn)">部分内容加载失败：<br>'
         + bits.join('<br>')
-        + '<br><br>（检查网络与密钥，或点工具条上的「刷新」重试）</div>';
+        + '<br><br>（检查网络与密钥后重试）</div>';
     }
     const loadFailed = () => Object.keys(loadErrors || {}).length > 0;
 
@@ -473,26 +473,8 @@ export default {
       return window.Fav ? (window.Fav.note(window.Fav.assetKey(a)) || '') : '';
     }
     /* 卡面上那颗星（★ 收藏 / ★ 已收藏）：与「详情」同一排，不用展开就能收 / 拿。
-       **收 / 拿的动作**在 domain/fav.js（Fav.toggleEntry —— 身份与落盘都在那一层），
-       这里只画那颗按钮、切完把字与亮灭改回来。 */
-    function favBtnHTML(a) {
-      const on = !!(window.Fav && window.Fav.isEntry(a));
-      return window.Wb.actsHTML(null, { items: [{ act: 'favorite', cls: 'favbtn',
-        icon: on ? 'starFill' : 'star', label: on ? '已收藏' : '收藏', pressed: on }] });
-    }
-    function bindFavBtn(el, a) {
-      const fb = el.querySelector('.favbtn');
-      if (!fb || !window.Fav) return;
-      fb.onclick = e => {
-        e.stopPropagation();
-        const before = window.Fav.isEntry(a);
-        const on = window.Fav.toggleEntry(a);
-        fb.setAttribute('aria-pressed', String(on));
-        window.iconSet(fb, on ? 'starFill' : 'star', 15);
-        window.btnText(fb, on ? '已收藏' : '收藏');
-        if (on !== before) window.Toast.ok(on ? '已收藏' : '已取消收藏');   // 星标自己会亮，归安静档
-      };
-    }
+       **按钮与接线都在公共层**（Wb.favBtnHTML / Wb.bindFavBtn，工作台的任务卡也读同一份），
+       这一页只决定「这一条能不能收」（只有真产物才有字节）。 */
     function noPromptText(a) {
       const prov = ((typeof REG !== 'undefined' && REG && REG.providers) || []).find(p2 => p2.id === a.provider || p2.keyId === a.provider);
       if (!prov || !prov.noPromptField) return '(无提示词)';
@@ -534,7 +516,8 @@ export default {
         retryLabel: retryLabelOf(a),
         /* 收藏那颗（★ 收藏 / ★ 已收藏）插在「详情」之后 —— 公共件只管它插在哪一档，
            按钮本身是这一页的（收 / 拿的动作在 domain/fav.js 一份）。 */
-        afterDetailHTML: a.kind === 'asset' ? favBtnHTML(a) : '',
+        afterDetailHTML: a.kind === 'asset'
+          ? window.Wb.favBtnHTML(!!(window.Fav && window.Fav.isEntry(window.Wb.favEntryOf(a)))) : '',
         extraHTML: '',
       };
     }
@@ -747,13 +730,16 @@ export default {
              现在失败交给公共件报错并恢复按钮，状态一个字不改：这一条还是 running。 */
           await window.Wb.cancelTask(window.Api.provOf(it.provider), it.genId || it.id);
           it.status = 'cancelled';
-          window.Toast.receipt('已取消：平台上这一条已撤单');
+          window.Toast.receipt('已取消');
           renderGrid();
         },
         onRetry: async () => { await retryEntry(a); await refreshKeepPage(); },
         extraBind: el => {
           /* 收藏那颗（★/☆）的接线：收 / 拿在 domain/fav.js 一份，这里只把字与亮灭改回来。 */
-          bindFavBtn(el, a);
+          window.Wb.bindFavBtn(el, {
+            isOn: () => !!(window.Fav && window.Fav.isEntry(window.Wb.favEntryOf(a))),
+            toggle: () => window.Fav.toggleEntry(window.Wb.favEntryOf(a)),
+          });
           const delb = el.querySelector('.delbtn');
           if (delb) delb.onclick = e => {
             e.stopPropagation();
@@ -856,7 +842,7 @@ export default {
         cntText.value = '共 ' + filteredAll().length + ' 项 · 本页 ' + list.length + ' 项'
           + (sel ? ' · 已选 ' + sel + ' 项' : '');
         reloadDisabled.value = loadingNow > 0;
-        reloadTitle.value = loadingNow > 0 ? '正在加载…' : '刷新（跳过服务端短缓存）';
+        reloadTitle.value = loadingNow > 0 ? '正在加载…' : '重新从各平台取回列表';
         paintBulkBar();
         paintPullBtn();
         paintLoadErrors();
@@ -1050,7 +1036,7 @@ export default {
         box.innerHTML = BUCKETS.map(b => {
           if (!n[b.key]) return '';
           return '<button class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
-            + ' title="只看这一档（再点一下取消）"><i class="dot ' + b.dot + '"></i>'
+            + ' title="再点一下取消"><i class="dot ' + b.dot + '"></i>'
             + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
         }).join('');
       });
@@ -1111,7 +1097,7 @@ export default {
       if (!aiChipEl.value) return;
       const seen = FAI && FAI.seen;
       const scope = [
-        aiHit.total > aiHit.shown ? '共 ' + aiHit.total + ' 条，按 AI 说的只看前 ' + aiHit.shown + ' 条' : '',
+        aiHit.total > aiHit.shown ? '共 ' + aiHit.total + ' 条，只取前 ' + aiHit.shown + ' 条' : '',
         seen && seen.assets < seen.assetsTotal ? 'AI 只看了最近 ' + seen.assets + ' 条素材' : '',
         seen && seen.favs < seen.favsTotal ? '收藏只看了最近 ' + seen.favs + ' 条' : '',
       ];
@@ -1170,7 +1156,7 @@ export default {
         F.q = '';
         if (searchFb) searchFb.markApplied(v.q);
         window.Wb.pager.reset(pager);
-        window.Toast.receipt('已按 AI 给的条件筛好（原话：' + v.q.slice(0, 24) + '）；清空搜索框或点条件上的 ✕ 取消');
+        window.Toast.receipt('已按 AI 给的条件筛好');
       } catch (e) {
         window.Toast.err(window.AiFind.failText(e));
       } finally {
@@ -1195,7 +1181,7 @@ export default {
       rewindFetch();
       pager.setPage(0);
       reloadDisabled.value = true; reloadTitle.value = '正在加载…';
-      try { await load(); } finally { reloadDisabled.value = false; reloadTitle.value = '刷新（跳过服务端短缓存）'; }
+      try { await load(); } finally { reloadDisabled.value = false; reloadTitle.value = '重新从各平台取回列表'; }
     }
     /* 任务完成 / 撤单之后要拉一次新数据，但用户可能正翻在第 5 页找东西：
        以前这几处直接调 reload()，页码归 1、首屏重画，人就被弹回开头。
@@ -1219,7 +1205,7 @@ export default {
         await ensureLoaded(want);
         pager.setPage(want);
       } finally {
-        reloadDisabled.value = false; reloadTitle.value = '刷新（跳过服务端短缓存）';
+        reloadDisabled.value = false; reloadTitle.value = '重新从各平台取回列表';
         renderGrid();
       }
     }
@@ -1252,6 +1238,11 @@ export default {
       } catch (e) {}
       gotoBusy.value = false; gotoBtnText.value = '跳转';
       renderGrid();
+      /* 动态加载档：拉回来只是「这一页有了」，还得按每页条数落到这一页的头一条 ——
+         否则输入 3 之后画面仍停在第一条，看着像没跳（工作台右栏同一份语义）。 */
+      if (PAGE_MODE !== 'page') {
+        window.Wb.viewport.revealPage(gridEl.value ? [...gridEl.value.querySelectorAll('.task')] : [], n + 1, PAGE_SIZE);
+      }
     }
     function autoLoadMore() {
       if (!started || PAGE_MODE === 'page' || !hasMore() || loadFailed()) return;
@@ -1441,7 +1432,7 @@ export default {
         return;
       }
       if (!window.Wb || !window.Api || !window.AssetLib || !window.AssetLocal || !window.Fav || !window.Chips) {
-        failed.value = '资产库依赖的公共模块没有就绪（workbench.js / assetlib.js）';
+        failed.value = '资产库依赖的公共模块没有就绪';
         if (window.PageReport) PageReport.pageFail('资产库', failed.value);
         return;
       }

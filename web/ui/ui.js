@@ -229,7 +229,7 @@
      各页真正不同的只有**芯片上写几段话**（那是它自己的数据）与**清掉之后各自重画什么**，
      所以公共层只收两件事：拼一颗带 ✕ 的芯片、把 ✕ 绑回调用方给的函数。 */
   const AiChip = {
-    CLEAR_TITLE: '清除 AI 结果，回到完整列表',
+    CLEAR_TITLE: '清除 AI 结果',
     /* 若干段话用「 · 」连起来；空串 / null / undefined 丢掉，不留下悬空的分隔符。 */
     text(bits) { return (bits || []).filter(Boolean).join(' · '); },
     /* 「AI 挑的 N 条（+ 它说的那句话）」—— 素材库与收藏这两页以前逐字抄过同一段。 */
@@ -401,7 +401,7 @@ window.PickSel = function PickSel(o) {
       setAnchor(arr, idx);
       if (picked.has(e)) picked.delete(e);
       else {
-        if (cap && picked.size >= cap) { note('最多选 ' + cap + ' 个（已选满，先取消一个再选）'); return; }
+        if (cap && picked.size >= cap) { note('已选满 ' + cap + ' 个，先取消一个再选'); return; }
         picked.add(e);
       }
       sync();                       // 只改选中态，不重建卡片（否则缩略图又闪一次）
@@ -420,7 +420,7 @@ window.PickSel = function PickSel(o) {
     prune(keep) { [...picked].forEach(e => { if (!keep.has(e)) picked.delete(e); }); },
     countText() {
       const room = total && cap && total > cap ? (' / 还能加 ' + cap) : (cap ? ' / ' + cap : '');
-      return cap ? ('已选 ' + picked.size + room + (picked.size >= cap ? '（已选满）' : ''))
+      return cap ? ('已选 ' + picked.size + room)
         : (picked.size ? '已选 ' + picked.size + ' 个' : '');
     },
   };
@@ -653,7 +653,7 @@ window.esc = function esc(s) {
            而 http 本机环境下 navigator.clipboard 本身就是 undefined（只判它等于「复制不了」）。 */
         if (await window.copyText(code.textContent)) {
           btn.textContent = '已复制'; setTimeout(() => { btn.textContent = '复制'; }, 1400);
-        } else Toast.show('浏览器不让直接复制，选中代码手动复制吧', 'warn');
+        } else Toast.show('浏览器不让直接复制，手动选中复制', 'warn');
       });
       pre.appendChild(btn);
     }
@@ -1151,8 +1151,8 @@ window.copyText = async function copyText(txt) {
   window.uploadStageText = function uploadStageText(stage, info, label) {
     const who = label || '素材';
     if (stage === 'fetch') return '正在取回' + who + '…';
-    if (stage === 'prepare') return '正在检查' + who + '音轨；无音轨时自动补静音，不改变画面…';
-    if (stage === 'prepared') return info ? who + '已补静音音轨，准备上传…' : who + '已有音轨，保持原文件上传…';
+    if (stage === 'prepare') return '正在检查' + who + '音轨…';
+    if (stage === 'prepared') return info ? who + '已补静音音轨…' : who + '已有音轨，原文件不变…';
     if (stage === 'intent') return '正在申请' + who + '上传地址…';
     if (stage === 'put') return '正在上传' + who + '…';
   if (stage === 'transfer') return '正在转存' + who + '…';
@@ -1371,38 +1371,28 @@ window.UI_PREFS = {
   ],
   rows: [
     { key: 'dir_palette', group: 'look', name: '主题配色', kind: 'seg', def: 'ocean', keep: 1,
-      opts: [['ocean', '海洋'], ['violet', '紫罗兰'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']],
-      hint: '只换强调色。' },
+      opts: [['ocean', '海洋'], ['violet', '紫罗兰'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']] },
     { key: 'dir_theme', group: 'look', name: '日间 / 夜间', kind: 'seg', def: 'light', keep: 1,
-      opts: [['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']],
-      hint: '跟随系统 = 按系统的深色设置。' },
-    { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool', keep: 1,
-      hint: '勾上 = 进页面就带出「图标 + 文字」那一列；点 logo 随时能收展。' },
-    { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool',
-      hint: '默认关（安静）：右上角只在出错与警告时弹。「已经做完了」「这里没有东西可做」这类不弹 —— ' +
-        '做完的事界面上看得见，一排绿色对勾会把真正该看的错误淹掉。' },
+      opts: [['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']] },
+    { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool', keep: 1 },
+    { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool' },
     { key: 'dir_asset_view', group: 'list', name: '资产库', kind: 'seg', def: 'list', keep: 1,
-      opts: window.VIEW_MODES,
-      hint: '只管默认摆法，页内还能换。' },
+      opts: window.VIEW_MODES },
     { key: 'dir_fav_view', group: 'list', name: '我的收藏', kind: 'seg', def: 'list', keep: 1,
       opts: window.VIEW_MODES },
     { key: 'sk_media_local', group: 'store', name: '产物自动存本机', kind: 'seg', def: 'on', keep: 1,
-      opts: [['on', '开'], ['off', '关']],
-      hint: '生成完存进本机资产库；各页产物也会自动存回。关掉只留平台外链，过期会裂图。' },
+      opts: [['on', '开'], ['off', '关']] },
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
-      opts: [['on', '开'], ['off', '关']],
-      hint: '开 = 读本机副本；关 = 直连平台地址。文件没了会回源。' },
+      opts: [['on', '开'], ['off', '关']] },
     /* 第三档依附前两档：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」，
        所以它只在两者都开着时才画出来（`needs` 由 settings.html 的渲染处现判），
        而**真生效**的判据在 assetlib.js 的 AssetLocal.localOnly —— 页面不许自己再拼一次「三个开关都开着」。
        键名刻意不叫 sk_media_local_only：SYNCABLE / EXPORTABLE 里有 'sk_media_local' 这一条**前缀**，
        那样起名会被它顺带命中（同一类的坑在下面的 NOT_SYNC 注释里点名过）。 */
     { key: 'sk_media_badge', group: 'store', name: '卡片显示「本机 / 云端」标识', kind: 'seg', def: 'on', keep: 1,
-      opts: [['on', '显示'], ['off', '不显示']],
-      hint: '卡上标出本机 / 云端，只影响显示。' },
+      opts: [['on', '显示'], ['off', '不显示']] },
     { key: 'sk_media_cloud_hide', group: 'store', name: '不显示云端任务', kind: 'bool', keep: 1,
-      needs: ['sk_media_local', 'sk_media_prefer'],
-      hint: '列表只留本机有的。在跑的与失败的不藏。要上面两项都开着。' },
+      needs: ['sk_media_local', 'sk_media_prefer'] },
   ],
   /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
      只有这一份读法，设置页判「该不该画」与别处判「生效没」都走它，别各自 getItem 一遍。 */
@@ -1587,6 +1577,9 @@ const LEGACY_KEYS = [
      挑过什么」，而「按上次那个跑」不是这一页该有的行为。chars.js 开页时那一句 `LS.del` 一起删 ——
      它每开一次页发一次不带 `nobak` 的 `DELETE /data/char_opts`，还挡不住下次 boot 从镜像恢复回来。 */
   'char_opts',
+  /* 提示词归档曾经单独存一格目录（`prompt_dir`）：现在归档固定是库根下的「提示词\」，
+     跟着设置页「本机资产库」那一个位置走，不再有第二个位置可存。 */
+  'prompt_dir',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

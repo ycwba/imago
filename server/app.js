@@ -8,6 +8,9 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
+/* 产品版本的唯一真相是 package.json：/sys-status 与 CHANGELOG 都从它派生，不另抄一份。
+   `代理.版本` 是供应商注册表版本（REGISTRY.version），两码事，不要混用。 */
+const APP_VERSION = require('../package.json').version;
 const os = require('os');
 const net = require('net');   // 只用来验 .env 里那个 BIND_HOST 是不是一个真的 IP 字面量
 /* 出站地址护栏（SSRF / DNS rebinding）已拆到 server/security.js；这里保持原有调用名。 */
@@ -671,7 +674,7 @@ function sysStatus(fresh) {
   _sysStatus = {
     ...live,
     at: Date.now(),
-    代理: { 版本: REGISTRY.version, 端口: PORT, 目录: ROOT, 进程: process.version },
+    代理: { 版本: REGISTRY.version, 产品版本: APP_VERSION, 端口: PORT, 目录: ROOT, 进程: process.version },
     目录: { 数据: dirState(dataDirPath()), 资产: dirState(localRoot()), 渲染: dirState(RENDER_DIR) },
   };
   return Promise.resolve(_sysStatus);
@@ -808,7 +811,7 @@ const dayPart = d => d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2
 const dirStamp = d => dayPart(d) + '_' + pad2(d.getHours()) + '-' + pad2(d.getMinutes()) + '-' + pad2(d.getSeconds());
 const timeText = d => dayPart(d) + ' ' + pad2(d.getHours()) + ':' + pad2(d.getMinutes()) + ':' + pad2(d.getSeconds());
 const promptsStore = createPromptsStore({
-  root: ROOT, log, readBody, localAssetEntry, fileSafe, dirStamp, timeText,
+  root: ROOT, localRoot, log, readBody, localAssetEntry, fileSafe, dirStamp, timeText,
 });
 const cloudStore = createCloudStore({
   log, anyRequest, guardOutboundUrl, readBody, dataDirPath, dataFileOf, dataList, dataWriteRaw,

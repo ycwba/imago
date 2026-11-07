@@ -219,8 +219,8 @@ export function createTimeline(E, document, window) {
     const st = toolState ? toolState() : {};
     return `<div class="tl-tools" id="tlTools">
       <div class="tl-tgroup">
-        ${tb('markers', 'flag', '标记条：展开 / 收起', markersOpen)}
-        <button type="button" class="tl-tb tl-tb-count${st.panelOn ? ' is-on' : ''}" data-tl="markers-panel" title="标记面板：全部标记、改类型与颜色">
+        ${tb('markers', 'flag', '标记条', markersOpen)}
+        <button type="button" class="tl-tb tl-tb-count${st.panelOn ? ' is-on' : ''}" data-tl="markers-panel" title="标记面板">
           ${icon('list', 15)}<span class="tl-badge" id="tlMarkerCount"${film.markers.length ? '' : ' hidden'}>${film.markers.length}</span>
         </button>
       </div>
@@ -238,8 +238,8 @@ export function createTimeline(E, document, window) {
       </div>
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
-        ${tb('snap', 'magnet', '吸附：拖动时贴到切点 / 标记 / 播放头', snapOn)}
-        ${tb('ripple', 'ripple', '波纹编辑：删除后后面的内容整体前移', rippleOn)}
+        ${tb('snap', 'magnet', '吸附', snapOn)}
+        ${tb('ripple', 'ripple', '波纹编辑', rippleOn)}
       </div>
       <div class="tl-tgroup tl-selgroup">
         <button type="button" class="tl-tb tl-selmode" data-tl="selmenu" title="选择工具">
@@ -249,7 +249,7 @@ export function createTimeline(E, document, window) {
           ${SEL_MODES.map(m => `<button type="button" class="tl-menu-row${m.id === mode ? ' is-on' : ''}" data-selmode="${m.id}" title="${esc(m.hint)}">${icon(m.icon, 14)}<span>${m.name}</span></button>`).join('')}
         </div>
       </div>
-      ${tb('link', 'link', '字幕与配音关联：全部接上 / 全部解除', st.linkOn)}
+      ${tb('link', 'link', '字幕与配音关联', st.linkOn)}
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
         <button type="button" class="tl-tb tl-play" data-tl="play" title="播放 / 暂停（空格）">${icon(playStateOf && playStateOf() ? 'pause' : 'play', 15)}</button>
@@ -261,10 +261,10 @@ export function createTimeline(E, document, window) {
       <span class="tl-grow"></span>
       <div class="tl-tgroup">
         ${tb('to-playhead', 'skipBack', '回到播放头')}
-        ${tb('zoom-out', 'minus', '缩小（视野更长）')}
+        ${tb('zoom-out', 'minus', '缩小')}
         <span class="tl-zoom" id="tlZoomVal" title="视野秒数：滚轮缩放">${tlZoomLabel(zoom)}</span>
-        ${tb('zoom-fit', 'expand', '自适应：整部铺满这一栏')}
-        ${tb('zoom-in', 'plus', '放大（视野更短）')}
+        ${tb('zoom-fit', 'expand', '整部铺满这一栏')}
+        ${tb('zoom-in', 'plus', '放大')}
       </div>
       <span class="tl-total" title="成片总长">${secText(deriveTimeline(film.clips).total)}</span>
     </div>`;
@@ -465,7 +465,7 @@ export function createTimeline(E, document, window) {
       if (!film.voices.length) body = '<span class="tl-lane-hint">配音会排在这一轨</span>';
     } else if (row.kind === 'caption') {
       body = row.items.map(cap => captionHTML(cap, pps, film, row.lane)).join('');
-      if (!film.captions.length) body = '<span class="tl-lane-hint">字幕会排在这一轨（按台词生成）</span>';
+      if (!film.captions.length) body = '<span class="tl-lane-hint">字幕会排在这一轨</span>';
     }
     return `<div class="${cls}" data-row="${row.key}" data-lane="${row.lane == null ? 0 : row.lane}">${body}</div>`;
   }
@@ -813,7 +813,7 @@ export function createTimeline(E, document, window) {
     if (btn) btn.innerHTML = `${icon(modeOf(mode).icon, 15)}<span class="tl-selmode-name">${modeOf(mode).name}</span>${icon('chevronDown', 12)}`;
     qsa('[data-selmode]').forEach(el => el.classList.toggle('is-on', el.getAttribute('data-selmode') === mode));
     if (toolAction) toolAction('mode', { mode });
-    if (setStatus) setStatus('选择工具：' + modeOf(mode).name + '。' + modeOf(mode).hint);
+    if (setStatus) setStatus('选择工具：' + modeOf(mode).name);
   }
   const modeNow = () => mode;
 

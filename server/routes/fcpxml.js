@@ -16,7 +16,7 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
-const { spawn } = require('child_process');
+const { openDir } = require('../open-dir.js');
 const { FCPXML_PROJECT_DIR } = require('../user-dirs.js');
 const { createZip } = require('../zip.js');
 const { renameWithRetry } = require('../fs-atomic.js');
@@ -338,16 +338,10 @@ async function handleReveal(req, res, ctx) {
   /* 库根是现读的：导出之后用户改了「设置 → 本机资产库」，老 id 就会在新根下找不到。
      只说「已被清理」会把人往错方向带，这里把两种原因一起点名。 */
   if (!st || !st.isDirectory()) throw httpError(404, '工程目录不在了：可能已被清理，或本机资产库位置改过；重新导出一次工程目录');
-  const cmd = process.platform === 'win32' ? 'explorer.exe'
-    : process.platform === 'darwin' ? 'open' : 'xdg-open';
   if (noSpawn()) { sendJson(res, 200, { ok: true, dir, dry: true }); return; }
-  try {
-    const p = spawn(cmd, [dir], { detached: true, stdio: 'ignore' });
-    p.on('error', () => {});
-    p.unref();
-  } catch (e) {
-    throw httpError(500, '打不开文件夹（' + ((e && e.message) || e) + '）：' + dir);
-  }
+  /* 打开目录走公共件（与提示词归档同一条路）：Windows 上由后台进程拉起的 explorer 会被
+     前台锁压在应用窗口后面 —— 那一层「再拽到前台」只在 server/open-dir.js 一处。 */
+  openDir(dir);
   sendJson(res, 200, { ok: true, dir });
 }
 

@@ -106,9 +106,8 @@ function resolveRoot() {
   }
   return resolvedRoot;
 }
-/* 默认库根（会做上面那一次性搬迁，一个进程只判一次）。 */
+/* 默认库根（会做上面那一次性搬迁，一个进程只判一次）。产物本体、提示词归档、FCPXML 工程
+   都从这一根派生（归档在它下面的 提示词\），所以这里不再单出一枚 promptsRoot。 */
 const downloadsRoot = () => resolveRoot();
-/* 归档第四类：成像\提示词（.md 归档不混进媒体堆） */
-const promptsRoot = () => path.join(downloadsRoot(), PROMPTS_DIR_NAME);
 
-module.exports = { systemDownloadsDir, downloadsRoot, promptsRoot, AUTOSAVE_TOP_DIR, PROMPTS_DIR_NAME, FCPXML_PROJECT_DIR };
+module.exports = { systemDownloadsDir, downloadsRoot, AUTOSAVE_TOP_DIR, PROMPTS_DIR_NAME, FCPXML_PROJECT_DIR };

@@ -298,6 +298,8 @@ const FAKES = {
   resolveSrc: () => (async u => String(u || 'https://example.com/src.mp4')),
   downloadTo: () => (async (url, file) => { if (file) fs.writeFileSync(String(file), 'probe'); return 5; }),
   /* --- 本机资产：索引 / 落盘全部指向探针目录，条目一律「查无此资产」 --- */
+  /* 库根：提示词归档的默认目录是它下面的「提示词\」，不指走就会去读用户真实成品目录。 */
+  localRoot: () => () => tmpDir('local'),
   localAssetFile: () => () => '',
   localAssetEntry: () => () => null,
   localEntryByUpstream: () => () => null,

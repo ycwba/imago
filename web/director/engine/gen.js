@@ -398,7 +398,7 @@ const shotHasVideo = sh => (sh.candidates || []).some(c => c && !['draft', 'fail
    已经有视频时点它是「开一条新镜头再来一版」，不再说「生成这一镜」。 */
 const genBtnLabel = sh => shotHasVideo(sh)
   ? '生成新候选镜头（' + (sh.draw || 1) + ' 条）'
-  : curDraftCand() ? '生成这条（1 条）' : '生成这一镜（' + (sh.draw || 1) + ' 条）';
+  : curDraftCand() ? '生成这条' : '生成这一镜（' + (sh.draw || 1) + ' 条）';
 /* 在当前场景这一镜之后原地开一条新镜头（「选中了有视频的镜头再点生成」用它）：
    整套配置照「复制镜头」那套深拷贝跟着走（提示词 / 画幅 / 模型 / 素材 / 画面切片，
    日后新加的字段也不会漏），候选与选用清空 —— 它是一条全新的提交，
@@ -717,7 +717,7 @@ async function genAllConfirm(plan, q) {
     body(el) {
       el.innerHTML = '<div class="dlg-line">将生成 <b>' + n + '</b> 镜'
         + (cands > n ? '（共 ' + cands + ' 条）' : '') + '。' + price + '</div>'
-        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交（等待不占并发名额）。</div>' : '')
+        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交。</div>' : '')
         + (q.unpriced ? '<div class="dlg-warn">另有 ' + q.unpriced + ' 镜报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '；它们照常生成，按平台实际结算。</div>' : '')
         + badHTML
         + '<div class="dlg-hint">报价为平台参数询价，不等于最终结算。</div>';

@@ -1217,9 +1217,9 @@
       人话: ['平台：' + (p.name || p.id) + '（' + p.id + '，' + window.provKindZh(p.kind) + '）',
         '型号：' + m.id + (m.name && m.name !== m.id ? '（' + m.name + '）' : ''),
         '提示词：' + cap(prompt, 400),
-        '参数：' + (参数行.length ? 参数行.join(' · ') : '（不额外指定，按型号默认）'),
-        '素材：' + (素材行.length ? 素材行.join('；') : '（纯文字生成，不带素材）'),
-        '之后：这一条会出现在「' + 页 + '」的任务列表里，本机不认领进度以外的东西'],
+        '参数：' + (参数行.length ? 参数行.join(' · ') : '（按型号默认）'),
+        '素材：' + (素材行.length ? 素材行.join('；') : '（纯文字生成）'),
+        '之后：会出现在「' + 页 + '」的任务列表里'],
       prov: p, model: m, params, prompt, inputs: ins, 钉,
     };
   }
@@ -1529,7 +1529,7 @@
         '位置：' + zoneOf(el),
         '现在：' + (现在 || '（空）'),
         '要填：' + (value ? cap(value, 200) : '（清空这一栏）'),
-        '之后：只是把内容填好，没有提交 —— 要生效请你自己按那颗按钮'],
+        '之后：只是填好，等你自己按按钮'],
       说: '只填不点：填完不会自动提交（提交/生成那一类按钮一律要用户自己按）' };
   }
   async function runFill(a, pin) {
@@ -1554,7 +1554,7 @@
       try { if (window.focusQuiet) window.focusQuiet(el); else el.focus(); } catch (e) {}
       if (typeof pin === 'function') pin();
       return { ok: true, text: '已经填好「' + cap(labelOf(el), 30) + '」：' + cap(value, 60)
-        + '（没有提交 —— 要生效请自己按那颗按钮）' };
+        + '（等你自己按提交按钮）' };
     } catch (e) {
       return { ok: false, text: '填不进去：' + errText(e) };
     }
@@ -1589,7 +1589,7 @@
       人话: ['按钮：' + cap(labelOf(el), 60),
         '位置：' + zoneOf(el),
         risky ? '注意：这是一件' + risky + '的事，可能会花钱或删掉本机数据 —— 真正点下去之前还会再问你一次'
-          : '之后：点完界面会自己重画；助手不会再替你点别的',
+          : '之后：点完界面会自己重画',
         '之后：点了之后发生了什么，你自己看一眼确认'],
       危险动作: risky || '',
       说: risky ? ('这一颗是「' + risky + '」类动作 —— 真执行前请再确认一次：它可能花钱或删掉本机数据')
@@ -1851,11 +1851,11 @@
       /* 四行格式各说各的落点：成片是浏览器内合成、工程目录落资产库、另两档交给浏览器下载。
          以前这里只用「有没有 project」二分，成片那一行会被说成 .fcpxml。 */
       人话: [f.assistant, f.kind === 'film'
-        ? '在这个浏览器里逐帧合成，写进「设置 → 导出目录」选的文件夹（没选就进系统下载）；不动工程数据'
+        ? '在这个浏览器里逐帧合成，写进「设置 → 导出目录」选的文件夹（没选就进系统下载）'
         : f.project
-          ? '在本机资产库下的 FCPXML工程/ 写一份摊开的工程（含 media/ 与 subtitles.srt），不启动剪辑软件'
-          : f.bundle ? '导出成带素材的 zip 交给浏览器下载；不动工程数据'
-            : '导出单个 .fcpxml 交给浏览器下载；不动工程数据'],
+          ? '在本机资产库下的 FCPXML工程/ 写一份摊开的工程（含 media/ 与 subtitles.srt）'
+          : f.bundle ? '导出成带素材的 zip 交给浏览器下载'
+            : '导出单个 .fcpxml 交给浏览器下载'],
       钉: null };
   }
   async function exportStartRun(a) {
@@ -1866,7 +1866,7 @@
   function exportSaveCheck(a) {
     const name = String((a && a.name) || '').trim();
     if (!name) return { err: '没说要存哪一份：给 name（export_list 里的文件名）' };
-    return { 说明: '把导出的那份复制进本机资产库', 人话: ['文件：' + cap(name, 120), '保存为新资产，不会删原文件，也没法撤销'], 钉: null };
+    return { 说明: '把导出的那份复制进本机资产库', 人话: ['文件：' + cap(name, 120), '保存为新资产，不可撤销'], 钉: null };
   }
   async function exportSaveRun(a) {
     const r = await dirRead('saveToAssets', a || {});
@@ -1896,7 +1896,7 @@
       check: chkChar, run: runChar,
     },
     remove_char: {
-      title: '从素材库删掉一条（要再确认一次）',
+      title: '从素材库删掉一条',
       arg: '{ "name": "名字", "kind": "可选：限actor|scene|prop" }',
       doc: '删掉素材库里的一条。会先说清这一条是什么、删掉会影响谁，再由用户确认',
       check: chkRemoveChar, run: runRemoveChar,

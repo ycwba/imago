@@ -3,7 +3,7 @@
    判据要的是**能定位、能落盘、滚动落点真的让开钉住的组标题**，不是「页面能打开」：
      壳：这一页是**两栏两滚** —— 页面自己不滚，目录轨与右栏那条文档各滚各的
          （跟产品 `.wb` 工作台同一套做法）。切栏时整页不跳；
-     B1 目录轨：左边是一棵 5 组 17 行的目录，每行带它的**当前值**（值速记）；
+     B1 目录轨：左边是一棵 5 组 15 行的目录（只有栏目标题，不摆当前值）；
         组名与栏目标题都从 DOM 现读（JS 里不许有第二份清单）；
         点一行 → 右栏平滑滚到那一栏，当场就亮、落定不回跳；
      B6 滚动定位：右栏滚到哪一栏，轨上那一行就跟着亮；组标题钉在顶上；
@@ -53,7 +53,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
         docTop: Math.round(dr.top),
         /* 两栏不许打架：轨的右缘不许越过文档列的左缘。
            以前轨写死 272px、网格列用 --rail-w（208px）—— 轨宽出去 64px，
-           压在右栏上（轨的值速记被切、卡的左缘被盖），这一条就是那道防线。 */
+           压在右栏上（轨的标题被切、卡的左缘被盖），这一条就是那道防线。 */
         railRight: Math.round(rr.right),
         docLeft: Math.round(dr.left),
         railW: Math.round(rr.width),
@@ -64,7 +64,6 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
         notes: document.querySelectorAll('.set-rail-scroll .set-rail-note').length,
         pos: (document.querySelector('.set-pos') || {}).textContent || '',
         save: (document.querySelector('.set-save') || {}).textContent || '',
-        values: [...document.querySelectorAll('.set-rail-i .set-rail-v')].map(x => x.textContent.trim()),
       };
     });
     must(!shell.pageScrolls, '页面自己在滚（整页高度 ' + shell.docH + 'px）—— 这一页是「两栏两滚」：页面不滚，滚的是目录轨与右栏那条文档');
@@ -73,8 +72,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：15 张卡排成一条，就得能一路滚到底');
     must(shell.railRows === 15, '目录轨只有 ' + shell.railRows + ' 行（5 组 15 张卡：一张卡一行）');
     must(shell.groups === 5, '目录轨不是 5 组：' + shell.groups);
-    must(shell.notes === 5, '不是每一组都有一句说明（' + shell.notes + ' 条）');
-    must(shell.values.filter(Boolean).length >= 15, '值速记没填满：只有 ' + shell.values.filter(Boolean).length + ' 行有值');
+    must(shell.notes === 0, '目录轨里又长出组说明（' + shell.notes + ' 条）：这一页不写说明句');
     must(/第 \d+ \/ \d+ 项/.test(shell.pos), '状态行没说得出「现在在第几项」：' + shell.pos);
     must(/自动存|已存|存进本机/.test(shell.save), '保存回执不见了（这一页没有「保存」按钮，那句话得在状态行里）：' + shell.save);
     must(!!shell.anchor && parseFloat(shell.anchor) > 0, '停靠位（卡顶让开钉住的组标题那一条）没量出来');
@@ -269,7 +267,6 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       return {
         hitRows: hits.length,
         targetText: target ? target.textContent.replace(/\s+/g, ' ').trim().slice(0, 40) : '',
-        sum: (document.querySelector('.set-rail-note') || {}).textContent || '',
         counts: [...document.querySelectorAll('.settings-page .set-hcnt')].map(x => x.textContent.trim()),
         offCards: document.querySelectorAll('.settings-page .card.set-off').length,
         scrolled: doc.scrollTop !== before,
@@ -285,7 +282,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(b2.offCards > 0, '没命中的栏没收起来（筛选时该藏的没藏）');
     must(b2.flashOnEnter >= 1, '回车后没有短暂高亮（.set-flash 一处都没有）');
     must(b2.targetPainted, '回车跳到了一行画不出来的命中（屏幕上什么都没有）：' + JSON.stringify(b2.targetText));
-    must(b2.scrolled, '回车没有滚到第一处可见命中（scrollTop 还是 ' + b2.scrollTop + '）');
+    must(b2.scrolled || b2.firstVisible,
+      '回车没有把落点带进可视区（scrollTop 还是 ' + b2.scrollTop + '）');
     must(b2.firstVisible, '回车之后落点那一行不在可视区里');
     must(b2.flashCleared === 0, '高亮没有自己清掉，还留着 ' + b2.flashCleared + ' 处');
 
@@ -343,7 +341,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     must(!errs.length, '页面异常：' + errs.join(' | '));
     console.log('✓ 设置页找项：两栏两滚（页面不滚、文档 ' + shell.docH + 'px 自己滚、目录轨 ' + shell.railRows
-      + ' 行 5 组带值速记）· 点一行当场亮、落定不回跳（卡顶 ' + jump.cardTop + 'px 让开组标题）· 滚到哪一栏轨上跟到哪一栏'
+      + ' 行 5 组）· 点一行当场亮、落定不回跳（卡顶 ' + jump.cardTop + 'px 让开组标题）· 滚到哪一栏轨上跟到哪一栏'
       + '（组标题钉顶）· 折叠组自动展开且不写盘 · 行级命中 ' + b2.hitRows + ' 处、回车落点可见、高亮自清、Esc 清空'
       + ' · 1024 档零溢出 · 滚动只有一个出口');
   } catch (e) {

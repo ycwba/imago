@@ -354,7 +354,7 @@
   .hist-row:hover { border-color: var(--acc); }
   /* 「当前生效的那一版」点亮 + 左边一道强调色（日志里一眼看出指针停在哪）。
      `.mark` 是流水记录（回退 / 重做）—— 它们也是一条记录，只是名字前面带一枚小标。 */
-  .hist-row.now { border-color: var(--acc); background: color-mix(in srgb, var(--acc) var(--a-10), var(--input)); }
+  .hist-row.now { border-color: var(--acc); background: var(--sel-bg); }
   .hist-row .hk { flex: none; font-size: var(--fs-11); color: var(--sub); padding: 0 var(--sp-4);
     border: var(--hair) solid var(--line); border-radius: var(--radius-4); }
   .hist-row.now .hk { color: var(--acc); border-color: var(--acc); }
@@ -473,8 +473,7 @@
   .cand-thumb.addcand .plusic { display: flex; }
   .cand-thumb.addcand .pt { font-size: var(--fs-12); }
   .cand-thumb.addcand .pd { font-size: var(--fs-11); opacity: .8; }
-  /* 候选条：翻页 / 展开那一簇**浮在右缘**（不再占排版宽度，缩略图能多用掉那一百多像素）。
-     底下垫一层从左到右的渐隐，滚到边缘的缩略图不会顶到按钮上。 */
+  /* 候选条：翻页 / 展开那一簇**浮在右缘**（不再占排版宽度，缩略图能多用掉那一百多像素）。 */
   .cand-strip { position: relative; display: flex; align-items: center; gap: var(--sp-12); padding: var(--sp-8) var(--sp-16); }
   .cand-strip .thumbs { display: flex; gap: var(--sp-8); flex: 1; min-width: 0;
     flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; padding-bottom: var(--sp-8); }
@@ -492,11 +491,14 @@
   .cand-pager { display: flex; align-items: center; gap: var(--sp-4); margin-left: auto; flex: 0 0 auto; }
   /* 展开 / 翻条 / 条数收成一簇紧凑图标：以前那颗「展开」带文字、四颗之间各留 8px，
      一条候选条右边被吃掉一百多像素（用户点名占地太多）。现在整簇浮在缩略图右缘，
-     两枚箭头夹着「1 / 2」，展开是同一簇最后那一颗。 */
+     两枚箭头夹着「1 / 2」，展开是同一簇最后那一颗。
+     底色必须是不透明的 --panel：强制夜间模式那类扩展逐条改写声明，声明里直接写
+     color-mix(…, transparent) 解析不了就整条跳过 —— 全页变黑、这一簇还是白的；
+     且缩略图从底下滚过，读数也不该由背后的像素决定。 */
   .cand-pager { position: absolute; right: var(--sp-8); top: 50%; transform: translateY(-50%); z-index: 3;
     display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: var(--sp-2) var(--sp-4);
     border: var(--hair) solid var(--line); border-radius: var(--radius-999);
-    background: color-mix(in srgb, var(--panel) var(--a-90), transparent); box-shadow: var(--shadow-1); }
+    background: var(--panel); box-shadow: var(--shadow-1); }
   .cand-pager .ghost { min-width: 24px; padding: 0 var(--sp-4); border: 0; background: none; }
   .cand-pager .ghost:hover { background: var(--input); }
   .cand-pager .cand-count { min-width: 34px; text-align: center; font-size: var(--fs-11); }
@@ -699,10 +701,15 @@
   #advBox { margin: 0 0 var(--sp-16); }
   #advBox .dur-range { width: 100%; accent-color: var(--pri); cursor: pointer; }
   #advBox .dur-num { display: flex; align-items: center; gap: var(--sp-8); min-width: 96px; }
+  /* 与同一张卡里的下拉、按钮取同一层底：这里以前只画一条 --line 描边，白卡上像一块凹格，
+     而紧挨着的「已开启」那排是凸的 —— 同一列控件的厚度得一致，所以描边改用 --shadow-ctl 里的
+     那一圈（border 让位给影，否则描边 + 影边叠成 2px）。 */
   #advBox .dur-num input[type="number"] { width: 100%; padding: var(--sp-8) var(--sp-8); background: var(--control-bg);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); text-align: center; font-size: var(--fs-13);
-    outline: none; transition: border-color var(--dur-120); }
-  #advBox .dur-num input[type="number"]:focus { border-color: var(--acc); }
+    border: var(--hair) solid transparent; border-radius: var(--radius-6); color: var(--txt); text-align: center; font-size: var(--fs-13);
+    box-shadow: var(--shadow-ctl); outline: none;
+    transition: border-color var(--dur-120), background var(--dur-120), box-shadow var(--dur-120); }
+  #advBox .dur-num input[type="number"]:hover:not(:focus) { background: var(--control-hover); }
+  #advBox .dur-num input[type="number"]:focus { border-color: var(--acc); box-shadow: var(--focus-shadow); }
   #advBox .dur-num input[type="number"]::-webkit-outer-spin-button,
   #advBox .dur-num input[type="number"]::-webkit-inner-spin-button { opacity: 1; }
   #advBox .dur-num span { font-size: var(--fs-12); color: var(--sub); white-space: nowrap; }
@@ -1065,7 +1072,7 @@
   .tl-board .tl-voice { position: absolute; top: var(--sp-4); bottom: var(--sp-4);
     border: var(--hair) solid color-mix(in srgb, var(--acc) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
-    background: color-mix(in srgb, var(--acc) var(--a-14), var(--panel));
+    background: var(--acc-soft);
     transition: border-color var(--dur-120), box-shadow var(--dur-120); }
   .tl-board .tl-voice:hover { border-color: color-mix(in srgb, var(--acc) var(--a-72), transparent); }
   .tl-board .tl-voice:active { cursor: grabbing; }
@@ -1126,7 +1133,7 @@
     border-radius: var(--radius-4); background: var(--panel); transform: rotate(45deg);
     box-shadow: var(--shadow-1); transition: border-color var(--dur-120), background var(--dur-120); }
   .tl-board .tl-junction:hover .tl-junction-dot { border-color: var(--acc);
-    background: color-mix(in srgb, var(--acc) var(--a-18), var(--panel)); }
+    background: var(--acc-soft); }
   .tl-board .tl-junction.has-tr .tl-junction-dot { border-color: var(--acc); background: var(--acc); }
 
   /* ---------------- 底部读数行 ---------------- */
@@ -1284,8 +1291,8 @@
   <div class="col col-left">
     <div class="left-head">
       <b>分镜 <span id="scCount">0</span></b>
-      <button class="script-btn sec" id="scriptEditBtn" title="剧本：每一镜的画面写成一份可编辑的稿子；台词不在这里，在剪辑右栏「台词」那一档改"><span data-icon="docTab" data-size="13"></span> 剧本</button>
-      <button class="script-btn" id="scriptBtn" title="AI 分镜：贴剧本拆一份新的 / 对着现有分镜说一句话让它改 / 接着往下拆"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
+      <button class="script-btn sec" id="scriptEditBtn" title="台词在剪辑右栏「台词」那一档改"><span data-icon="docTab" data-size="13"></span> 剧本</button>
+      <button class="script-btn" id="scriptBtn" title="AI 分镜：拆新的 / 改现有 / 接着往下拆"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
     </div>
     <div id="scenesBox"></div>
     <!-- 剪辑态左栏：历史编辑记录 + 素材入口（renderScenes 按剪辑模式翻显隐） -->

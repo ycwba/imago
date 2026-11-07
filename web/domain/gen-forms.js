@@ -994,8 +994,8 @@ window.TtsAdv = {
   wayWhy(way, o) {
     const d = o || {};
     if (!way || way.mode === 'none') return (way && way.why) || '这一家没有能直接合成的型号';
-    if (way.mode === 'design' && !String(d.design || '').trim()) return '「音色设计」型号要先写一段声音描述（这一档靠描述定音色）';
-    if (way.mode === 'clone' && !d.ref) return '「音色复刻」型号要先选一条参考音频（平台照它复刻音色）';
+    if (way.mode === 'design' && !String(d.design || '').trim()) return '「音色设计」型号要先写一段声音描述';
+    if (way.mode === 'clone' && !d.ref) return '「音色复刻」型号要先选一条参考音频';
     return '';
   },
 };
@@ -1121,7 +1121,7 @@ window.VoiceNote = {
     const got = await window.AssetPicker.open({
       types: ['音频'], multiple: false, limit: 1, upload: false, chars: 'audio',
       title: '拿哪一位的声音来克隆',
-      note: '这里列的是素材库里挂着参考音频的那些位；挑一位，用他挂着的这段当这一位的嗓子。',
+      note: '挑一位，用他挂着的这段当这一位的嗓子。',
     });
     if (!got || !got.length) return null;
     const entry = (window.Chars && Chars.Lib && Chars.Lib.list() || [])
@@ -1135,7 +1135,7 @@ window.VoiceNote = {
     const got = await window.AssetPicker.open({
       types: ['音色描述'], multiple: false, limit: 1, upload: false, chars: 'note',
       title: window.VoiceNote.TITLE,
-      note: '这里列的是素材库里写过音色描述的那些位；挑一位，把它身上那段话填进上面那一格。',
+      note: '挑一位，把它身上那段话填进上面那一格。',
     });
     if (!got || !got.length) return;
     const t = String(got[0].text || '').trim();

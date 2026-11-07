@@ -31,10 +31,10 @@ export function createCrossCol(d) {
       const ok = await confirm.ask({
         title: '替换左栏正在写的提示词？',
         body: '图像栏里已经有 ' + draft.length + ' 字，这一句是 ' + text.length + ' 字，替换后原来那句就不在了。'
-          + '生成不会自动开始 —— 替换完还要你自己点「生成」。',
+          + '替换完还要你自己点「生成」。',
         okLabel: '替换', cancelLabel: '留着我现在写的', danger: true,
       });
-      if (!ok) { setStatus('<span class="warn">已取消：图像栏的提示词一个字没动</span>'); return; }
+      if (!ok) { setStatus('<span class="warn">已取消</span>'); return; }
     }
     if (type() !== 'image') setType('image', true);
     $('prompt').value = text;
@@ -153,7 +153,7 @@ export function createCrossCol(d) {
             + '清空这一栏，再把这次要带的 ' + Math.min(cap, imgs.length) + ' 张放进去？',
           okLabel: '清空再放', cancelLabel: '不动视频栏', danger: true,
         });
-        if (!ok) { setStatus('<span class="warn">已取消：视频栏一个字没动</span>'); return; }
+        if (!ok) { setStatus('<span class="warn">已取消</span>'); return; }
         clearSlot('image');
       } else if (room < imgs.length) {
         const ok = await confirm.ask({
@@ -162,7 +162,7 @@ export function createCrossCol(d) {
             + ' 张，其余 ' + (imgs.length - room) + ' 张这次不带。',
           okLabel: '就带 ' + room + ' 张', cancelLabel: '先不动',
         });
-        if (!ok) { setStatus('<span class="warn">已取消：视频栏一个字没动</span>'); return; }
+        if (!ok) { setStatus('<span class="warn">已取消</span>'); return; }
       }
     } else {
       const why = blocked ? '「' + LBL + '」与已选素材互斥' : '当前型号没有「' + LBL + '」这个入口';
@@ -183,7 +183,7 @@ export function createCrossCol(d) {
       const go = await confirm.choose({
         title: why, sub: '要带走 ' + imgs.length + ' 张图片', options: opts, cancelLabel: '先不动',
       });
-      if (!go) { setStatus('<span class="warn">已取消：视频栏一个字没动</span>'); return; }
+      if (!go) { setStatus('<span class="warn">已取消</span>'); return; }
       if (go === 'model') {
         $('model').value = alt.p.id + '::' + alt.m.id;
         $('model').dispatchEvent(new Event('change'));

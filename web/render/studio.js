@@ -11,10 +11,12 @@ return (_openBlock(), _createElementBlock("div", _hoisted_1, [
 _createCommentVNode(" 统一页头（全站唯一一份 .phead）：这一页以前标题缩在左栏顶部、字号还独一份，\n           左栏一滚标题就跟着走了。现在提到全宽顶排，左栏顶部让给类型切换与型号下拉。 "),
 _cache[0] || (_cache[0] = _createStaticVNode("<header class=\"phead\"><div class=\"phead-id\"><h1 class=\"phead-h1\">工作台</h1></div><span class=\"phead-sub\"></span><div class=\"phead-acts\"></div></header>", 1)),
 _cache[1] || (_cache[1] = _createElementVNode("div", { class: "layout" }, [
+_createCommentVNode(" 左栏分三段：**正文一段滚**（.wb-body）+ **底部生成区钉住**（.wb-dock）。\n             以前整栏是一只滚动容器，生成按钮跟在内容最后 —— 提示词长、参考素材多的时候，\n             用户得把整栏滚到底才够得着按钮；窗口一高，内容又撑不满、按钮浮在半空、下面一大片空白。\n             现在与导演台右栏同一副：栏自己不滚，滚的只是正文，按钮永远贴在这一栏的底边。 "),
 _createElementVNode("div", {
 class: "col-left",
 "data-r": "leftCol"
 }, [
+_createElementVNode("div", { class: "wb-body" }, [
 _createElementVNode("div", { class: "st-top" }, [
 _createElementVNode("div", {
 class: "ui-seg",
@@ -44,7 +46,7 @@ class: "prompt-hint",
 hidden: ""
 }),
 _createElementVNode("div", { class: "btn-row" }, [
-_createCommentVNode(" 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                   模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
+_createCommentVNode(" 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                     模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
 _createElementVNode("span", {
 class: "btn-host",
 "data-r": "polishHost"
@@ -57,8 +59,7 @@ _createCommentVNode(" 视频栏与图像栏之间的单向传送：这一颗只�
 _createElementVNode("button", {
 class: "ghost",
 type: "button",
-"data-r": "toImageBtn",
-title: "把这段提示词填进图像栏"
+"data-r": "toImageBtn"
 }, [
 _createElementVNode("span", {
 class: "ic",
@@ -94,14 +95,14 @@ _createElementVNode("div", { class: "pinl-hd" }, [
 _createElementVNode("span", { class: "pinl-tt" }, "拆分片段生成"),
 _createElementVNode("span", { class: "pinl-note" }, "每张独立计费。")
 ]),
-_createCommentVNode(" 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层\n                   window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，\n                   这里只留一块空宿主，页面挂载时灌进去。 "),
+_createCommentVNode(" 那一排选项（张数 / 拆分维度 / 自定义，连「开始规划」与「取消」）由公共层\n                     window.SplitPlan 画 —— 导演台右栏的「画面切片规划」用的是同一一份，\n                     这里只留一块空宿主，页面挂载时灌进去。 "),
 _createElementVNode("div", { "data-r": "splitOpts" }),
 _createElementVNode("label", { class: "fill-video-row" }, [
 _createElementVNode("input", {
 type: "checkbox",
 "data-r": "splitFillVideo"
 }),
-_createElementVNode("span", null, "生成后填入视频栏参考素材（生成完自动就位）")
+_createElementVNode("span", null, "生成后填入视频栏参考素材")
 ])
 ]),
 _createElementVNode("div", {
@@ -188,6 +189,12 @@ class: "hint",
 style: {"font-size":"var(--fs-12)","color":"var(--sub)","margin-top":"var(--sp-8)"}
 })
 ]),
+_createCommentVNode(" 原始请求（预览 / 实发）跟着正文滚：它是一份可以展开的老长的 JSON，\n                 钉在底栏里一展开就把按钮挤走。它预览的又是「上面这些参数将要发什么」，\n                 放在正文末尾比放在按钮下面更贴它的意思。 "),
+_createElementVNode("div", { "data-raw-host": "" })
+]),
+_createCommentVNode(" /.wb-body "),
+_createCommentVNode(" 钉底那一段：估价 · 生成按钮 · 不可用原因 · 状态行 · 余额 / 重复提交提示。\n               只放「点下去之前要看、点完之后要读」的东西；它自己不滚，正文滚到尽头接在分隔线下面。 "),
+_createElementVNode("div", { class: "wb-dock" }, [
 _createElementVNode("div", { class: "costbar" }, [
 _createElementVNode("span", { "data-r": "costTxt" }, "估价中…"),
 _createElementVNode("span", {
@@ -205,7 +212,6 @@ class: "hint",
 "data-r": "goWhy"
 }),
 _createElementVNode("div", { "data-r": "status" }),
-_createElementVNode("div", { "data-raw-host": "" }),
 _createElementVNode("div", {
 "data-r": "balTip",
 hidden: ""
@@ -215,6 +221,7 @@ class: "hint",
 "data-r": "pendingHint",
 style: {"display":"none","font-size":"var(--fs-12)","margin-top":"var(--sp-8)"}
 })
+])
 ]),
 _createElementVNode("div", { class: "col-right" }, [
 _createCommentVNode(" 类型选择这一排在**上面**：下面那一排是搜索与「多选 / 刷新」这些动作，\n               筛选压在它们下面时，用户要先越过一排按钮才看见「按类型筛」；\n               资产库那一页也是这个次序（筛选在前、动作在后），两页次序一致。\n               这一排只有类型档：历史不按时间裁，也就不再有「最近 30 天 / 查看全部」那一档。 "),
@@ -247,8 +254,7 @@ _createTextVNode(" 多选")
 ]),
 _createElementVNode("button", {
 class: "ghost",
-"data-r": "sync",
-title: "重新取回列表"
+"data-r": "sync"
 }, [
 _createElementVNode("span", {
 "data-icon": "refresh",

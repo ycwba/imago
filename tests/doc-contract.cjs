@@ -146,7 +146,28 @@ ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
 /* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
    文档里的条数也得跟着改 ——「文档不许说谎」。 */
-ok(nE2e === 53, 'e2e 应为 53 条，实际 ' + nE2e);
+ok(nE2e === 54, 'e2e 应为 54 条，实际 ' + nE2e);
+
+/* ---------- 版本与清单：README / CHANGELOG 不许与代码漂移 ----------
+   和上面那几档同一个立场：只盯「能对着代码数出来」的陈述。 */
+const pkg = JSON.parse(read('package.json'));
+const readme = read('README.md');
+const routesSrc = read('web/core/routes.js');
+/* 路由表每页一行，行长这样：{ file: 'director.html', ... }；别名表里的 'app.html' 不是这一族。 */
+const nRoutes = (routesSrc.match(/\{\s*file:\s*'/g) || []).length;
+ok(nRoutes > 0 && new RegExp('共\\s*' + nRoutes + '\\s*条').test(readme),
+  'README 的页面数与路由表条数不一致（路由表 ' + nRoutes + ' 条）');
+const mentioned = new Set([...readme.matchAll(/npm run ([a-z][a-z0-9:_-]*)/g)].map(m => m[1]));
+for (const s of Object.keys(pkg.scripts)) ok(mentioned.has(s), 'README 的 scripts 清单少了 npm run ' + s);
+for (const m of mentioned) ok(pkg.scripts[m] !== undefined, 'README 写了不存在的命令 npm run ' + m);
+const changelogPath = path.join(ROOT, 'CHANGELOG.md');
+ok(fs.existsSync(changelogPath), 'CHANGELOG.md 不存在');
+if (fs.existsSync(changelogPath)) {
+  const first = /^##\s+(\d+\.\d+\.\d+)\s/m.exec(fs.readFileSync(changelogPath, 'utf8'));
+  ok(!!first && first[1] === pkg.version,
+    'CHANGELOG 最新版本与 package.json 的 version 不一致（'
+    + (first ? first[1] : '没有版本标题') + ' / ' + pkg.version + '）');
+}
 
 /* ---------- 文档里的远端地址必须与实际远端一致 ----------
    远端**别名**随克隆而异（本机叫 origin、另一份工作副本叫 github），

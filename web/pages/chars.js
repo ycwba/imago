@@ -307,8 +307,8 @@ export default {
         done++;
         paintCard(c);
       });
-      if (done) Toast.receipt('取回了 ' + done + ' 条上次没等完的出图（切页之前发出去的，任务一直在平台上跑）', 'ok', 6000);
-      if (lost) Toast.warn('有 ' + lost + ' 条上次的出图没取回来（平台可能已经清了那条任务），在编辑区里重出一次即可', 8000);
+      if (done) Toast.receipt('取回了 ' + done + ' 条上次没等完的出图', 'ok', 6000);
+      if (lost) Toast.warn('有 ' + lost + ' 条上次的出图没取回来，在编辑区里重出一次', 8000);
     }
 
     function queueFieldSave(c) {
@@ -321,7 +321,7 @@ export default {
     const CANDK = { face: candK('预览图'), img: candK('场景图'), prop: candK('道具图') };
 
     async function genRun(kind, id, c, msg, fn, quiet, label) {
-      if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中，好了会自动出现，不用再点一次'); return false; }
+      if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中'); return false; }
       genSet(kind, id, msg); errSet(kind, id, ''); paintCard(c);
       const prevPend = curPend;
       curPend = { key: kind + '#' + id, kind: kind, id: id, label: label || '' };
@@ -353,9 +353,9 @@ export default {
       const thumb = vo
         ? `<div class="mthumb mph-empty card-shell-media"><div class="none">${icon('mic', 32)}<b>只出声</b></div></div>`
         : `<div class="mthumb${isScene(c) ? ' mph-scene' : ''} card-shell-media"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'edit'}"`} title="${faceBusy
-          ? '正在出' + esc(pw) + '：出来会自动换上'
-          : pic ? pw + '：点一下看大图'
-            : '还没有' + pw + '：点这里打开详情，挑一张或让 AI 出一张'}">
+          ? '正在出' + esc(pw)
+          : pic ? pw
+            : '还没有' + pw}">
           ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
             : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="出图优先用它">锚点</span>' : '')
               : `<div class="none">${icon(kindIcon, 32)}<b>暂无${esc(pw)}</b></div>`}
@@ -365,11 +365,11 @@ export default {
       const kindLab = D.LIB_KINDS[D.libKindOf(c)] || '';
       const acts = window.Wb.actsHTML(c, {
         items: [
-          { act: 'edit', icon: 'pencil', label: '编辑', title: '打开这一条的详情：改描述、出图、配声音' },
+          { act: 'edit', icon: 'pencil', label: '编辑', title: '打开这一条的详情' },
           { act: 'del', icon: 'trash', label: '删除', danger: true },
         ].filter(Boolean),
       });
-      return `${multi.value ? `<div class="pick${pickedNow ? ' on' : ''}" title="勾选后批量补缺 / 分组 / 删除">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
+      return `${multi.value ? `<div class="pick${pickedNow ? ' on' : ''}" title="勾选这一条">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
         <div class="mbody card-shell-body">
           <div class="mmeta"><span class="mkind">${icon(kindIcon, 12)}${esc(kindLab)}</span>
             <span class="mgroup">${esc(c.group || '未分组')}</span></div>
@@ -387,7 +387,7 @@ export default {
         return '<div class="mbody card-shell-body"><div class="mrow"><span class="mname">这一条画不出来</span></div>'
           + '<div class="ui-hint">' + esc((c && c.name) || '（这一条没有名字）') + '：'
           + esc(errText(e))
-          + '<br>其余条目不受影响；这一条的数据还在库里，刷新一下再看看。</div></div>';
+          + '<br>这一条的数据还在库里。</div></div>';
       }
     }
 
@@ -765,11 +765,11 @@ export default {
     const batchTts = () => BATCH.ttsModel || defTtsModel();
     async function batchFillPics() {
       const items = selectedItems().filter(c => !D.voiceOnlyOf(c) && !D.picOf(c));
-      if (!items.length) return Toast.warn('选中的素材都不缺预览图：没有要补的');
+      if (!items.length) return Toast.warn('选中的素材都已有预览图');
       if (!REG || !D.Pipe.pickProvModel(REG, 'image', batchModel(), 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在批量条上挑一个型号');
       if (!await window.Confirm.ask({
         title: '给选中的 ' + items.length + ' 条补预览图',
-        body: '逐条生图，会花钱；已发出的收不回。'
+        body: '会花钱；已发出的收不回。'
           + '用的型号：' + (modelLabel('image', 'text_to_image', batchModel()) || '（没有可用平台）') + '。',
         okLabel: '开始补图',
       })) return;
@@ -777,35 +777,34 @@ export default {
         const ok = await genRun('face', c.id, c, '', hook => D.Pipe.drawPreview(REG, fakeDrama(batchModel()), c, { count: ONE, onTask: hook }), true);
         if (!ok) throw new Error('这一条没出成');
       });
-      Toast[(r.fails ? 'warn' : 'ok')]('补预览图：' + r.done + ' 条处理完' + (r.fails ? '，' + r.fails + ' 条没成（原因留在各自卡片上）' : ''), 7000);
+      Toast[(r.fails ? 'warn' : 'ok')]('补预览图：' + r.done + ' 条处理完' + (r.fails ? '，' + r.fails + ' 条没成' : ''), 7000);
     }
     async function batchFillAssets() {
       const items = selectedItems().filter(c => !isProp(c) && !isScene(c) && !D.voiceOnlyOf(c) && D.Cast.assetTplsOf(c).length && !D.Cast.assetsOf(c).length);
-      if (!items.length) return Toast.warn('选中的角色都不缺角色资产：没有要补的');
+      if (!items.length) return Toast.warn('选中的角色都已有角色资产');
       if (!REG || !D.Pipe.pickProvModel(REG, 'image', batchModel(), 'text_to_image')) return Toast.err('现在没有可用的生图平台：去设置页配一把密钥，或在批量条上挑一个型号');
       if (!await window.Confirm.ask({
         title: '给选中的 ' + items.length + ' 位补角色资产',
-        body: '每位发一次生图请求，出一张三视图（会拿身份锚点 / 预览图当参考）；会花钱。没有预览图的会跳过并写清原因。'
+        body: '每位出一张三视图，会花钱；没有预览图的跳过。'
           + '用的型号：' + (modelLabel('image', 'text_to_image', batchModel()) || '（没有可用平台）') + '。',
         okLabel: '开始补资产',
       })) return;
       const r = await batchRun('补角色资产', items, async c => {
-        if (!D.picOf(c)) { errSet('asset#three', c.id, '预览图还没出：三视图要照着它画，这一步跳过了'); paintCard(c); throw new Error('没有预览图'); }
+        if (!D.picOf(c)) { errSet('asset#three', c.id, '预览图还没出，这一步跳过了'); paintCard(c); throw new Error('没有预览图'); }
         const ok = await genRun('asset#three', c.id, c, '', hook => D.Pipe.drawCharAsset(REG, fakeDrama(batchModel()), c, 'three', { count: ONE, onTask: hook }), true);
         if (!ok) throw new Error('这一位没出成');
       });
-      Toast[(r.fails ? 'warn' : 'ok')]('补角色资产：' + r.done + ' 位处理完' + (r.fails ? '，' + r.fails + ' 位没成（原因留在各自卡片上）' : ''), 7000);
+      Toast[(r.fails ? 'warn' : 'ok')]('补角色资产：' + r.done + ' 位处理完' + (r.fails ? '，' + r.fails + ' 位没成' : ''), 7000);
     }
     async function batchFillVoices() {
-      if (!REG) return Toast.err('平台能力声明还没读回来，等这一页加载完再试');
+      if (!REG) return Toast.err('能力声明还没读回来，稍后再试');
       const vo = optsWith(batchTts());
       const items = selectedItems().filter(c => voiced(c) && !D.Cast.voiceReady(REG, vo, c).ok);
-      if (!items.length) return Toast.warn('选中的角色都不缺声音配置：没有要补的');
+      if (!items.length) return Toast.warn('选中的角色都已有声音配置');
       if (!window.TextAI) return Toast.err('文字 AI 模块还没加载');
       if (!await window.Confirm.ask({
         title: '让 AI 给选中的 ' + items.length + ' 位定声音',
-        body: '逐位按人设写一段音色描述 / 选一个音色（调用文字 AI，会消耗 tokens；不会合成音频，也不会上传素材）。'
-          + '定好之后自动落盘，之后在编辑区随时能改或试听。'
+        body: '逐位按人设写一段音色描述 / 选一个音色（调用文字 AI，会消耗 tokens）。'
           + '用的语音平台：' + (modelLabel('audio', 'text_to_speech', batchTts()) || '（没有可用平台）') + '。',
         okLabel: '开始定声音',
       })) return;
@@ -816,17 +815,17 @@ export default {
         libSave(c);
         paintCard(c);
       });
-      Toast[(r.fails ? 'warn' : 'ok')]('AI 定声音：' + (r.done - r.fails) + ' 位定好' + (r.fails ? '，' + r.fails + ' 位没成（原因留在各自卡片上）' : ''), 7000);
+      Toast[(r.fails ? 'warn' : 'ok')]('AI 定声音：' + (r.done - r.fails) + ' 位定好' + (r.fails ? '，' + r.fails + ' 位没成' : ''), 7000);
     }
     async function batchSetGroup() {
       const items = selectedItems();
-      if (!items.length) return Toast.warn('先勾几条素材再点这一颗');
+      if (!items.length) return Toast.warn('先勾几条素材');
       const g = String(batchGroup.value || '').trim().slice(0, 20);
       /* 留空是「清空分组」而不是「不修改」：一屏几十条的分组归属一次全没，
          而界面看起来只是用户点了一下按钮 —— 这一种必须先用一句话确认。 */
       if (!g && !await window.Confirm.ask({
         title: '清掉选中的 ' + items.length + ' 条的分组',
-        body: '这几条会变成「未分组」（素材本身不删，分组之外的一切不受影响）。要只是改某一条的分组，取消后在它的卡片里改。',
+        body: '这几条会变成「未分组」。',
         okLabel: '清空分组', danger: true,
       })) return;
       for (const c of items) { c.group = g; libSave(c); }
@@ -835,12 +834,12 @@ export default {
     }
     async function batchRemove() {
       const items = selectedItems();
-      if (!items.length) return Toast.warn('先勾几条素材再点这一颗');
+      if (!items.length) return Toast.warn('先勾几条素材');
       const busy = items.filter(c => genOn(c));
       if (busy.length) return Toast.err('有 ' + busy.length + ' 条正在生成（' + busy.map(c => c.name).slice(0, 3).join('、') + '），等它们跑完再删', 7000);
       if (!await window.Confirm.ask({
         title: '删掉选中的 ' + items.length + ' 条素材',
-        body: '会从素材库里删掉这几条（本机存的参考音频一起删）；导演台里已经写下的 @名字 不会自动清理，改好的镜头不受影响。',
+        body: '会从素材库里删掉这几条，本机存的参考音频一起删。',
         okLabel: '删掉', danger: true,
       })) return;
       let ok = 0;
@@ -875,7 +874,7 @@ export default {
           const min = Math.min(w, h), ratio = w / h;
           let level = 'good', why = '短边 ' + min + 'px，做身份参考够用';
           if (min < 512) { level = 'low'; why = '短边只有 ' + min + 'px：脸会糊，建议换一张更大的正脸'; }
-          else if (min < 768) { level = 'ok'; why = '短边 ' + min + 'px，能用；再大一点更像本人'; }
+          else if (min < 768) { level = 'ok'; why = '短边 ' + min + 'px，能用'; }
           if (ratio > 2.2 || ratio < 0.45) {
             if (level === 'good') level = 'ok';
             why += '；长宽比 ' + ratio.toFixed(2) + '，人物可能被裁得很小';
@@ -960,8 +959,8 @@ export default {
       /* 「从库里删掉」：这一条从素材库消失（本机存的参考音频一起删）。 */
       del: async (c, el) => {
         const busy = genOn(c);
-        if (busy) return Toast.err('这一条正有一项在生成（' + errLabel(busy, c) + '），等它跑完再删 —— 现在删掉，那一轮收尾会把它写回库里');
-        if (window.Confirm.arm(el, '确认删掉', { note: '本机存的参考音频一起删；导演台里已经写下的 @名字 不会自动清理，改好的镜头不受影响' })) return;
+        if (busy) return Toast.err('这一条正有一项在生成（' + errLabel(busy, c) + '），等它跑完再删');
+        if (window.Confirm.arm(el, '确认删掉', { note: '本机存的参考音频一起删' })) return;
         if (c.refAudio) await D.Pipe.clearRefAudio(c);
         const gone = D.Lib.remove(c.id);
         const e = D.Lib.writeError();
@@ -1048,7 +1047,7 @@ export default {
         const to = c.kind;
         if (D.Lib.list().some(x => x && x.id !== c.id && x.name === c.name && D.libKindOf(x) === to)) {
           c.kind = wasKind; el.value = wasKind;
-          Toast.err('素材库里已经有「' + c.name + '」这条' + (D.LIB_KINDS[to] || '同类') + '了：换成这一类就是两条一样的素材。先把名字改掉再换类型', 7000);
+          Toast.err('素材库里已经有「' + c.name + '」这条' + (D.LIB_KINDS[to] || '同类') + '：先把名字改掉再换类型', 7000);
           return k;
         }
       }
@@ -1057,7 +1056,7 @@ export default {
         if (n) {
           const ok = await window.Confirm.ask({
             title: '这个名字有 ' + n + ' 处引用',
-            body: '导演台里有 ' + n + ' 个镜头的提示词写着 @' + nameBefore + '。改名后会按 id 自动把那 ' + n + ' 处刷成 @' + String(c.name || '').trim() + '（refMeta.id 不动，引用不断）。仍然改吗？',
+            body: '导演台里有 ' + n + ' 个镜头写着 @' + nameBefore + '，改名会把那 ' + n + ' 处一起刷成 @' + String(c.name || '').trim() + '。仍然改吗？',
             okLabel: '改名并回填',
           });
           if (!ok) { c.name = nameBefore; el.value = nameBefore; queueHeads(c); return k; }
@@ -1473,7 +1472,7 @@ export default {
       }
       D = window.Chars;
       if (!window.Wb || !D || !window.Api || !window.Chips || !window.AssetLocal || !window.AssetPicker) {
-        failed.value = '素材库依赖的公共模块没有就绪（workbench.js / chars.js / assetlib.js）';
+        failed.value = '素材库依赖的公共模块没有就绪';
         if (window.PageReport) PageReport.pageFail('素材库', failed.value);
         return;
       }

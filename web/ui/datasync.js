@@ -1,6 +1,9 @@
 /* DataSync — 与本地代理的数据文件同步（信封 ts、体积 + 逐字节对账、突发写合并、整包备份）。
    从 web/ui/ui.js 拆出；依赖 Store / Kv / Net / Toast，加载顺序在这四个之后。 */
 (function () {
+  /* 整包备份的格式版本：导出写它、导入只认它。形状变了就升这一枚并在 importAll 里加一次
+     用户数据的搬迁；旧形状的包一律拒绝，不做「读不到就当旧版」的双读。 */
+  const PACK_VERSION = 1;
   /* 界面偏好那一批键名只由 ui.js 的 UI_PREFS 给（这张表同时被设置页渲染与助手白名单读），
      这里拿不到就当空表：宁可这几项这次不同步，也不让 DataSync 整块挂掉。顺序判据在 tests/settings-schema.cjs。 */
   const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
@@ -30,7 +33,7 @@
        以前只存浏览器本地 → 换台机器（或清一次浏览器数据）栏宽和视图全丢，
        而它们和 dir_theme 一样属于「用户调出来的界面」，该跟着数据文件走。
        刻意不写整个 'dir_' 前缀：dir_img / dir_video / dir_audio / dir_render 是**本机磁盘路径**，
-       换台机器就不成立（和 prompt_dir 同理，见下面的注释）。 */
+       换台机器就不成立。 */
     'wb_split', 'dir_split', 'dir_cand_expand', 'dir_muted', 'sb_bal_show',
     /* 产物镜像的「存哪 / 读哪 / 标识」开关：以前这一行是 UI_PREFS 的手抄第三份，
        抄漏的 sb_open 与 sk_media_badge 换台机器就回到默认档 —— 整批改由下面那张表带出来。 */
@@ -50,7 +53,7 @@
        只存问答正文（上限 60 条），工具查出来的东西不落盘 —— 那是随时能重查的。 */
     'ai_chat',
     /* 注意：提示词不再进 localStorage，改存归档文件夹（PromptLog → /prompts），
-       归档目录 prompt_dir 也刻意不在这里 —— 换台机器路径就不一样，跟着云同步反而添乱 */
+       归档位置是库根下的「提示词\」（跟着 sk_local_dir 那一格走），页面不再单独存目录键 */
   ];
   /* 前缀匹配会把「缓存」也算进来（audio_tasks_cache_v1 会被 audio_tasks 命中），所以再排一次。
      ai_chat_* 这几条是「'ai_chat' 这一条前缀顺带命中」的，必须在这里逐条点名排除（踩过：附件身份整包同步出网）：
@@ -195,7 +198,7 @@
           pending.set(k, { t: 0, body: payload, tries: n, failed: e.message, key: raw });
           if (!mirrorBroken) {
             mirrorBroken = true;
-            if (window.Toast) window.Toast.warn('本机已保存，但数据文件（.data/）没写成功：' + e.message + '（不影响使用，可稍后到「设置 → 数据与同步」重试）');
+            if (window.Toast) window.Toast.warn('本机已保存，但没落到数据文件：' + e.message + '（到「设置 → 数据与同步」重试）');
           }
         }
       }
@@ -488,22 +491,50 @@
       return enc;
     },
     async _idbRestore(dbName, storeName, rows) {
-      if (!await Kv.open(dbName, storeName).catch(() => null)) return 0;
-      if (!rows || !rows.length) return 0;
-      let n = 0;
-      for (const [k, v] of rows) {
+      const list = Array.isArray(rows) ? rows : [];
+      /* 开库都失败时，这一张表里的每一条都没写进去 —— 回执必须把这笔账报出来，不能只回 0 条。 */
+      if (!await Kv.open(dbName, storeName).catch(() => null)) return { ok: 0, failed: list.length };
+      let ok = 0, failed = 0;
+      for (const [k, v] of list) {
         let val = v;
         if (v && v.__blob) {
           try {
             val = new Blob([window.b64Bytes(v.b64)], { type: v.type || 'application/octet-stream' });
-          } catch { continue; }
+          } catch { failed++; continue; }
         }
         try {
           await Kv.put(dbName, storeName, k, val);
-          n++;
-        } catch (e) { console.warn('[DataSync] 写入 ' + k + ' 失败：', e.message); }
+          ok++;
+        } catch (e) { failed++; console.warn('[DataSync] 写入 ' + k + ' 失败：', e.message); }
       }
-      return n;
+      return { ok, failed };
+    },
+    /* 格式闸门：界面在弹确认框之前就调一次（免得让人读完摘要才被拒），写入口自己再调一次。
+       只认当前这一版 —— 更高版本的包里字段形状可能已经变了，硬读会把半份数据写进本机。 */
+    assertPack(pack) {
+      if (!pack || pack.type !== 'ai-workbench-backup') throw new Error('不是本工具导出的备份文件');
+      if (pack.version !== PACK_VERSION) {
+        throw new Error(pack.version > PACK_VERSION
+          ? '这份备份来自更新版本（v' + pack.version + '），请先升级再导入'
+          : '这份备份缺少可识别的格式版本');
+      }
+    },
+    /* 导入前的差异摘要（纯读，不写任何东西）。要说清两件容易被误会的事：
+       ① 导入是「覆盖备份里有的键」，不在备份里的当前数据不会被删；
+       ② 提示词归档同名不覆盖，那几份不会回来。 */
+    describePack(pack) {
+      const lsKeys = Object.keys(pack.localStorage || {});
+      const tables = Object.entries(pack.indexedDB || {});
+      const rows = tables.reduce((n, [, list]) => n + (Array.isArray(list) ? list.length : 0), 0);
+      const prompts = pack.prompts && Array.isArray(pack.prompts.files) ? pack.prompts.files.length : 0;
+      const inPack = new Set(lsKeys);
+      let kept = 0;
+      for (const k of this.localKeys()) if (!inPack.has(k) && window.LS.get(k) != null) kept++;
+      const text = '备份版本 v' + pack.version + '（导出于 ' + String(pack.ts || '未知时间').slice(0, 10) + '）：'
+        + '将覆盖本机设置与数据 ' + lsKeys.length + ' 项、本地文件 ' + rows + ' 条（' + tables.length + ' 张表）；'
+        + '提示词归档 ' + prompts + ' 份（同名不覆盖）；'
+        + '不在备份里的当前数据 ' + kept + ' 项会保留，不会被删。';
+      return { ls: lsKeys.length, tables: tables.length, rows, prompts, kept, text };
     },
     /* 导出整包。includeBlobs=false 时只带数据（体积小、够恢复设置与工作区）。
        includePrompts=true 时连提示词归档一起带 —— 归档是磁盘上的一堆 .md，
@@ -520,7 +551,7 @@
         if (rows.length) idb[t.db + '/' + t.store] = rows;
       }
       const pack = {
-        type: 'ai-workbench-backup', version: 1,
+        type: 'ai-workbench-backup', version: PACK_VERSION,
         ts: new Date().toISOString(), includeBlobs: !!includeBlobs,
         localStorage: ls, indexedDB: idb,
       };
@@ -538,14 +569,16 @@
     },
     /* 导入整包：localStorage 全量写回，IndexedDB 逐条写回。返回计数。 */
     async importAll(pack) {
-      if (!pack || pack.type !== 'ai-workbench-backup') throw new Error('不是本工具导出的备份文件');
-      let nLs = 0, nIdb = 0;
+      this.assertPack(pack);
+      let nLs = 0, nIdb = 0, failed = 0;
       for (const [k, v] of Object.entries(pack.localStorage || {})) {
-        try { localStorage.setItem(k, v); nLs++; } catch (e) { console.warn('[DataSync] 恢复 ' + k + ' 失败：', e.message); }
+        try { localStorage.setItem(k, v); nLs++; }
+        catch (e) { failed++; console.warn('[DataSync] 恢复 ' + k + ' 失败：', e.message); }
       }
       for (const [path, rows] of Object.entries(pack.indexedDB || {})) {
         const [dbName, storeName] = path.split('/');
-        nIdb += await this._idbRestore(dbName, storeName, rows);
+        const r = await this._idbRestore(dbName, storeName, rows);
+        nIdb += r.ok; failed += r.failed;
       }
       /* 归档恢复走代理写盘（浏览器写不了那个目录）。**一份也不覆盖**同名文件，
          代理那边会返回「本机已有同名」的数量 —— 报出来，让人知道少了几份。 */
@@ -557,7 +590,7 @@
           promptNote = r.message || ('恢复归档 ' + nPrompt + ' 份');
         } catch (e) { promptNote = '归档没恢复成：' + e.message; }
       }
-      return { localStorage: nLs, indexedDB: nIdb, prompts: nPrompt, promptNote };
+      return { localStorage: nLs, indexedDB: nIdb, prompts: nPrompt, promptNote, failed };
     },
   };
   /* 页面加载后自动对账一次；并顺手申请持久化存储（不需要用户手势）。

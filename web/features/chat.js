@@ -628,7 +628,7 @@
     /* 拦下时才说（说明为什么没换），而且说在抽屉里：切会话 / 新建 / 清空这三颗按钮都在抽屉上，
        右上角那条既压着抽屉标题，又离按钮半屏远。 */
     if (live || sending) { note('上一条还在写，先按「停止」', 'warn'); return false; }
-    if (pendingRun()) { note('还有一张没确认的卡片，先点「执行」或「取消」', 'warn'); return false; }
+    if (pendingRun()) { note('还有一张卡片等你处理', 'warn'); return false; }
     return true;
   }
   /* 返回**有没有真的切过去** —— 点一条之后要不要收起浮层看的就是这个：
@@ -647,7 +647,7 @@
   async function delSession(id) {
     const s = SESS.list.find(x => x.id === id);
     if (!s) return;
-    if (SESS.list.length <= 1) { note('至少留一个会话（要重来就点「新建」）', 'warn'); return; }
+    if (SESS.list.length <= 1) { note('至少留一个会话', 'warn'); return; }
     /* 删的正是当前这一段时，先把切会话那两条闸走一遍：删完要把 SESS.cur 换掉并 bind()，
        正在写的时候等于是「切走」，剩下的字会落进另一段。删别的段不受影响。 */
     if (SESS.cur === id && !canLeave()) return;
@@ -929,7 +929,7 @@
     el.files.innerHTML = files.map((f, i) =>
       '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '' : ' · 字节已不在，要重新拖')) + '">'
       + esc(f.kind) + '·' + esc(cap(f.name, 18))
-      + '<button data-i="' + i + '" title="从这一轮移开（不落本机资产库，删的只是这个引用）">×</button></span>').join('');
+      + '<button data-i="' + i + '" title="从这一轮移开">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
     el.files.hidden = !files.length;
   }
@@ -968,7 +968,7 @@
       const r = Store.write(K_REFS, refs, { label: 'AI 助手的素材引用清单' });
       if (r && r.ok === false && !refsSaveWarned) {
         refsSaveWarned = true;
-        note('素材引用清单没能存下来：' + (r.error || '存储写不进去') + '。刷新之后这几条引用会丢。', 'warn');
+        note('素材引用清单没能存下来：' + (r.error || '存储写不进去') + '，刷新后会丢', 'warn');
       } else if (r && r.ok !== false) refsSaveWarned = false;
     } catch (e) {
       if (!refsSaveWarned) { refsSaveWarned = true; note('素材引用清单没能存下来：' + cap(errText(e), 120), 'warn'); }
@@ -1008,8 +1008,7 @@
       if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus();
     }
     paintRefMarks();
-    if (dropped.length) note('引用最多留 ' + REFS_MAX + ' 条，挤掉了最早的：' + dropped.join('、') + '。要留它们就先发一轮。', 'warn');
-    else note('已把这个素材引用写进输入框');
+    if (dropped.length) note('引用上限 ' + REFS_MAX + ' 条，挤掉了最早的：' + dropped.join('、') + '；要留就先发一轮', 'warn');
     return rec;
   }
   /* 发出去那一刻拍快照（与 shotFiles 同理）：清掉草稿之后，这一轮的 refBlock 与工具里的「第几条」都读它。
@@ -1156,8 +1155,8 @@
     }
     paintRefMarks();
     if (lost.length) {
-      note('输入框里那段引用文字被改过了 —— 这条引用已经去掉，这一轮助手不会再拿到它：'
-        + lost.join('、') + '。资产库/收藏里的那一份没动。', 'warn');
+      note('引用文字被改过，这条引用已去掉：'
+        + lost.join('、'), 'warn');
     }
   }
   let refTip = null;
@@ -1215,7 +1214,7 @@
           img.addEventListener('error', () => {
             const n = document.createElement('div');
             n.className = 'ac-refdl-none';
-            n.textContent = '这个地址读不出图（可能已过期）。发出去后让助手用 asset_open 再取一次。';
+            n.textContent = '这个地址读不出图，让助手用 asset_open 再取一次。';
             img.replaceWith(n);
           });
         }
@@ -1391,7 +1390,7 @@
          等于把 planToken（一次性、点了第二次就没了）、幂等键与串行锁整个跳过 ——
          同一条「提交生成」能被点成两笔付费任务。没有 planId 的旧卡片同理：宁可报错也不猜。 */
       if (!CHAT_TOOLS.registry()) throw new Error(CHAT_TOOLS.regClosed());
-      if (!m.planId) throw new Error('这一张卡片没有执行凭据（旧会话里留下的）：让助手重新提一次，别再点这张');
+      if (!m.planId) throw new Error('这张卡片没有执行凭据：让助手重新提一次');
       const r = await CHAT_TOOLS.registry().run(m.planId, { pin: m.钉, card: m, route: page(), operationId: m.opId });
       if (r && r.thrown) throw r.thrown;
       if (r && r.ok === false && r.reason && !r.text) r = { ok: false, text: r.reason };
@@ -1415,8 +1414,8 @@
          只有助手这条路径缺了这道防线。 */
       if (window.Api && Api.maybeSubmitted && Api.maybeSubmitted(e)) {
         m.st = 'uncertain';
-        m.out = '已提交，但没等到回应。平台那边可能已经受理了（视频建任务经常超过 30 秒就是这一档）—— '
-          + '请先到工作台的右栏列表里核对，别马上重做：再来一次就是第二次扣费。';
+        m.out = '已提交但没等到回应，可能已经扣费。'
+          + '先到工作台的右栏列表核对，别马上重做：再点一次就是第二次扣费。';
         acts.push({ 动作: m.act, 结果: '结果未知', 说明: cap(m.out, 300), at: Date.now() });
         turnActionPatch(m, { state: 'uncertain', resultText: cap(m.out, 500) });
       } else {
@@ -1467,8 +1466,8 @@
     const gone = all.slice(WATCH_CAP);
     st.items = all.slice(0, WATCH_CAP);
     wwrite(st);
-    if (gone.length) push('note', '在等的任务最多记 ' + WATCH_CAP + ' 条，这次挤掉了最早的那 '
-      + gone.length + ' 条，我不再跟进它们的结果（任务本身还在平台那边跑，去「工作台」的任务列表看）：'
+    if (gone.length) push('note', '在等的任务最多记 ' + WATCH_CAP + ' 条，挤掉了最早的 '
+      + gone.length + ' 条，不再跟进它们的结果（去「工作台」任务列表看）：'
       + gone.map(x => x.id).join('、'));
   }
   function stopWatch() {
@@ -1509,7 +1508,7 @@
       const 产物 = q.url ? cap(String(q.url), 120) : (q.assetId ? String(q.assetId) : '');
       if (产物) lines.push('产物：' + 产物);
     }
-    lines.push('去看：' + 页 + '（任务列表里就是这一条，本机不替你认领产物）');
+    lines.push('去看：' + 页);
     if (!isOpen()) st.unread += 1;
     wwrite(st);
     push('note', lines.join('\n'));
@@ -1586,7 +1585,7 @@
       /* 连续三轮（约 36 秒）问不通才说一次，别每 12 秒往对话里塞一条。 */
       if (watchFails === 3) {
         push('note', '连续 ' + watchFails + ' 轮没问到任务状态（' + cap(bad, 160) + '）。'
-          + '任务还在等待清单里，我会继续问。「这不代表任务失败」，也可能只是代理或平台这一会儿问不通。');
+          + '不代表任务失败，还会继续问。');
       }
       startWatch();
     }
@@ -1854,8 +1853,8 @@
     const cut = (m.qs || []).filter(q => q.cut).length;
     InlinePolish.ask(host, {
       title: '助手想先问你几件事',
-      intro: '点候选就行；候选里没有的写法，点最后一个「其他」自己写。'
-        + (cut ? '（有 ' + cut + ' 题候选太多，只画了前 ' + ASK_O_MAX + ' 个，可以自己写剩下的。）' : ''),
+      intro: '不想选候选就点最后一个「其他」自己写。'
+        + (cut ? '（有 ' + cut + ' 题候选太多，只画了前 ' + ASK_O_MAX + ' 个）' : ''),
       questions: m.qs,
       submitLabel: '按这些回答继续',
       skipLabel: '先不用了，你按默认理解走',
@@ -1909,7 +1908,7 @@
   async function openSkill(s) {
     let full = null;
     try { full = await window.WbSkills.full(s.id); } catch (e) { full = null; }
-    if (!full) return note('「' + (s.name || s.id) + '」现在读不出来（可能已经从 Skill Hub 删了）', 'warn');
+    if (!full) return note('「' + (s.name || s.id) + '」读不出来', 'warn');
     let now = null;
     try { now = (await window.WbSkills.list()).find(x => x && x.id === s.id) || null; } catch (e) {}
     const live = await liveSkill(s.id, true);
@@ -2076,7 +2075,7 @@
     sb.className = 'ac-src';
     const sh = document.createElement('div');
     sh.className = 'ac-src-h';
-    sh.textContent = '来源（点开原网页；正文里的 [来源 n] 就是这里的编号）';
+    sh.textContent = '来源';
     sb.appendChild(sh);
     src.forEach(x => {
       const a = document.createElement('a');
@@ -2158,7 +2157,7 @@
       ft2.className = 'ac-ft';
       const ag = document.createElement('button');
       ag.textContent = '重新问一次';
-      ag.title = '把刚才那句原话放回输入框（附件也一并放回）';
+      ag.title = '把原话放回输入框（附件也一并放回）';
       ag.onclick = () => {
         try { el.ta.value = m.again; } catch (e) {}
         if (m.files && m.files.length) restoreFiles(m.files);
@@ -2279,8 +2278,8 @@
           who.className = 'ac-who';
           /* 开场白里那句「你点执行才真做」是这一层的承诺，勾了自动执行就不能再说这句话 */
           who.textContent = '查询都现查，数字都照结果说。要提交生成任务或改设置，我会先画一张卡片写清「哪一家、哪个型号、什么参数、素材从哪来」，'
-            + (autoRun() ? '设置里勾了「执行前不用确认」，所以卡片会自己提交（校验一项都不省）。'
-              : '你点「执行」才真做 —— 我不点、不替你点，也不重复点。')
+            + (autoRun() ? '勾了「执行前不用确认」，卡片会自己提交。'
+              : '你点「执行」才真做。')
             + '密钥和自定义地址我不碰。';
           w.appendChild(who);
           /* 空态的第一颗不是问句，是一颗**能立刻拿到答案**的按钮：
@@ -2292,7 +2291,7 @@
           const dr = document.createElement('button');
           dr.className = 'ac-qi ac-dr';
           dr.textContent = '先体检这台机器';
-          dr.title = '一次看完：代理在不在、哪几家平台真能用、导出成片的本机条件齐不齐、云同步配没配';
+          dr.title = '代理在不在线、哪几家能用、导出条件、云同步';
           dr.onclick = () => send('先给我做一次这台机器的体检，告诉我缺什么、每样怎么补');
           w.appendChild(dr);
           const q = document.createElement('div');
@@ -2372,11 +2371,9 @@
     /* 装配那一轮与开面板那一轮并发时，装配那轮（带着更旧的设置）可能后回来 —— 只许最新一轮写，
        否则刚选好的型号会被抹回旧话。 */
     if (seq !== hintSeq) return;
-    el.hint.textContent = !cur ? '注册表里没有文字 AI 供应商，去设置页「供应商与密钥 → 文字」配一家'
-      : (!model ? '这家还没选型号：去设置页「供应商与密钥 → 文字」那一档选一个'
-        : (cur.name || cur.id) + ' · ' + model + '（在设置里换）· '
-          + (can ? '查询只读；' + (autoRun() ? '设置里勾了「执行前不用确认」，动作卡片会自己提交' : '提交任务与改设置都要你在卡片上点执行')
-            : '这家还没配密钥，问了会直接报错'));
+    el.hint.textContent = !cur ? '缺文字 AI 供应商：去设置页「供应商与密钥 → 文字」'
+      : (!model ? '还没选型号：去设置页「供应商与密钥 → 文字」'
+        : (can ? '' : '还没配密钥，问了会报错'));
   }
 
   /* ---------- 一次回答：可能要查几次，每查一次在本机跑一条查询再问回去 ---------- */
@@ -2480,10 +2477,9 @@
     const cats = (/safety\s*categor(?:y|ies)\s*[:=]\s*([^\n]+)/i.exec(b) || [])[1] || '';
     /* 这一句会走 push('err', …) —— 错误气泡是**纯 textContent**，不渲染 markdown，
        正文里写 ** 会把两个星号原样露在界面上 —— 别往里加标记。 */
-    return '这一轮上游的安全过滤把请求挡住了，它没有作答'
-      + (cats ? '（它自己标的类别：' + cap(cats.trim(), 80) + '）' : '')
-      + '。这不是本机出问题，也不是你的操作有错 —— 换个说法、把那张图撤掉再试，'
-      + '或者到设置页换一个型号（不同型号的尺度不一样，你现在是「每次随机换一个免费型号」）。';
+    return '上游的安全过滤挡住了这一轮，没有作答'
+      + (cats ? '（类别：' + cap(cats.trim(), 80) + '）' : '')
+      + '。换个说法、撤掉那张图再试，或到设置页换一个型号。';
   }
 
   /* ---------- 回合（turn）：发送时冻结作用域，工具/动作/来源都记在这一轮上 ----------
@@ -2694,7 +2690,7 @@
             turn.status = 'error'; turn.error = '没有正文'; save();
             push('err', /^\s*(CALL|RUN|ASK)/i.test(out)
               ? '它这次只写了' + (/^\s*RUN/i.test(out) ? '提交' : /^\s*ASK/i.test(out) ? '反问' : '查询') + '、没给正文。把要求说具体一点，或换个型号再问。'
-              : '这一家一个字也没回（型号或接口不对时就是这样）。换个型号再问一次。');
+              : '这一家一个字也没回，换个型号再问一次。');
           }
           return;
         }
@@ -2725,8 +2721,8 @@
           rejHit = rkey === rejKey ? rejHit + 1 : 1; rejKey = rkey;
           if (rejHit < 2) return false;
           turn.status = 'error'; turn.error = '同一条指令连着被拒两次'; save();
-          push('err', '这一条「' + ins.name + '」本机连着拒了两次（原因见上面那一句），这一轮就到这里：'
-            + '不要再重复同一句，把缺的那一项照实告诉用户。');
+          push('err', '这一条「' + ins.name + '」本机连着拒了两次，这一轮就到这里：'
+            + '把缺的那一项照实告诉用户。');
           return true;
         };
         if (!table[ins.name]) {
@@ -2758,7 +2754,7 @@
           if (!CHAT_TOOLS.registry()) {
             const why = CHAT_TOOLS.regClosed();
             addCtx(ctx, '> 动作 ' + ins.name + ' 被拒绝：' + why + '\n');
-            push('step', '「' + ins.name + '」这一步没做：动作目录没装成，写动作拒绝绕过校验执行');
+            push('step', '「' + ins.name + '」这一步没做：动作目录没装成，刷新页面重试');
             if (stopRun()) return;
             continue;
           }
@@ -2814,7 +2810,7 @@
         if (ctx.list.some(e => e.k === k)) {
           stale++;
           addCtx(ctx, '> 查询 ' + ins.name + '：这一轮里已经查过同一份，没有重查 —— 结果就在上面那几条里，别再问同一件事。\n');
-          push('step', ins.name + ' 刚才查过同一份，没重查（结果还在上下文里）');
+          push('step', ins.name + ' 刚才查过同一份，没重查');
           continue;
         }
         const ti = {
@@ -2901,8 +2897,8 @@
       const box = el.body && el.body.querySelector('.ac-live');
       if (!box) return;
       let tip = '正在写…（已等 ' + sec + ' 秒）';
-      if (sec >= 180) tip += ' · 上游多半是卡住了，可以按「停止」后重试一次';
-      else if (sec >= 90) tip += ' · 还等着；不想要了就按「停止」';
+      if (sec >= 180) tip += ' · 可以按「停止」后重试一次';
+      else if (sec >= 90) tip += ' · 不想要了就按「停止」';
       /* 只在真的变了的时候改 DOM：每 200ms 覆一次会把正在流出来的字打断/重排 */
       if (tip === last) return;
       last = tip;
@@ -2945,8 +2941,8 @@
     el.dock.classList.toggle('on', on);
     el.dock.setAttribute('aria-pressed', on ? 'true' : 'false');
     el.dock.title = on
-      ? ('已固定：页面缩到左边' + (narrow ? '（窗口窄于 ' + DOCK_MIN + 'px 时改为浮层）' : '') + '；点一下改回浮层')
-      : '固定到右侧（页面缩到左边，操作不被盖住）';
+      ? ('改回浮层' + (narrow ? '（窗口太窄，先按浮层显示）' : ''))
+      : '固定到右侧';
   }
   function setOpen(v) {
     /* 浮窗先摆好再亮：位置由球现算，晚一步会看到它从静态位置滑到锚点旁边。 */
@@ -3243,7 +3239,7 @@
     b.onclick = () => {
       msgs = data.msgs; acts = data.acts; save(); paint(true); paintHist();
       clearUndo();
-      note('已撤销，这一段对话回来了', 'ok');
+      note('已撤销', 'ok');
     };
     undoBtn = b;
     row.appendChild(b);
@@ -3278,7 +3274,7 @@
 
     const ball = document.createElement('button');
     ball.id = 'acBall';
-    ball.title = 'AI 助手（可以拖动' + (snapOn() ? '；拖到边上会吸住，设置页「AI 助手」那一卡可关' : '') + '；把素材拖到这里 = 引用这一条）';
+    ball.title = 'AI 助手（把素材拖到这里 = 引用这一条）';
     ball.setAttribute('aria-label', '打开 AI 助手');
     ball.innerHTML = window.icon('sparkles', 20);
     /* 球上的小圆点：在等几条任务 / 有几条结果还没看。抽屉收起时它是唯一的提醒入口，
@@ -3303,13 +3299,13 @@
     p.setAttribute('role', 'complementary');
     p.setAttribute('aria-label', 'AI 助手');
     p.innerHTML = `
-      <div class="ac-grip" id="acGrip" title="拖动调宽（记在本机）"></div>
-      <div class="ac-grip-b" id="acGripB" title="拖动调高（记在本机）"></div>
+      <div class="ac-grip" id="acGrip" title="拖动调宽"></div>
+      <div class="ac-grip-b" id="acGripB" title="拖动调高"></div>
       <div class="ac-hd">
         <span class="ac-tt">${window.icon('sparkles', 15)}AI 助手</span>
         <span class="ac-here" id="acHere"></span>
-        <button class="ac-x ic" id="acDock" title="固定到右侧（页面缩到左边，操作不被盖住）" aria-label="固定到右侧" aria-pressed="false"><span data-icon="panelRight" data-size="15"></span></button>
-        <button class="ac-x ic" id="acNew" title="新建会话（另开一段对话，这一段留在历史里）" aria-label="新建会话"><span data-icon="plus" data-size="15"></span></button>
+        <button class="ac-x ic" id="acDock" title="固定到右侧" aria-label="固定到右侧" aria-pressed="false"><span data-icon="panelRight" data-size="15"></span></button>
+        <button class="ac-x ic" id="acNew" title="新建会话" aria-label="新建会话"><span data-icon="plus" data-size="15"></span></button>
         <button class="ac-x ic" id="acHist" title="历史会话" aria-label="历史会话"><span data-icon="clock" data-size="15"></span></button>
         <button class="ac-x" id="acClose" title="收起" aria-label="收起">×</button>
       </div>
@@ -3328,10 +3324,10 @@
           <textarea class="ac-ta" id="acTa" placeholder="问点什么；也可以把素材卡拖到悬浮球或这里（Enter 发送 · Shift+Enter 换行）"></textarea>
         </div>
         <div class="ac-row">
-          <button class="ghost" id="acFile" title="添加文件（图片会被当前型号真去看；也能直接当生成素材）">＋文件</button>
+          <button class="ghost" id="acFile" title="添加文件">＋文件</button>
           <input type="file" id="acFileIn" multiple hidden>
           <span class="sp"></span>
-          <button class="ghost danger" id="acWipe" title="清空对话记录（清空后 5 秒内可撤销）">清空</button>
+          <button class="ghost danger" id="acWipe" title="清空对话记录">清空</button>
           <button class="ghost" id="acStop" hidden>停止</button>
           <button class="tool acc" id="acSend">发送</button>
         </div>
@@ -3466,11 +3462,8 @@
       paintDockBtn();
       applyDock();
       if (!next) placeFloat();     // 切回悬浮档：摆到球旁边（浮窗永远随球，没有「拖走过」这一档）
-      note(next
-        ? (window.innerWidth >= DOCK_MIN
-          ? '已固定到右侧：页面让到左边，可以一边操作一边问（再点一下改回浮层）'
-          : '已设为固定模式：窗口宽于 ' + DOCK_MIN + 'px 时才会把页面挤到左边，现在仍按浮层显示')
-        : '已改回浮层：助手盖在页面上，不再挤占页面宽度');
+      /* 摆到哪一档画面上看得见；只有「点了固定却没固定」这一种需要解释 */
+      if (next && window.innerWidth < DOCK_MIN) note('窗口太窄，先按浮层显示');
     };
 
     syncHere();
@@ -3482,7 +3475,7 @@
       newSession(); paint(true); paintHist();
       closeHist();
       try { if (window.focusQuiet) window.focusQuiet(el.ta); else el.ta.focus(); } catch (e) {}
-      note('新会话已开（上一段在「历史会话」里）');
+      note('新会话已开');
     };
     el.hist.onclick = () => {
       if (!el.histBox) return;
@@ -3526,7 +3519,7 @@
     el.stop.onclick = () => {
       if (!aborter) return;
       try { aborter.abort(); } catch (e) {}
-      if (live) live.note('已停止（前面写出来的留着）');
+      if (live) live.note('已停止');
     };
     el.attach.onclick = () => el.fileIn.click();
     el.fileIn.onchange = async () => {

@@ -39,7 +39,7 @@
 /* 网格档里格子不展开：展开的内容落在行下面那条带子上（.band）。 */
 .assets-page .view-compact .task .cdet { display: none; }
 /* 音频资产：音符方块（点击在灯箱里播放） */
-.assets-page .task .timg.audio { background: linear-gradient(135deg, color-mix(in srgb, var(--acc) var(--a-16), transparent), color-mix(in srgb, var(--acc2) var(--a-16), transparent)); color: var(--acc); }
+.assets-page .task .timg.audio { background: linear-gradient(135deg, var(--acc-soft), var(--acc2-soft)); color: var(--acc); }
 
 .assets-page .task .timg.audio .dur { font-size: var(--fs-11); color: var(--sub); margin-top: var(--sp-4); }
 @media (max-width: 760px) { .assets-page .task .tmain { flex: 1; min-width: 0; display: flex; flex-direction: column; } }

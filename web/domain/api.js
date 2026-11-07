@@ -308,7 +308,7 @@ function topBoolValue(decl, on) {
   function oldProxyNotice(version) {
     const v = Number(version || 0);
     if (!v || v >= PROXY_VERSION_MIN) return '';
-    return '本地代理是旧版（v' + v + '，需 v' + PROXY_VERSION_MIN + '+），部分能力不生效。重启 proxy.js 后刷新。';
+    return '本地代理是旧版（v' + v + '，需 v' + PROXY_VERSION_MIN + '+）。重启 proxy.js 后刷新。';
   }
   function warnOldProxy(reg) {
     const msg = oldProxyNotice(reg && reg.version);
@@ -332,10 +332,8 @@ function topBoolValue(decl, on) {
     try { said = sessionStorage.getItem('sk_proxy_down_notice') === '1'; } catch (e) {}
     if (said) return;
     try { sessionStorage.setItem('sk_proxy_down_notice', '1'); } catch (e) {}
-    const msg = '本地代理没连上（或还没启动）：注册表一条也没读到。'
-      + '在它起来之前，这一页所有「有没有配密钥」「能出几张」「这个型号支持什么」都是错的 ——'
-      + '比如语音那一栏会说「还没配语音接口」，而密钥可能好好地写在 .env 里。'
-      + '把它启动起来（启动.bat → 1，或 node proxy.js）再刷新这一页。';
+    const msg = '本地代理没连上：密钥、能出几张、型号支持都不准。'
+      + '启动它（启动.bat → 1，或 node proxy.js）再刷新这一页。';
     if (window.Toast) Toast.warn(msg, 12000);
     else console.warn('[Api] ' + msg);
   }
@@ -344,7 +342,7 @@ function topBoolValue(decl, on) {
      两个地方问的是同一件事：设置页「本机环境」那一栏、助手的 doctor。
      各写一遍就会出现「设置页说能用、助手说不能用」；**不许重试**（同一次体检打两遍会让代理等两次）。 */
   const SYS_WHY = {
-    健康: '代理出过错没有；要重启在启动器点「重启」。',
+    健康: '要重启在启动器点「重启」。',
   };
   /* ---------- 浏览器内导出的能力（WebCodecs）：一份探测、一份说法 ----------
      成片与素材都在页面里逐帧合成（MediaExport），
@@ -360,7 +358,7 @@ function topBoolValue(decl, on) {
           try { await window.__spaLoadScript('/web/media-backend.js', () => !!window.MediaBackend); } catch (e) { /* 加载不起来就按「没有后端」报，下一页再试 */ }
         }
         if (!window.MediaBackend) {
-          return { ok: false, chip: '没加载', cls: 'err', why: '浏览器内媒体后端没取到（web/media-backend.js）', items: [] };
+          return { ok: false, chip: '没加载', cls: 'err', why: '浏览器内媒体后端没取到', items: [] };
         }
         /* 不带 load：只问 WebCodecs 与编码器，不为了体检去下 700KB 的解码包 */
         const p = await window.MediaBackend.probe();
@@ -370,15 +368,14 @@ function topBoolValue(decl, on) {
         return {
           ok: ok, chip: ok ? '能用' : '不能用', cls: ok ? 'ok' : 'err',
           why: ok
-            ? (p.avc === true ? '导出成片 / 导出素材都在页面里合成，不需要另装任何东西'
-              : '这个浏览器没有 H.264 编码器：成片会导成 .webm（VP9），功能不受影响')
-            : (p.webcodecs ? '这个浏览器 H.264 / VP9 编码器都没有：换 Chrome / Edge（94 以上）再导出'
-              : '这个浏览器没有 WebCodecs：换 Chrome / Edge（94 以上）再导出'),
+            ? (p.avc === true ? '' : '没有 H.264 编码器：成片会导成 .webm（VP9）')
+            : (p.webcodecs ? 'H.264 / VP9 编码器都没有：换 Chrome / Edge（94 以上）再导出'
+              : '没有 WebCodecs：换 Chrome / Edge（94 以上）再导出'),
           items: [
             { name: 'WebCodecs', ok: !!p.webcodecs, detail: '逐帧编解码靠它' },
             { name: 'H.264 编码', ok: p.avc === true, detail: p.avc == null ? '这个浏览器问不出支持情况' : '导出成片（mp4）用它' },
             { name: 'VP9 编码', ok: p.vp9 === true, detail: p.vp9 == null ? '这个浏览器问不出支持情况' : '没有 H.264 时的兜底：成片出 .webm' },
-            { name: 'AAC 编码', ok: p.aac === true || !!p.aacVendor, detail: p.aac ? '浏览器自带' : '用随包带的软件编码器（第一次导出时加载）' },
+            { name: 'AAC 编码', ok: p.aac === true || !!p.aacVendor, detail: p.aac ? '浏览器自带' : '用随包带的软件编码器' },
           ],
           raw: p,
         };
@@ -407,7 +404,7 @@ function topBoolValue(decl, on) {
      比标黄更糟：人会觉得「健康那一格绿着，那异常肯定在别处」。 */
   function sysHealth(h) {
     /* 「没读到」那句也只在这里说一次：复制文本、设置页、助手三边都要用它，各写一遍就会各自漂 */
-    if (!h) return { chip: '没读到', why: '这个代理还是加「健康」那一格之前启动的，重启后才有', cls: 'warn', 最近: [], 存活: '', 起于: '', 最后请求: '', 计数: null };
+    if (!h) return { chip: '没读到', why: '旧版代理没记账，重启后才有', cls: 'warn', 最近: [], 存活: '', 起于: '', 最后请求: '', 计数: null };
     return { chip: h.芯片 || '?', why: h.说明 || '', cls: h.档 || 'warn',
       最近: h.最近 || [], 存活: h.存活 || '?', 起于: h.起于 || '?', 最后请求: h.最后请求 || '?',
       计数: { 未捕获异常: h.未捕获异常 || 0, 'Promise失败': h.Promise失败 || 0, '请求出错': h.请求出错 || 0, 连接错误: h.连接错误 || 0, 页面报错: h.页面报错 || 0 } };
@@ -441,9 +438,10 @@ function topBoolValue(decl, on) {
   }
   /* 整份体检 → 给人看的几行（设置页复制出去、助手 doctor 念的都是这几行） */
   function sysStatusLines(s) {
-    if (!s) return ['本机环境：没读到（代理没在运行，或者它是加 /sys-status 之前启动的旧版）'];
+    if (!s) return ['本机环境：没读到（代理没在运行，或是旧版）'];
     const p = s.代理 || {}, dirs = s.目录 || {}, out = [];
-    out.push('本地代理：注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?')
+    out.push('本地代理：' + (p.产品版本 ? '成像 v' + p.产品版本 + ' · ' : '')
+      + '注册表 v' + (p.版本 || '?') + ' · 端口 ' + (p.端口 || '?')
       + ' · Node ' + (p.进程 || '?') + ' · 目录 ' + (p.目录 || '?'));
     /* 健康紧跟「本地代理」：它说的就是这个进程自己。以前顶层异常只往日志打一行就继续跑，
        日志轮转 + 启动器一关就找不回来，界面上一切正常 —— 这一行是那份账唯一的出口。 */
@@ -485,10 +483,10 @@ function topBoolValue(decl, on) {
      求值期去抓就等于抓到 undefined（全站同一族的毛病，踩过）。 */
   const USAGE_WHY = {
     重复: '同一份存了多份；只报数，不动文件',
-    索引外: '盘上有、索引里没有：多半是索引顶到上限后被挤掉的历史产物，按资产号还能补建出来，不是垃圾',
-    没文件: '索引里有、盘上文件没了：这张卡在资产库点开会取不到字节（会先试着回平台重下一趟）',
-    上限: '顶到上限之后新产物照样落盘，但列表里不再出现',
-    没验完: '内容级判重一次有字节预算，用完就停 —— 剩下那些同大小的没读，不算「确认不重复」',
+    索引外: '盘上有、索引里没有：按资产号还能补建出来，不是垃圾',
+    没文件: '索引里有、盘上文件没了：这张卡在资产库点开会取不到字节',
+    上限: '顶到上限之后新产物照样落盘，列表里不再出现',
+    没验完: '判重一次有字节预算，用完就停：剩下同大小的没读',
     出路: '去资产库删；这一格只数不删',
   };
   function usageBytes(n) {
@@ -582,12 +580,12 @@ function topBoolValue(decl, on) {
     [/需要检查|需人工|under review/i, '提交被拦，过会儿再试'],
     [BALANCE_RE, '平台账户余额/额度不够，先到「用量与余额」页看看余额'],
     [/rate limit|too many|频繁|429/i, '请求太频繁，等几十秒再试'],
-    [/unauthorized|invalid.*(api|token|key)|401/i, '密钥无效或过期：到「设置」重新填这个平台的密钥（或在 .env 里更新）'],
-    [/forbidden|403|permission/i, '这个密钥没有调用该接口的权限（可能是账号未开通 / 权限范围不对）'],
+    [/unauthorized|invalid.*(api|token|key)|401/i, '密钥无效或过期：到「设置」重新填这把密钥'],
+    [/forbidden|403|permission/i, '这把密钥没有该接口权限：账号可能未开通'],
     [/not found|unknown model|does not exist|404/i, '资源不存在；换型号或刷新'],
-    [/too large|payload|413|文件过大/i, '素材太大：压缩后再传（视频/音频建议压到几十 MB 以内）'],
-    [/unsupported|not support|不支持/i, '平台不支持这次请求的参数组合：换一个参数（分辨率 / 时长 / 比例）再试'],
-    [/timeout|ETIMEDOUT|ECONNRESET|socket hang up/i, '与平台的连接中断（网络抖动）：稍后重试；若是大素材上传，先确认网络稳定'],
+    [/too large|payload|413|文件过大/i, '素材太大：压到几十 MB 以内再传'],
+    [/unsupported|not support|不支持/i, '不支持这组参数：换一个分辨率 / 时长 / 比例再试'],
+    [/timeout|ETIMEDOUT|ECONNRESET|socket hang up/i, '与平台的连接中断：稍后重试；大素材上传先确认网络稳定'],
     [/getaddrinfo|ENOTFOUND|EAI_AGAIN/i, '域名解析失败，换 DNS 或改接口地址'],
   ];
   /* 上游「泛化校验失败」：只有一句 message、没有字段级 issues —— 实测是间歇性的（同一请求稍后就能过），
