@@ -49,7 +49,7 @@ npm install
 | 页面 | 作用 |
 | --- | --- |
 | 导演台 | 分镜、候选生成、时间线剪辑、配音、成片导出、FCPXML（单文件 / 媒体包 / 工程目录）、项目文件导出 / 导入（完整工程） |
-| 建模台 | 一句话让文字 AI 写出参数化白模（小人 / 图元 / 群众 / 导入的 3D 文件），流式实时预览；导入件自带动画时可选 clip 并调速度 / 循环 / 偏移；模型按组存在库根 `白膜\`；出白膜图 / 动画 mp4 进资产库，可回传工作台与导演台当参考 |
+| 建模台 | 一句话让文字 AI 写出参数化白模（小人 / 图元 / 群众 / 导入的 3D 文件），流式实时预览；导入件自带动画时可选 clip 并调速度 / 循环 / 偏移；白模库是多库模板仓库（`白膜\<库>\模型\<组>\`），场景是唯一工作区（`白膜\<库>\场景\<场景组>\`），库模型放进场景即成可编辑实体；多机位，节点与机位共用一套轨道；出白膜图 / 动画 mp4 进资产库，可回传工作台与导演台当参考 |
 | 工作台 | 视频 / 图像 / 语音三合一，按 `?t=video|image|audio` 切栏 |
 | 素材库 | 角色 / 场景 / 道具，体检、批量、身份锚点、使用关系、语义检索 |
 | 资产库 | 本机 / 云端产物、筛选、分页、批量下载与存回本机 |
@@ -100,7 +100,7 @@ proxy.js                      薄入口（require server/app.js）
 server/
   app.js                      组合根：配置、依赖装配、路由分发
   registry-config.js          供应商注册表（新平台只改这里）
-  routes/                     每组本机路由一个模块（含 model3d：白膜库的 list / file / thumb / asset / save / delete）
+  routes/                     每组本机路由一个模块（含 model3d：白模库的多库 / 模型 / 场景 / 场景组 / 3D 文件）
   local-root.js               本机资产库根的唯一算法（ASSETS_DIR > 设置页那一格 > 下载\成像）
   local-assets-store.js       资产本体落点、双身份（fid + 采样签名）、磁盘对账
   index-store.js              资产索引（快照 + 追加日志 + 串行写队列），账在 .data\local-assets\
@@ -114,7 +114,7 @@ web/
   app.js                      路由 + KeepAlive 页面池
   core/                       路由表、页面桥、页面上下文、动作注册表
   pages/                      七个 Vue 页面组件（导演台在 director/index.js，合计 8 个页面）
-  model3d/                    建模台的三维内核：schema / mannequin（小人）/ rig.js（关节写回 · 子关节轨道）/ crowd / scene / loader + clip.js（导入件与动画播放）/ anim / view / vault / ai / capture
+  model3d/                    建模台的三维内核：schema（v3 模型 / 场景）/ entities（库模型 ↔ 场景实体）/ mannequin（小人）/ rig.js（关节写回 · 子关节轨道）/ crowd / scene / loader + clip.js（导入件与动画播放）/ anim / view / vault / ai / capture
   director/                   导演台作用域岛 + 引擎 + 纯算法模块
   render/                     预编译 render 函数（生成物）
   ui/ net / store / kv / toast / datasync / skills / workbench / sidebar

@@ -5111,22 +5111,28 @@ async function consumeModelHandoff() {
   if (!M || !M.consume) return;
   let box = null;
   try { box = M.consume('director'); } catch (e) { return; }
-  if (!box || !box.asset) return;
-  const a = box.asset;
+  if (!box || !Array.isArray(box.assets) || !box.assets.length) return;
   const sh = (box.shot && (proj.shots || []).find(x => x.id === box.shot)) || curShot();
   if (!sh) { setStatus('<span class="err">白膜送到了，但这一部还没有镜头可挂</span>'); return; }
-  const label = String(a.name || '白膜').replace(/\.[^.]+$/, '');
-  if (a.type === '视频') {
-    await pickRefMedia(sh, 'refvideo', {
-      assetId: a.assetId, src: a.src, dl: a.src, name: a.name, prompt: label,
-      type: '视频', duration: null,
-    });
-    return;
+  let images = 0;
+  let videos = 0;
+  for (const a of box.assets) {
+    const label = String(a.name || '白膜').replace(/\.[^.]+$/, '');
+    const src = a.url || a.src;
+    if (a.type === 'video') {
+      await pickRefMedia(sh, 'refvideo', {
+        assetId: a.assetId, src, dl: src, name: a.name, prompt: label,
+        type: '视频', duration: null,
+      });
+      videos += 1;
+    } else {
+      addRefImage(sh, Api.mediaSrc(src), label, a.assetId || null);
+      images += 1;
+    }
   }
-  addRefImage(sh, Api.mediaSrc(a.src), label, a.assetId || null);
   renderEditor();
   scheduleSave();
-  setStatus('<span class="ok">✓ 白膜已作为参考图加入这一镜</span>');
+  setStatus('<span class="ok">✓ 白膜已加入这一镜：' + images + ' 张参考图' + (videos ? '、' + videos + ' 段参考视频' : '') + '</span>');
 }
 
 /* 外壳的 onActivated 从这里接口袋（这一页在页面池里常驻：引擎只启动一次，

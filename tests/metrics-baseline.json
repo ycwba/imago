@@ -1,19 +1,19 @@
 {
   "version": 1,
   "baseline": {
-    "at": "2026-11-07T18:51:10.595Z",
-    "totalLines": 89560,
-    "codeLines": 73114,
-    "totalBytes": 5626386,
-    "codeBytes": 3820629,
-    "moduleCount": 165,
+    "at": "2026-11-08T10:42:40.036Z",
+    "totalLines": 93688,
+    "codeLines": 77010,
+    "totalBytes": 5829644,
+    "codeBytes": 3999615,
+    "moduleCount": 170,
     "files": [
       {
         "file": "web/director/engine.js",
-        "lines": 5069,
-        "codeLines": 4114,
-        "bytes": 316015,
-        "codeBytes": 209561
+        "lines": 5106,
+        "codeLines": 4150,
+        "bytes": 318057,
+        "codeBytes": 211466
       },
       {
         "file": "web/pages/settings.js",
@@ -31,10 +31,10 @@
       },
       {
         "file": "web/pages/studio.js",
-        "lines": 3605,
-        "codeLines": 3139,
-        "bytes": 212725,
-        "codeBytes": 166733
+        "lines": 3644,
+        "codeLines": 3171,
+        "bytes": 215372,
+        "codeBytes": 168642
       },
       {
         "file": "web/ui/workbench.js",
@@ -59,10 +59,17 @@
       },
       {
         "file": "web/director/engine/panel.js",
-        "lines": 2302,
-        "codeLines": 2034,
-        "bytes": 148087,
-        "codeBytes": 117482
+        "lines": 2315,
+        "codeLines": 2047,
+        "bytes": 149073,
+        "codeBytes": 118468
+      },
+      {
+        "file": "web/pages/model.js",
+        "lines": 2284,
+        "codeLines": 2224,
+        "bytes": 117107,
+        "codeBytes": 110137
       },
       {
         "file": "web/features/chat-tools.js",
@@ -94,10 +101,10 @@
       },
       {
         "file": "web/domain/text-ai.js",
-        "lines": 1620,
-        "codeLines": 1223,
-        "bytes": 135105,
-        "codeBytes": 92195
+        "lines": 1665,
+        "codeLines": 1268,
+        "bytes": 140265,
+        "codeBytes": 97346
       },
       {
         "file": "web/ui/ui.js",
@@ -108,10 +115,10 @@
       },
       {
         "file": "web/styles/ui.css",
-        "lines": 1557,
-        "codeLines": 1056,
-        "bytes": 141515,
-        "codeBytes": 88730
+        "lines": 1591,
+        "codeLines": 1088,
+        "bytes": 143902,
+        "codeBytes": 90881
       },
       {
         "file": "server/registry-config.js",
@@ -212,11 +219,11 @@
         "codeBytes": 39434
       },
       {
-        "file": "web/pages/model.js",
-        "lines": 907,
-        "codeLines": 881,
-        "bytes": 43967,
-        "codeBytes": 41341
+        "file": "web/domain/asset-picker.js",
+        "lines": 833,
+        "codeLines": 618,
+        "bytes": 58342,
+        "codeBytes": 32213
       },
       {
         "file": "web/ui/sidebar.js",
@@ -238,13 +245,6 @@
         "codeLines": 679,
         "bytes": 42050,
         "codeBytes": 29147
-      },
-      {
-        "file": "web/domain/asset-picker.js",
-        "lines": 792,
-        "codeLines": 583,
-        "bytes": 55736,
-        "codeBytes": 30303
       },
       {
         "file": "web/media-export.js",
@@ -275,6 +275,13 @@
         "codeBytes": 46349
       },
       {
+        "file": "web/model3d/scene.js",
+        "lines": 706,
+        "codeLines": 644,
+        "bytes": 31389,
+        "codeBytes": 24578
+      },
+      {
         "file": "server/routes/asr.js",
         "lines": 673,
         "codeLines": 611,
@@ -296,11 +303,25 @@
         "codeBytes": 19843
       },
       {
+        "file": "web/model3d/schema.js",
+        "lines": 635,
+        "codeLines": 610,
+        "bytes": 26999,
+        "codeBytes": 24708
+      },
+      {
         "file": "web/ui/datasync.js",
-        "lines": 626,
-        "codeLines": 433,
-        "bytes": 41712,
-        "codeBytes": 20132
+        "lines": 632,
+        "codeLines": 435,
+        "bytes": 42228,
+        "codeBytes": 20190
+      },
+      {
+        "file": "web/model3d/view.js",
+        "lines": 619,
+        "codeLines": 569,
+        "bytes": 27996,
+        "codeBytes": 22416
       },
       {
         "file": "web/director/film.js",
@@ -324,6 +345,13 @@
         "codeBytes": 19522
       },
       {
+        "file": "server/routes/model3d.js",
+        "lines": 518,
+        "codeLines": 507,
+        "bytes": 24352,
+        "codeBytes": 23567
+      },
+      {
         "file": "server/routes/local-assets.js",
         "lines": 513,
         "codeLines": 378,
@@ -331,18 +359,18 @@
         "codeBytes": 21654
       },
       {
-        "file": "web/model3d/scene.js",
-        "lines": 503,
-        "codeLines": 457,
-        "bytes": 22556,
-        "codeBytes": 17668
-      },
-      {
         "file": "web/director/fcpxml.js",
         "lines": 497,
         "codeLines": 409,
         "bytes": 32591,
         "codeBytes": 22924
+      },
+      {
+        "file": "web/styles/spa-model.css",
+        "lines": 496,
+        "codeLines": 476,
+        "bytes": 18980,
+        "codeBytes": 16809
       },
       {
         "file": "web/director/project-pack.js",
@@ -359,11 +387,11 @@
         "codeBytes": 16946
       },
       {
-        "file": "web/model3d/view.js",
-        "lines": 418,
-        "codeLines": 389,
-        "bytes": 17792,
-        "codeBytes": 14515
+        "file": "web/pages/model/dock.js",
+        "lines": 397,
+        "codeLines": 392,
+        "bytes": 18587,
+        "codeBytes": 18117
       },
       {
         "file": "web/director/engine/export.js",
@@ -408,18 +436,18 @@
         "codeBytes": 17495
       },
       {
+        "file": "web/model3d/mannequin.js",
+        "lines": 350,
+        "codeLines": 331,
+        "bytes": 23426,
+        "codeBytes": 21451
+      },
+      {
         "file": "server/routes/fcpxml.js",
         "lines": 349,
         "codeLines": 272,
         "bytes": 21441,
         "codeBytes": 13075
-      },
-      {
-        "file": "web/model3d/mannequin.js",
-        "lines": 343,
-        "codeLines": 324,
-        "bytes": 23254,
-        "codeBytes": 21289
       },
       {
         "file": "web/domain/fav.js",
@@ -457,18 +485,11 @@
         "codeBytes": 24287
       },
       {
-        "file": "web/model3d/schema.js",
-        "lines": 271,
-        "codeLines": 260,
-        "bytes": 13001,
-        "codeBytes": 11374
-      },
-      {
         "file": "web/app.js",
-        "lines": 259,
+        "lines": 262,
         "codeLines": 189,
-        "bytes": 15560,
-        "codeBytes": 8194
+        "bytes": 15913,
+        "codeBytes": 8238
       },
       {
         "file": "web/domain/gen-rules.js",
@@ -485,11 +506,11 @@
         "codeBytes": 14432
       },
       {
-        "file": "server/routes/model3d.js",
-        "lines": 254,
-        "codeLines": 243,
-        "bytes": 12880,
-        "codeBytes": 11634
+        "file": "web/styles/tokens.css",
+        "lines": 252,
+        "codeLines": 128,
+        "bytes": 19327,
+        "codeBytes": 6740
       },
       {
         "file": "server/outbound.js",
@@ -506,18 +527,18 @@
         "codeBytes": 7170
       },
       {
-        "file": "web/styles/tokens.css",
-        "lines": 245,
-        "codeLines": 123,
-        "bytes": 19024,
-        "codeBytes": 6620
-      },
-      {
         "file": "server/routes/models.js",
         "lines": 243,
         "codeLines": 216,
         "bytes": 13138,
         "codeBytes": 9735
+      },
+      {
+        "file": "web/model3d/ai.js",
+        "lines": 243,
+        "codeLines": 207,
+        "bytes": 12041,
+        "codeBytes": 8238
       },
       {
         "file": "server/routes/outbound.js",
@@ -527,11 +548,11 @@
         "codeBytes": 8784
       },
       {
-        "file": "web/styles/spa-model.css",
-        "lines": 230,
-        "codeLines": 219,
-        "bytes": 8129,
-        "codeBytes": 7037
+        "file": "web/model3d/quick.js",
+        "lines": 238,
+        "codeLines": 232,
+        "bytes": 11331,
+        "codeBytes": 10460
       },
       {
         "file": "web/ui/net.js",
@@ -555,6 +576,13 @@
         "codeBytes": 6838
       },
       {
+        "file": "web/model3d/anim.js",
+        "lines": 221,
+        "codeLines": 199,
+        "bytes": 9617,
+        "codeBytes": 7702
+      },
+      {
         "file": "web/domain/asr.js",
         "lines": 219,
         "codeLines": 198,
@@ -567,6 +595,13 @@
         "codeLines": 196,
         "bytes": 13490,
         "codeBytes": 11268
+      },
+      {
+        "file": "web/model3d/loader.js",
+        "lines": 216,
+        "codeLines": 181,
+        "bytes": 11096,
+        "codeBytes": 7228
       },
       {
         "file": "web/director/board-assets.js",
@@ -602,13 +637,6 @@
         "codeLines": 173,
         "bytes": 12474,
         "codeBytes": 8938
-      },
-      {
-        "file": "web/model3d/quick.js",
-        "lines": 205,
-        "codeLines": 200,
-        "bytes": 9624,
-        "codeBytes": 8959
       },
       {
         "file": "server/index-store.js",
@@ -661,10 +689,10 @@
       },
       {
         "file": "web/director/index.js",
-        "lines": 167,
-        "codeLines": 137,
-        "bytes": 9769,
-        "codeBytes": 6534
+        "lines": 169,
+        "codeLines": 138,
+        "bytes": 10026,
+        "codeBytes": 6638
       },
       {
         "file": "server/security.js",
@@ -672,13 +700,6 @@
         "codeLines": 133,
         "bytes": 8245,
         "codeBytes": 5766
-      },
-      {
-        "file": "web/model3d/ai.js",
-        "lines": 157,
-        "codeLines": 133,
-        "bytes": 7599,
-        "codeBytes": 4975
       },
       {
         "file": "web/director/naming.js",
@@ -693,6 +714,13 @@
         "codeLines": 132,
         "bytes": 7754,
         "codeBytes": 5937
+      },
+      {
+        "file": "web/core/routes.js",
+        "lines": 142,
+        "codeLines": 97,
+        "bytes": 9538,
+        "codeBytes": 4779
       },
       {
         "file": "web/pages/studio/videofill.js",
@@ -723,11 +751,11 @@
         "codeBytes": 3747
       },
       {
-        "file": "web/core/routes.js",
-        "lines": 136,
-        "codeLines": 95,
-        "bytes": 9057,
-        "codeBytes": 4723
+        "file": "web/model3d/vault.js",
+        "lines": 135,
+        "codeLines": 132,
+        "bytes": 5315,
+        "codeBytes": 5051
       },
       {
         "file": "web/director/engine/strip.js",
@@ -779,6 +807,13 @@
         "codeBytes": 4564
       },
       {
+        "file": "web/model3d/rig.js",
+        "lines": 121,
+        "codeLines": 106,
+        "bytes": 5288,
+        "codeBytes": 3678
+      },
+      {
         "file": "web/core/page-context.js",
         "lines": 118,
         "codeLines": 111,
@@ -791,6 +826,13 @@
         "codeLines": 95,
         "bytes": 6298,
         "codeBytes": 4354
+      },
+      {
+        "file": "web/model3d/capture.js",
+        "lines": 114,
+        "codeLines": 100,
+        "bytes": 4943,
+        "codeBytes": 3515
       },
       {
         "file": "web/styles/wb.css",
@@ -814,13 +856,6 @@
         "codeBytes": 2823
       },
       {
-        "file": "web/model3d/capture.js",
-        "lines": 110,
-        "codeLines": 98,
-        "bytes": 4756,
-        "codeBytes": 3485
-      },
-      {
         "file": "web/ui/command.js",
         "lines": 110,
         "codeLines": 103,
@@ -833,6 +868,13 @@
         "codeLines": 92,
         "bytes": 6173,
         "codeBytes": 4344
+      },
+      {
+        "file": "web/model3d/clip.js",
+        "lines": 106,
+        "codeLines": 89,
+        "bytes": 5438,
+        "codeBytes": 3660
       },
       {
         "file": "web/domain/ai-find.js",
@@ -849,13 +891,6 @@
         "codeBytes": 4098
       },
       {
-        "file": "web/model3d/dsl.js",
-        "lines": 102,
-        "codeLines": 89,
-        "bytes": 4214,
-        "codeBytes": 2932
-      },
-      {
         "file": "server/health.js",
         "lines": 101,
         "codeLines": 97,
@@ -870,13 +905,6 @@
         "codeBytes": 3861
       },
       {
-        "file": "web/model3d/anim.js",
-        "lines": 101,
-        "codeLines": 89,
-        "bytes": 4526,
-        "codeBytes": 3329
-      },
-      {
         "file": "web/styles/spa-assets.css",
         "lines": 101,
         "codeLines": 67,
@@ -884,18 +912,18 @@
         "codeBytes": 5207
       },
       {
+        "file": "web/model3d/dsl.js",
+        "lines": 95,
+        "codeLines": 81,
+        "bytes": 4122,
+        "codeBytes": 2635
+      },
+      {
         "file": "web/director/script.js",
         "lines": 94,
         "codeLines": 74,
         "bytes": 4465,
         "codeBytes": 2498
-      },
-      {
-        "file": "web/model3d/vault.js",
-        "lines": 92,
-        "codeLines": 85,
-        "bytes": 4149,
-        "codeBytes": 3500
       },
       {
         "file": "shell.html",
@@ -917,6 +945,13 @@
         "codeLines": 81,
         "bytes": 3401,
         "codeBytes": 2776
+      },
+      {
+        "file": "web/model3d/entities.js",
+        "lines": 86,
+        "codeLines": 76,
+        "bytes": 3358,
+        "codeBytes": 2535
       },
       {
         "file": "server/zip.js",
@@ -1088,17 +1123,17 @@
       },
       {
         "file": "web/model3d/bridge.js",
-        "lines": 46,
+        "lines": 47,
         "codeLines": 34,
-        "bytes": 2441,
+        "bytes": 2611,
         "codeBytes": 1149
       },
       {
         "file": "web/model3d/crowd.js",
         "lines": 46,
-        "codeLines": 37,
-        "bytes": 2225,
-        "codeBytes": 1386
+        "codeLines": 36,
+        "bytes": 2254,
+        "codeBytes": 1305
       },
       {
         "file": "web/domain/export-formats.js",
@@ -1136,6 +1171,13 @@
         "codeBytes": 971
       },
       {
+        "file": "web/model3d/palette.js",
+        "lines": 31,
+        "codeLines": 16,
+        "bytes": 2028,
+        "codeBytes": 611
+      },
+      {
         "file": "web/director/util.js",
         "lines": 28,
         "codeLines": 18,
@@ -1169,13 +1211,6 @@
         "codeLines": 17,
         "bytes": 1247,
         "codeBytes": 581
-      },
-      {
-        "file": "web/model3d/palette.js",
-        "lines": 24,
-        "codeLines": 11,
-        "bytes": 1645,
-        "codeBytes": 385
       },
       {
         "file": "web/director/slice-worker.js",

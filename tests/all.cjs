@@ -251,6 +251,7 @@ run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
    关节写回（路径与短名两套键、限位夹取、子关节叠加）/ 导入件 clip 播放（只按绝对时间、蒙皮克隆互不串骨）/
    白膜库服务端路由（隔离库根，不碰用户目录）。 */
 run('tests/model3d-schema.mjs', process.execPath, ['tests/model3d-schema.mjs']);
+run('tests/model3d-entities.mjs', process.execPath, ['tests/model3d-entities.mjs']);
 run('tests/model3d-dsl.mjs', process.execPath, ['tests/model3d-dsl.mjs']);
 run('tests/model3d-mannequin.mjs', process.execPath, ['tests/model3d-mannequin.mjs']);
 run('tests/model3d-crowd.mjs', process.execPath, ['tests/model3d-crowd.mjs']);

@@ -81,8 +81,37 @@
 - 八个页面：导演台、建模台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
   路由表只有 `web/core/routes.js` 一份。
 - 建模台是唯一一页带**三维运行时**的页面：three 走 `web/vendor/three/`（vendored，见「Vue SPA」那一段），
-  只在这一页的 ESM 图里，首屏与开机预取都不碰它；模型本体是库根下 `白膜\<组>\<名>.json`（+ 同名 `.png` 缩略图），
-  导入的 3D 文件在 `白膜\_模型文件\`（下划线开头的组名保留给这一层）。
+  只在这一页的 ESM 图里，首屏与开机预取都不碰它。
+  白模库是实体模板仓库：`白膜\<库>\模型\<组>\<名>.json`（+ 同名 `.png` 缩略图）；
+  场景是唯一工作区：`白膜\<库>\场景\<场景组>\<场景>.json`；导入的 3D 文件在
+  `白膜\<库>\_模型文件\`（下划线开头的组名保留给这一层）。旧布局首次扫描整体迁进 `默认库\`，旧组路径保留。
+- 模型 / 场景文件是 v3：`kind:'model'|'scene'`、`scene.cams[] + scene.active`（多机位）、
+  `anim.tracks[]` 用 `of:{kind:'node'|'cam',id}` 统一驱动节点与机位、`anim.loop` 控制回卷 / 停住、
+  `out[]` 存固定出片条（`picked` 记勾选）。场景实体是普通节点，`fromModel` 记来源模板；
+  从库放模型 = 深拷贝成可编辑实体，存回库时根 transform 归零。
+  节点可带 `color:'#rrggbb'`（3 / 6 位），颜色沿父子树继承；不写就是白模灰阶。
+  AI 只有一个入口：没选中实体时交整份 `model` 新增一件；选中后用户要改它就交带 scope 的 `ops`，
+  scope 外的增删改一律跳过；参考图可在右栏「加图片」或直接拖进面板。AI 可以用 `anim` 决定时长 /
+  fps / 循环（选中实体时也生效），轨道 op 只能动选中子树里的节点。
+  右栏「AI 可调用的白模库」可多选，清单按 `库名 :: 模型id` 列出，复用沿同一格式认回库。
+  AI 新建实体必须给顶层 `name`；模型里带多机位 / `of.kind:'cam'` 运镜时，机位与相机轨道一起并进场景
+  （只有默认单机位的普通模型不重复加机位）。
+  白模库模型按组过滤 / 展示；实体存入库时可填组，模型卡可移组，组支持新建、改名、删除
+  （删组只把模型退回未分组）。
+  左栏实体树：根层是实体、缩进一层是组件（行内改名、复制、删除；悬停出显隐 / 锁定）；
+  场景列表按场景组分组，组头与场景行都行内改名 / 移组 / 就地二次确认删除；`＋ 场景` 会先自动保存
+  上一个场景（空场景也存）再起不重名的新场景；未保存的当前场景能就地丢弃，丢弃或删掉当前场景后
+  优先退回上一个打开过的已保存场景（其次同组第一份），一份都没有时才新建空白场景。
+  导演视角工具条有「视角 · 转动 / 平移」：转动是围着目标转，平移是把相机与目标一起挪；
+  右键 / 中键拖动也能平移，滚轮缩放。手柄拖到画布外松手会由 window 级收尾释放 orbit。
+  视口里的变换手柄同时显示移动箭头与旋转环（选中实体或机位后出现，不用先切模式）；
+  一次只让命中的那套手柄接管指针，不会边平移边旋转。缩放仍用右栏属性数值，不提供缩放手柄。
+  出图 / 出片每条都自动落本机资产库，条上另有单条「存资产库 / 已存资产库」；
+  出片条可单独选接收页面（工作台 / 导演台），没有 handoff 来源时也能回传。
+  时间轴坞 `web/pages/model/dock.js` 是播放时钟、轨道行与播放头的唯一所有者（`view` 只收 `setTime`）。
+- 建模台的数据 / 渲染 / AI / UI **不设人为数量上限**：节点、children、机位、轨道、关键帧、环、
+  轮廓点、多边形点、群众人数、骨骼数、出片条目都照收；只保留有限数、正尺寸、`fov ∈ (0,180)`、
+  引用防环、路径不越出库根与文件系统真实长度这类数学 / 物理约束。
 - 骨架只有两套，都不做真蒙皮：人台是**参数化骨架**（关节是 `THREE.Bone`，肢体零件是关节的硬绑定子节点、
   权重恒 1，没有 `Skeleton`；姿势 / 步态仍由程序算角度，`rig.js` 的 `applyPose` 是唯一写回口）；
   导入的 3D 文件保留文件自带骨架，自带动画时按节点上四格（`clip` / `clipSpeed` / `clipLoop` / `clipOffset`）
@@ -118,7 +147,7 @@
 │  ├─ zip.js                    FCPXML 媒体包 zip
 │  ├─ providers/validate.js     registry 供应商声明校验
 │  └─ routes/                   system / static / capabilities / registry / relay / outbound / local-assets /
-│                               model3d（白膜库：list / file / thumb / asset / save / delete）/
+│                               model3d（白模库：多库 / 模型 / 场景 / 场景组 / 3D 文件）/
 │                               usage / cache / skills / fcpxml / pick-dir / asr / models / search /
 │                               http（路由层唯一的 JSON 回包口径：sendJson / fail，默认 no-store）
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
@@ -130,7 +159,8 @@
 │  │                            hooks / activity / actions / report
 │  ├─ pages/                    favorites / usage / assets / settings / chars / studio（导演台在 director/index.js）
 │  │                            页面里成块的东西搬进 pages/<页>/<块>.js：chars/detail.js（素材页整屏编辑）、
-│  │                            settings/accounts.js（设置页「供应商与密钥」的账号卡流）
+│  │                            settings/accounts.js（设置页「供应商与密钥」的账号卡流）、
+│  │                            model/dock.js（时间轴坞：播放时钟 / 轨道行 / 播放头唯一所有者）
 │  ├─ media-backend.js          浏览器内媒体后端（mediabunny 主档 + <video> 兜底：info / frame / thumbs）
 │  ├─ media-export.js           浏览器内离线导出（帧计划 / 合成 / 混音 / mediabunny Output）
 │  ├─ director/                 index + template.html + engine.js + engine/<域>.js + 纯算法模块 / worker
@@ -141,12 +171,13 @@
 │  │                            local / capabilities / text-ai / gen-rules / fav / prompt-log / asset-picker /
 │  │                            ai-find / chars / ident / asset-ref / identity / semantic / asr / search /
 │  │                            zip-read / chat/text-util / chat/contracts
-│  ├─ model3d/                建模台三维内核：schema（模型文件形状）/ dsl（镜像·阵列·引用）/
-│  │                           mannequin（8 体型 · 20 姿势 · 步态）/ rig（关节写回 · 子关节轨道）/
-│  │                           crowd（阵列与合批）/ scene（DSL → three 场景图）/
-│  │                           loader（FBX·OBJ·GLB·GLTF 导入）/ clip（导入件动画播放 · mixer）/
-│  │                           anim（关键帧与轨迹采样）/ view（视口 · 两套相机 · 截图）/
-│  │                           palette（白膜灰阶，唯一一处）/ vault（模型库）/ ai（契约与流式）/
+│  ├─ model3d/                建模台三维内核：schema（v3 模型 / 场景形状）/ dsl（镜像·阵列·引用）/
+│  │                           entities（库模型 ↔ 场景实体深拷贝）/ mannequin（8 体型 · 20 姿势 · 步态）/
+│  │                           rig（关节写回 · 子关节轨道）/ crowd（阵列与合批）/
+│  │                           scene（DSL → three 场景图 · 多机位标识 · 路径线）/
+│  │                           loader（FBX·OBJ·GLB·GLTF 导入 · 按库取文件）/ clip（导入件动画播放 · mixer）/
+│  │                           anim（关键帧 / 路径 / 机位采样）/ view（视口 · 多机位 · 机位拖动 · 截图）/
+│  │                           palette（白膜灰阶，唯一一处）/ vault（多库 · 模型 / 场景 / 场景组）/ ai（契约与流式）/
 │  │                           capture（出图出片）/ quick（白膜快速弹窗）/ bridge（跨页门面）
 │  ├─ features/chat.js          AI 助手外壳：悬浮球 / 抽屉 / 会话 / 发送循环
 │  ├─ features/chat-tools.js    助手工具循环与动作目录（TOOLS / ACTS / 两张形状表）
@@ -914,6 +945,9 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 备份中心的端点与健康提示 | `server/data-hub.js` 的 `handleBackup` + `backupStatus`：`status` 的 `ok` 同时看两份文件（快照仓与状态仓都得健康），`stateDegraded` 把 state.json 校验失败报给设置页那张「数据与备份」卡 |
 | 人台关节写回 / 子关节轨道 | `web/model3d/rig.js` 的 `quatOfDegrees` / `poseTableOf` / `applyPose` / `applyJoints` / `jointsOf` / `registerJoint`：角度（度）→ 关节四元数只在这一处；每次先把关节复位到 `baseRot` / `baseAt` 再叠加，子关节轨道与姿势表走同一条 `applyPose`（判据 `tests/model3d-rig.mjs`） |
 | 导入件的动画播放 | `web/model3d/clip.js` 的 `clipOf` / `clipNamesOf` / `loopOf` / `compileGait` / `mixerFor` / `bindClip` / `applyClip`：只 `mixer.setTime`、不 `mixer.update(dt)`（按 dt 累积会与墙钟漂移）；once / hold 夹住末帧；克隆蒙皮原型走 `SkeletonUtils.clone`（判据 `tests/model3d-clip.mjs`） |
+| 白膜文档形状 / AI ops | `web/model3d/schema.js` 的 `normalizeDoc`（v1 → v2 → v3 单向迁移、`kind:'model'\|'scene'`、多机位、统一轨道、`fromModel`、`color`、不设人为上限）与 `applyDocOps`（在克隆上逐条应用、坏 op 跳过并计数、`scope` 外的增删改直接跳过）；`web/model3d/anim.js` 的 `sampleKeys` / `samplePath` / `sampleTrack` / `sampleAnim` / `sampleCams` / `advanceTime`（节点与机位同一套采样、follow 优先级、loop 边界） |
+| 库模型 ↔ 场景实体 | `web/model3d/entities.js` 的 `remapTree` / `subtreeIds` / `entityFromModel` / `modelFromEntity`：从库放进场景是深拷贝并重发 id，根 group 直接复用；存回库时根 transform 归零、节点状态与轨道保留；摆件的跨库 `lib` 在落回目标库时去掉 |
+| 建模台时间轴坞 | `web/pages/model/dock.js` 的 `createDock`：播放时钟、轨道行、播放头、路径 / 关键帧编辑的唯一所有者；`view` 只收 `setTime(t)`，页面只调 `dock.renderDock()` 与 `dock.pause()` |
 | 全局命令面板 / 统一快捷键 | `web/ui/command.js` 的 `window.CommandPalette`：Ctrl/Cmd+K 是全局唯一唤起键，候选页只从 `WB_ROUTES.pages` 现取、跳页只走 `GoPage.go`，不登记第二份动作目录；↑↓ / Enter / Esc 在面板输入框内消化并截断，输入框与输入法合成中不抢键，导演台的键盘作用域岛优先（`tests/command-palette.cjs`） |
 
 ## Vue SPA

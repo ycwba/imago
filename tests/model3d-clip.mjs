@@ -97,10 +97,11 @@ const spin = new THREE.AnimationClip('spin', 2, [
   near(fast.at, 1, 1e-9, '1.5 秒对 2 秒取模是 1');
   near(angleDeg(hip.quaternion), 45, 1e-3, '速度与偏移真的作用到骨头上');
 
-  const clamp = applyClip(rec, { clipSpeed: 99, clipOffset: 999 }, 0);
-  near(clamp.local, 240, 1e-9, '速度夹到 4、偏移夹到 60');
+  const big = applyClip(rec, { clipSpeed: 99, clipOffset: 999 }, 0);
+  near(big.local, 98901, 1e-9, '速度 / 偏移不设上限：99 × 999');
+  near(big.at, 1, 1e-9, '98901 秒对 2 秒取模是 1');
   const low = applyClip(rec, { clipSpeed: -5, clipOffset: -3 }, -2);
-  near(low.local, 0, 1e-9, '速度下限 0.1、偏移下限 0、负时间按 0 算');
+  near(low.local, 0, 1e-9, '速度非正时回到 0.001、负时间按 0 算');
   ok(rec.duration === 2, '时长沿用 clip.duration');
 }
 {

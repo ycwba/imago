@@ -16,11 +16,11 @@ function baseName(doc, aspect) {
   return '白膜-' + safe + '-' + String(aspect || '16:9').replace(':', 'x') + '-' + stamp;
 }
 
-/* 静帧：返回 { assetId, url, name, bytes } —— 与「本机资产库」里那一条同一个身份 */
+/* 静帧：返回 { assetId, url, name, type, bytes } —— 与「本机资产库」里那一条同一个身份 */
 export async function shoot(view, o = {}) {
-  const shortEdge = Math.max(240, Math.min(1440, Math.round(o.shortEdge || 720)));
+  const shortEdge = Math.max(2, Math.round(o.shortEdge || 720));
   const { w, h } = view.sizeOf(shortEdge);
-  const blob = await view.shot(w, h, 'image/png');
+  const blob = await view.shot(w, h, 'image/png', undefined, { time: view.time });
   if (!blob || !blob.size) throw new Error('这一帧没取到像素');
   return await saveAsset(blob, {
     name: baseName(o.doc, view.aspect) + '.png',
@@ -28,25 +28,27 @@ export async function shoot(view, o = {}) {
   });
 }
 
-/* 短片：duration 秒 / fps 帧率 / 画幅与短边同静帧；返回同上 */
+/* 短片：duration 秒 / fps 帧率 / 画幅与短边同静帧；返回同上。
+   fps / duration / 分辨率都不设上限：要出多长、多快、多大的片子，由用户与机器自己承担。 */
 export async function record(view, o = {}) {
-  const shortEdge = Math.max(240, Math.min(1440, Math.round(o.shortEdge || 720)));
+  const shortEdge = Math.max(2, Math.round(o.shortEdge || 720));
   const { w, h } = view.sizeOf(shortEdge);
   const ME = await loadExport();
-  const fps = Math.max(12, Math.min(30, Math.round(o.fps || 24)));
-  const duration = Math.max(0.5, Math.min(30, Number(o.duration) || 3));
+  const fps = Math.max(1, Math.round(Number(o.fps) || 24));
+  const duration = Math.max(0.001, Number(o.duration) || 3);
   const canvas = document.createElement('canvas');
   canvas.width = w; canvas.height = h;
   const doc = o.doc;
   const wasPlaying = view.playing;
+  const prevTime = view.time;
   view.playing = false;
   try {
     const r = await ME.exportCanvas({
       canvas, width: w, height: h, fps, duration,
       draw: t => {
-        /* 同步：算这一帧的位姿 → 画进画布。中间不许 await（见 media-export 里那段提醒） */
-        view.applyTime(t);
-        view.grab(w, h, canvas);
+        /* 同步：grab 内部只 applyTime 一次 → 画进画布。中间不许 await
+           （见 media-export 里那段提醒）。 */
+        view.grab(w, h, canvas, { time: t, camera: true });
       },
       onProgress: o.onProgress,
       signal: o.signal,
@@ -59,7 +61,7 @@ export async function record(view, o = {}) {
     });
   } finally {
     view.playing = wasPlaying;
-    view.applyTime(view.time);
+    view.setTime(prevTime);
   }
 }
 
@@ -82,11 +84,16 @@ async function saveAsset(blob, o) {
   });
   const id = saved.assetId || saved.id;
   if (!id) throw new Error('存进资产库了，但没拿到资产号');
+  /* 让本会话的别名表立刻知道这一条：否则资产库页在 25 秒缓存内看不到刚出的图。 */
+  try { if (window.AssetLocal && window.AssetLocal.learn) window.AssetLocal.learn(saved); } catch (e) { /* 别名表下一轮快照会对齐 */ }
+  try { window.dispatchEvent(new CustomEvent('wb:local-asset-added', { detail: { row: saved } })); } catch (e) { /* 事件发不出去不影响落盘 */ }
+  const src = saved.url || window.Api.assetSrc(id);
   return {
     assetId: id,
-    src: saved.url || window.Api.assetSrc(id),
+    src,
+    url: src,
     name: o.name,
-    type: o.mediaType === 'video' ? '视频' : '图片',
+    type: o.mediaType === 'video' ? 'video' : 'image',
     bytes: blob.size,
   };
 }

@@ -1419,6 +1419,9 @@ export default {
       refreshIfStale();
     }
     const offActivity = window.__spaActivity.subscribe(syncForeground);
+    /* 建模台刚出的图 / 视频落进本机资产库：切回来时别被 25 秒刷新缓存挡在外面。 */
+    const onLocalAssetAdded = () => { lastLoadAt = 0; if (front) refreshIfStale(); };
+    window.addEventListener('wb:local-asset-added', onLocalAssetAdded);
     /* 同一页内地址变了（资产库自己带 ?q= 再跳一次）：只跟着重新定位，不做别的。 */
     if (spaRoute) watch(() => spaRoute.route && spaRoute.route.src, () => { if (front) followRouteQuery(); });
 
@@ -1461,6 +1464,7 @@ export default {
 
     onBeforeUnmount(() => {
       started = false;
+      window.removeEventListener('wb:local-asset-added', onLocalAssetAdded);
       if (offActivity) offActivity();
       if (offHead) { offHead(); offHead = null; }
       unregisterAdapters();

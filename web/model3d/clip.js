@@ -100,11 +100,11 @@ export function bindClip(rec, clip, loop = 'loop') {
 /* 按节点上的四格参数把时间写进去。`t` 是白膜成片秒。 */
 export function applyClip(rec, node, t) {
   if (!rec || !rec.action || !rec.clip) return null;
-  const speed = Math.max(0.1, Math.min(4, Number(node && node.clipSpeed) || 1));
-  const offset = Math.max(0, Math.min(60, Number(node && node.clipOffset) || 0));
+  const speed = Math.max(0.001, Number(node && node.clipSpeed) || 1);
+  const offset = Number.isFinite(Number(node && node.clipOffset)) ? Number(node.clipOffset) : 0;
   const loop = loopOf(node && node.clipLoop);
   const dur = rec.duration;
-  const local = (Math.max(0, Number(t) || 0) + offset) * speed;
+  const local = Math.max(0, (Math.max(0, Number(t) || 0) + offset) * speed);
   const ended = loop !== 'loop' && local >= dur;
   const at = loop === 'loop' ? local % dur : Math.min(dur, local);
   const action = rec.action;

@@ -27,6 +27,7 @@ export async function open(opts = {}) {
       '<div class="pr-head"><b>3D 白膜</b><div class="sub">挑一份白膜，调好机位，直接出参考图 / 参考视频</div></div>'
       + '<div class="pr-body mq-body">'
       + '  <aside class="mq-rail">'
+      + '    <select class="ui-inp" data-q="library" aria-label="白模库"></select>'
       + '    <input class="search" data-q="search" type="search" placeholder="搜模型…">'
       + '    <div class="mq-list" data-q="list"></div>'
       + '    <div class="mq-field"><label>或者现说一句（不存模型）</label>'
@@ -56,6 +57,8 @@ export async function open(opts = {}) {
     let picked = null;            // 刚出的资产
     let busy = false;
     let view = null;
+    let libraries = [];
+    let library = '';
     let lib = { models: [], groups: [] };
     let assets = new Map();      // 摆件原型（loader 读；见模型时先读一遍，视口才看得见导入件）
 
@@ -79,16 +82,22 @@ export async function open(opts = {}) {
       for (const b of dlg.querySelectorAll('[data-q="aspect"] button')) b.classList.toggle('on', b.dataset.v === aspect);
     }
 
+    function paintLibraryOptions() {
+      const sel = q('library');
+      if (!sel) return;
+      sel.innerHTML = libraries.map(x => '<option value="' + esc(x.id) + '"' + (x.id === library ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('');
+    }
+
     function paintList() {
       const host = q('list');
       const kw = String(q('search').value || '').trim().toLowerCase();
-      const rows = (lib.models || []).filter(m => !kw || (m.id + ' ' + m.name).toLowerCase().indexOf(kw) >= 0);
+      const rows = ((lib && lib.models) || []).filter(m => !kw || (m.id + ' ' + m.name).toLowerCase().indexOf(kw) >= 0);
       if (!rows.length) {
-        host.innerHTML = '<div class="mq-empty">还没有存过的白膜。<br>右边说一句也能先看。</div>';
+        host.innerHTML = '<div class="mq-empty">这个库还没有模型。<br>右边说一句也能先看。</div>';
         return;
       }
-      host.innerHTML = rows.slice(0, 60).map(m => {
-        const thumb = Vault.thumbUrl(m);
+      host.innerHTML = rows.map(m => {
+        const thumb = Vault.thumbUrl(m, library, 'model');
         return '<button class="mq-item' + (modelId === m.id ? ' on' : '') + '" type="button" data-id="' + esc(m.id) + '">'
           + (thumb ? '<img src="' + esc(thumb) + '" alt="">' : '<span class="ph">' + ic('box', 14) + '</span>')
           + '<span class="nm">' + esc(m.name) + '</span></button>';
@@ -102,24 +111,25 @@ export async function open(opts = {}) {
       view.setActive(() => true);
       view.setDoc(doc, { refit: true });
       view.setAspect(aspect);
-      view.setGizmoMode('none');
+      view.setEditable(false);
     }
 
     async function loadModel(id) {
       try {
-        const raw = await Vault.read(id);
+        const raw = await Vault.readModel(library, id);
         const out = S.normalizeDoc(raw);
         doc = out.doc;
+        doc.kind = 'model';
         modelId = id;
         /* 摆件先读一遍：不然视口里那些 asset 节点只是占位盒子 */
-        const rd = await Loader.loadAll(Loader.filesOf(doc.scene.nodes));
+        const rd = await Loader.loadAll(Loader.filesOf(doc.scene.nodes), { library });
         assets = rd.assets;
         if (rd.notes.length) note('有摆件读不出来：' + rd.notes[0], 'err');
         aspect = doc.scene.view.aspect || aspect;
         paintAspect();
         paintList();
         q('cnt').textContent = modelId;
-        if (!view) mountView(); else { view.setDoc(doc, { refit: true }); view.setAspect(aspect); }
+        if (!view) mountView(); else { view.setDoc(doc, { refit: true, resetTime: true }); view.setAspect(aspect); }
         q('ok').disabled = true;
         picked = null;
         note('转一下视角看看构图，然后点「静帧」或「3 秒动画」');
@@ -137,12 +147,14 @@ export async function open(opts = {}) {
       const ctl = new AbortController();
       try {
         const r = await AI.run({
-          prompt, doc: null, catalog: '（这次不参考历史白膜）', aspect, signal: ctl.signal,
+          prompt, doc: null, mode: 'new', catalog: '（这次不参考历史白膜）', aspect, signal: ctl.signal,
           onNodes: nodes => {
             const draft = S.emptyDoc('预览');
-            draft.scene.nodes = S.normalizeDoc({ scene: { nodes, camera: draft.scene.camera, view: draft.scene.view } }).doc.scene.nodes;
+            draft.scene.nodes = S.normalizeDoc({
+              scene: { nodes, cams: draft.scene.cams, active: draft.scene.active, view: draft.scene.view },
+            }).doc.scene.nodes;
             doc = draft;
-            if (!view) mountView(); else view.setDoc(doc, { refit: true });
+            if (!view) mountView(); else view.setDoc(doc, { refit: true, resetTime: true });
           },
         });
         if (!r.doc) { note(r.why || '这一轮没有可用的模型', 'err'); return; }
@@ -151,7 +163,7 @@ export async function open(opts = {}) {
         assets = new Map();
         paintList();
         q('cnt').textContent = '未保存的临时白膜';
-        if (!view) mountView(); else view.setDoc(doc, { refit: true });
+        if (!view) mountView(); else view.setDoc(doc, { refit: true, resetTime: true });
         note('预览好了。要存下来就去建模台；这里只出参考图。', 'ok');
       } catch (e) {
         note('生成失败：' + window.errText(e), 'err');
@@ -191,7 +203,8 @@ export async function open(opts = {}) {
         if (!picked) return;
         return close({
           assetId: picked.assetId, src: picked.src, name: picked.name,
-          type: picked.type, url: picked.src,
+          type: picked.type === 'video' ? '视频' : '图片',
+          url: picked.src, bytes: picked.bytes,
         });
       }
       if (e.target.closest('[data-q="gen"]')) return generatePreview();
@@ -210,11 +223,24 @@ export async function open(opts = {}) {
     dlg.addEventListener('input', e => {
       if (e.target.matches('[data-q="search"]')) paintList();
     });
+    dlg.addEventListener('change', async e => {
+      if (!e.target.matches('[data-q="library"]')) return;
+      library = e.target.value;
+      try {
+        lib = await Vault.list(library);
+        paintList();
+        if (lib.models && lib.models.length) await loadModel(lib.models[0].id);
+      } catch (err) { note('库读不出来：' + window.errText(err), 'err'); }
+    });
     dlg.addEventListener('cancel', e => { e.preventDefault(); close(null); });
 
     (async () => {
       try {
-        lib = await Vault.list();
+        const all = await Vault.list('');
+        libraries = all.libraries || [];
+        library = (libraries[0] && libraries[0].id) || '';
+        if (library) lib = await Vault.list(library);
+        paintLibraryOptions();
       } catch (e) {
         note('库读不出来：' + window.errText(e), 'err');
       }

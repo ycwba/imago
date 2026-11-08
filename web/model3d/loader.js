@@ -8,7 +8,7 @@
    4. **缓存**：同一份文件只解析一次（流式重建一秒能重建十几次，重复 parse 一个 20 MB 的 FBX 会卡死）。
 
    不支持的东西**当场说清楚**（不是静默失败）：Draco / KTX2 压缩、OBJ 的 MTL 与贴图外链、.gltf 的外链 .bin。
-   文件自带的 `animations` 会保留下来交给 clip.js 播放；骨骼太多的文件降级为静态摆件并记一笔。 */
+   文件自带的 `animations` 会保留下来交给 clip.js 播放；骨骼数量不设上限。 */
 
 import * as THREE from '../vendor/three/three.module.js';
 import { GLTFLoader } from '../vendor/three/GLTFLoader.js';
@@ -18,7 +18,6 @@ import { clone as cloneSkinned } from '../vendor/three/SkeletonUtils.js';
 import { CLAY } from './palette.js';
 
 export const ASSET_EXT = ['.fbx', '.obj', '.glb', '.gltf'];
-export const MAX_BONES = 120;
 const KIND_BY_EXT = { '.fbx': 'fbx', '.obj': 'obj', '.glb': 'glb', '.gltf': 'gltf' };
 
 export function extOf(name) {
@@ -98,7 +97,6 @@ export function friendlyError(name, err) {
       ? '这个 .gltf 用了外链的 .bin / 贴图，本期只认自包含文件（换成 .glb）'
       : '这个文件的贴图 / 附属文件没跟过来，本期只认自包含文件';
   }
-  if (/bones?|骨骼/i.test(msg)) return '这个模型的骨骼太多，本期最多 ' + MAX_BONES + ' 根（动画会按静态摆件处理）';
   if (/Unexpected token|JSON/i.test(msg)) return '这个文件的内容不是它扩展名声明的那种格式';
   return '这个 3D 文件读不出来：' + (msg || '格式不认识');
 }
@@ -110,7 +108,7 @@ function countBones(root) {
 }
 
 /* 原始字节 → { proto, clips, bones, note }。`data` 是 ArrayBuffer（.obj 自己转成字符串）。
-   骨骼太多时只丢动画、保住静态模型：换一份文件比让整台空白强。 */
+   骨骼数量不设上限：文件里有多少根就按多少根播。 */
 export function parseBytes(name, data) {
   const kind = assetKind(name);
   if (!kind) return Promise.reject(new Error('只收 ' + ASSET_EXT.join(' / ') + ' 这几种 3D 文件'));
@@ -121,10 +119,7 @@ export function parseBytes(name, data) {
         const proto = normalizeRoot(stripRig(obj));
         const list = (Array.isArray(clips) ? clips : []).filter(c => c && Array.isArray(c.tracks) && c.tracks.length);
         const bones = countBones(proto);
-        const note = (list.length && bones > MAX_BONES)
-          ? '这个模型骨骼太多（' + bones + ' 根），本期最多 ' + MAX_BONES + ' 根，动画已按静态摆件处理'
-          : '';
-        resolve({ proto, clips: note ? [] : list, bones, note });
+        resolve({ proto, clips: list, bones, note: '' });
       } catch (e) { reject(new Error(friendlyError(name, e))); }
     };
     const rejectParse = err => reject(new Error(friendlyError(name, err)));
@@ -174,7 +169,8 @@ function fetchBytes(url) {
   });
 }
 
-const assetUrlOf = file => '/model3d/asset?name=' + encodeURIComponent(String(file || ''));
+const assetUrlOf = (file, library) => '/model3d/asset?library=' + encodeURIComponent(String(library || ''))
+  + '&name=' + encodeURIComponent(String(file || ''));
 
 /* 读一份导入文件（相对 `白膜/` 的路径，形如 `_模型文件/长凳.fbx`）。
    `clay` 默认 false：白膜化是**每个摆件节点自己的开关**（`node.clay`），scene.js 按节点决定；
@@ -183,14 +179,15 @@ export async function load(file, opts = {}) {
   const key = String(file || '');
   if (!key) throw new Error('这一格没有文件');
   if (!isAssetName(key)) throw new Error('只收 ' + ASSET_EXT.join(' / ') + ' 这几种 3D 文件');
-  let p = cache.get(key);
+  const cacheKey = String(opts.library || '') + '::' + key;
+  let p = cache.get(cacheKey);
   if (!p) {
-    p = fetchBytes(opts.url || assetUrlOf(key))
+    p = fetchBytes(opts.url || assetUrlOf(key, opts.library))
       .then(buf => parseBytes(key, buf))
       .then(entry => { if (opts.clay) applyClay(entry.proto); return entry; });
     /* 失败不留在缓存里：用户换一份文件重试时不该继续拿上一次的错误 */
-    p.catch(() => { cache.delete(key); });
-    cache.set(key, p);
+    p.catch(() => { cache.delete(cacheKey); });
+    cache.set(cacheKey, p);
   }
   return p;
 }
@@ -217,6 +214,13 @@ export async function loadAll(files, opts = {}) {
     } catch (e) { notes.push(errorLine(e)); }
   }));
   return { assets: out, notes };
+}
+
+/* 摆件在场景资源表里的键：跨库放进来的摆件带着自己的库名，同名文件才不会串库。 */
+export function assetLookupKey(node) {
+  const file = String((node && node.file) || '');
+  const lib = String((node && node.lib) || '');
+  return lib ? lib + '::' + file : file;
 }
 
 /* 摆件节点上要读的文件清单（页面与判据共用这一份，别各自遍历一遍） */

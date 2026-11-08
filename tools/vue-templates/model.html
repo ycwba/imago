@@ -16,41 +16,46 @@
         <div class="phead-acts">
           <button class="ghost" type="button" data-r="mmSave"><span data-icon="download" data-size="13"></span> 保存</button>
           <button class="ghost" type="button" data-r="mmSaveAs"><span data-icon="box" data-size="13"></span> 另存为</button>
-          <button class="ghost" type="button" data-r="mmExportJson" title="导出成一份能带走、能再导回来的 .json"><span data-icon="upload" data-size="13"></span> 导出</button>
+          <button class="ghost" type="button" data-r="mmImport"><span data-icon="upload" data-size="13"></span> 导入</button>
+          <button class="ghost" type="button" data-r="mmExport"><span data-icon="download" data-size="13"></span> 导出</button>
         </div>
       </header>
 
       <div class="mm-layout">
-        <!-- 左栏：白膜库（分组 / 卡片 / 底部动作）。栏宽可拖，拖动条由 Wb.split 提供。 -->
+        <!-- 左栏：场景 / 白膜库两页签。栏宽可拖，拖动条由 Wb.split 提供。 -->
         <aside class="mm-rail" data-r="mmRail">
-          <div class="mm-rail-head">
-            <input class="search" data-r="mmSearch" type="search" placeholder="搜模型名 / 组…" aria-label="搜模型">
-          </div>
-          <div class="mm-groups" data-r="mmGroups" role="group" aria-label="按组筛选"></div>
-          <div class="mm-cards" data-r="mmCards"></div>
-          <div class="mm-rail-foot">
-            <button class="ghost mini" type="button" data-r="mmNew"><span data-icon="sparkles" data-size="12"></span> 新建</button>
-            <button class="ghost mini" type="button" data-r="mmImport3d"><span data-icon="box" data-size="12"></span> 3D 文件</button>
-            <button class="ghost mini" type="button" data-r="mmImportJson"><span data-icon="upload" data-size="12"></span> 导入</button>
-            <button class="ghost mini" type="button" data-r="mmRename"><span data-icon="list" data-size="12"></span> 改名</button>
-            <button class="ghost mini" type="button" data-r="mmMove"><span data-icon="grid" data-size="12"></span> 移组</button>
-            <button class="ghost mini danger" type="button" data-r="mmDelete"><span data-icon="trash" data-size="12"></span> 删除</button>
+          <div class="mm-rail-tabs" data-r="mmRailTabs" role="tablist" aria-label="左栏"></div>
+          <div class="mm-rail-body">
+            <div class="mm-pane" data-r="mmScenePane">
+              <div class="mm-scenes" data-r="mmScenes"></div>
+              <div class="mm-tree-acts" data-r="mmTreeActs" role="toolbar" aria-label="实体操作"></div>
+              <div class="mm-tree" data-r="mmTree" role="tree" aria-label="场景实体"></div>
+            </div>
+            <div class="mm-pane" data-r="mmLibPane" hidden>
+              <div class="mm-library-bar" data-r="mmLibraryBar"></div>
+              <div class="mm-rail-head">
+                <input class="search" data-r="mmSearch" type="search" placeholder="搜模型名…" aria-label="搜模型">
+              </div>
+              <div class="mm-groups" data-r="mmGroups" role="group" aria-label="模型库"></div>
+              <div class="mm-cards" data-r="mmCards"></div>
+            </div>
           </div>
           <input type="file" data-r="mmFileJson" accept=".json,application/json" hidden>
+          <input type="file" data-r="mmFileModelJson" accept=".json,application/json" hidden>
+          <input type="file" data-r="mmFileSceneJson" accept=".json,application/json" hidden>
           <input type="file" data-r="mmFile3d" accept=".fbx,.obj,.glb,.gltf" hidden>
+          <input type="file" data-r="mmImgInput" accept="image/*" multiple hidden>
         </aside>
 
-        <!-- 中栏：工具条 + 视口 + 底部轨道坞 -->
+        <!-- 中栏：工具条 + 视口 + 固定出片条 + 底部轨道坞 -->
         <section class="mm-stage">
           <div class="mm-tools" data-r="mmTools" role="toolbar" aria-label="视口工具"></div>
           <div class="mm-viewport" data-r="mmViewport" tabindex="0" aria-label="三维视口"></div>
+          <div class="mm-out" data-r="mmOut" hidden></div>
           <div class="mm-dock" data-r="mmDock"></div>
-          <!-- 出图 / 出片之后那一条（刚出的这一份：下载 · 回传工作台 · 回传导演台）。
-               空的时候不占位，见 spa-model.css 的 `.mm-result:empty`。 -->
-          <div class="mm-result" data-r="mmResult"></div>
         </section>
 
-        <!-- 右栏：AI / 场景 两档 -->
+        <!-- 右栏：AI / 属性 / 机位三档 -->
         <aside class="mm-side">
           <div class="mm-side-tabs" data-r="mmSideTabs" role="tablist" aria-label="右栏"></div>
           <div class="mm-side-body" data-r="mmSideBody"></div>

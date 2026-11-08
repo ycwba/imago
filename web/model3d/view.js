@@ -1,19 +1,24 @@
 /* 三维视口 —— 唯一一处碰 WebGL / 相机 / 控制器 / 画幅 / 截图的地方。
    场景内容归 scene.js，这一层只管「怎么看、怎么拍」：
 
-   · 两套相机：导演视角（自由 orbit）与机位视角（`doc.scene.camera`）；
+   · 两套相机：导演视角（自由 orbit）与机位视角（`doc.scene.cams` 里的活动机位）；
+   · 多机位：出图 / 出片永远用活动机位，导演视角里显示所有机位的视锥标识；
    · 画幅 letterbox：屏幕上看到的那块矩形与导出时的尺寸**同源**（frameRect 一份算法）；
    · 截图与逐帧出片：走离屏 RenderTarget 读回像素，不改画布尺寸 —— 出片时界面不会跳一下；
    · 脏标记循环：不播放、没拖动、没改模型时一帧都不画（建模台要长时间开着，不能空转烧电）。
 
+   播放时钟不在这里：`web/pages/model/dock.js` 是唯一时钟，逐帧调 `setTime(t)`。
    出片所需的 `preserveDrawingBuffer` 在这里打开：离屏渲染完立刻读回，但有些驱动在
-   `await` 之后会清缓冲，留着它最省事（代价是一次多余的拷贝，2 MB 的画布上可以忽略）。 */
+   `await` 之后会清缓冲，留着它最省事（代价是一次多余的拷贝）。 */
 
 import * as THREE from '../vendor/three/three.module.js';
 import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import { TransformControls } from '../vendor/three/TransformControls.js';
-import { createStage, setPanorama, buildContent, disposeContent, boundsOf, updateCameraRig } from './scene.js';
-import { sampleAnim } from './anim.js';
+import {
+  createStage, setPanorama, buildContent, disposeContent, disposeStage,
+  boundsOf, updateCameraRig, setCameraRigs, setTrackPaths,
+} from './scene.js';
+import { sampleAnim, sampleCams } from './anim.js';
 import { findNode } from './schema.js';
 import { jointsOf, applyJoints } from './rig.js';
 import { applyClip } from './clip.js';
@@ -32,7 +37,7 @@ export function frameRect(aspect, cssW, cssH) {
 }
 export function sizeOfAspect(aspect, shortEdge) {
   const ar = ASPECTS[aspect] || ASPECTS['16:9'];
-  const se = Math.max(240, Math.min(1440, Math.round(shortEdge) || 720));
+  const se = Math.max(2, Math.round(shortEdge) || 720);
   return ar >= 1 ? { w: Math.round(se * ar), h: se } : { w: se, h: Math.round(se / ar) };
 }
 
@@ -41,14 +46,13 @@ export function createView(host, opts = {}) {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-  renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1));
+  renderer.setPixelRatio(window.devicePixelRatio || 1);
   renderer.domElement.className = 'mm-canvas';
   host.appendChild(renderer.domElement);
 
   const stage = createStage();
   const camD = new THREE.PerspectiveCamera(35, 16 / 9, 0.05, 400);
   camD.position.set(3.4, 2.2, 4.6);
-  /* 机位那台由 stage 一起建（它还要被视锥标识引用，见 scene.js 的 updateCameraRig） */
   const camC = stage.camC;
   const orbit = new OrbitControls(camD, renderer.domElement);
   orbit.enableDamping = true;
@@ -56,12 +60,33 @@ export function createView(host, opts = {}) {
   orbit.target.set(0, 0.95, 0);
   orbit.maxPolarAngle = Math.PI * 0.495;      // 不许钻到地台下面
   orbit.minDistance = 0.4;
-  orbit.maxDistance = 60;
+  /* 中键拖 = 平移视角：滚轮已经负责缩放，中键留给「把视角挪个地方」最顺手。 */
+  orbit.mouseButtons.MIDDLE = THREE.MOUSE.PAN;
+  renderer.domElement.title = '左键拖动旋转 / 平移视角 · 右键或中键拖动平移 · 滚轮缩放';
 
+  /* 一个手柄同时画平移箭头与旋转环：两套 TransformControls 挂在同一个对象上，
+     各自只处理自己命中的轴，不再让用户先切「移动 / 旋转」。 */
   const gizmo = new TransformControls(camD, renderer.domElement);
-  gizmo.setSize(0.85);
-  gizmo.addEventListener('dragging-changed', e => { orbit.enabled = !e.value; });
-  stage.scene.add(gizmo.getHelper());
+  const gizmoR = new TransformControls(camD, renderer.domElement);
+  const draggingControls = new Set();
+  const watchDrag = g => e => {
+    const other = g === gizmo ? gizmoR : gizmo;
+    if (e.value) {
+      draggingControls.add(g);
+      other.enabled = false;          // 一次只让一套手柄接管指针，避免又平移又旋转
+    } else {
+      draggingControls.delete(g);
+      if (!draggingControls.size) { gizmo.enabled = true; gizmoR.enabled = true; }
+    }
+    dragging = draggingControls.size > 0;
+    syncOrbitEnabled();
+  };
+  for (const [g, mode] of [[gizmo, 'translate'], [gizmoR, 'rotate']]) {
+    g.setSize(0.85);
+    g.setMode(mode);
+    g.addEventListener('dragging-changed', watchDrag(g));
+    stage.scene.add(g.getHelper());
+  }
 
   const helper = new THREE.BoxHelper(new THREE.Object3D(), SELECT);
   helper.visible = false;
@@ -69,13 +94,20 @@ export function createView(host, opts = {}) {
   helper.material.transparent = true;
   helper.renderOrder = 999;
   stage.scene.add(helper);
+  const camGizmo = new THREE.Object3D();
+  camGizmo.name = 'camera-gizmo';
+  camGizmo.visible = false;
+  stage.scene.add(camGizmo);
 
   let doc = null;
   let content = null;
   let mode = 'director';
-  let gizmoMode = 'translate';
+  let navMode = 'rotate';              // 导演视角左键：rotate | pan
+  let editable = true;                 // 白膜快速弹窗里关掉手柄
   let aspect = '16:9';
   let selectedId = '';
+  let selectedCam = '';
+  let dragging = false;
   let rigOn = true;                    // 相机标识开关（页面偏好，不进模型文件）
   let dirty = true;
   let playing = false;
@@ -85,11 +117,11 @@ export function createView(host, opts = {}) {
   let active = () => true;             // 页面可见性（外层塞 __spaActivity 判据进来）
   let onPick = null;
   let onTransform = null;
+  let onCamTransform = null;
   let onCameraChange = null;
   let onNotes = null;
   let lastNotesKey = '';
   let lastPoseKey = '';
-  let lastPlayAt = 0;               // 播放按墙钟计时（见 tick 里的注释）
   const rt = new Map();                // `${w}x${h}` -> WebGLRenderTarget
 
   /* 置脏必须连着排一帧：只把 dirty 立起来、不踢 kick 的话，rAF 循环不会醒
@@ -114,19 +146,55 @@ export function createView(host, opts = {}) {
   /* 相机标识的可见性 = 用户开关 && 当前在导演视角。
      机位视角里永远不画（那套线正好糊在画面中央）；出图 / 出片另在 grab 里强制摘掉。 */
   function syncRig() {
-    stage.rig.visible = rigOn && mode === 'director';
+    if (stage.rigs) stage.rigs.visible = rigOn && mode === 'director';
+    if (stage.paths) stage.paths.visible = mode === 'director';
+  }
+  /* 导演视角能不能转，只看「在导演视角 && 没在拖手柄」。
+     选中 / 换手柄 / 松手都从这里收一次，避免某次拖动把 orbit 永久锁死。 */
+  function syncOrbitEnabled() {
+    orbit.enabled = mode === 'director' && !dragging;
   }
 
-  function applyCamera() {
-    if (!doc) return;
-    const c = doc.scene.camera;
-    camC.position.set(c.pos[0], c.pos[1], c.pos[2]);
-    camC.fov = c.fov;
-    camC.lookAt(new THREE.Vector3(c.target[0], c.target[1], c.target[2]));
+  function applyCamSample(cam, sample) {
+    const pos = (sample && sample.at) || cam.pos;
+    const target = (sample && sample.target) || cam.target;
+    const fov = sample && sample.fov != null ? sample.fov : cam.fov;
+    camC.position.set(pos[0], pos[1], pos[2]);
+    camC.fov = fov;
+    camC.lookAt(new THREE.Vector3(target[0], target[1], target[2]));
     camC.updateProjectionMatrix();
-    updateCameraRig(stage, camC, ASPECTS[aspect] || 16 / 9);
-    if (mode === 'director') {
-      /* 导演视角不动：用户自己转。只有从「机位视角」切回来时才把 orbit 的目标收回来。 */
+    camC.updateMatrixWorld(true);
+  }
+
+  function syncCamGizmo(cam, sample) {
+    if (!cam) return;
+    const pos = (sample && sample.at) || cam.pos;
+    const target = (sample && sample.target) || cam.target;
+    camGizmo.position.set(pos[0], pos[1], pos[2]);
+    const tmp = new THREE.PerspectiveCamera();
+    tmp.position.set(pos[0], pos[1], pos[2]);
+    tmp.lookAt(new THREE.Vector3(target[0], target[1], target[2]));
+    camGizmo.quaternion.copy(tmp.quaternion);
+    camGizmo.updateMatrixWorld(true);
+  }
+
+  /* 把当前时刻的活动机位写进 camC，并把所有机位的视锥标识同步到这一帧。 */
+  function applyCamera(t, nodeSamples) {
+    if (!doc) return;
+    const time = t == null ? playT : Math.max(0, Number(t) || 0);
+    const ns = nodeSamples || sampleAnim(doc.anim, time);
+    const cams = sampleCams(doc.anim, doc, time, ns);
+    const activeId = doc.scene.active;
+    const activeCam = doc.scene.cams.find(c => c.id === activeId) || doc.scene.cams[0];
+    if (activeCam) applyCamSample(activeCam, cams[activeCam.id]);
+    if (stage.rigs) {
+      for (const cam of doc.scene.cams) {
+        const s = cams[cam.id] || cam;
+        updateCameraRig(stage, {
+          id: cam.id, pos: s.at || cam.pos, target: s.target || cam.target, fov: s.fov != null ? s.fov : cam.fov,
+        }, ASPECTS[aspect] || 16 / 9, cam.id === activeId);
+        if (cam.id === selectedCam && !dragging) syncCamGizmo(cam, s);
+      }
     }
     markDirty();
   }
@@ -141,7 +209,7 @@ export function createView(host, opts = {}) {
       time: playT,
     });
     stage.scene.add(content.group);
-    /* 建场景时记下的话要在界面说一次：摆件超上限、文件里没这条动画、三角形超预算……
+    /* 建场景时记下的话要在界面说一次：文件里没这条动画、摆件没加载……
        同一份 doc 只报一次（播放中姿势变化也会重建，重复刷会把状态行一直压在警示上）。 */
     const notesKey = content.notes.join('\n');
     if (notesKey && notesKey !== lastNotesKey && onNotes) onNotes(content.notes.slice());
@@ -149,8 +217,11 @@ export function createView(host, opts = {}) {
     stage.ground.visible = doc.scene.view.ground;
     stage.floor.visible = doc.scene.view.ground;
     stage.grid.visible = doc.scene.view.grid;
-    applyCamera();
-    setSelection(selectedId);
+    setCameraRigs(stage, doc.scene.cams, doc.scene.active, ASPECTS[aspect] || 16 / 9);
+    setTrackPaths(stage, doc);
+    applyCamera(playT);
+    if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
+    else setSelection(selectedId);
     const box = boundsOf(content);
     const span = Math.max(1, box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
     /* 阴影相机按内容收紧：白膜的自阴影条纹主要来自阴影贴图铺得太开 */
@@ -168,10 +239,12 @@ export function createView(host, opts = {}) {
     poseOverrides.clear();
     lastPoseKey = '';
     lastNotesKey = '';
-    playT = 0;
+    if (first || o.resetTime) playT = 0;
+    if (selectedCam && (!doc || !doc.scene.cams.some(c => c.id === selectedCam))) selectedCam = '';
     if (o.aspect) aspect = o.aspect; else if (doc) aspect = doc.scene.view.aspect;
     mode = doc ? doc.scene.view.mode : mode;
     rebuild();
+    if (doc && doc.anim && doc.anim.tracks && doc.anim.tracks.length) applyTime(playT);
     syncRig();                                   // 机位视角里不画视锥标识
     if (first || o.refit) fit();
     if (doc) setPanorama(stage, doc.scene.panorama).then(r => {
@@ -195,9 +268,7 @@ export function createView(host, opts = {}) {
     markDirty();
   }
 
-  /* 取景预设：近景（对上半身）/ 中景（整体装进画面）/ 全景（再退一档）。
-     与 fit() 同一套包围盒，只是「看哪里」与「退多远」不同 —— 用户按一颗键
-     就能在三种常用景别之间跳，不用自己拖到合适为止。 */
+  /* 取景预设：近景（对上半身）/ 中景（整体装进画面）/ 全景（再退一档）。 */
   function frameTo(kind) {
     if (!content) return;
     const box = boundsOf(content);
@@ -216,42 +287,92 @@ export function createView(host, opts = {}) {
     markDirty();
   }
 
-  function setSelection(id) {
-    selectedId = id || '';
+  function attachGizmos(obj) {
+    gizmo.enabled = true;
+    gizmoR.enabled = true;
+    gizmo.attach(obj);
+    gizmoR.attach(obj);
+  }
+  function detachGizmos() {
+    if (gizmo.object) gizmo.detach();
+    if (gizmoR.object) gizmoR.detach();
+  }
+
+  function setSelection(sel) {
+    syncOrbitEnabled();
+    if (sel && typeof sel === 'object' && sel.kind === 'cam') {
+      selectedCam = String(sel.id || '');
+      selectedId = '';
+      const cam = doc && doc.scene.cams.find(c => c.id === selectedCam);
+      const rig = cam && stage.rigMap.get(cam.id);
+      if (!cam || !rig) {
+        helper.visible = false;
+        detachGizmos();
+        markDirty();
+        return;
+      }
+      syncCamGizmo(cam);
+      helper.setFromObject(rig.pick);
+      helper.visible = true;
+      if (editable && mode === 'director') attachGizmos(camGizmo);
+      else detachGizmos();
+      markDirty();
+      return;
+    }
+    selectedCam = '';
+    selectedId = sel || '';
     const wrap = selectedId && content ? content.byId.get(selectedId) : null;
     /* 锁定的实体只画选中框、不挂手柄：手柄一挂上，拖一下就把锁定的东西挪了 */
     const node = (doc && selectedId) ? findNode(doc.scene.nodes, selectedId) : null;
     const locked = !!(node && node.locked);
     if (!wrap) {
       helper.visible = false;
-      if (gizmo.object) gizmo.detach();
+      detachGizmos();
     } else {
       helper.setFromObject(wrap);
       helper.visible = true;
-      if (gizmoMode !== 'none' && mode === 'director' && !locked) gizmo.attach(wrap);
-      else if (gizmo.object) gizmo.detach();
+      if (editable && mode === 'director' && !locked) attachGizmos(wrap);
+      else detachGizmos();
     }
     markDirty();
   }
 
-  function setGizmoMode(m) {
-    gizmoMode = m || 'none';
-    if (gizmoMode === 'none') { if (gizmo.object) gizmo.detach(); }
-    else if (selectedId) setSelection(selectedId);
+  function setEditable(v) {
+    editable = v !== false;
+    if (!editable) detachGizmos();
+    else if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
+    else setSelection(selectedId);
+    syncOrbitEnabled();
     markDirty();
   }
 
   function setViewMode(m) {
     mode = m === 'camera' ? 'camera' : 'director';
-    orbit.enabled = mode === 'director';
+    syncOrbitEnabled();
     syncRig();
-    setSelection(selectedId);
+    if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
+    else setSelection(selectedId);
     markDirty();
+  }
+
+  /* 导演视角的左键手势：旋转（围着目标转）或平移（把目标与相机一起挪）。 */
+  function setNavMode(m) {
+    navMode = m === 'pan' ? 'pan' : 'rotate';
+    orbit.mouseButtons.LEFT = navMode === 'pan' ? THREE.MOUSE.PAN : THREE.MOUSE.ROTATE;
+    markDirty();
+  }
+
+  function setActiveCam(id) {
+    if (!doc || !doc.scene.cams.some(c => c.id === id)) return false;
+    doc.scene.active = id;
+    applyCamera(playT);
+    return true;
   }
 
   function setAspect(a) {
     aspect = ASPECTS[a] ? a : '16:9';
-    updateCameraRig(stage, camC, ASPECTS[aspect] || 16 / 9);   // 画幅变了，锥体开口跟着变
+    setCameraRigs(stage, doc ? doc.scene.cams : [], doc ? doc.scene.active : '', ASPECTS[aspect] || 16 / 9);
+    if (doc) applyCamera(playT);
     markDirty();
   }
 
@@ -265,7 +386,6 @@ export function createView(host, opts = {}) {
   const poseOverrides = new Map();
   function applyTime(t) {
     if (!doc || !content) return;
-    /* 出片时也是这条：把「现在算到第几秒」写回 playT，rebuild 才能按这一帧算步态 */
     playT = Math.max(0, Number(t) || 0);
     const samples = sampleAnim(doc.anim, playT);
     const ids = Object.keys(samples);
@@ -288,8 +408,10 @@ export function createView(host, opts = {}) {
     if (needPose && poseChanged) {
       /* 姿势 / 步态变了 —— 重建（白膜的动；一帧三十来个零件，24fps 下够用） */
       const keep = selectedId;
+      const keepCam = selectedCam;
       rebuild();
-      setSelection(keep);
+      if (keepCam) setSelection({ kind: 'cam', id: keepCam });
+      else setSelection(keep);
     }
     for (const id of ids) {
       const s = samples[id];
@@ -324,6 +446,7 @@ export function createView(host, opts = {}) {
       const sel = content.byId.get(selectedId);
       if (sel) helper.setFromObject(sel);
     }
+    applyCamera(playT, samples);
     markDirty();
   }
 
@@ -351,27 +474,13 @@ export function createView(host, opts = {}) {
     renderer.setViewport(0, 0, w, h);
   }
 
-  /* 循环只在「有事发生」时活着：播放中、阻尼还没停、有脏标记。页面不可见时直接不排下一帧
-     （建模台会长时间开着，空转 rAF 是在烧电）。事件负责把链子重新踢起来（kick）。 */
+  /* 循环只在「有事发生」时活着：阻尼还没停、有脏标记。页面不可见时直接不排下一帧
+     （建模台会长时间开着，空转 rAF 是在烧电）。事件负责把链子重新踢起来（kick）。
+     播放时钟在 dock.js：它逐帧调 setTime，这里只负责把脏标记画出来。 */
   function tick() {
     raf = 0;
     if (disposed || !active()) return;
     let more = false;
-    if (playing) {
-      /* 按墙钟走，不按帧走：屏幕 60Hz、动画 24fps 时「每帧 +1/24」会把播放放快 2.5 倍
-         （出片不受影响 —— 那条路按帧计划逐秒取）。 */
-      const now = performance.now();
-      const dt = lastPlayAt ? Math.min(0.25, (now - lastPlayAt) / 1000) : 0;
-      lastPlayAt = now;
-      const anim = doc && doc.anim;
-      const dur = anim ? Math.max(0.1, anim.duration) : 1;
-      playT = (playT + dt) % dur;
-      applyTime(playT);
-      dirty = true;
-      more = true;
-    } else {
-      lastPlayAt = 0;
-    }
     if (dirty) {
       dirty = false;
       paint();
@@ -394,6 +503,24 @@ export function createView(host, opts = {}) {
   orbit.addEventListener('start', () => kick());
   kick();
 
+  /* 手柄拖到画布外松手时，TransformControls 只在 canvas 上收 pointerup：
+     它收不到就会把 dragging 留在 true、把 orbit 一起锁死（之后导演视角拖不动）。
+     补一条 window 级收尾：不管在哪松手都把拖动状态与 orbit 放回来。 */
+  function stopGizmoDrag() {
+    if (!dragging && !gizmo.dragging && !gizmoR.dragging) return;
+    dragging = false;
+    draggingControls.clear();
+    if (gizmo.dragging) { gizmo.dragging = false; gizmo.axis = null; }
+    if (gizmoR.dragging) { gizmoR.dragging = false; gizmoR.axis = null; }
+    gizmo.enabled = true;
+    gizmoR.enabled = true;
+    syncOrbitEnabled();
+    markDirty();
+  }
+  window.addEventListener('pointerup', stopGizmoDrag, true);
+  window.addEventListener('pointercancel', stopGizmoDrag, true);
+  window.addEventListener('blur', stopGizmoDrag);
+
   /* ---------------- 拾取 ---------------- */
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -407,11 +534,16 @@ export function createView(host, opts = {}) {
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(pointer, activeCamera());
-    const hits = ray.intersectObjects([content.group], true);
+    const picks = [];
+    if (mode === 'director' && rigOn && stage.rigMap) {
+      for (const rig of stage.rigMap.values()) if (rig.pick) picks.push(rig.pick);
+    }
+    const hits = ray.intersectObjects([content.group, ...picks], true);
     for (const h of hits) {
       let o = h.object;
       if (o.isLineSegments) continue;             // 描边不参与拾取
-      while (o && !o.userData.nodeId) o = o.parent;
+      while (o && !o.userData.camId && !o.userData.nodeId) o = o.parent;
+      if (o && o.userData.camId) { if (onPick) onPick({ kind: 'cam', id: o.userData.camId }); return; }
       if (!o || !o.userData.nodeId) continue;
       /* 锁定的实体点不中（它自己也隐藏时更要点不中）——「锁住」在视口里就该是碰不到的 */
       const n = doc ? findNode(doc.scene.nodes, o.userData.nodeId) : null;
@@ -422,15 +554,45 @@ export function createView(host, opts = {}) {
     if (onPick) onPick('');
   });
 
+  /* 平移箭头只回写位置；旋转环只回写朝向。两套手柄挂在同一个对象上，
+     但 objectChange 各归各的，不会互相覆盖。 */
   gizmo.addEventListener('objectChange', () => {
+    if (selectedCam) {
+      if (!onCamTransform) return;
+      const pos = [round(camGizmo.position.x), round(camGizmo.position.y), round(camGizmo.position.z)];
+      onCamTransform(selectedCam, { pos });
+      return;
+    }
     const obj = gizmo.object;
     if (!obj || !onTransform) return;
     const id = obj.userData.nodeId;
     if (!id) return;
+    onTransform(id, { at: [round(obj.position.x), round(obj.position.y), round(obj.position.z)] });
+    if (helper.visible) helper.setFromObject(obj);
+    markDirty();
+  });
+
+  gizmoR.addEventListener('objectChange', () => {
+    if (selectedCam) {
+      if (!onCamTransform || !doc) return;
+      const cam = doc.scene.cams.find(c => c.id === selectedCam);
+      if (!cam) return;
+      const pos = [round(camGizmo.position.x), round(camGizmo.position.y), round(camGizmo.position.z)];
+      const dx = cam.target[0] - cam.pos[0];
+      const dy = cam.target[1] - cam.pos[1];
+      const dz = cam.target[2] - cam.pos[2];
+      const dist = Math.max(0.001, Math.hypot(dx, dy, dz));
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camGizmo.quaternion).normalize();
+      const target = [round(pos[0] + dir.x * dist), round(pos[1] + dir.y * dist), round(pos[2] + dir.z * dist)];
+      onCamTransform(selectedCam, { pos, target });
+      return;
+    }
+    const obj = gizmoR.object;
+    if (!obj || !onTransform) return;
+    const id = obj.userData.nodeId;
+    if (!id) return;
     onTransform(id, {
-      at: [round(obj.position.x), round(obj.position.y), round(obj.position.z)],
       rot: [round(obj.rotation.x / D2R), round(obj.rotation.y / D2R), round(obj.rotation.z / D2R)],
-      scale: [round(obj.scale.x), round(obj.scale.y), round(obj.scale.z)],
     });
     if (helper.visible) helper.setFromObject(obj);
     markDirty();
@@ -448,26 +610,32 @@ export function createView(host, opts = {}) {
     return t;
   }
 
-  /* 把当前这一帧渲成 w×h 的像素，画进调用方给的 2D canvas（PNG 与视频帧共用这一条）。
+  /* 把某一刻渲成 w×h 的像素，画进调用方给的 2D canvas（PNG 与视频帧共用这一条）。
      走 RenderTarget 而不是改画布尺寸：出片时界面不跳，也不依赖屏幕上那块 letterbox 的大小。
-     `applyTime` 必须在 `setRenderTarget` 之前同步跑：出片那条路一帧一帧排着走，
-     不经过 rAF；少了这一步，骨头停在上一帧（或绑定姿势）。 */
-  function grab(w, h, outCanvas) {
+     出图 / 出片永远用活动机位（camC），与当前界面是导演视角还是机位视角无关。
+     `opts.time` 给了就先 setTime 一次；这是出片每帧唯一的 applyTime 入口。 */
+  function grab(w, h, outCanvas, opts = {}) {
     const W = Math.max(2, Math.round(w));
     const H = Math.max(2, Math.round(h));
-    applyTime(playT);
-    const cam = activeCamera();
+    const when = opts.time != null ? opts.time : playT;
+    applyTime(when);
+    const cam = camC;
     const prevAspect = cam.aspect;
     cam.aspect = W / H;
     cam.updateProjectionMatrix();
     const t = targetFor(W, H);
     const prevTarget = renderer.getRenderTarget();
-    /* 出图 / 出片是交付物：视锥标识、选中框这类视口辅助物一个都不能进画面。
-       机位视角下本来就不显示，导演视角下这里临时摘掉，渲完立刻还原。 */
-    const prevRig = stage.rig.visible;
+    /* 出图 / 出片是交付物：视锥标识、路径线、选中框这类视口辅助物一个都不能进画面。 */
+    const prevRigs = stage.rigs ? stage.rigs.visible : false;
+    const prevPaths = stage.paths ? stage.paths.visible : false;
     const prevHelper = helper.visible;
-    stage.rig.visible = false;
+    const prevGizmo = gizmo.getHelper().visible;
+    const prevGizmoR = gizmoR.getHelper().visible;
+    if (stage.rigs) stage.rigs.visible = false;
+    if (stage.paths) stage.paths.visible = false;
     helper.visible = false;
+    gizmo.getHelper().visible = false;
+    gizmoR.getHelper().visible = false;
     renderer.setRenderTarget(t);
     renderer.setScissorTest(false);
     renderer.setViewport(0, 0, W, H);
@@ -477,8 +645,11 @@ export function createView(host, opts = {}) {
     const buf = new Uint8Array(W * H * 4);
     renderer.readRenderTargetPixels(t, 0, 0, W, H, buf);
     renderer.setRenderTarget(prevTarget);
-    stage.rig.visible = prevRig;
+    if (stage.rigs) stage.rigs.visible = prevRigs;
+    if (stage.paths) stage.paths.visible = prevPaths;
     helper.visible = prevHelper;
+    gizmo.getHelper().visible = prevGizmo;
+    gizmoR.getHelper().visible = prevGizmoR;
     cam.aspect = prevAspect;
     cam.updateProjectionMatrix();
     const cv = outCanvas || document.createElement('canvas');
@@ -494,8 +665,8 @@ export function createView(host, opts = {}) {
     return cv;
   }
 
-  function shot(w, h, type = 'image/png', quality) {
-    const cv = grab(w, h);
+  function shot(w, h, type = 'image/png', quality, opts = {}) {
+    const cv = grab(w, h, null, opts);
     return new Promise(resolve => cv.toBlob(b => resolve(b), type, quality));
   }
 
@@ -506,15 +677,16 @@ export function createView(host, opts = {}) {
 
   return {
     el: renderer.domElement,
-    stage, orbit, gizmo, renderer,
+    stage, orbit, gizmo, gizmoR, renderer,
     get content() { return content; },
     get doc() { return doc; },
-    setDoc, rebuild, fit, frameTo, applyCamera,
+    setDoc, rebuild, fit, frameTo, applyCamera, setActiveCam,
     setRigVisible(v) { rigOn = v !== false; syncRig(); markDirty(); },
-    setSelection, setGizmoMode, setViewMode, setAspect,
+    setSelection, setEditable, setViewMode, setAspect, setNavMode,
     setActive(fn) { active = fn || (() => true); markDirty(); kick(); },
     set onPick(fn) { onPick = fn; },
     set onTransform(fn) { onTransform = fn; },
+    set onCamTransform(fn) { onCamTransform = fn; },
     set onCameraChange(fn) { onCameraChange = fn; },
     set onNotes(fn) { onNotes = fn; },
     get playing() { return playing; },
@@ -534,16 +706,27 @@ export function createView(host, opts = {}) {
     cameraState() { return { pos: camD.position.toArray(), target: orbit.target.toArray(), fov: camD.fov }; },
     /* 内容包围盒：机位预设与「装进画面」都读它（取景算法的唯一来源） */
     bounds() { return boundsOf(content); },
-    cameraPose() { return { pos: camC.position.toArray(), target: doc ? doc.scene.camera.target : [0, 1, 0], fov: camC.fov }; },
+    cameraPose() {
+      if (!doc) return { pos: camC.position.toArray(), target: [0, 1, 0], fov: camC.fov };
+      const ns = sampleAnim(doc.anim, playT);
+      const cams = sampleCams(doc.anim, doc, playT, ns);
+      const active = doc.scene.cams.find(c => c.id === doc.scene.active) || doc.scene.cams[0];
+      const s = cams[active.id] || active;
+      return { pos: (s.at || active.pos).slice(), target: (s.target || active.target).slice(), fov: s.fov != null ? s.fov : active.fov };
+    },
     dispose() {
       disposed = true;
+      window.removeEventListener('pointerup', stopGizmoDrag, true);
+      window.removeEventListener('pointercancel', stopGizmoDrag, true);
+      window.removeEventListener('blur', stopGizmoDrag);
       if (raf) cancelAnimationFrame(raf);
       try { ro.disconnect(); } catch (e) { /* 观察器断开失败不影响卸载 */ }
       if (content) disposeContent(content);
-      try { stage.rigHelper.geometry.dispose(); stage.rigHelper.material.dispose(); } catch (e) { /* 视锥标识释放失败不影响卸载 */ }
       clearTargets();
       try { gizmo.detach(); gizmo.dispose(); } catch (e) { /* 控制器释放失败不影响卸载 */ }
+      try { gizmoR.detach(); gizmoR.dispose(); } catch (e) { /* 同上 */ }
       try { orbit.dispose(); } catch (e) { /* 同上 */ }
+      try { disposeStage(stage); } catch (e) { /* 同上 */ }
       try { renderer.dispose(); } catch (e) { /* 同上 */ }
       try { renderer.domElement.remove(); } catch (e) { /* 同上 */ }
     },

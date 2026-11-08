@@ -1,11 +1,14 @@
 #!/usr/bin/env node
-/* 场景与 DSL：图元/曲面能不能建出来、镜像与阵列展开对不对、引用怎么铺平、三角形预算怎么收口。
-   three 在 Node 里能跑（几何是纯数据），所以这一条真的把场景建出来称包围盒。 */
+/* 场景与 DSL：图元/曲面能不能建出来、镜像与阵列展开对不对、引用怎么铺平、
+   多机位 / 路径线、三角形不再停建。three 在 Node 里能跑（几何是纯数据），
+   所以这一条真的把场景建出来称包围盒。 */
 import assert from 'node:assert/strict';
 import * as THREE from '../web/vendor/three/three.module.js';
-import { buildContent, boundsOf, clearEdgeCache } from '../web/model3d/scene.js';
-import { variantsOf, cloneNodeForVariant, resolveRefs, countExpanded, overLimit } from '../web/model3d/dsl.js';
-import { normalizeDoc, LIMITS } from '../web/model3d/schema.js';
+import {
+  buildContent, boundsOf, clearEdgeCache, createStage, setCameraRigs, setTrackPaths, disposeStage,
+} from '../web/model3d/scene.js';
+import { variantsOf, cloneNodeForVariant, resolveRefs, countExpanded } from '../web/model3d/dsl.js';
+import { normalizeDoc } from '../web/model3d/schema.js';
 import { frameRect, sizeOfAspect } from '../web/model3d/view.js';
 
 let n = 0;
@@ -78,16 +81,39 @@ const build = raw => buildContent(normalizeDoc(raw).doc, { outline: false });
   ok(r3.dropped.missing === 1, '找不到的引用被记下来');
 
   ok(countExpanded(r1.nodes) === 3, '铺平之后数得到 3 个节点：' + countExpanded(r1.nodes));
-  ok(overLimit(new Array(LIMITS.nodes + 1).fill({ kind: 'group', id: 'g' })) === true, '超上限判得出来');
 }
 
-/* ---------- 三角形预算：超了停建并记一句 ---------- */
+/* ---------- 三角形：只统计，不停建 ---------- */
 {
   const nodes = [];
-  for (let i = 0; i < 40; i++) nodes.push({ kind: 'prim', shape: 'sphere', r: 0.5, at: [i * 0.2, 0, 0] });
+  for (let i = 0; i < 120; i++) nodes.push({ kind: 'prim', shape: 'sphere', r: 0.5, at: [i * 0.2, 0, 0] });
   const w = build({ scene: { nodes } });
-  ok(w.tris > 0, '三角形数累计出来了：' + w.tris);
-  ok(w.notes.length === 0 || w.notes.every(t => typeof t === 'string'), '提示是字符串');
+  ok(w.tris > 60000, '三角形数超过旧预算仍继续建：' + w.tris);
+  ok(!w.notes.some(t => t.indexOf('预算') >= 0), '没有「超过预算」的停建提示');
+}
+
+/* ---------- 多机位 / 路径线：辅助物挂在 content 之外 ---------- */
+{
+  const stage = createStage();
+  const cams = [
+    { id: 'c1', name: '一', pos: [1, 2, 3], target: [0, 1, 0], fov: 35, follow: '' },
+    { id: 'c2', name: '二', pos: [4, 2, 5], target: [0, 1, 0], fov: 50, follow: '' },
+    { id: 'c3', name: '三', pos: [0, 3, 8], target: [0, 1, 0], fov: 28, follow: '' },
+  ];
+  setCameraRigs(stage, cams, 'c2', 16 / 9);
+  ok(stage.rigMap.size === 3, '每个机位一份视锥标识：' + stage.rigMap.size);
+  ok(stage.rigs.parent === stage.scene, '视锥标识挂在场景根上');
+  const doc = normalizeDoc({
+    scene: { nodes: [{ kind: 'prim', id: 'p', shape: 'box' }], cams, active: 'c1' },
+    anim: { duration: 4, tracks: [
+      { id: 't1', of: { kind: 'node', id: 'p' }, path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] } },
+      { id: 't2', of: { kind: 'cam', id: 'c1' }, path: { kind: 'free', pts: [[0, 0, 0], [1, 0, 1]], closed: false } },
+    ] },
+  }).doc;
+  setTrackPaths(stage, doc);
+  ok(stage.paths.children.length === 2, '两条路径线都画出来：' + stage.paths.children.length);
+  ok(stage.paths.parent === stage.scene, '路径线挂在场景根上');
+  disposeStage(stage);
 }
 
 /* ---------- 画幅：屏幕上那块矩形与导出尺寸同源 ---------- */
@@ -125,26 +151,39 @@ const build = raw => buildContent(normalizeDoc(raw).doc, { outline: false });
   ok(wl.byId.get('c').visible === true, '锁定的实体照样渲染（锁的是操作，不是外观）');
 }
 
-/* ---------- 带 clip 的摆件有上限：第 17 个降级为静态并记一笔 ---------- */
+/* ---------- 带 clip 的摆件：全部建 mixer，不设数量上限 ---------- */
 {
   const clip = new THREE.AnimationClip('wave', 1, []);
   const assets = new Map();
   const nodes = [];
-  for (let i = 0; i < 17; i++) {
+  for (let i = 0; i < 24; i++) {
     const file = '_模型文件/r' + i + '.glb';
     assets.set(file, { proto: new THREE.Group(), clips: [clip] });
     nodes.push({ kind: 'asset', id: 'r' + i, file, clip: 'wave' });
   }
   const doc = normalizeDoc({ scene: { nodes } }).doc;
   const w = buildContent(doc, { outline: false, assets });
-  ok(w.mixers.size === 16, '同时播 clip 的摆件只建 16 条 mixer：' + w.mixers.size);
-  ok(!w.mixers.has('r16'), '第 17 个摆件没有 mixer（降级为静态）');
-  ok(w.notes.some(t => t.indexOf('超过 16 个') >= 0), '超上限记了一笔：' + w.notes[0]);
+  ok(w.mixers.size === 24, '24 个摆件都建了 mixer：' + w.mixers.size);
+  ok(w.mixers.has('r23'), '最后一个摆件也有 mixer');
+  ok(!w.notes.some(t => t.indexOf('超过 16 个') >= 0), '没有数量上限提示');
 
   const unclipped = [];
-  for (let i = 0; i < 17; i++) unclipped.push({ kind: 'asset', id: 'u' + i, file: '_模型文件/r0.glb' });
+  for (let i = 0; i < 24; i++) unclipped.push({ kind: 'asset', id: 'u' + i, file: '_模型文件/r0.glb' });
   const w2 = buildContent(normalizeDoc({ scene: { nodes: unclipped } }).doc, { outline: false, assets });
   ok(w2.mixers.size === 0, '没选 clip 的摆件不建 mixer');
+}
+
+/* ---------- 颜色：自己的色优先，组色沿子树继承 ---------- */
+{
+  const doc = normalizeDoc({ scene: { nodes: [
+    { kind: 'prim', id: 'p1', shape: 'box', color: '#ff0000' },
+    { kind: 'group', id: 'g1', color: '#00ff00', children: [{ kind: 'prim', id: 'p2', shape: 'box' }] },
+  ] } }).doc;
+  const c = buildContent(doc, { outline: false });
+  const colors = [];
+  c.group.traverse(o => { if (o.isMesh && o.material && o.material.color) colors.push(o.material.color.getHexString()); });
+  ok(colors.includes('ff0000'), '节点自己的颜色进材质');
+  ok(colors.includes('00ff00'), '组色沿子树继承');
 }
 
 clearEdgeCache();

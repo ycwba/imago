@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-/* 群众阵列：行列坐标、抖动有界且确定、400 人上限、合批之后的绘制对象数。
+/* 群众阵列：行列坐标、抖动有界且确定、人数不设上限、合批之后的绘制对象数。
    纯布局 + three 场景（后者在 Node 里只建对象、不碰 WebGL）。 */
 import assert from 'node:assert/strict';
-import { crowdLayout, CROWD_LIMIT } from '../web/model3d/crowd.js';
+import { crowdLayout } from '../web/model3d/crowd.js';
 import { buildContent, boundsOf } from '../web/model3d/scene.js';
 import { normalizeDoc } from '../web/model3d/schema.js';
 
@@ -13,7 +13,6 @@ const ok = (c, m) => { n += 1; assert.ok(c, m); };
 {
   const r = crowdLayout({ rows: 2, cols: 3, gapX: 1, gapZ: 1, at: [0, 0, 0] });
   ok(r.people.length === 6, '2×3 是 6 个人');
-  ok(r.truncated === false, '没被截断');
   const xs = r.people.map(p => p.at[0]).sort((a, b) => a - b);
   ok(JSON.stringify(xs) === JSON.stringify([-1, -1, 0, 0, 1, 1]), '列以阵列原点居中：' + xs.join(','));
   const zs = [...new Set(r.people.map(p => p.at[2]))].sort((a, b) => a - b);
@@ -36,13 +35,14 @@ const ok = (c, m) => { n += 1; assert.ok(c, m); };
   ok(new Set(a.people.map(p => p.at[0].toFixed(3))).size > 5, '每个人位置不同（不是整齐一条线）');
 }
 
-/* ---------- 上限 ---------- */
+/* ---------- 不设上限 ---------- */
 {
   const r = crowdLayout({ rows: 24, cols: 24, gapX: 1, gapZ: 1 });
-  ok(r.total === CROWD_LIMIT, '24×24 收到 ' + CROWD_LIMIT + ' 人，实际 ' + r.total);
-  ok(r.truncated === true, '截断被标出来');
+  ok(r.total === 576, '24×24 是 576 人，实际 ' + r.total);
+  const big = crowdLayout({ rows: 100, cols: 100, gapX: 1, gapZ: 1 });
+  ok(big.total === 10000 && big.people.length === 10000, '100×100 是 10000 人，实际 ' + big.total);
   const { doc } = normalizeDoc({ scene: { nodes: [{ kind: 'crowd', rows: 24, cols: 24 }] } });
-  ok(doc.scene.nodes[0].rows * doc.scene.nodes[0].cols <= 400, '归一化阶段就把人数收口');
+  ok(doc.scene.nodes[0].rows * doc.scene.nodes[0].cols === 576, '归一化阶段不收口');
 }
 
 /* ---------- 合批：一个群众节点只出两条 InstancedMesh（身体 + 细节） ---------- */

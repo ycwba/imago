@@ -21,6 +21,22 @@ export const GRID_BOLD = 0xa8a199;
 /* 选中框与三轴（进 GL 的那一份；界面上那颗按钮的颜色仍走令牌）。 */
 export const SELECT = 0x6d5cf5;
 
+/* 轨道色：只用于视口里的路径线与轨道行的色点，是画面像素，不跟主题走。
+   索引不设上限，取模落到这六档。 */
+export const TRACK_COLORS = [0x6d5cf5, 0x2f9e8f, 0xd08a2e, 0xc0504d, 0x3f72c4, 0x5c8f3a];
+
 export function toneOf(tone) {
   return CLAY[tone] != null ? CLAY[tone] : CLAY.hi;
+}
+/* 节点自己的颜色：只收 `#rgb` / `#rrggbb`，写错就当没写（白模灰阶）。
+   颜色会沿父子树继承：给实体根 group 上色，整件的零件都换色。 */
+export function nodeColorOf(node) {
+  const raw = node && node.color;
+  if (!raw) return null;
+  const s = String(raw).trim();
+  return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(s) ? s : null;
+}
+export function trackColorOf(i) {
+  const n = Math.abs(Math.round(Number(i) || 0));
+  return TRACK_COLORS[n % TRACK_COLORS.length];
 }

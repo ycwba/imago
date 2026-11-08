@@ -9,9 +9,9 @@
    · 导入件不建关节表（骨头是文件自带的，归 mixer 管）；对着它们写子关节轨道不会生效。 */
 
 import * as THREE from '../vendor/three/three.module.js';
-import { jointParts, jointPathOf, JOINT_DEPTH } from './schema.js';
+import { jointParts, jointPathOf } from './schema.js';
 
-export { jointParts, jointPathOf, JOINT_DEPTH };
+export { jointParts, jointPathOf };
 
 const D2R = Math.PI / 180;
 const AXIS = {

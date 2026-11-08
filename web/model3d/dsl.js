@@ -2,11 +2,10 @@
    为什么放在建模之前而不是渲染时：坏数据必须在这里被数出来（丢了多少个、撞了几层环），
    场景层只该看到一棵干净的、可以直接建网格的树。
 
-   两条硬规则：
-   1. `ref` 深度上限 4、同一条链上不许出现同一个模型（防环）——环会让流式重建直接卡死；
-   2. 展开后的节点数仍受 schema.LIMITS.nodes 约束，超了停展开并计数（不是抛错）。 */
+   唯一的硬规则是**同一条引用链上不许出现同一个模型**（防环）——环会让流式重建直接卡死。
+   引用层数、展开后的节点数都不设上限：用户要引用多深就多深，规模由机器自己承担。 */
 
-import { LIMITS, walkNodes } from './schema.js';
+import { walkNodes } from './schema.js';
 
 /* 一个节点要额外复制几份、各自带什么偏移。mirror 走 X 负向（左右对称最常见的写法），
    repeat 按 n / dx / dy / dz 排成一列。两者可以叠加（先镜像、再各自阵列）。 */
@@ -42,17 +41,16 @@ export function cloneNodeForVariant(node, variant) {
 
    返回 { nodes, dropped: { ref: 0, cycle: 0, missing: 0 }, notes: [] } */
 export async function resolveRefs(nodes, load, opts = {}) {
-  const depthMax = opts.depthMax || 4;
   const dropped = { ref: 0, cycle: 0, missing: 0 };
   const notes = [];
   const chain = opts.chain || [];
 
-  async function walk(list, depth) {
+  async function walk(list) {
     const out = [];
     for (const node of list || []) {
       if (node.kind !== 'ref') {
         if (node.children && node.children.length) {
-          node.children = await walk(node.children, depth);
+          node.children = await walk(node.children);
         }
         out.push(node);
         continue;
@@ -62,11 +60,6 @@ export async function resolveRefs(nodes, load, opts = {}) {
       if (chain.indexOf(id) >= 0) {
         dropped.cycle += 1;
         notes.push('引用了自己（' + id + '），这一处已跳过');
-        continue;
-      }
-      if (depth + 1 > depthMax) {
-        dropped.ref += 1;
-        notes.push('引用层数超过 ' + depthMax + ' 层，' + id + ' 这一处已跳过');
         continue;
       }
       let doc = null;
@@ -81,7 +74,7 @@ export async function resolveRefs(nodes, load, opts = {}) {
         continue;
       }
       const inner = await resolveRefs(JSON.parse(JSON.stringify(doc.scene.nodes)), load,
-        { depthMax, chain: chain.concat([id]) });
+        { chain: chain.concat([id]) });
       dropped.ref += inner.dropped.ref;
       dropped.cycle += inner.dropped.cycle;
       dropped.missing += inner.dropped.missing;
@@ -99,7 +92,7 @@ export async function resolveRefs(nodes, load, opts = {}) {
     return out;
   }
 
-  const out = await walk(nodes, 0);
+  const out = await walk(nodes);
   return { nodes: out, dropped, notes };
 }
 
@@ -108,7 +101,4 @@ export function countExpanded(nodes) {
   let n = 0;
   walkNodes(nodes, () => { n += 1; });
   return n;
-}
-export function overLimit(nodes) {
-  return countExpanded(nodes) > LIMITS.nodes;
 }

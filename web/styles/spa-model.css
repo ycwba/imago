@@ -6,9 +6,9 @@
    与 `--mmside-w`（300px，属性面板要摆数值）。两栏都读变量，窄窗一档直接改这两个变量。 */
 
 .model-page {
-  --mmrail-w: 260px;
-  --mmside-w: 300px;
-  --mmdock-h: 152px;
+  --mmrail-w: 268px;
+  --mmside-w: 312px;
+  --mmdock-h: 228px;
   /* 与 .wb / .page-shell 同一枚：整页不滚的页壳自己内缩，页头那条线的起止才等于内容列 */
   --shell-px: var(--sp-32);
   display: flex;
@@ -31,7 +31,7 @@
   padding: 0 var(--shell-px) var(--sp-12);
 }
 
-/* ---------------- 左栏：白膜库 ---------------- */
+/* ---------------- 左栏：场景 / 白膜库两页签 ---------------- */
 .mm-rail {
   min-width: 0;
   display: flex;
@@ -43,6 +43,11 @@
   background: var(--panel);
   overflow: hidden;
 }
+.mm-rail-tabs { flex: none; display: flex; }
+.mm-rail-tabs .ui-seg { width: 100%; }
+.mm-rail-body { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.mm-pane { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.mm-pane[hidden] { display: none; }
 .mm-rail-head { display: flex; gap: var(--sp-8); }
 .mm-rail-head .search { flex: 1; min-width: 0; }
 .mm-groups { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
@@ -57,20 +62,28 @@
   scrollbar-width: thin;
 }
 .mm-card {
+  position: relative;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6);
+  background: var(--panel2);
+  color: var(--txt);
+  overflow: hidden;
+}
+.mm-card:hover { background: var(--acc-tint-10); }
+.mm-card.on { border-color: var(--acc); background: var(--sel-bg); }
+.mm-card-open {
+  width: 100%;
   display: grid;
   grid-template-columns: var(--sz-thumb-h) minmax(0, 1fr);
   gap: var(--sp-8);
   align-items: center;
   padding: var(--sp-4);
-  border: var(--hair) solid var(--line);
-  border-radius: var(--radius-6);
-  background: var(--panel2);
+  border: 0;
+  background: transparent;
+  color: inherit;
   cursor: pointer;
   text-align: left;
-  color: var(--txt);
 }
-.mm-card:hover { background: var(--acc-tint-10); }
-.mm-card.on { border-color: var(--acc); background: var(--sel-bg); }
 .mm-card-thumb {
   width: var(--sz-thumb-h);
   height: var(--sz-thumb-h);
@@ -83,18 +96,127 @@
 .mm-card-main { min-width: 0; }
 .mm-card-t { font-size: var(--fs-13); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mm-card-s { font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mm-rail-foot {
+.mm-card-acts {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-4);
-  padding-top: var(--sp-8);
-  border-top: var(--hair) solid var(--line);
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-4);
+  background: var(--panel);
+  box-shadow: var(--shadow-1);
+  opacity: 0;
+  pointer-events: none;
 }
+.mm-card:hover .mm-card-acts,
+.mm-card:focus-within .mm-card-acts { opacity: 1; pointer-events: auto; }
+.mm-library-bar { flex: none; display: flex; flex-direction: column; gap: var(--sp-4); }
+.mm-lib-title { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4) var(--sp-8); font-size: var(--fs-12); color: var(--sub); }
+.mm-lib-title b { color: var(--txt); font-size: var(--fs-13); }
+.mm-lib-title .sp { flex: 1; }
+.mm-library-meta { font-size: var(--fs-11); color: var(--sub); }
+.mm-library-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-8);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6);
+  background: var(--panel2);
+  cursor: pointer;
+}
+.mm-library-card:hover { background: var(--acc-tint-10); }
+.mm-library-name { font-size: var(--fs-13); font-weight: 600; }
+.mm-library-acts { display: flex; gap: var(--sp-4); }
+.mm-scenes {
+  flex: 0 1 auto;
+  height: calc(var(--sp-64) * 4);
+  min-height: calc(var(--sp-64) * 2);
+  max-height: 45%;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  overflow: auto;
+  padding-right: var(--sp-2);
+  scrollbar-width: thin;
+}
+.mm-scenes-head { display: flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-12); color: var(--sub); }
+.mm-scenes-head > span { flex: 1; }
+.mm-scene-list { display: flex; flex-direction: column; gap: var(--sp-2); }
+.mm-scene-group {
+  display: flex; align-items: center; gap: var(--sp-8);
+  margin-top: var(--sp-4); padding: var(--sp-4) var(--sp-8);
+  border-top: var(--hair) solid var(--line);
+  font-size: var(--fs-11); color: var(--sub);
+}
+.mm-scene-group:first-child { margin-top: 0; border-top: none; }
+.mm-scene-group.none { opacity: 0.85; }
+.mm-scene-group .gname { color: var(--txt); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.mm-scene-group.none .gname { font-weight: 400; }
+.mm-scene-group .cnt { color: var(--sub); }
+.mm-scene-group .sp { flex: 1; }
+.mm-scene-group .ops { display: flex; gap: var(--sp-2); opacity: 0; }
+.mm-scene-group:hover .ops,
+.mm-scene-group:focus-within .ops { opacity: 1; }
+.mm-scene-group-edit { display: flex; padding: var(--sp-2) var(--sp-4); }
+.mm-scene-group-edit .ui-inp { flex: 1; min-width: 0; }
+.mm-scene-row { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); border-radius: var(--radius-4); padding-left: var(--sp-12); }
+.mm-scene-row:hover { background: var(--acc-tint-10); }
+.mm-scene-row.on { background: var(--sel-bg); color: var(--acc); }
+.mm-scene-open { flex: 1; min-width: 0; display: flex; align-items: center; gap: var(--sp-4); border: 0; background: transparent; color: inherit; text-align: left; cursor: pointer; padding: var(--sp-2) var(--sp-4); }
+.mm-scene-open.static { cursor: default; }
+.mm-scene-row.unsaved .mini { color: var(--warn); }
+.mm-scene-open .nm { flex: 1; min-width: 0; overflow-wrap: anywhere; white-space: normal; line-height: 1.5; font-size: var(--fs-12); }
+.mm-scene-open .mini { font-size: var(--fs-11); color: var(--sub); }
+.mm-scene-edit { flex: 1; min-width: 0; }
+.mm-scene-move { flex: 1 0 100%; margin: 0 0 var(--sp-4) var(--sp-4); }
+.mm-scene-acts { display: flex; gap: var(--sp-2); opacity: 0; }
+.mm-scene-acts.always { opacity: 1; }
+.mm-scene-row:hover .mm-scene-acts,
+.mm-scene-row:focus-within .mm-scene-acts { opacity: 1; }
+.mm-tree-acts { flex: none; display: flex; flex-direction: column; gap: var(--sp-4); }
+.mm-tree-create,
+.mm-tree-edit { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4); }
+.mm-tree-create .pri.mini { flex: 1 1 auto; }
+.mm-tree-edit { padding-top: var(--sp-4); border-top: var(--hair) solid var(--line); }
+.mm-tree-acts .icon { width: var(--sz-ctl-sm); padding: 0; }
+.mm-cams {
+  flex: none;
+  max-height: calc(var(--sp-64) * 2);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6);
+  background: var(--panel2);
+  scrollbar-width: thin;
+}
+.mm-cams-head { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); color: var(--sub); }
+.mm-cams-head .sp, .mm-cams-head > span { flex: 1; }
+.mm-cam-row { display: flex; align-items: center; gap: var(--sp-4); padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-4); }
+.mm-cam-row:hover { background: var(--acc-tint-10); }
+.mm-cam-row.on { background: var(--sel-bg); color: var(--acc); }
+.mm-cam-pick, .mm-cam-name {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  font-size: var(--fs-12);
+  min-width: 0;
+}
+.mm-cam-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-cam-rename { flex: 1; min-width: 0; }
 
 /* ---------------- 中栏：工具条 / 视口 / 轨道坞 ---------------- */
 /* min-height: 0 是必须的：它是 .mm-layout 网格的子项，默认 auto 会在「工具条 + 视口 + 轨道坞 + 结果条」
    比行高更高时整块溢出，把最后一条顶到窗口外面（视口该让的是自己的 flex:1，不是溢出去）。 */
-.mm-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.mm-stage { position: relative; min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
 .mm-tools {
   display: flex;
   align-items: center;
@@ -123,20 +245,9 @@
 }
 .mm-viewport:focus-visible { box-shadow: var(--focus-shadow); }
 .mm-canvas { display: block; width: 100%; height: 100%; }
-.mm-viewport-note {
-  position: absolute;
-  left: var(--sp-8);
-  bottom: var(--sp-8);
-  padding: var(--sp-2) var(--sp-8);
-  border-radius: var(--radius-999);
-  background: var(--pal-scrim);
-  color: var(--on-acc);
-  font-size: var(--fs-11);
-  pointer-events: none;
-}
 .mm-dock {
   height: var(--mmdock-h);
-  min-height: var(--sz-ctl-lg);
+  min-height: calc(var(--sz-ctl-lg) * 3);
   border: var(--hair) solid var(--line);
   border-radius: var(--radius-10);
   background: var(--panel);
@@ -145,17 +256,35 @@
   flex-direction: column;
 }
 .mm-dock-head {
+  flex: none;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--sp-8);
+  gap: var(--sp-4) var(--sp-8);
   padding: var(--sp-4) var(--sp-8);
   border-bottom: var(--hair) solid var(--line);
   font-size: var(--fs-12);
   color: var(--sub);
 }
 .mm-dock-head .sp { flex: 1; }
-/* 时长 / fps 两格：宽度按「四位数 + 箭头」给，别把整条头带挤走 */
 .mm-dock-lab { flex: none; color: var(--sub); font-size: var(--fs-11); }
+.mm-dock-time {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: calc(var(--sp-64) + var(--sp-8));
+  height: var(--sz-chip);
+  padding: 0 var(--sp-8);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-999);
+  background: var(--panel2);
+  color: var(--txt);
+  font-size: var(--fs-12);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.mm-dock-time:hover { border-color: var(--acc); color: var(--acc); }
 .mm-dock-num {
   flex: none;
   width: calc(var(--sp-64) - var(--sp-4));
@@ -163,11 +292,10 @@
   font-size: var(--fs-12);
   text-align: center;
 }
-/* 回执那一行只占一段：太长就截断（全文在 title 里），不把右半边那排按钮顶到下一行 */
+.mm-dock-check { flex: none; display: inline-flex; align-items: center; gap: var(--sp-4); font-size: var(--fs-11); color: var(--sub); }
 .mm-dock-note {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
-  max-width: 34ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -178,25 +306,40 @@
 .mm-dock-note.ok { color: var(--ok); }
 .mm-tracks { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-4) var(--sp-8); }
 .mm-track-row {
-  display: grid;
-  grid-template-columns: 120px minmax(0, 1fr);
-  gap: var(--sp-8);
+  display: flex;
   align-items: center;
-  height: var(--sz-ctl-sm);
+  gap: var(--sp-4);
+  min-height: var(--sz-ctl-sm);
+  padding: var(--sp-2) 0;
   font-size: var(--fs-12);
+  border-bottom: var(--hair) solid var(--line);
 }
-.mm-track-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
-.mm-track-bar { position: relative; height: var(--sz-ctl-sm); border-radius: var(--radius-4); background: var(--panel2); }
+.mm-track-row:last-child { border-bottom: 0; }
+.mm-track-row.on { background: var(--acc-tint-10); }
+.mm-track-row.off { opacity: 0.55; }
+.mm-track-dot { flex: none; width: var(--sp-8); height: var(--sp-8); border-radius: var(--radius-999); }
+.mm-track-ic { flex: none; display: inline-flex; color: var(--sub); }
+.mm-track-name { flex: 0 1 132px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
+.mm-track-kind, .mm-track-n { flex: none; color: var(--sub); font-size: var(--fs-11); }
+.mm-track-bar {
+  position: relative;
+  flex: 1;
+  min-width: var(--sp-64);
+  height: var(--sz-ctl-sm);
+  border-radius: var(--radius-4);
+  background: var(--panel2);
+  cursor: pointer;
+}
 .mm-key {
   position: absolute;
   top: 50%;
-  width: 8px; height: 8px;
+  width: var(--sp-8);
+  height: var(--sp-8);
   margin-left: calc(-1 * var(--sp-4));
   transform: translateY(-50%) rotate(45deg);
   border-radius: var(--radius-4);
   background: var(--acc);
 }
-/* 导入件 clip 的色带：循环的画满整条，播完停的只画到它停的那一刻 */
 .mm-clip-band {
   position: absolute;
   top: var(--sp-2); bottom: var(--sp-2);
@@ -209,27 +352,71 @@
 .mm-playhead {
   position: absolute;
   top: 0; bottom: 0;
-  width: 1px;
+  width: var(--hair);
   background: var(--err);
   pointer-events: none;
 }
 .mm-dock-empty { padding: var(--sp-8); color: var(--sub); font-size: var(--fs-12); }
-/* 刚出的那一份：名字 + 下载 / 回传两颗按钮，一条横带。空的时候整块不占高度
-   （没出过东西时视口还是满的，不能白让出一条）。 */
-.mm-result:empty { display: none; }
-.mm-result {
+.mm-dock-edit {
   flex: none;
+  max-height: calc(var(--sp-64) * 2);
+  overflow: auto;
+  padding: var(--sp-8);
+  border-top: var(--hair) solid var(--line);
+  background: var(--panel2);
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: var(--sp-4) var(--sp-8);
-  padding: var(--sp-4) var(--sp-8);
+  flex-direction: column;
+  gap: var(--sp-8);
+}
+.mm-keys { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.mm-key-chip {
+  display: inline-flex; align-items: center; gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-4);
+  background: var(--panel);
+  color: var(--sub);
+  font-size: var(--fs-11);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 固定出片条：视口下方、坞上方；有产物才占高度。 */
+.mm-out {
+  position: absolute;
+  left: var(--sp-8);
+  right: var(--sp-8);
+  bottom: calc(var(--mmdock-h) + var(--sp-16));
+  z-index: 20;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-8);
   border: var(--hair) solid var(--line);
   border-radius: var(--radius-10);
   background: var(--panel);
-  font-size: var(--fs-12);
+  box-shadow: var(--shadow-3);
 }
-.mm-result .mm-note { min-width: 0; }
+.mm-out[hidden] { display: none; }
+.mm-out-head { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-4) var(--sp-8); font-size: var(--fs-12); color: var(--sub); }
+.mm-out-head .sp { flex: 1; }
+.mm-out-count { color: var(--sub); font-size: var(--fs-11); }
+.mm-out.collapsed .mm-out-strip { display: none; }
+.mm-out-strip { display: flex; gap: var(--sp-8); overflow-x: auto; padding-bottom: var(--sp-2); scrollbar-width: thin; }
+.mm-out-item { flex: none; width: 132px; display: flex; flex-direction: column; gap: var(--sp-2); }
+.mm-out-item.off { opacity: 0.55; }
+.mm-out-open {
+  width: 100%;
+  height: var(--sz-thumb-h);
+  padding: 0;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6);
+  background: var(--media-bg);
+  overflow: hidden;
+  cursor: pointer;
+}
+.mm-out-open img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.mm-out-ph { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.mm-out-name { font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-out-asset { align-self: flex-start; font-size: var(--fs-11); }
 
 /* ---------------- 右栏：AI / 场景 ---------------- */
 .mm-side {
@@ -247,6 +434,8 @@
 
 .mm-field { display: flex; flex-direction: column; gap: var(--sp-4); }
 .mm-field > label { font-size: var(--fs-12); color: var(--sub); }
+.mm-line { font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-note { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
 
 /* 生成中的流式回显：上一句是 AI 说的话（逐字长出来），下面一段是它正在写的原文
    （等宽、低对比、只留尾巴并自动滚到底 —— 看的是「在动」，不是读 JSON）。 */
@@ -305,41 +494,74 @@
 .mm-num3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
 .mm-num3 input { width: 100%; }
 .mm-prompt { min-height: 96px; resize: vertical; font-size: var(--fs-13); line-height: 1.55; }
-.mm-say {
-  padding: var(--sp-8);
-  border-radius: var(--radius-6);
-  background: var(--panel2);
-  font-size: var(--fs-12);
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.mm-say.err { background: var(--err-tint); color: var(--err); }
-.mm-say.ok { background: var(--ok-tint); }
-.mm-tree { display: flex; flex-direction: column; gap: var(--sp-2); }
-.mm-tree-row {
+.mm-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--sp-2);
+  scrollbar-width: thin;
+}
+.mm-tree-row {
+  --depth: 0;
+  position: relative;
+  display: flex;
+  align-items: flex-start;
   gap: var(--sp-4);
-  padding: var(--sp-2) var(--sp-4);
+  padding: var(--sp-4) var(--sp-4);
+  padding-left: calc(var(--sp-4) + var(--depth) * var(--sp-8));
   border-radius: var(--radius-4);
   font-size: var(--fs-12);
   color: var(--txt);
-  cursor: pointer;
+  cursor: grab;
   text-align: left;
   border: 0;
   background: transparent;
 }
+.mm-tree-row.is-entity { background: var(--panel2); }
+.mm-tree-row.is-entity .nm { font-weight: 600; }
+.mm-tree-row.is-entity .ic { color: var(--acc); }
+.mm-tree-row.is-part .nm { color: var(--sub); font-size: var(--fs-11); }
+.mm-tree-row.is-part::before {
+  content: "";
+  position: absolute;
+  left: calc(var(--sp-8) + (var(--depth) - 1) * var(--sp-12));
+  top: var(--sp-2);
+  bottom: var(--sp-2);
+  border-left: var(--hair) solid var(--line);
+}
+.mm-tree-row.on,
+.mm-tree-row.on .nm { color: var(--acc); }
 .mm-tree-row:hover { background: var(--acc-tint-10); }
 .mm-tree-row.on { background: var(--sel-bg); color: var(--acc); }
-.mm-tree-row .ic { color: var(--sub); }
-.mm-tree-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mm-tree-row .mini { font-size: var(--fs-11); color: var(--sub); }
+.mm-tree-row.dragging { opacity: 0.45; }
+.mm-tree-row.drag-over { outline: var(--hair) dashed var(--acc); outline-offset: calc(-1 * var(--sp-2)); }
+.mm-tree-color { flex: none; width: var(--sp-8); height: var(--sp-8); margin-top: var(--sp-4); border: var(--hair) solid var(--line); border-radius: var(--radius-999); }
+.mm-tree-row .ic { color: var(--sub); flex: none; margin-top: var(--sp-2); }
+.mm-color { flex: 0 0 var(--sz-ctl); width: var(--sz-ctl); height: var(--sz-ctl); padding: var(--sp-2); border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input); cursor: pointer; }
+.mm-tree-row .nm { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; line-height: 1.5; }
 .mm-tree-anim { flex: none; display: inline-flex; align-items: center; color: var(--acc); }
+.mm-tree-ops {
+  position: absolute;
+  right: var(--sp-2);
+  top: var(--sp-2);
+  display: none;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-4);
+  background: var(--panel);
+  box-shadow: var(--shadow-2);
+}
+.mm-tree-row:hover .mm-tree-ops,
+.mm-tree-row:focus-within .mm-tree-ops { display: flex; }
+.mm-tree-acts { display: inline-flex; gap: var(--sp-2); }
+.mm-tree-rename { flex: 1; min-width: 0; }
+.mm-tree.drag-root { outline: var(--hair) dashed var(--acc); outline-offset: calc(-1 * var(--sp-2)); }
 /* 隐藏的实体留在树里但压暗；锁定的那行在名字前不再有手柄，靠锁钮的高亮认出来 */
 .mm-tree-row.off .nm,
-.mm-tree-row.off .ic,
-.mm-tree-row.off .mini { opacity: 0.48; }
+.mm-tree-row.off .ic { opacity: 0.48; }
 .mm-tree-mini {
   flex: none;
   display: inline-flex;
@@ -361,7 +583,7 @@
 
 /* 窄窗：两栏都收窄，侧栏压到视口下方会变成纵向堆叠（1100 是全站登记过的断点） */
 @media (max-width: 1100px) {
-  .model-page { --mmrail-w: 200px; --mmside-w: 248px; --mmdock-h: 128px; }
+  .model-page { --mmrail-w: 208px; --mmside-w: 256px; --mmdock-h: 200px; }
   .model-page .phead { --shell-px: var(--sp-16); padding-left: var(--shell-px); padding-right: var(--shell-px); }
   .mm-layout { padding: 0 var(--sp-16) var(--sp-8); gap: var(--sp-8); }
 }

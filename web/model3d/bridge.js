@@ -4,6 +4,7 @@
 
    交接用一枚一次性口袋（`model3d_handoff`，走 Store 信封）：
    · 口袋里有 `to`（`model` / `studio` / `director`）与 `at`（写入口袋的时刻）；
+   · 交给建模台：{ prompt, images?: [{label,url}], from, type?, shot? }；送回页面：{ assets: [{assetId,url,name,type:'image'|'video'}], shot? }；
    · 目标页启动时调 `consume('目标')`，对得上才取走并**当场清空**；
    · 超过 10 分钟的口袋作废 —— 用户关掉页面第二天再进来，不该被昨天的提示词偷袭。
 
@@ -21,7 +22,7 @@
   }
 
   window.Model3D = {
-    /* 把东西交给某个页面：`payload` 里放 `{ prompt }` 或 `{ asset }` */
+    /* 把东西交给某个页面：`payload` 里放 `{ prompt, images? }` 或 `{ assets }` */
     handoffTo: function (to, payload) {
       var box = Object.assign({ to: String(to || ''), at: Date.now() }, payload || {});
       write(box);

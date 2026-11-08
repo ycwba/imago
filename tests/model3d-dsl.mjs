@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-/* 建模契约这一侧：流式抓节点（括号配平）、坏节点只丢该节点并计数、给 AI 看的截断、
-   集群 / 复用的形状。纯函数，不需要浏览器。 */
+/* 建模契约这一侧：流式抓节点（括号配平）、坏节点只丢该节点并计数、
+   给 AI 看的完整上下文（不截断）、集群 / 复用的形状。纯函数，不需要浏览器。 */
 import assert from 'node:assert/strict';
 import { scanNodes, currentText, catalogText, animationText } from '../web/model3d/ai.js';
-import { normalizeDoc, LIMITS, countNodes, findNode, removeNode } from '../web/model3d/schema.js';
+import { normalizeDoc, countNodes, findNode, removeNode } from '../web/model3d/schema.js';
 
 let n = 0;
 const ok = (c, m) => { n += 1; assert.ok(c, m); };
@@ -52,39 +52,40 @@ const FULL = '{"say":"建了三样","reuse":null,"model":{"scene":{"nodes":['
   ok(countNodes(out.doc) === 3, '节点计数与树一致');
 }
 
-/* ---------- ④ 上限：节点数、群众人数 ---------- */
+/* ---------- ④ 不设上限：节点数、群众人数 ---------- */
 {
   const many = [];
-  for (let i = 0; i < LIMITS.nodes + 12; i++) many.push({ kind: 'prim', shape: 'box', size: [0.1, 0.1, 0.1] });
+  for (let i = 0; i < 430; i++) many.push({ kind: 'prim', shape: 'box', size: [0.1, 0.1, 0.1] });
   const out = normalizeDoc({ scene: { nodes: many } });
-  ok(out.doc.scene.nodes.length === LIMITS.nodes, '节点数被夹到上限：' + out.doc.scene.nodes.length);
-  ok(out.dropped.extra === 12, '多出来的记在 extra：' + out.dropped.extra);
+  ok(out.doc.scene.nodes.length === 430, '430 个节点全保留：' + out.doc.scene.nodes.length);
+  ok(out.dropped.extra === 0, '没有 extra 截断');
 
   const crowd = normalizeDoc({ scene: { nodes: [{ kind: 'crowd', rows: 24, cols: 24 }] } });
   const c = crowd.doc.scene.nodes[0];
-  ok(c.rows * c.cols <= 400, '群众不超过 400 人：' + c.rows + '×' + c.cols);
-  ok(crowd.dropped.crowd === 1, '截断记了一笔');
+  ok(c.rows * c.cols === 576, '群众 576 人不截断：' + c.rows + '×' + c.cols);
 }
 
-/* ---------- ⑤ 给 AI 看的当前树：节点太多要截断（不是把整棵树塞进去） ---------- */
+/* ---------- ⑤ 给 AI 看的当前树：全量，不截断 ---------- */
 {
   ok(currentText(null).indexOf('新建') >= 0, '没有旧模型时给一句说明');
   const nodes = [];
-  for (let i = 0; i < 300; i++) nodes.push({ kind: 'prim', shape: 'box', size: [1, 1, 1], at: [i, 0, 0] });
+  for (let i = 0; i < 300; i++) nodes.push({ kind: 'prim', id: 'p' + i, shape: 'box', size: [1, 1, 1], at: [i, 0, 0] });
   const doc = normalizeDoc({ scene: { nodes } }).doc;
   const txt = currentText(doc);
-  ok(txt.length <= 9200, '过长时截断：' + txt.length);
-  ok(txt.indexOf('截断') >= 0 || txt.length < 9000, '截断时留一句说明');
+  ok(txt.length > 9000, '300 个节点全量输出，长度 ' + txt.length);
+  ok(txt.indexOf('p299') >= 0 && txt.indexOf('截断') < 0, '最后一个节点也在，且没有截断说明');
 }
 
-/* ---------- ⑥ 历史清单：最多 40 条，一条一行 ---------- */
+/* ---------- ⑥ 历史清单：全部列出，一条一行 ---------- */
 {
   const models = [];
   for (let i = 0; i < 60; i++) models.push({ id: '组/模型' + i, nodes: 3, note: i === 0 ? '一句话说明' : '' });
   const rows = catalogText(models).split('\n');
-  ok(rows.length === 40, '截到 40 条：' + rows.length);
+  ok(rows.length === 60, '60 条全列：' + rows.length);
   ok(/模型0/.test(rows[0]) && /3 个零件/.test(rows[0]), '带零件数');
   ok(catalogText([]).indexOf('还没有') >= 0, '空清单给一句人话');
+  const multi = catalogText([{ id: '角色/少女', library: '系列A', nodes: 2 }]);
+  ok(multi.indexOf('系列A :: 角色/少女') >= 0, '多库清单带库名，复用能回到正确的库');
 }
 
 /* ---------- ⑦ 树的读写：找得到、删得掉 ---------- */
@@ -97,7 +98,7 @@ const FULL = '{"say":"建了三样","reuse":null,"model":{"scene":{"nodes":['
   ok(removeNode(doc.scene.nodes, '没有这个') === false, '删不存在的返回 false');
 }
 
-/* ---------- ⑧ 库里有动画的摆件清单：最多 20 条、一条 60 字，空时整段消失 ---------- */
+/* ---------- ⑧ 库里有动画的摆件清单：全部列出、不截断，空时整段消失 ---------- */
 {
   ok(animationText([]) === '' && animationText(null) === '', '没有带动画的摆件时是空串（调用方用空格顶掉占位符）');
   ok(animationText([{ file: '_模型文件/a.fbx', clips: [] }]) === '', '有文件没 clip 不算一条');
@@ -107,11 +108,11 @@ const FULL = '{"say":"建了三样","reuse":null,"model":{"scene":{"nodes":['
   ok(one.split('\n').length === 2, '抬头一行 + 一条清单');
   const many = [];
   for (let i = 0; i < 30; i++) many.push({ file: '_模型文件/文件' + i + '.fbx', clips: ['a'] });
-  ok(animationText(many).split('\n').length === 21, '最多 20 条 + 抬头：' + animationText(many).split('\n').length);
-  const long = animationText([{ file: '_模型文件/' + 'x'.repeat(50) + '.fbx', clips: ['c'.repeat(20), 'd'.repeat(20)] }]);
+  ok(animationText(many).split('\n').length === 31, '30 条全列 + 抬头：' + animationText(many).split('\n').length);
+  const longName = 'x'.repeat(50);
+  const long = animationText([{ file: '_模型文件/' + longName + '.fbx', clips: ['c'.repeat(20), 'd'.repeat(20)] }]);
   const row = long.split('\n')[1];
-  ok(row.length <= 60 && row.endsWith('…'), '一条不超过 60 字并带省略号：' + row.length);
-  ok(animationText(many, 3).split('\n').length === 4, 'limit 比条数小时照 limit');
+  ok(row.indexOf(longName) >= 0 && row.indexOf('c'.repeat(20)) >= 0, '文件名与 clip 名不截断：' + row.length);
 }
 
 /* ---------- ⑨ 当前模型的摆件：clip 只在有时才写，默认值不占字 ---------- */

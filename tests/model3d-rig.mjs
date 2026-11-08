@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import * as THREE from '../web/vendor/three/three.module.js';
 import {
   quatOfDegrees, poseTableOf, applyPose, applyJoints, jointsOf, registerJoint,
-  jointParts, jointPathOf, JOINT_DEPTH,
+  jointParts, jointPathOf,
 } from '../web/model3d/rig.js';
 
 let n = 0;
@@ -63,9 +63,8 @@ function buildJoints() {
   ok(jointsOf(content, 'nope') === null, '没有这个节点的表时返回 null');
   ok(jointsOf({}, 'm1') === null, '内容里没有关节表时返回 null');
   ok(jointPathOf(' torso / / leftShoulder ') === 'torso/leftShoulder', '路径去空白与空段');
-  ok(jointParts('a/b/c/d/e/f/g').length === 7, '切段不截断（截断在 jointPathOf）');
-  ok(jointPathOf('a/b/c/d/e/f/g') === 'a/b/c/d/e/f', '超过 6 段只留前 6 段');
-  ok(JOINT_DEPTH === 6, '上限是 6 段');
+  ok(jointParts('a/b/c/d/e/f/g').length === 7, '切段不截断');
+  ok(jointPathOf('a/b/c/d/e/f/g') === 'a/b/c/d/e/f/g', '关节路径不截断');
 }
 
 /* ---------- ④ applyPose：先复位到 base 再叠加，逐次调用不攒增量 ---------- */

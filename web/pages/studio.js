@@ -3059,7 +3059,8 @@ const StudioView = {
       $('toModelBtn').onclick = () => {
         const prompt = ($('prompt').value || '').trim();
         if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
-        window.Model3D.handoffTo('model', { prompt, from: 'studio', type: TYPE });
+        const images = polishImageList().map(x => ({ label: x.label, url: x.src }));
+        window.Model3D.handoffTo('model', { prompt, from: 'studio', type: TYPE, images });
         window.GoPage.go('model.html');
       };
       async function consumeModelHandoff() {
@@ -3067,13 +3068,19 @@ const StudioView = {
         if (!M || !M.consume) return;
         let box = null;
         try { box = M.consume('studio'); } catch (e) { box = null; }
-        if (!box || !box.asset) return;
-        const a = box.asset;
+        if (!box || !Array.isArray(box.assets) || !box.assets.length) return;
         setStatus('正在把白膜加进参考素材…');
-        const r = await refIntoSlot(a.type === '视频' ? '视频' : '图片',
-          { assetId: a.assetId, src: a.src, name: a.name }, { autoSwitch: true });
-        if (r && r.ok) setStatus('<span class="ok">✓ 白膜「' + window.esc(r.name || a.name) + '」已加入「' + window.esc(r.kind) + '」</span>');
-        else setStatus('<span class="err">白膜没能加进来：' + window.esc((r && r.why) || '这一型没有能收它的槽位') + '</span>');
+        let ok = 0;
+        let fail = 0;
+        let lastName = '';
+        for (const a of box.assets) {
+          const r = await refIntoSlot(a.type === 'video' ? '视频' : '图片',
+            { assetId: a.assetId, src: a.url || a.src, name: a.name }, { autoSwitch: true });
+          if (r && r.ok) { ok += 1; lastName = r.name || a.name || lastName; }
+          else fail += 1;
+        }
+        if (ok) setStatus('<span class="ok">✓ 白膜「' + window.esc(lastName) + '」已加入参考素材' + (ok > 1 ? '（' + ok + ' 份）' : '') + (fail ? '；' + fail + ' 份没放进去' : '') + '</span>');
+        else setStatus('<span class="err">白膜没能加进来：' + (fail ? '这一型没有能收它的槽位' : '没有可回传的产物') + '</span>');
       }
       /* 多选条上那颗：勾的图片里有才点得动（与「存回本机」同一个范围口径 —— 先勾选才有点的理由）。 */
       function paintToVideoBtn() {

@@ -2083,7 +2083,11 @@ function renderEditor() {
   if ($('toModelBtn')) $('toModelBtn').onclick = () => {
     const sh = curShot();
     if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
-    window.Model3D.handoffTo('model', { prompt: (sh && sh.prompt) || '', from: 'director', shot: sh ? sh.id : '' });
+    const images = ((sh && sh.refImages) || []).map((url, i) => ({
+      label: (sh.refMeta && sh.refMeta[i] && sh.refMeta[i].label) || ('参考图 ' + (i + 1)),
+      url,
+    }));
+    window.Model3D.handoffTo('model', { prompt: (sh && sh.prompt) || '', from: 'director', shot: sh ? sh.id : '', images });
     window.GoPage.go('model.html');
   };
   /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。

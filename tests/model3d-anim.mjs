@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-/* 动画采样：关键帧插值、三种轨迹、整表采样。纯函数。 */
+/* 动画采样：关键帧插值、四种轨迹、节点 / 机位轨道、整表采样、播放时钟边界。纯函数。 */
 import assert from 'node:assert/strict';
-import { sampleKeys, samplePath, sampleTrack, sampleAnim } from '../web/model3d/anim.js';
+import { sampleKeys, samplePath, sampleTrack, sampleAnim, sampleCams, advanceTime } from '../web/model3d/anim.js';
+import { normalizeDoc } from '../web/model3d/schema.js';
 
 let n = 0;
 const ok = (c, m) => { n += 1; assert.ok(c, m); };
@@ -26,6 +27,10 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   ok(sampleKeys([], 1) === null, '空表返回 null');
   const single = sampleKeys([{ t: 1, at: [5, 0, 0] }], 3);
   ok(single.at[0] === 5, '只有一帧时一直用它');
+  const hold = sampleKeys(keys, 1, 'hold');
+  ok(hold.at[0] === 0, 'hold 在两帧之间保持前一帧');
+  const linear = sampleKeys(keys, 1, 'linear');
+  near(linear.at[0], 1, 1e-6, 'linear 是直线中点');
 }
 
 /* ---------- 直线 ---------- */
@@ -62,10 +67,23 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   ok(Math.abs(pEnd.at[0]) < 0.01 && Math.abs(pEnd.at[2]) < 0.01, '绕回起点附近');
 }
 
+/* ---------- 自由路径 ---------- */
+{
+  const p = { kind: 'free', pts: [[-2, 0, 0], [0, 0, 2], [2, 0, 0]], closed: false };
+  const a = samplePath(p, 0, 4);
+  near(a.at[0], -2, 1e-6, '自由路径起点');
+  const b = samplePath(p, 4, 4);
+  near(b.at[0], 2, 1e-6, '自由路径终点');
+  const m = samplePath(p, 2, 4);
+  ok(m && Number.isFinite(m.at[0]) && Number.isFinite(m.at[2]), '自由路径中点可算');
+  const closed = samplePath({ ...p, closed: true }, 4, 4);
+  ok(closed && Number.isFinite(closed.at[0]), '闭合自由路径可算');
+}
+
 /* ---------- 轨道合成：路径打底、关键帧覆盖 ---------- */
 {
   const track = {
-    nodeId: 'm1', motion: 'walk',
+    of: { kind: 'node', id: 'm1' }, motion: 'walk',
     path: { kind: 'line', from: [0, 0, 0], to: [4, 0, 0] },
     keys: [{ t: 2, at: [0, 0, 5], pose: 'run' }],
   };
@@ -75,6 +93,7 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   const s2 = sampleTrack(track, 2, 4);
   near(s2.at[2], 5, 1e-6, '关键帧覆盖路径的位置');
   ok(s2.pose === 'run', '关键帧覆盖姿势');
+  ok(sampleTrack({ ...track, enabled: false }, 1, 4) === null, '停用的轨道不采样');
 }
 
 /* ---------- 整表采样 ---------- */
@@ -82,23 +101,69 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   const anim = {
     duration: 4,
     tracks: [
-      { nodeId: 'a', path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] } },
-      { nodeId: 'b', keys: [{ t: 0, at: [0, 1, 0] }, { t: 4, at: [0, 3, 0] }] },
+      { of: { kind: 'node', id: 'a' }, path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] } },
+      { of: { kind: 'node', id: 'b' }, keys: [{ t: 0, at: [0, 1, 0] }, { t: 4, at: [0, 3, 0] }] },
     ],
   };
   const m = sampleAnim(anim, 2);
   ok(Object.keys(m).length === 2, '两条轨道都采到');
   near(m.a.at[0], 1, 1e-6, 'a 在 t=2 走到中点');
   near(m.b.at[1], 2, 1e-6, 'b 在 t=2 升到一半');
-  const clamped = sampleAnim(anim, 99);
-  near(clamped.a.at[0], 2, 1e-6, '超出时长按最后一刻算');
+  const late = sampleAnim(anim, 99);
+  near(late.a.at[0], 2, 1e-6, '超出时长时路径停在终点');
   ok(Object.keys(sampleAnim(null, 1)).length === 0, '没有动画返回空表');
+}
+
+/* ---------- 机位采样：target / fov / follow ---------- */
+{
+  const { doc } = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'mannequin', id: 'hero', at: [10, 0, 0] }],
+      cams: [
+        { id: 'c1', name: '跟随', pos: [0, 2, 4], target: [0, 1, 0], fov: 35, follow: 'hero' },
+        { id: 'c2', name: '看别处', pos: [0, 2, 4], target: [0, 1, 0], fov: 35 },
+      ],
+      active: 'c1',
+    },
+    anim: {
+      duration: 4,
+      tracks: [
+        { id: 't1', of: { kind: 'cam', id: 'c1' }, keys: [{ t: 0, at: [0, 2, 4], target: [1, 1, 0], fov: 40 }] },
+        { id: 't2', of: { kind: 'cam', id: 'c2' }, keys: [{ t: 0, at: [0, 2, 4] }] },
+      ],
+    },
+  });
+  const nodeSamples = sampleAnim(doc.anim, 0);
+  const cams = sampleCams(doc.anim, doc, 0, nodeSamples);
+  ok(cams.c1.fov === 40, '机位 fov 关键帧生效');
+  near(cams.c1.target[0], 1, 1e-6, '机位 target 关键帧压过 follow');
+  near(cams.c2.target[0], 0, 1e-6, '没有 target 关键帧时用静态 target');
+  near(cams.c2.target[0], 0, 1e-6, '静态机位 target 不变');
+
+  const noTarget = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'mannequin', id: 'hero', at: [10, 0, 0] }],
+      cams: [{ id: 'c', pos: [0, 2, 4], target: [0, 1, 0], fov: 35, follow: 'hero' }],
+      active: 'c',
+    },
+    anim: { duration: 4, tracks: [{ id: 't', of: { kind: 'cam', id: 'c' }, keys: [{ t: 0, at: [0, 2, 4] }] }] },
+  }).doc;
+  const follow = sampleCams(noTarget.anim, noTarget, 0, sampleAnim(noTarget.anim, 0));
+  near(follow.c.target[0], 10, 1e-6, '没有 target 关键帧时机位跟到节点位置');
+}
+
+/* ---------- 播放时钟：循环 / 停住 ---------- */
+{
+  ok(advanceTime({ duration: 4, loop: true }, 3.5, 1).t === 0.5, '循环回卷');
+  const once = advanceTime({ duration: 4, loop: false }, 3.5, 1);
+  ok(once.t === 4 && once.ended === true, '不循环时停在时长末尾');
+  ok(advanceTime({ duration: 4, loop: false }, 1, 1).t === 2, '不循环时中途照常走');
 }
 
 /* ---------- 子关节轨道：只动一个关节，路径与步态对它无效 ---------- */
 {
   const track = {
-    nodeId: 'm1', joint: 'torso/leftShoulder', motion: 'walk',
+    of: { kind: 'node', id: 'm1' }, joint: 'torso/leftShoulder', motion: 'walk',
     path: { kind: 'line', from: [0, 0, 0], to: [4, 0, 0] },
     keys: [{ t: 0, rot: [0, 0, 0], pose: 'wave' }, { t: 2, rot: [80, 0, 0], pose: 'wave' }],
   };
@@ -109,6 +174,8 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   near(sampleTrack(track, 1, 2).rot[0], 40, 1e-6, '关节角度在关键帧之间插值');
   const s2 = sampleTrack({ ...track, joint: ' / torso // head / ' }, 1, 2);
   ok(s2.joint === 'torso/head', '关节路径归一：' + s2.joint);
+  const deep = sampleTrack({ ...track, joint: 'a/b/c/d/e/f/g/h' }, 0, 2);
+  ok(deep.joint === 'a/b/c/d/e/f/g/h', '关节路径不截断');
 }
 
 /* ---------- 整表：同一节点的关节轨道并进 joints，节点自身的走位照旧 ---------- */
@@ -116,9 +183,9 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   const anim = {
     duration: 2,
     tracks: [
-      { nodeId: 'm1', motion: 'run', path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] } },
-      { nodeId: 'm1', joint: 'torso/leftShoulder', keys: [{ t: 0, rot: [0, 0, 0] }, { t: 2, rot: [80, 0, 0] }] },
-      { nodeId: 'm1', joint: 'torso/rightShoulder', keys: [{ t: 0, rot: [0, 0, 0] }, { t: 2, rot: [-80, 0, 0] }] },
+      { of: { kind: 'node', id: 'm1' }, motion: 'run', path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] } },
+      { of: { kind: 'node', id: 'm1' }, joint: 'torso/leftShoulder', keys: [{ t: 0, rot: [0, 0, 0] }, { t: 2, rot: [80, 0, 0] }] },
+      { of: { kind: 'node', id: 'm1' }, joint: 'torso/rightShoulder', keys: [{ t: 0, rot: [0, 0, 0] }, { t: 2, rot: [-80, 0, 0] }] },
     ],
   };
   const m = sampleAnim(anim, 1);

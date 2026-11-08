@@ -1,17 +1,8 @@
-/* 白膜库（客户端）—— 模型文件在库根下的读写都走这一份：列表 / 读 / 存 / 改名移组 / 删 /
-   缩略图地址 / 导入 3D 文件 / 导出导入 .json。
+/* 白模库（客户端）—— 多库 + 模型 / 场景 的读写都走这一份。
+   库目录：白膜/<库>/模型|场景|_模型文件；库 id 与文件夹同名。
+   网络只走 Net（全站唯一实现）：JSON 与二进制上传都是 Net.json。 */
 
-   身份是 `组/名`（没有组就是 `名`），与磁盘上的相对路径同形；页面里一切引用都用它。
-   名字的夹取与代理侧同规则（`NAME_MAX` / `GROUP_MAX` / `_` 前缀保留），这里先判一次只是为了
-   早点给出人话原因 —— 真正的闸在路由里。
-
-   网络只走 `Net`（全站唯一实现）：JSON 与二进制上传都是 `Net.json`，后者带一个
-   `application/octet-stream` 的 body。 */
-
-const NAME_MAX = 40;
-const GROUP_MAX = 20;
 const ASSET_EXT = ['.fbx', '.obj', '.glb', '.gltf'];
-
 const net = () => window.Net;
 
 export function cleanName(raw) {
@@ -19,14 +10,10 @@ export function cleanName(raw) {
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '')
     .replace(/^\.+/, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, NAME_MAX);
+    .trim();
 }
 export function cleanGroup(raw) {
-  return cleanName(raw).slice(0, GROUP_MAX);
-}
-export function idOf(group, name) {
-  return (group ? cleanGroup(group) + '/' : '') + cleanName(name);
+  return cleanName(raw);
 }
 export function splitId(id) {
   const s = String(id || '');
@@ -34,68 +21,147 @@ export function splitId(id) {
   return i < 0 ? { group: '', name: s } : { group: s.slice(0, i), name: s.slice(i + 1) };
 }
 
-export async function list() {
-  const d = await net().json('/model3d', { cache: 'no-store' });
-  return d || { dir: '', groups: [], models: [] };
+export async function list(library = '') {
+  const q = library ? '?library=' + encodeURIComponent(library) : '';
+  const d = await net().json('/model3d' + q, { cache: 'no-store', timeout: 0 });
+  return d || { dir: '', library: '', libraries: [], groups: [], models: [], sceneGroups: [], scenes: [] };
 }
 
-export async function read(id) {
-  return await net().json('/model3d/file?id=' + encodeURIComponent(id), { cache: 'no-store' });
+export async function readModel(library, id) {
+  return await net().json('/model3d/file?library=' + encodeURIComponent(library)
+    + '&kind=model&id=' + encodeURIComponent(id), { cache: 'no-store', timeout: 0 });
+}
+export async function readScene(library, id) {
+  return await net().json('/model3d/file?library=' + encodeURIComponent(library)
+    + '&kind=scene&id=' + encodeURIComponent(id), { cache: 'no-store', timeout: 0 });
 }
 
-export async function save({ id, name, group, model, thumb }) {
+export async function saveModel({ library, id, name, group, model, thumb }) {
   return await net().json('/model3d/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: id || '', name, group: group || '', model, thumb: thumb || '' }),
-    timeout: 30,
+    body: JSON.stringify({ library, kind: 'model', id: id || '', name, group: group || '', model, thumb: thumb || '' }),
+    timeout: 0,
   });
 }
-
-export async function remove(id) {
-  return await net().json('/model3d/delete', {
+export async function saveScene({ library, id, name, group, model, thumb }) {
+  return await net().json('/model3d/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id }),
-    timeout: 20,
-  });
-}
-
-/* 缩略图：带上 mtime 当版本，换过图之后列表不会继续显示旧的那一张 */
-export function thumbUrl(rec) {
-  if (!rec || !rec.thumb) return '';
-  return '/model3d/thumb?id=' + encodeURIComponent(rec.id) + '&v=' + Math.round(rec.when || 0);
-}
-export function modelFileUrl(id) {
-  return '/model3d/file?id=' + encodeURIComponent(id);
-}
-export function assetUrl(file) {
-  return '/model3d/asset?name=' + encodeURIComponent(file);
-}
-
-/* 导入一个 3D 文件：字节直传，落 `_模型文件/`，返回 `{ file, bytes }`（file 是相对 `白膜/` 的路径） */
-export async function upload(file) {
-  const ext = '.' + String(file.name || '').split('.').pop().toLowerCase();
-  if (!ASSET_EXT.includes(ext)) throw new Error('只收 ' + ASSET_EXT.join(' / ') + ' 这几种 3D 文件');
-  if (file.size > 80 * 1024 * 1024) throw new Error('这个文件 ' + window.fmtBytes(file.size) + '，超过 80 MB 上限');
-  const buf = new Uint8Array(await file.arrayBuffer());
-  return await net().json('/model3d/asset?name=' + encodeURIComponent(file.name || ('model' + ext)), {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/octet-stream' },
-    body: buf,
+    body: JSON.stringify({ library, kind: 'scene', id: id || '', name, group: group || '', model, thumb: thumb || '' }),
     timeout: 0,
   });
 }
 
-/* 导出成一份能带走、也能再导回来的 .json（模型本身不认识库，拷到别的机器上照样能读） */
-export function exportDoc(doc) {
+export async function removeModel(library, id) {
+  return await net().json('/model3d/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, kind: 'model', id }),
+    timeout: 0,
+  });
+}
+export async function removeScene(library, id) {
+  return await net().json('/model3d/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, kind: 'scene', id }),
+    timeout: 0,
+  });
+}
+
+export async function saveLibrary({ id, name }) {
+  return await net().json('/model3d/library/save', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id: id || '', name }),
+    timeout: 0,
+  });
+}
+export async function removeLibrary(id) {
+  return await net().json('/model3d/library/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id }),
+    timeout: 0,
+  });
+}
+
+export async function createSceneGroup(library, name) {
+  return await net().json('/model3d/scene-group/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, name }),
+    timeout: 0,
+  });
+}
+export async function renameSceneGroup(library, from, to) {
+  return await net().json('/model3d/scene-group/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, from, to }),
+    timeout: 0,
+  });
+}
+export async function removeSceneGroup(library, from) {
+  return await net().json('/model3d/scene-group/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, from }),
+    timeout: 0,
+  });
+}
+
+export async function createModelGroup(library, name) {
+  return await net().json('/model3d/model-group/create', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, name }),
+    timeout: 0,
+  });
+}
+export async function renameModelGroup(library, from, to) {
+  return await net().json('/model3d/model-group/rename', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, from, to }),
+    timeout: 0,
+  });
+}
+export async function removeModelGroup(library, from) {
+  return await net().json('/model3d/model-group/delete', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ library, from }),
+    timeout: 0,
+  });
+}
+
+export function thumbUrl(rec, library, kind) {
+  if (!rec || !rec.thumb) return '';
+  return '/model3d/thumb?library=' + encodeURIComponent(library || '')
+    + '&kind=' + encodeURIComponent(kind || 'model')
+    + '&id=' + encodeURIComponent(rec.id) + '&v=' + Math.round(rec.when || 0);
+}
+export async function upload(file, library) {
+  const ext = '.' + String(file.name || '').split('.').pop().toLowerCase();
+  if (!ASSET_EXT.includes(ext)) throw new Error('只收 ' + ASSET_EXT.join(' / ') + ' 这几种 3D 文件');
+  return await net().json('/model3d/asset?library=' + encodeURIComponent(library)
+    + '&name=' + encodeURIComponent(file.name || ('model' + ext)), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/octet-stream' },
+    body: file,
+    timeout: 0,
+  });
+}
+
+export function exportDoc(doc, filename) {
   const body = JSON.stringify(doc, null, 2);
   const blob = new Blob([body], { type: 'application/json' });
-  net().save(blob, '白膜-' + (doc.name || 'model') + '.json');
+  net().save(blob, filename || ((doc && doc.name) || 'model') + '.json');
   return body.length;
 }
 
-/* 读一个 .json 文件回来（导入）：不落盘，交给页面决定存成哪个组 / 叫什么 */
 export async function readJsonFile(file) {
   const txt = await file.text();
   let raw = null;
