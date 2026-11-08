@@ -108,7 +108,10 @@ const idle = fn => (window.requestIdleCallback ? window.requestIdleCallback(fn, 
 function schedulePrefetch() {
   const files = (R.pages || [])
     .map(p => p && p.file)
-    .filter(f => f && (!state.route || f !== state.route.file));
+    /* `heavy` 的页面（建模台：three ≈ 2.1 MB）**不进空闲预取**：那一串是开机后台自动跑的，
+       把 three 拉进来会让「资源静默」窗口一路往后推（TTI 直接翻倍）。
+       用户真点它 / 悬停它时照常提前取（__spaPrefetch 那一份不筛）。 */
+    .filter(f => f && (!state.route || f !== state.route.file) && !(R.byFile[f] && R.byFile[f].heavy));
   let i = 0;
   const step = () => {
     const f = files[i++];

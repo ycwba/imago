@@ -1,7 +1,7 @@
 {
   "name": "imago",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "本地优先的 AI 创作工作台（运行时零构建；开发期用 tools/precompile-vue.cjs 预编译模板）",
   "scripts": {
     "build": "node tools/precompile-vue.cjs",

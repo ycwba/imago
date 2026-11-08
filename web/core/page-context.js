@@ -54,6 +54,16 @@
       if (open) add(o, '正在编辑', txt(open, '.t'));
       return o;
     },
+    'model.html': root => {
+      const o = {};
+      add(o, '当前模型', txt(root, '[data-r=mmName]'));
+      add(o, '状态', txt(root, '[data-r=mmDirty]'));
+      add(o, '画幅', txt(root, '.model-page .mm-tools [data-g=aspect] button.on'));
+      add(o, '视角', txt(root, '.model-page .mm-tools [data-g=view] button.on'));
+      add(o, '零件数', qa(root, '.model-page .mm-tree-row').length || '');
+      add(o, '提示', txt(root, '[data-r=mmSay]'));
+      return o;
+    },
     'studio.html': root => {
       const o = {};
       const tab = q(root, '[data-r=typeSeg] button.on');

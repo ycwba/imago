@@ -1,11 +1,12 @@
 #!/usr/bin/env node
-/* 浏览器冒烟：隔离代理 + headless Chrome，确认外壳可加载、七个页面能切、无控制台异常。
+/* 浏览器冒烟：隔离代理 + headless Chrome，确认外壳可加载、八个页面能切、无控制台异常。
    跑法：`node tests/e2e/smoke.cjs`（或 `node tests/all.cjs --e2e`） */
 'use strict';
 const h = require('./harness.cjs');
 
 const PAGES = [
   ['director.html', 'director'],
+  ['model.html', 'model'],
   ['studio.html?t=video', 'studio'],
   ['studio.html?t=image', 'studio'],
   ['studio.html?t=audio', 'studio'],

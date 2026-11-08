@@ -1076,7 +1076,7 @@ const ID_RE = /^[a-z0-9][a-z0-9-]{1,40}$/;
 /* contract 白名单：一份 Skill 的正文由 contract 唯一标识（TextAI.SKILL_CONTRACT 是同一张表的页面侧）。
    `board_assets.json` = 拆分镜那一条「判断哪些新角色/场景/物品要建档并出图」的指令；
    `split_follow.json` = 拆分镜审查弹窗「按这句再改」——对着已拆好的方案按一句话再改一轮。 */
-const CONTRACTS = new Set(['polish.video', 'polish.image', 'polish.voice', 'polish.follow', 'story.json', 'split.json', 'board_edit.json', 'split_follow.json', 'img_split.json', 'char.image.json', 'char.voice.json', 'board_assets.json', 'line_write.json']);
+const CONTRACTS = new Set(['polish.video', 'polish.image', 'polish.voice', 'polish.follow', 'story.json', 'split.json', 'board_edit.json', 'split_follow.json', 'img_split.json', 'char.image.json', 'char.voice.json', 'board_assets.json', 'line_write.json', 'model3d.json']);
 const ALLOWED_EXT = new Set(['.md', '.txt', '.json']);
 
 function parseFrontmatter(text) {

@@ -19,7 +19,9 @@ const GROWTH_PCT = 5;             // 「总量相对基线」判据线
 /* `design/` 曾经是设计提案目录（静态预览稿，不被 shell.html / web/ 引用、不进构建、
    不进运行时），和 docs / tools 同一类 —— 拿它算源码体积只会把判据线越推越松。
    目录已删，但排除项留着：以后再放设计稿进来时，判据线不该被它顶松。 */
-const EXCLUDE_DIRS = new Set(['tests', 'docs', '_backup', '.git', 'node_modules', 'prompts', '文件', '.shots', '.data', '.assets', '.renders', 'render', 'tools', 'design']);
+/* vendor：第三方 vendored 代码（vue / mediabunny / asr / three）不是我们写的，不参与行数判据 ——
+   这正是这条清单原本的口径（EXCLUDE_FILES 那条注释），只是以前只排了单文件、没排整个目录。 */
+const EXCLUDE_DIRS = new Set(['tests', 'docs', '_backup', '.git', 'node_modules', 'prompts', '文件', '.shots', '.data', '.assets', '.renders', 'render', 'tools', 'design', 'vendor']);
 /* vendored 第三方（本地带上、运行时零构建）：压过的产物不是我们的代码，不参与行数判据 */
 const EXCLUDE_FILES = new Set(['vue.runtime.esm-browser.prod.js', 'mediabunny-aac-encoder.min.js']);
 const EXTS = new Set(['.js', '.html', '.css']);

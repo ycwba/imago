@@ -24,6 +24,10 @@ window.AssetPicker = {
       wantAudio ? 'audio/*' : '',
     ].filter(Boolean).join(',');
     const wantUpload = o.upload !== false && !!upAccept;
+    /* 「3D 白膜」这一档只在收图片 / 视频时出现：音频槽位摆一个建模入口没有意义。
+       门面没装上（旧页面 / 刚装好还没刷新）就整颗不画 —— 点了没反应的按钮比没有更糟。 */
+    const want3d = !!(window.Model3D && window.Model3D.quick)
+      && (o.types.includes('图片') || o.types.includes('视频'));
     return new Promise(resolve => {
       /* 「在一堆卡片里点选多个」的语义只有一份（ui.js 的 PickSel）：点一下选/取消这一张、
          Shift 连选一段、到上限当场拦下并说明、可见顺序变了锚点作废。
@@ -57,6 +61,7 @@ window.AssetPicker = {
           <button class="chip${view === 'fav' ? ' on' : ''}" data-view="fav">${window.icon ? window.icon('star', 12) : ''} 我的收藏</button>`}
           ${o.chars ? `<button class="chip${view === 'char' ? ' on' : ''}" data-view="char">${window.icon ? window.icon('users', 12) : ''} 素材库</button>` : ''}
           ${wantUpload ? `<button class="chip" data-act="upload">${window.icon ? window.icon('upload', 12) : ''} 本地上传</button>` : ''}
+          ${want3d ? `<button class="chip" data-act="model3d">${window.icon ? window.icon('model', 12) : ''} 3D 白膜</button>` : ''}
         </div>
         <div class="ap-types" id="apTypes" hidden></div>
         ${o.note ? `<div class="ap-sub">${o.note}</div>` : ''}
@@ -611,6 +616,7 @@ window.AssetPicker = {
       dlg.querySelectorAll('#apChips .chip').forEach(ch => {
         if (ch.dataset.view) { ch.onclick = () => setView(ch.dataset.view); return; }
         if (ch.dataset.act === 'upload') ch.onclick = () => uploadFiles(ch);
+        if (ch.dataset.act === 'model3d') ch.onclick = () => openModel3d(ch);
       });
       renderTypes();
 
@@ -670,6 +676,42 @@ window.AssetPicker = {
           say(bits.join('　·　') || null);
         };
         inp.click();
+      };
+
+      /* ---------- 3D 白膜：现建 / 现挑一份，出成参考图或参考视频，直接进选中集合 ----------
+         出的那一份**已经在本机资产库里**（capture.js 走 Api.saveLocalAsset），所以这里拿到的是一条
+         正常的库条目：assetId + /asset/<id>。它进 upPool 之后与「本地上传」同一套语义 ——
+         单值槽位先清后加、多个就累加、计数与选中集合都跟着走。 */
+      const openModel3d = async chBtn => {
+        if (!window.Model3D || !window.Model3D.quick) { say('建模台入口没装上：刷新页面再试'); return; }
+        const want = o.types.includes('图片') ? 'image' : 'video';
+        let got = null;
+        try {
+          got = await window.Model3D.quick({ want });
+        } catch (e) {
+          say('白膜弹窗打不开：' + window.errText(e));
+          return;
+        }
+        if (!got) return;
+        const t = got.type === '视频' ? '视频' : '图片';
+        if (!okType(t)) { say('这个位置不收' + t); return; }
+        if (maxBytes && Number(got.bytes) > maxBytes) { say('这一份超过这个槽位的体积上限'); return; }
+        const name = String(got.name || '白膜');
+        const entry = {
+          assetId: got.assetId, src: got.src, dl: got.src, name, type: t,
+          provider: 'local', providerName: '本机白膜', prompt: name.replace(/\.[^.]+$/, ''),
+          ts: Date.now(), _grp: 'local', duration: null,
+          format: (name.split('.').pop() || '').toLowerCase(),
+          _ukey: 'm3d:' + got.assetId, _tkey: 'm3d:' + got.assetId,
+        };
+        if (!o.multiple) pick.clear();
+        const i = upPool.findIndex(x => x._ukey === entry._ukey);
+        if (i >= 0) upPool.splice(i, 1);
+        upPool.unshift(entry);
+        chBtn && chBtn.classList.add('on');
+        refresh();
+        const n = pick.addMany([entry]);
+        say(n ? '已加入并选中「' + name + '」' : '最多 ' + cap + ' 个，先取消一个再加');
       };
 
       /* ---------- AI 搜索：把一句自然语言变成筛选条件（只筛现有条目，不生成） ---------- */

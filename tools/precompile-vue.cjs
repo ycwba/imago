@@ -13,7 +13,7 @@ const NAMES = [
   'app-loading', 'app-error', 'app-shell',
   /* 画布页已下线（2026-10-24）：模板、页面、样式与那一族测试一并删除，
      预编译清单里也就不再有它 —— 清单里留着一条会去找一份不存在的模板，直接构建失败。 */
-  'assets', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director',
+  'assets', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director', 'model',
 ];
 
 function getCompiler() {

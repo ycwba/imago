@@ -14,7 +14,7 @@
        `window.setType(t, fromUser)` 的语义与地址同步照旧；
      · 按类型各存的提示词在切回来时真的恢复（旧页面只存不读，与它自己那句「切回来不该丢」对不上）；
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
-import { ref, inject, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
+import { ref, inject, watch, nextTick, onMounted, onActivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { createBand } from '../ui/index.js';
 import { createCrossCol } from './studio/cross-col.js';
 import { createSplit } from './studio/split.js';
@@ -3052,6 +3052,29 @@ const StudioView = {
         confirm: Confirm, toast: Toast, setStatus, writeLS, cur, provGroups,
       });
       $('toImageBtn').onclick = () => { cross.promptIntoImage().catch(e => setStatus('<span class="err">' + window.esc(errText(e)) + '</span>')); };
+      /* ---------- 建模台：这句话带过去建模 · 白膜送回来落进参考槽 ----------
+         两个方向都只经 `window.Model3D`（web/model3d/bridge.js 那几十行）：
+         带过去 = 写一枚一次性口袋 + 跳页；送回来 = 目标页消费口袋，落槽仍走 refIntoSlot
+         这一条唯一出口（与拖放、与从资产库选是同一条）。 */
+      $('toModelBtn').onclick = () => {
+        const prompt = ($('prompt').value || '').trim();
+        if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
+        window.Model3D.handoffTo('model', { prompt, from: 'studio', type: TYPE });
+        window.GoPage.go('model.html');
+      };
+      async function consumeModelHandoff() {
+        const M = window.Model3D;
+        if (!M || !M.consume) return;
+        let box = null;
+        try { box = M.consume('studio'); } catch (e) { box = null; }
+        if (!box || !box.asset) return;
+        const a = box.asset;
+        setStatus('正在把白膜加进参考素材…');
+        const r = await refIntoSlot(a.type === '视频' ? '视频' : '图片',
+          { assetId: a.assetId, src: a.src, name: a.name }, { autoSwitch: true });
+        if (r && r.ok) setStatus('<span class="ok">✓ 白膜「' + window.esc(r.name || a.name) + '」已加入「' + window.esc(r.kind) + '」</span>');
+        else setStatus('<span class="err">白膜没能加进来：' + window.esc((r && r.why) || '这一型没有能收它的槽位') + '</span>');
+      }
       /* 多选条上那颗：勾的图片里有才点得动（与「存回本机」同一个范围口径 —— 先勾选才有点的理由）。 */
       function paintToVideoBtn() {
         const btn = $('bulkToVideo');
@@ -3460,6 +3483,8 @@ const StudioView = {
           slots = modelSlots();
           $('splitBtn').hidden = TYPE !== 'image';
           $('toImageBtn').hidden = TYPE !== 'video';
+          /* 白膜只服务图像 / 视频：音频栏那一颗收起来（点了也没有对应的参考槽位） */
+          $('toModelBtn').hidden = TYPE === 'audio';
           if (TYPE !== 'image') $('splitInline').hidden = true;
           renderParams();
           renderInputArea();
@@ -3572,6 +3597,14 @@ const StudioView = {
       /* 外壳那条通道：类型切换（Vue 组件不在 iframe 里，web/app.js 的 iframe 钩子够不着）。 */
       window.setType = (t, fromUser) => setType(t, fromUser);
       window.__studioRepaint = () => { paintLeft(); renderAll(); };
+
+      /* 口袋要等首帧落定再消费（槽位是 renderInputArea 画出来的，早一步就没有可落的格）。
+         再挂一次 onActivated：这一页在页面池里常驻，第二次从建模台回来时 setup 不会再跑。 */
+      const grabModel = () => setTimeout(() => {
+        consumeModelHandoff().catch(e => setStatus('<span class="err">白膜回传失败：' + window.esc(errText(e)) + '</span>'));
+      }, 0);
+      grabModel();
+      onActivated(grabModel);
 
       return () => {
         bootStopped = true;

@@ -37,6 +37,9 @@
        刻意不写整个 'dir_' 前缀：dir_img / dir_video / dir_audio / dir_render 是**本机磁盘路径**，
        换台机器就不成立。 */
     'wb_split', 'dir_split', 'dir_cand_expand', 'dir_muted', 'sb_bal_show',
+    /* 建模台「复用历史白膜」那一档（不启用 / 当前组 / 全部组）：它是一条生成规矩，
+       换台机器应当照旧 —— 与 char_ 前缀那几项同一类。 */
+    'sk_model3d_reuse',
     /* 产物镜像的「存哪 / 读哪 / 标识」开关：以前这一行是 UI_PREFS 的手抄第三份，
        抄漏的 sb_open 与 sk_media_badge 换台机器就回到默认档 —— 整批改由下面那张表带出来。 */
     ...PREF_KEYS,
@@ -82,7 +85,11 @@
        同步过去只会把浮窗摆到另一台看不见的地方。
        （旧的 ai_chat_fxy「浮窗被拖走」标记已作废 —— 浮窗不再能脱离球；
          盘上那份残留由 ui.js 的 LEGACY_KEYS 连镜像一起删，不在这里点名。） */
-    'ai_chat_h'];
+    'ai_chat_h',
+    /* 建模台与工作台 / 导演台之间递东西的那枚一次性口袋：同一台机器上两个页面之间的事，
+       跟着云同步走会把「这台刚出的白膜」塞进另一台的参考槽里（而且它本来就带 10 分钟有效期）。 */
+    'model3d_handoff'];
+
 
   const TOL = 3000;                          // 容忍 3 秒的时钟/写入误差，避免两边来回覆盖
   const pending = new Map();                 // key → { t: 定时器, body: 待发内容（null = 删除） }

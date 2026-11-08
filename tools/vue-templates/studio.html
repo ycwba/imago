@@ -30,6 +30,9 @@
                 <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
                      模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
                 <span class="btn-host" data-r="polishHost"></span>
+                <!-- 建模台入口：把这一栏的提示词带过去建模（图像 / 视频栏才有；音频栏由 paintLeft 收起）。
+                     与「润色」同一排、同一个尺寸档（一行混排统一 --sz-ctl）。 -->
+                <button class="ghost" type="button" data-r="toModelBtn" title="把这段提示词带到建模台，生成白膜参考图 / 参考视频"><span class="ic" data-icon="model" data-size="13"></span><span class="tx">建模</span></button>
                 <span class="btn-host" data-r="splitHost"></span>
                 <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
                 <button class="ghost" type="button" data-r="toImageBtn"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>

@@ -1,0 +1,367 @@
+/* 建模台的页面私有样式（根类 .model-page 下）。
+   外壳是「整页不滚、页头 + 三栏」——与导演台同一副契约：页头自己内缩一枚 --shell-px，
+   三栏横向铺满内容区，栏与栏之间是可拖的分隔条（Wb.split 提供拖动手感，这里只给几何）。
+
+   栏宽只从这里出声：`--mmrail-w`（260px，比素材库那枚 208 宽 —— 卡片要放缩略图 + 两行字）
+   与 `--mmside-w`（300px，属性面板要摆数值）。两栏都读变量，窄窗一档直接改这两个变量。 */
+
+.model-page {
+  --mmrail-w: 260px;
+  --mmside-w: 300px;
+  --mmdock-h: 152px;
+  /* 与 .wb / .page-shell 同一枚：整页不滚的页壳自己内缩，页头那条线的起止才等于内容列 */
+  --shell-px: var(--sp-32);
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+/* 页头：壳不留白，横带自己左右内缩一枚 --shell-px（与导演台同一句） */
+.model-page .phead { padding-left: var(--shell-px); padding-right: var(--shell-px); }
+
+.mm-layout {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--mmrail-w) minmax(0, 1fr) var(--mmside-w);
+  gap: var(--sp-12);
+  padding: 0 var(--shell-px) var(--sp-12);
+}
+
+/* ---------------- 左栏：白膜库 ---------------- */
+.mm-rail {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding: var(--sp-12);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel);
+  overflow: hidden;
+}
+.mm-rail-head { display: flex; gap: var(--sp-8); }
+.mm-rail-head .search { flex: 1; min-width: 0; }
+.mm-groups { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.mm-cards {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--sp-8);
+  align-content: start;
+  scrollbar-width: thin;
+}
+.mm-card {
+  display: grid;
+  grid-template-columns: var(--sz-thumb-h) minmax(0, 1fr);
+  gap: var(--sp-8);
+  align-items: center;
+  padding: var(--sp-4);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6);
+  background: var(--panel2);
+  cursor: pointer;
+  text-align: left;
+  color: var(--txt);
+}
+.mm-card:hover { background: var(--acc-tint-10); }
+.mm-card.on { border-color: var(--acc); background: var(--sel-bg); }
+.mm-card-thumb {
+  width: var(--sz-thumb-h);
+  height: var(--sz-thumb-h);
+  border-radius: var(--radius-4);
+  background: var(--media-bg);
+  object-fit: cover;
+  display: block;
+}
+.mm-card-thumb.empty { display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.mm-card-main { min-width: 0; }
+.mm-card-t { font-size: var(--fs-13); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-card-s { font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-rail-foot {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding-top: var(--sp-8);
+  border-top: var(--hair) solid var(--line);
+}
+
+/* ---------------- 中栏：工具条 / 视口 / 轨道坞 ---------------- */
+/* min-height: 0 是必须的：它是 .mm-layout 网格的子项，默认 auto 会在「工具条 + 视口 + 轨道坞 + 结果条」
+   比行高更高时整块溢出，把最后一条顶到窗口外面（视口该让的是自己的 flex:1，不是溢出去）。 */
+.mm-stage { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--sp-8); }
+.mm-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-8);
+  padding: var(--sp-4) var(--sp-8);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel);
+}
+.mm-tools .sp { flex: 1; }
+.mm-tools .ui-seg { flex: none; }
+/* 工具条里给分组加一枚小标签：取景那三档与属性面板的「机位预设」不是一件事，不能同名同脸。
+   标签与它的按钮组包成一组：工具条会换行，标签留在上一行、按钮掉到下一行就散了。 */
+.mm-tools-group { flex: none; display: inline-flex; align-items: center; gap: var(--sp-4); }
+.mm-tools-lab { flex: none; font-size: var(--fs-11); color: var(--sub); }
+.mm-viewport {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--media-bg);
+  overflow: hidden;
+  outline: none;
+}
+.mm-viewport:focus-visible { box-shadow: var(--focus-shadow); }
+.mm-canvas { display: block; width: 100%; height: 100%; }
+.mm-viewport-note {
+  position: absolute;
+  left: var(--sp-8);
+  bottom: var(--sp-8);
+  padding: var(--sp-2) var(--sp-8);
+  border-radius: var(--radius-999);
+  background: var(--pal-scrim);
+  color: var(--on-acc);
+  font-size: var(--fs-11);
+  pointer-events: none;
+}
+.mm-dock {
+  height: var(--mmdock-h);
+  min-height: var(--sz-ctl-lg);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.mm-dock-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-8);
+  padding: var(--sp-4) var(--sp-8);
+  border-bottom: var(--hair) solid var(--line);
+  font-size: var(--fs-12);
+  color: var(--sub);
+}
+.mm-dock-head .sp { flex: 1; }
+/* 时长 / fps 两格：宽度按「四位数 + 箭头」给，别把整条头带挤走 */
+.mm-dock-lab { flex: none; color: var(--sub); font-size: var(--fs-11); }
+.mm-dock-num {
+  flex: none;
+  width: calc(var(--sp-64) - var(--sp-4));
+  height: var(--sz-ctl-sm);
+  font-size: var(--fs-12);
+  text-align: center;
+}
+/* 回执那一行只占一段：太长就截断（全文在 title 里），不把右半边那排按钮顶到下一行 */
+.mm-dock-note {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 34ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-12);
+  color: var(--sub);
+}
+.mm-dock-note.err { color: var(--err); }
+.mm-dock-note.ok { color: var(--ok); }
+.mm-tracks { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-4) var(--sp-8); }
+.mm-track-row {
+  display: grid;
+  grid-template-columns: 120px minmax(0, 1fr);
+  gap: var(--sp-8);
+  align-items: center;
+  height: var(--sz-ctl-sm);
+  font-size: var(--fs-12);
+}
+.mm-track-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--txt); }
+.mm-track-bar { position: relative; height: var(--sz-ctl-sm); border-radius: var(--radius-4); background: var(--panel2); }
+.mm-key {
+  position: absolute;
+  top: 50%;
+  width: 8px; height: 8px;
+  margin-left: calc(-1 * var(--sp-4));
+  transform: translateY(-50%) rotate(45deg);
+  border-radius: var(--radius-4);
+  background: var(--acc);
+}
+/* 导入件 clip 的色带：循环的画满整条，播完停的只画到它停的那一刻 */
+.mm-clip-band {
+  position: absolute;
+  top: var(--sp-2); bottom: var(--sp-2);
+  left: 0;
+  border-radius: var(--radius-4);
+  background: var(--acc-tint-18);
+  border: var(--hair) solid var(--acc-line-32);
+  pointer-events: none;
+}
+.mm-playhead {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 1px;
+  background: var(--err);
+  pointer-events: none;
+}
+.mm-dock-empty { padding: var(--sp-8); color: var(--sub); font-size: var(--fs-12); }
+/* 刚出的那一份：名字 + 下载 / 回传两颗按钮，一条横带。空的时候整块不占高度
+   （没出过东西时视口还是满的，不能白让出一条）。 */
+.mm-result:empty { display: none; }
+.mm-result {
+  flex: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4) var(--sp-8);
+  padding: var(--sp-4) var(--sp-8);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel);
+  font-size: var(--fs-12);
+}
+.mm-result .mm-note { min-width: 0; }
+
+/* ---------------- 右栏：AI / 场景 ---------------- */
+.mm-side {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel);
+  overflow: hidden;
+}
+.mm-side-tabs { padding: var(--sp-8); border-bottom: var(--hair) solid var(--line); display: flex; }
+.mm-side-tabs .ui-seg { width: 100%; }
+.mm-side-body { flex: 1; min-height: 0; overflow: auto; padding: var(--sp-12); display: flex; flex-direction: column; gap: var(--sp-12); }
+
+.mm-field { display: flex; flex-direction: column; gap: var(--sp-4); }
+.mm-field > label { font-size: var(--fs-12); color: var(--sub); }
+
+/* 生成中的流式回显：上一句是 AI 说的话（逐字长出来），下面一段是它正在写的原文
+   （等宽、低对比、只留尾巴并自动滚到底 —— 看的是「在动」，不是读 JSON）。 */
+.mm-stream {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-8);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  background: var(--panel2);
+}
+.mm-stream-say {
+  font-size: var(--fs-12);
+  line-height: 1.6;
+  color: var(--txt);
+  word-break: break-word;
+}
+/* 还没拿到那一句之前是「正在想…」：灰度 + 一颗跳动的方块，一眼看出是等待态 */
+.mm-stream-say.wait { color: var(--sub); }
+.mm-stream-say.wait::after {
+  content: "";
+  display: inline-block;
+  width: var(--sp-4);
+  height: var(--sp-12);
+  margin-left: var(--sp-4);
+  vertical-align: text-bottom;
+  background: var(--sub);
+  animation: mm-blink var(--dur-800) steps(2, start) infinite;
+}
+.mm-stream-say:not(.wait)::after {
+  content: "";
+  display: inline-block;
+  width: var(--sp-2);
+  height: var(--fs-11);
+  margin-left: var(--sp-4);
+  vertical-align: text-bottom;
+  background: var(--txt);
+  animation: mm-blink var(--dur-280) steps(2, start) infinite;
+}
+@keyframes mm-blink { to { opacity: 0; } }
+.mm-stream-meta { font-size: var(--fs-11); color: var(--sub); }
+.mm-stream-raw {
+  max-height: calc(var(--sp-64) * 2);
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-11);
+  line-height: 1.5;
+  color: var(--sub);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+.mm-row { display: flex; align-items: center; gap: var(--sp-8); }
+.mm-row > label { flex: none; width: 76px; font-size: var(--fs-12); color: var(--sub); }
+.mm-row > .ui-inp { flex: 1; min-width: 0; }
+.mm-num3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--sp-4); }
+.mm-num3 input { width: 100%; }
+.mm-prompt { min-height: 96px; resize: vertical; font-size: var(--fs-13); line-height: 1.55; }
+.mm-say {
+  padding: var(--sp-8);
+  border-radius: var(--radius-6);
+  background: var(--panel2);
+  font-size: var(--fs-12);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.mm-say.err { background: var(--err-tint); color: var(--err); }
+.mm-say.ok { background: var(--ok-tint); }
+.mm-tree { display: flex; flex-direction: column; gap: var(--sp-2); }
+.mm-tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--radius-4);
+  font-size: var(--fs-12);
+  color: var(--txt);
+  cursor: pointer;
+  text-align: left;
+  border: 0;
+  background: transparent;
+}
+.mm-tree-row:hover { background: var(--acc-tint-10); }
+.mm-tree-row.on { background: var(--sel-bg); color: var(--acc); }
+.mm-tree-row .ic { color: var(--sub); }
+.mm-tree-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-tree-row .mini { font-size: var(--fs-11); color: var(--sub); }
+.mm-tree-anim { flex: none; display: inline-flex; align-items: center; color: var(--acc); }
+/* 隐藏的实体留在树里但压暗；锁定的那行在名字前不再有手柄，靠锁钮的高亮认出来 */
+.mm-tree-row.off .nm,
+.mm-tree-row.off .ic,
+.mm-tree-row.off .mini { opacity: 0.48; }
+.mm-tree-mini {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--sz-ctl-sm);
+  height: var(--sz-ctl-sm);
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-4);
+  background: transparent;
+  color: var(--sub);
+  cursor: pointer;
+  opacity: 0.55;
+}
+.mm-tree-mini:hover { background: var(--acc-tint-10); opacity: 1; }
+.mm-tree-mini.on { opacity: 1; color: var(--acc); }
+.mm-empty { color: var(--sub); font-size: var(--fs-12); line-height: 1.7; }
+
+/* 窄窗：两栏都收窄，侧栏压到视口下方会变成纵向堆叠（1100 是全站登记过的断点） */
+@media (max-width: 1100px) {
+  .model-page { --mmrail-w: 200px; --mmside-w: 248px; --mmdock-h: 128px; }
+  .model-page .phead { --shell-px: var(--sp-16); padding-left: var(--shell-px); padding-right: var(--shell-px); }
+  .mm-layout { padding: 0 var(--sp-16) var(--sp-8); gap: var(--sp-8); }
+}

@@ -3,6 +3,114 @@
 版本号以 `package.json` 的 `version` 为唯一真相；本文件按批次记「改了什么 / 影响什么 / 要不要重打基线」。
 提交历史里的 C / S / F / B / G 是批次代号，不是版本号。
 
+## 0.3.0 — 2026-11-08
+
+建模台 P7：把驱动层从「程序化关节角」扩成**标准骨骼通道**——人台关节由 `Group` 换成 `Bone`（结构级骨骼化，仍刚性绑定、不做蒙皮），导入的 FBX / GLB 保留自带 `animations` 并用 `AnimationMixer` 播出，任意节点获得**子关节轨道**，AI 提示词能写 `动画=` / `关节=` 并在生成时注入「库里有动画的摆件清单」。
+
+- **人台骨骼化，视觉零变化**：`scene.js` 的 `makeJoint` 由 `new THREE.Group()` 换成 `new THREE.Bone()`，肢体网格仍是关节的硬绑定子节点（权重恒 1，没有 `Skeleton`、没有蒙皮）。`Bone` 与 `Group` 都是不渲染的 `Object3D`，渲染器只投影 `isMesh/isLine/isPoints/isSprite`，人台渲染路径里没有一处读 `.isBone`——所以这一换逐像素不变。关节自己记住 `baseRot`（基座角度）/ `baseAt`（基座位移）/ `limitDeg`（限位），子关节轨道与姿势写回都从这三个值起步。
+- **写回只有一处**：新增 `web/model3d/rig.js`，角度（度）→ 关节四元数的换算只在 `quatOfDegrees` 一处；`applyPose` 每次先把每个关节复位到 base 再叠加这一轮的角度 / 位移并按限位夹取，子关节轨道不会把上一帧的增量攒起来。`jointsOf(content,id)` 返回的 Map 同时认路径（`torso/leftShoulder`）与关节名（`leftShoulder`），`registerJoint` 把两种键落到同一个 Bone。姿势 / 步态算法一行没改（正弦相位那套保留，比 clip 更省内存且参数可调），`mannequin.js` 只算角度。
+- **导入件 clip 播放**：`loader.parseBytes` 保留 `gltf.animations` / `fbx.animations`（OBJ 恒空），缓存从 `Object3D` 改成 `{ proto, clips, bones, note }`；克隆一律走 `SkeletonUtils.clone`（普通 `clone(true)` 会共享同一个 `Skeleton`，两个实例互相覆盖骨骼矩阵）。新增 `web/model3d/clip.js`：`clipOf` / `clipNamesOf` / `loopOf` / `compileGait` / `mixerFor` / `bindClip` / `applyClip`。**只 `mixer.setTime(at)`、不 `mixer.update(dt)`**——按 dt 累加会与墙钟漂移；`local=(max(0,t)+offset)*speed`，循环取 `local % dur`，`once` / `hold` 夹到 `min(dur, local)`，播完按 `local >= dur` 判（不靠 `finished` 事件，出片不跑事件循环）。`setTime` 之后必须 `group.updateMatrixWorld(true)`，否则画出来的是上一帧的骨骼。
+- **唯一时间源**：白膜时间轴（`doc.anim.duration` / `fps`）是唯一时间源，人台关节表与导入 clip 共用同一条 `playT`、同一个播放循环（`view.js` 的 `tick`）。`applyTime` 顺序：节点位姿 → 子关节（`rig.applyJoints`）→ 导入 clip（`mixer.setTime`），最后刷世界矩阵。`rebuild` 后重绑 mixer 并复位到 `playT`（不重绑每帧跳回绑定姿势）；`grab()` 出图 / 出片渲前同步 `setTime`，每一帧都是「这一刻」。
+- **子关节轨道**：`anim.tracks[]` 新增可选 `joint` 字段（子节点路径，如 `torso/leftShoulder`，最多 6 段）；空 = 驱动整个节点（现状），写路径时只转那一个关节，`motion` / `path` 对它无效。`jointPathOf` 下钻上限 6 层、防环，找不到就 `dropped.anim += 1` 跳过。一个 track 一个 joint（不做多关节批量），轨道总数上限 60 不变。
+- **数据契约（全部可选，向后兼容）**：asset 节点新增 `clip`（string≤40，空 = 停在绑定姿势）/ `clipSpeed`（0.1–4，默认 1）/ `clipLoop`（`loop` / `once` / `hold`，默认 loop）/ `clipOffset`（0–60 秒，默认 0，让同一模型的两份错开演）；`normalizeDoc` 缺省 `''/1/'loop'/0`，**不动文件版本号**，旧 `.json` 直接打开就是静态摆件，行为与改前完全一致。
+- **上限闸**：同时播 clip 的导入件上限 **16**（`LIMITS.riggedAssets`），第 17 个降级为静态并记一笔「带骨骼的摆件超过 16 个，后面这些只按静态显示」落到状态行；`SkeletonUtils.clone` 成本跟骨骼数线性相关，超限不硬撑。`disposeContent` 只 dispose mixer 与自建几何，不碰共享 `Skeleton` / 骨骼几何（随手 dispose 第二次重建就黑屏）。
+- **界面**：摆件卡给 clip 下拉（文件自带 clip 名 + 「无」）/ 速度数字 / 循环三选 / 偏移数字；文件没动画时显示一行灰字「这个文件里没有动画」而不是把下拉藏起来（藏起来用户会以为坏了）。时间线给 clip 轨道画一条色带（宽度 = clip 时长 / 时间轴时长，循环满带、once 按播完点截断）；对象树带动画的摆件加一枚小喇叭图标（`clip` 非空才显示）；`once` 播完状态行写「「…」的动画已播完（N 秒）」，不弹窗。
+- **AI 契约**：`TextAI.DEF.model3d` 加 `动画=` / `速度=` / `循环=` / `偏移=` / `关节=` 语法段 + 约束（`clip` 只填清单里列出的名、`joint` 只填人台真有的关节路径，清单里没有的不要编）；`skills/model3d/SKILL.md` 同步，逐字节一致（`smoke.cjs` 守）。生成前把「库里有动画的摆件」拼进提示词（按文件名 + clip 名，**≤20 条、单条 ≤60 字符**，只从这次会话已解析过的文件来、不在生成前扫盘），清单为空时整段不出现（不占 token）。
+- **判据**：新增 `tests/model3d-rig.mjs`（关节表双键 / 角度→四元数 / 限位夹取 / 子关节叠加）与 `tests/model3d-clip.mjs`（clip 清单 / 步态编译 / mixer setTime 采样后骨骼矩阵变化 / `SkeletonUtils.clone` 后两实例骨骼互不影响），登记进 `tests/all.cjs`；`model3d-schema` / `model3d-anim` / `model3d-dsl` 补 clip 四字段与 joint 通道用例。
+- **vendor 前置说明**：`tools/vendor-three.cjs` 给 `SkeletonUtils.js` 补一行「已收」注释（0.187 的 GLTFLoader 本就要它，`loader.js` 直接 import 做蒙皮原型克隆）——它是 P7 的前置，不是新增依赖；首屏一个字节都不加（文件都已在 vendor 里，只在 heavy 页按需加载）。
+
+**明确不做（写明理由，避免以后被接回来）**：
+
+- **真 `SkinnedMesh` 蒙皮 / 自动权重**：白膜是 720p 灰阶参考图，胶囊关节处的刚性断裂在这个尺度上几乎不可见；代价却是「直接改数字」这条核心竞争力崩掉（改身高 / 肩宽要把尺寸烘焙进网格并重算权重，秒级重建从毫秒变「重新生成网格」），且 AI 写不出顶点权重。留到白膜升级成彩色 / 写实渲染那一期再说。
+- **骨骼编辑 UI**（增删骨 / 改层级 / 改 bind pose）：那是 DCC 的活，建模台定位是「排布 + 走位」，不是绑骨工具。
+- **clip 重定向**：不同骨架共用一套 clip 需要标准骨架（如 Mixamo 命名），本期只播原文件自带的 clip。
+- **IK / 物理 / 布料**：超出白膜参考的范围。
+- **服务端转码**：出片仍是浏览器内 mediabunny 直出。
+
+影响：新增四个可选字段与一个可选 `joint`，不动文件版本号、不需要重打数据基线（旧 `.json` 缺省即静态摆件）；`AGENTS.md`「不支持骨骼」改口径为「参数化骨架 + 导入 clip 播放」、公共层清单加 `rig.js` / `clip.js`，`README` 目录树补两个新文件。
+
+浏览器实测（headless Chrome + SwiftShader，隔离探针实例；临时把 `scene.js` 的 `Bone` 换回 `Group` 跑对比，跑完按原字节还原、sha 复核一致）：
+
+- **人台视觉零变化（硬标准）**：Bone 基线五帧前景像素 64032 / 62443 / 76726 / 89307 / 85628（人台真的画出来了），Bone↔Group 五帧（0 / 0.7 / 1.4 / 2.1 / 2.8 秒）逐像素最大通道差 **0**（阈值 ≤1）。
+- **导入件播放**：UI 导入带两条 clip（swing / turn）的 `.glb` → 下拉列出 `["","swing","turn"]`、色带 100% → 选 swing 拖动差异 2.41% / 播放差异 1.80%（骨骼真的动）。
+- **两份互不串**：同一文件两份、只换右边那份的 clip → 左半差异 0.000% / 右半差异 4.512%（`SkeletonUtils.clone` 隔离）。
+- **倍速**：0.5 / 1 / 2 三档色带均 100%、相邻帧差异 1.08% / 1.59%、质心 x 625 / 613 / 599（同一时刻速度越大越接近末帧）。
+- **once 停末帧**：clip 2 秒 / 时间轴 4 秒 → 色带 50%，拖到 t=3 状态行「「a4」的动画已播完（2.0 秒）」，末帧之后（t=3↔t=4）差异 0.000%。
+- **子关节轨道**：给 `torso/leftShoulder` 打两帧 → 整体差异 1.42% / 下半屏（腿）差异 0.000%（只有那条胳膊动）。
+- **出图 / 出片是「这一刻」**：静帧 t0↔t1.5 差异 2.57%；3 秒 MP4 视频帧 0.05↔1.5 差异 2.55%，视频 @1.5 与静帧 @1.5 IoU **0.993**（不是绑定姿势）。
+- **老文件 / 超限**：老 `.json` 打开动画徽标 0 / clip 行数 0 / 播放 700ms 差异 0.000%（静态如常）；塞 17 个带骨骼摆件 → 第 17 个降级静态、状态行「带骨骼的摆件超过 16 个，后面这些只按静态显示」。
+
+## 0.2.5 — 2026-11-08
+
+相机标识加开关。
+
+- **工具条多一颗「相机标识」toggle**（摄像机图标，在描边右边）：关掉就整个视锥不画，`aria-pressed` 跟着变，状态行回一句「相机标识：显示 / 隐藏」。
+- **它是编辑辅助，所以不进模型文件**：开关存在页面偏好（`localStorage: sk_model_rig`），导出的 `.json` 里没有这个字段，别人打开你的模型不会被你的显示习惯影响。这一点与「网格 / 地面 / 描边」不同——那三个是构图的一部分，`doc.scene.view` 里本来就有。
+- **可见性 = 开关 && 导演视角**：`view.js` 新增 `syncRig()`，`setDoc` / `setViewMode` 都走它；机位视角下即便开关是开的也不画（那套线正好糊在画面中央），出图 / 出片仍由 `grab()` 强制摘掉。
+- 浏览器实测：导演视角 152 个「紫蓝线」采样点 → 关掉 0（`aria-pressed=false`、`localStorage=0`）→ 刷新页面仍是关（记住）→ 再开回 152 → 切机位视角 0。
+
+## 0.2.4 — 2026-11-08
+
+建模台：导演视角里画出了**机位相机**（视锥标识）。
+
+- **能看见了**：`scene.js` 的 `createStage` 现在一并建出机位相机 `camC` 与视锥标识 `rig`（`THREE.CameraHelper`）。以前 `camC` 只当渲染相机用、从没进场景，所以「机位在哪、朝哪、画幅多大」只能切到机位视角凭感觉，或读面板里那六个数字。
+- **锥体用影子相机画**：`rigCam` 与真机位同步位置/朝向/fov/画幅，但近远平面压到 **0.3 / 2.2 米**。按真机位那台（0.1~100）画会拉出一百米长的线；5 米也横穿主体。`updateCameraRig(stage, cam, aspect)` 是唯一同步入口，`applyCamera`（改机位）、`setAspect`（换画幅）都走它。
+- **配色**：`CameraHelper` 默认是橙/红/蓝的霓虹线，白膜里统一改成调色板的 `SELECT` 强调色、不透明度 0.55 —— 看得见但不抢戏。
+- **三条隐藏规则**：机位视角里不画（`setViewMode` 与 `setDoc` 都按 `mode` 设 `rig.visible`）；**出图 / 出片时临时摘掉**（`grab()` 里连选中框一起隐藏，渲完还原，否则交付物里会多一个线框）；卸载时释放 helper 的几何与材质。
+- 浏览器实测：导演视角画布里「紫蓝线」采样 131 点 → 切机位视角 0 → 切回 131；出图 PNG 里 0（交付物干净）。
+
+影响：不动数据形状、不动契约、不需要重打基线；`scene.js` 的 `createStage` 返回值多了 `camC / rig / rigCam / rigHelper` 四个字段（只有 `view.js` 用）。
+
+## 0.2.3 — 2026-11-08
+
+建模台：工具条补齐取景与地面开关；「角色」这个概念换成**实体**，任意实体都能隐藏 / 锁定。
+
+- **工具条**：在「网格 / 描边」旁补了**地面**开关（`view.ground`，以前只能在 `doc` 里写），并新增**取景**三档 —— 近景（对上半身，不切头）/ 中景（整体装进画面）/ 全景（再退一档）。实现是 `view.js` 新增的 `frameTo(kind)`：与 `fit()` 同一套包围盒，只是「看哪里」与「退多远」不同，按一颗键就在三种常用景别之间跳，不用自己拖到合适为止。
+- **实体化**：右栏「对象树」改叫**实体**，每行给中文类别徽标（组 / 图元 / 人台 / 群像 / 摆件 / 引用）——人台不再被当成特殊品类叫「角色」，一切进场景的东西都是实体。
+- **隐藏 / 锁定对任意实体一视同仁**：树里每行两枚小按钮（眼睛 / 锁），属性面板顶部也有「显示」「锁定」两个开关。
+  · **隐藏**只影响渲染（`scene.js` 早就认 `visible === false`，只是一直没有入口），实体还留在树里、面板里改回来即可；
+  · **锁定**只影响交互：视口拾取跳过它（`view.js` 的 raycast 按 `findNode` 查锁）、选中时不挂变换手柄、数值框只读；
+  · 隐藏的行在树里压暗、锁定的行锁钮高亮，不用点开面板就知道状态。
+- **命名不再打架**：工具条那三档是「取景」（改导演相机），属性面板里那组是「机位预设」（改 `doc.scene.camera`，机位视角用的那台）——原来两边都叫「近景/中景/全景」，现在工具条带「取景」小标签、面板改叫「机位预设」。
+- **判据**：`tests/model3d-scene.mjs` 加一组（43 → 48 项）：隐藏的实体建出来不可见但仍留在场景树里、`locked` 原样保留且不影响外观。顺带把 `view.frame` 改名 `frameTo`（与 `server/app.js` 的 `frame` 撞名，dup-guard 抓到了）。
+
+影响：不改任何数据形状（`visible` / `locked` 本来就在 schema 里，缺的只是入口），不需要重打基线。浏览器实测：隐藏「立柱」后画布非背景像素 253 → 190、行变暗、眼睛变闭眼；锁定「主角」后点选到它、`at.0` 输入框 `disabled`；取景近景/全景的非背景像素 561 / 136（同一画面）。
+
+## 0.2.2 — 2026-11-08
+
+建模台生成时**看得见 AI 正在写什么**。
+
+- **流式回显**：`web/model3d/ai.js` 的流式回调多交一份原文（`onText(buf, nodeCount)`，每个 chunk 一次），右栏 AI 面板里因此多了一块：AI 说的那一句（`say`，逐字长出来、带闪块光标）+ 一行进度（`已收 N 个零件 · x KB`）+ 原文尾巴（等宽、低对比、只留最后 480 字并自动滚到底 —— 看的是「在动」，不是读 JSON）。收完把这句话留在面板上作「上一轮：…」。
+- **只刷新这一块**：`paintStream()` 只改那三行字，且 60ms 合一次 —— 整块 `paintSide()` 重画会把输入框重建掉，用户正补一句话时焦点会跳走。切页 / 卸载时把定时器停掉。
+- **顺带修掉两处旧账**：`st.aiText` 原来是个从没被赋值的死字段（面板里那段 `st.aiText ? …` 永远不生效），现在收的是上一轮的 `say`；`onSay` 原先写 `st.note` 并整块重画右栏，改成只更流式块，底部状态行改由 `note('正在生成…')` / 收尾时的 `note('建了 N 个零件')` 负责。
+
+影响：不动数据形状、不动契约、不需要重打基线；样式全走令牌（`--panel2` / `--txt` / `--font-mono` / `--dur-800` / `--dur-280`）。浏览器实测（stub 掉 `chatStream`，10 字/45ms 推）：`say` 依次为「正在想…」→「先摆一个方台，再立一根柱」→「…柱子」，进度 0→1→2 个零件、原文长度 0→20→40→…单调增长，收尾面板留「上一轮：…」，视口里方台与立柱随节点到位出现。
+
+## 0.2.1 — 2026-11-08
+
+建模台两处「改了不生效」的修补。
+
+- **置脏必须连着一帧**：`web/model3d/view.js` 的 `markDirty()` 原来只把 `dirty` 立起来、不排 rAF，而 `setDoc / rebuild / applyCamera / setSelection / setAspect` 全都只调它 —— 于是导入摆件、换画幅、选中之后画布停在旧帧，直到用户碰一下视口才更新。表现就是「导入的 OBJ 明明画了却看不见」：`renderer.info` 的三角形数确实涨了（draw 已发），但逐像素比对整张画布零差异，因为读到的一直是重绘前的旧帧。现在 `markDirty()` 顺手 `kick()`（kick 自带「已在排 / 已卸 / 不可见」三重闸，闲时零帧的性质不变），`resize()` 里那句多余的 kick 一并去掉。
+- **出图结果区没有宿主**：`paintResult()` 找 `[data-r="mmResult"]`，模板里从来没有这一格，于是「刚出的这一份：下载 / 回传工作台 / 回传导演台」三颗按钮从未渲染过，`handBack` 也就无从点起。模板在轨道坞下面补了 `.mm-result` 宿主，空着时不占高度（`.mm-result:empty { display: none }`），出过东西才让出一条；样式只用令牌。
+
+影响：不动任何数据形状，不需要重打基线；模板改了，`npm run build` 要重跑一次（生成物已同步）。浏览器实测：导入 `.obj` 后静置 1.5 秒，墙自己出现在画布上（1901 个墙色采样点）；出图 182,949 字节落库；出片 3.00 秒 avc1 MP4（88 KB）；工作台 → 建模提示词原样带入，建模 → 回传工作台走到 `refIntoSlot`；全景图画幅内像素由天空色变橙、清空后复原。
+
+## 0.2.0 — 2026-11-08
+
+第八页「建模台」：一句话让文字 AI 直接写出一棵**参数化零件树**（不是 text-to-3D 服务），流式接收、边收边在 three 视口里长出来；模型存成库根下的真文件、按组管理；随时把当前机位渲成白膜图片或白膜动画 mp4，落进本机资产库；并能从工作台「润色」旁那颗「建模」带提示词进来、出图后回传给工作台 / 导演台当参考素材。
+
+- **three 落地走脚本、不走手抄**：`tools/vendor-three.cjs`（幂等，`--force` 重取）从 5 个入口（`OrbitControls` / `TransformControls` / `GLTFLoader` / `OBJLoader` / `FBXLoader`）递归解析 import 链，把 `from 'three'` 改写成 `./three.module.js`、其余相对路径压平，连同 `build/{three.module.js,three.core.js}` 落到 `web/vendor/three/`（12 个文件 · 2.6 MB）；MIT 许可随包为 `three.LICENSE.txt`。上游加一个依赖，重跑脚本就跟着走。没有 import map（CSP 拦 inline script），所以裸说明符必须在落地时改写 —— 这是 vendor 这一步的唯一理由。
+- **首屏一个字节都不加**：three 只在建模台的 ESM 图里；路由表给这一页加了 `heavy: true`，开机那串空闲预取跳过它（把 2 MB 拖进后台预取会把「资源静默窗口」一路推后，TTI 从 2.2 秒涨到 3.65 秒 —— 实测），悬停侧栏 / 真点进来时照常提前取。`tests/perf/boot.cjs --strict` 守这条：首屏脚本 529.5KB（+16.8KB，主要是 `TextAI.DEF.model3d` 的契约正文）、TTI 2200ms 不变。
+- **模型文件是本体，不另立账**：`<库根>\白膜\<组>\<名>.json`（+ 同名 `.png` 缩略图），导入的 3D 文件在 `<库根>\白膜\_模型文件\`（下划线开头的组名保留给这一层）。`server/routes/model3d.js` 七条端点（list / file / thumb / asset 读 / asset 写 / save / delete）进 `LOCAL_ONLY`；`id` 是「组/名」，解码后必须仍在 `白膜` 根内，写盘全走 `atomicWrite`，改名 / 移组走 `renameWithRetry`（Windows 上被占用会报具体原因）。
+- **DSL 与拾取**：`kind` 六种（group / prim / mannequin / crowd / asset / ref），`prim` 十种形状（含 `loft` 放样 / `lathe` 旋转体 / `extrude` 拉伸），`mirror` 与 `repeat` 在进场景前展开；`ref` 深度上限 4、同链防环；节点 400、深 8 层、三角 6 万是硬上限。小人 8 体型 × 20 姿势 + 步态正弦，群众走 `InstancedMesh`（按灰阶合批，400 人只剩几笔绘制），拾取按 `instanceId` 反查。
+- **本地 3D 文件导入**：`.fbx` / `.obj` / `.glb` / 内嵌 `.gltf` 四种，`web/model3d/loader.js` 按扩展名分派、按文件缓存原型、高度归一成 1 米且脚底落在 y=0、文件里的灯与相机剔掉；`clay` 开关按**节点**决定（白膜化是每个摆件自己的事）。Draco / KTX2 压缩、OBJ 的 MTL 与贴图外链、`.gltf` 的外链 `.bin`、骨骼动画都不支持，界面上直接说清是哪一种（不是静默失败）。
+- **AI 契约 `model3d.json`**：正文在 `skills/model3d/SKILL.md`，与 `TextAI.DEF.model3d` 同源（`tests/e2e/smoke.cjs` 逐字节比）。输出只有一份 JSON：`{say, reuse:{id,mode,why}|null, model:{scene,anim}}`；`reuse.mode = as-is` 直接加载目标模型，`base` 交出改完的整棵树（不搞 op 补丁，解析与撤销都简单）。流式按括号配平从 `"nodes":[` 里抓**已完整的节点对象**，每收全一个就重建一次场景 —— 模型是一个零件一个零件长出来的。
+- **出图 / 出片**：`web/media-export.js` 新增 `exportCanvas({canvas,width,height,fps,duration,draw,…})`，与 `exportFilm` 共用 `pickCodec` / `framePlan` / `MB.Output`，逐帧 `draw(t)` 必须同步画完（中间再 await 会出黑帧）；静帧走 `view.shot(w,h)` 的离屏 RenderTarget 读回。两条都只经 `Api.saveLocalAsset` 落库，`meta.model = '3D白膜'` 带上提示词与时长。
+- **入口与回传**：工作台「润色」右边那颗「建模」（音频栏收起）、导演台同一位置那颗、`AssetPicker` 的「3D 白膜」来源（只在收图片 / 视频时出现）。跨页只经 `web/model3d/bridge.js`（`window.Model3D`，几十行、按需 import）写一枚一次性口袋（`model3d_handoff`，10 分钟有效，不进云同步）；目标页在 `onActivated` 消费 —— 页面池常驻，第二次回来时 `setup` 不会再跑。落槽仍走唯一出口：工作台 `refIntoSlot`、导演台 `addRefImage` / `pickRefMedia(sh,'refvideo', preset)`。
+- **判据**：新增 `tests/model3d-{schema,dsl,mannequin,crowd,scene,loader,anim}.mjs` 与 `tests/model3d-vault.cjs`（隔离库根，不碰用户目录），八条都登记进 `tests/all.cjs`；`tests/metrics.cjs` 的 `EXCLUDE_DIRS` 加 `vendor`（第三方不是我们的代码，这条清单原本就是这个口径，只是以前只排了单文件）；`tests/command-palette.cjs` 的命令面板切片会一直读到 `ui.css` 末尾，新加的白膜弹窗样式因此收进独立分节并改用令牌（`--sz-mq-*`）。
+
+影响：新增库根目录 `白膜\`（跟着 `sk_local_dir` 走），不改任何既有数据形状，不需要重打 `tests/data-baseline.json`；新增路由 `/model3d*`（进 `LOCAL_ONLY`，同源 + 会话 Cookie 双闸）；`tests/metrics-baseline.json` 与 `tests/fixtures/dup-baseline.json` 按新体量重打一次（总行数 +584，`vendor` 已排除）。「首屏不带大件」与「页面级按需加载」两条没有放宽。
+
 ## 0.1.0 — 2026-11-06
 
 首次纳入语义化版本管理与自动化门禁。

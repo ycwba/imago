@@ -35,6 +35,8 @@ const { createRegistryRoutes } = require('./routes/registry.js');
 const { createPickDirRoute } = require('./routes/pick-dir.js');
 const { createCacheRoutes } = require('./routes/cache.js');
 const { createUsageRoutes } = require('./routes/usage.js');
+/* 白膜库（建模台的模型文件与导入的 3D 文件）：本体是库根下的真文件，见 routes/model3d.js 文件头 */
+const { createModel3dRoutes } = require('./routes/model3d.js');
 const { validateProviders, validateAssetStore, validateInterfaceShapes } = require('./providers/validate.js');
 const { handleStatic } = require('./routes/static.js');
 const { warmStatic } = require('./static.js');
@@ -784,7 +786,7 @@ function sameOriginOnly(req) {
    不拦的话，任意网页都能在用户机器上弹一次文件夹选择框、再把用户选中的目录读走。
    `/client-error` 在里面是「写得进本机那本账」那一类：不要同源 + 会话 Cookie 的话，
    任意网页都能往「设置 → 代理健康」里塞自己编的报错，把那八条名额刷满、把真故障挤掉。 */
-const LOCAL_ONLY = /^\/(?:data|cloud|backup|capabilities|skills|asr|models|search|prompts|local-assets|assets-usage|pick-dir|env-status|sys-status|clear-cache|client-error|fcpxml|cache|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
+const LOCAL_ONLY = /^\/(?:data|cloud|backup|capabilities|skills|asr|models|search|prompts|local-assets|model3d|assets-usage|pick-dir|env-status|sys-status|clear-cache|client-error|fcpxml|cache|s3put|getv|getfile|fetch|custom)(?:[/?]|$)/;
 /* relay 转发前缀（/sparkcine、/vgenv、/textai…）与 /asset/ 同样只服务本工作台页面。
    以前它们不在同源检查里：代理在客户端没带 Authorization 时会**自动注入 .env 里的密钥**，
    于是任意恶意网页只要 fetch('http://localhost:5175/sparkcine/...') 就能用你的密钥建任务、扣费、读余额
@@ -1002,6 +1004,9 @@ const localAssets = createLocalAssets({
    进 LOCAL_ONLY（同源 + wb_session 双闸）—— 清掉就是清缓存，读写都只服务本工作台。 */
 const cacheRoutes = createCacheRoutes({ readBody, log, dataDirPath });
 
+/* 白膜库：模型 JSON / 缩略图 / 导入的 3D 文件，落在库根下的 `白膜/`（跟着 `sk_local_dir` 走） */
+const model3dRoutes = createModel3dRoutes({ readBody, log, localRoot });
+
 /* ============================================================================
    分发表（`handleRequest` 的 if 链 → `[match, handler]` 表）
    ----------------------------------------------------------------------------
@@ -1080,6 +1085,7 @@ const ROUTE_TABLE = [
      并且受 288MB 请求体上限约束。这里由代理流式落盘，浏览器只拿到资产号。 */
   { name: 'local-assets', match: ANY, stop: 'ifNotFalse', run: a => localAssets.handleLocalAssets(a.req, a.res, a.urlObj) },
   { name: 'cache', match: ANY, stop: 'ifNotFalse', run: a => cacheRoutes.handleCache(a.req, a.res, a.urlObj) },
+  { name: 'model3d', match: ANY, stop: 'ifNotFalse', run: a => model3dRoutes.handleModel3d(a.req, a.res, a.urlObj) },
   { name: 'relay', match: ANY, stop: 'ifNotFalse', run: a => relayRoutes.handleRelay(a.req, a.res) },
   { name: 'outbound', match: ANY, stop: 'ifNotFalse', run: a => outboundRoutes.handleOutbound(a.req, a.res) },
   /* 兜底：静态文件。三个工作台合并成 studio.html 之后，旧路径（/video.html、老书签、

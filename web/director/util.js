@@ -1,24 +1,7 @@
-/* 导演台纯工具：宽松 JSON 解析与秒数取整（不依赖 DOM / 工程状态）。 */
-
-/* 宽松 JSON 解析：兼容 ```json 围栏、前后废话、单引号 */
-export function parseJsonLoose(txt) {
-  if (!txt) return null;
-  let raw = String(txt).trim();
-  const fence = /```(?:json)?\s*([\s\S]*?)```/i.exec(raw);
-  if (fence) raw = fence[1].trim();
-  const tryParse = s => { try { return JSON.parse(s); } catch { return null; } };
-  let v = tryParse(raw);
-  if (v) return v;
-  // 夹杂说明文字时：取「跨度最长」的候选（对象里的空数组不能当结果）
-  const cands = [];
-  for (const re of [/\[[\s\S]*\]/, /\{[\s\S]*\}/]) {
-    const m = re.exec(raw);
-    if (m) cands.push(m[0]);
-  }
-  cands.sort((a, b) => b.length - a.length);
-  for (const c of cands) { v = tryParse(c); if (v) return v; }
-  return null;
-}
+/* 导演台纯工具：秒数取整与上下文裁剪（不依赖 DOM / 工程状态）。
+   宽松 JSON 解析搬去 `web/domain/json-loose.js`（建模台与导演台共用同一份），
+   这里只把它再导出一次 —— 导演台的调用点与判据一行都不用改。 */
+export { parseJsonLoose } from '../domain/json-loose.js';
 
 export const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
 export const round1 = v => Math.round((Number(v) || 0) * 10) / 10;

@@ -1755,6 +1755,8 @@ function renderEditor() {
         <!-- 与三个工作台同一颗按钮：名字、外观与忙时那一句话都取自公共层 InlinePolish.btnHTML，
              这里只说清「改的是这一镜的提示词」。 -->
         ${InlinePolish.btnHTML({ id: 'polishBtn', scope: '这一镜的提示词' })}
+        <!-- 建模台入口：把这一镜的提示词带过去生成白膜，回来再挂成参考图 / 参考视频 -->
+        <button class="ghost" type="button" id="toModelBtn" title="把这一镜的提示词带到建模台，生成白膜参考素材">${icon('model', 13)} 建模</button>
       </div>
       <div id="polishInline" hidden></div>
       ${/* 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
@@ -2077,6 +2079,13 @@ function renderEditor() {
   };
   if (durNumEl) durNumEl.onchange = () => { durNumEl.value = sh.duration; renderMid(); };
   $('polishBtn').onclick = polishPrompt;
+  /* 带这一镜的提示词去建模台（写一枚一次性口袋 + 跳页；回来的路是引擎启动时消费同一枚口袋） */
+  if ($('toModelBtn')) $('toModelBtn').onclick = () => {
+    const sh = curShot();
+    if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
+    window.Model3D.handoffTo('model', { prompt: (sh && sh.prompt) || '', from: 'director', shot: sh ? sh.id : '' });
+    window.GoPage.go('model.html');
+  };
   /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。
      跑着的时候它整颗是禁的（busyOn 画进 disabled），所以这里不必再判一次 kfRun。 */
   $('kfGenBtn').onclick = () => { setKfSplitOpen(!kfSplitOpenOf()); renderEditor(); };

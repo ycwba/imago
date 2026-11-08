@@ -1,6 +1,6 @@
 # 成像 · AI 创作工作台
 
-本地优先的 AI 创作工作台：七个页面（路由表 `web/core/routes.js` 共 7 条：导演台 / 素材库 /
+本地优先的 AI 创作工作台：八个页面（路由表 `web/core/routes.js` 共 8 条：导演台 / 建模台 / 素材库 /
 工作台 / 收藏 / 资产库 / 用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node
 代理转发与落盘。产品版本见 `package.json` 与 `CHANGELOG.md`。
 
@@ -49,6 +49,7 @@ npm install
 | 页面 | 作用 |
 | --- | --- |
 | 导演台 | 分镜、候选生成、时间线剪辑、配音、成片导出、FCPXML（单文件 / 媒体包 / 工程目录）、项目文件导出 / 导入（完整工程） |
+| 建模台 | 一句话让文字 AI 写出参数化白模（小人 / 图元 / 群众 / 导入的 3D 文件），流式实时预览；导入件自带动画时可选 clip 并调速度 / 循环 / 偏移；模型按组存在库根 `白膜\`；出白膜图 / 动画 mp4 进资产库，可回传工作台与导演台当参考 |
 | 工作台 | 视频 / 图像 / 语音三合一，按 `?t=video|image|audio` 切栏 |
 | 素材库 | 角色 / 场景 / 道具，体检、批量、身份锚点、使用关系、语义检索 |
 | 资产库 | 本机 / 云端产物、筛选、分页、批量下载与存回本机 |
@@ -99,7 +100,7 @@ proxy.js                      薄入口（require server/app.js）
 server/
   app.js                      组合根：配置、依赖装配、路由分发
   registry-config.js          供应商注册表（新平台只改这里）
-  routes/                     每组本机路由一个模块
+  routes/                     每组本机路由一个模块（含 model3d：白膜库的 list / file / thumb / asset / save / delete）
   local-root.js               本机资产库根的唯一算法（ASSETS_DIR > 设置页那一格 > 下载\成像）
   local-assets-store.js       资产本体落点、双身份（fid + 采样签名）、磁盘对账
   index-store.js              资产索引（快照 + 追加日志 + 串行写队列），账在 .data\local-assets\
@@ -112,7 +113,8 @@ shell.html                    SPA 外壳
 web/
   app.js                      路由 + KeepAlive 页面池
   core/                       路由表、页面桥、页面上下文、动作注册表
-  pages/                      六个 Vue 页面组件（导演台在 director/index.js，合计 7 个页面）
+  pages/                      七个 Vue 页面组件（导演台在 director/index.js，合计 8 个页面）
+  model3d/                    建模台的三维内核：schema / mannequin（小人）/ rig.js（关节写回 · 子关节轨道）/ crowd / scene / loader + clip.js（导入件与动画播放）/ anim / view / vault / ai / capture
   director/                   导演台作用域岛 + 引擎 + 纯算法模块
   render/                     预编译 render 函数（生成物）
   ui/ net / store / kv / toast / datasync / skills / workbench / sidebar
@@ -120,8 +122,10 @@ web/
   features/chat.js            AI 助手外壳（悬浮球 / 抽屉 / 会话 / 引用队列）
   features/chat-tools.js      助手工具循环与动作目录
   styles/                     设计令牌与页面样式
+  vendor/                     vendored 第三方（运行时零构建的唯一例外）：three / mediabunny / asr
 tools/
   precompile-vue.cjs          模板 → render 函数
+  vendor-three.cjs            从 npm 包取出 three、改写裸说明符、落到 web/vendor/three/（幂等）
   vue-templates/              模板源（开发期）
   migrate-skills.cjs          一次性：用户 Skill 目录换根
 skills/<id>/SKILL.md          内置 Skill

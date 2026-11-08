@@ -676,6 +676,8 @@ window.ICONS = {
   video: '<rect x="3" y="5" width="12" height="14" rx="2"/><path d="m15 10 6-4v12l-6-4"/>',
   mic: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>',
   box: '<path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/>',
+  /* 建模台：线框立方体 + 顶点（与 asset 的实心盒子区分开） */
+  model: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5zM4 7.5 12 12l8-4.5M12 12v9"/><circle cx="4" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="20" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="3" r="1.2" fill="currentColor" stroke="none"/>',
   chart: '<path d="M3 3v18h18M8 16v-5M13 16V6M18 16v-8"/>',
   gear: '<path d="m10 3-.6 2.4-2.1 1.2L5 6l-2 3.5 1.7 1.8v2.4L3 15.5 5 19l2.3-.6 2.1 1.2L10 22h4l.6-2.4 2.1-1.2 2.3.6 2-3.5-1.7-1.8v-2.4L21 9.5 19 6l-2.3.6-2.1-1.2L14 3z"/><circle cx="12" cy="12.5" r="3"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/>',

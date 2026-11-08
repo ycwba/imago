@@ -246,6 +246,20 @@ run('tests/local-byte-reclaim.cjs', process.execPath, ['tests/local-byte-reclaim
 run('tests/read-cache.cjs', process.execPath, ['tests/read-cache.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
+/* 建模台：模型文件归一化兜底 / 流式节点抓取与坏节点计数 / 小人 20 姿势落地与步态 /
+   群众阵列与合批 / 图元与引用展开 / 3D 文件导入与归一 / 动画采样 /
+   关节写回（路径与短名两套键、限位夹取、子关节叠加）/ 导入件 clip 播放（只按绝对时间、蒙皮克隆互不串骨）/
+   白膜库服务端路由（隔离库根，不碰用户目录）。 */
+run('tests/model3d-schema.mjs', process.execPath, ['tests/model3d-schema.mjs']);
+run('tests/model3d-dsl.mjs', process.execPath, ['tests/model3d-dsl.mjs']);
+run('tests/model3d-mannequin.mjs', process.execPath, ['tests/model3d-mannequin.mjs']);
+run('tests/model3d-crowd.mjs', process.execPath, ['tests/model3d-crowd.mjs']);
+run('tests/model3d-scene.mjs', process.execPath, ['tests/model3d-scene.mjs']);
+run('tests/model3d-loader.mjs', process.execPath, ['tests/model3d-loader.mjs']);
+run('tests/model3d-anim.mjs', process.execPath, ['tests/model3d-anim.mjs']);
+run('tests/model3d-rig.mjs', process.execPath, ['tests/model3d-rig.mjs']);
+run('tests/model3d-clip.mjs', process.execPath, ['tests/model3d-clip.mjs']);
+run('tests/model3d-vault.cjs', process.execPath, ['tests/model3d-vault.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);
 run('tests/local-edit.cjs', process.execPath, ['tests/local-edit.cjs']);
 run('tests/fcpxml-client.mjs', process.execPath, ['tests/fcpxml-client.mjs']);

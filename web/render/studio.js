@@ -51,6 +51,20 @@ _createElementVNode("span", {
 class: "btn-host",
 "data-r": "polishHost"
 }),
+_createCommentVNode(" 建模台入口：把这一栏的提示词带过去建模（图像 / 视频栏才有；音频栏由 paintLeft 收起）。\n                     与「润色」同一排、同一个尺寸档（一行混排统一 --sz-ctl）。 "),
+_createElementVNode("button", {
+class: "ghost",
+type: "button",
+"data-r": "toModelBtn",
+title: "把这段提示词带到建模台，生成白膜参考图 / 参考视频"
+}, [
+_createElementVNode("span", {
+class: "ic",
+"data-icon": "model",
+"data-size": "13"
+}),
+_createElementVNode("span", { class: "tx" }, "建模")
+]),
 _createElementVNode("span", {
 class: "btn-host",
 "data-r": "splitHost"

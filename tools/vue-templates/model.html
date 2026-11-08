@@ -1,0 +1,59 @@
+
+    <!-- 建模台：整页不滚（页头 + 三栏），与导演台同一副外壳契约。
+         三栏里的内容几乎全是命令式渲染（库卡片、视口、对象树、时间线），
+         模板只留宿主与页头那几格文字 —— 与工作台/素材库同一种做法：
+         动态区域由脚本灌 innerHTML，Vue 不接管它们的子节点。 -->
+    <div class="page-main model-page" ref="pageEl">
+      <header class="phead">
+        <div class="phead-id">
+          <h1 class="phead-h1">建模台</h1>
+        </div>
+        <div class="phead-meta">
+          <span class="phead-chip" data-r="mmName">未命名白膜</span>
+          <span class="phead-chip" data-r="mmDirty">新建</span>
+        </div>
+        <span class="phead-sub" data-r="mmSub">一句话生成白膜，调好机位再出图或出片</span>
+        <div class="phead-acts">
+          <button class="ghost" type="button" data-r="mmSave"><span data-icon="download" data-size="13"></span> 保存</button>
+          <button class="ghost" type="button" data-r="mmSaveAs"><span data-icon="box" data-size="13"></span> 另存为</button>
+          <button class="ghost" type="button" data-r="mmExportJson" title="导出成一份能带走、能再导回来的 .json"><span data-icon="upload" data-size="13"></span> 导出</button>
+        </div>
+      </header>
+
+      <div class="mm-layout">
+        <!-- 左栏：白膜库（分组 / 卡片 / 底部动作）。栏宽可拖，拖动条由 Wb.split 提供。 -->
+        <aside class="mm-rail" data-r="mmRail">
+          <div class="mm-rail-head">
+            <input class="search" data-r="mmSearch" type="search" placeholder="搜模型名 / 组…" aria-label="搜模型">
+          </div>
+          <div class="mm-groups" data-r="mmGroups" role="group" aria-label="按组筛选"></div>
+          <div class="mm-cards" data-r="mmCards"></div>
+          <div class="mm-rail-foot">
+            <button class="ghost mini" type="button" data-r="mmNew"><span data-icon="sparkles" data-size="12"></span> 新建</button>
+            <button class="ghost mini" type="button" data-r="mmImport3d"><span data-icon="box" data-size="12"></span> 3D 文件</button>
+            <button class="ghost mini" type="button" data-r="mmImportJson"><span data-icon="upload" data-size="12"></span> 导入</button>
+            <button class="ghost mini" type="button" data-r="mmRename"><span data-icon="list" data-size="12"></span> 改名</button>
+            <button class="ghost mini" type="button" data-r="mmMove"><span data-icon="grid" data-size="12"></span> 移组</button>
+            <button class="ghost mini danger" type="button" data-r="mmDelete"><span data-icon="trash" data-size="12"></span> 删除</button>
+          </div>
+          <input type="file" data-r="mmFileJson" accept=".json,application/json" hidden>
+          <input type="file" data-r="mmFile3d" accept=".fbx,.obj,.glb,.gltf" hidden>
+        </aside>
+
+        <!-- 中栏：工具条 + 视口 + 底部轨道坞 -->
+        <section class="mm-stage">
+          <div class="mm-tools" data-r="mmTools" role="toolbar" aria-label="视口工具"></div>
+          <div class="mm-viewport" data-r="mmViewport" tabindex="0" aria-label="三维视口"></div>
+          <div class="mm-dock" data-r="mmDock"></div>
+          <!-- 出图 / 出片之后那一条（刚出的这一份：下载 · 回传工作台 · 回传导演台）。
+               空的时候不占位，见 spa-model.css 的 `.mm-result:empty`。 -->
+          <div class="mm-result" data-r="mmResult"></div>
+        </section>
+
+        <!-- 右栏：AI / 场景 两档 -->
+        <aside class="mm-side">
+          <div class="mm-side-tabs" data-r="mmSideTabs" role="tablist" aria-label="右栏"></div>
+          <div class="mm-side-body" data-r="mmSideBody"></div>
+        </aside>
+      </div>
+    </div>

@@ -1591,6 +1591,41 @@ button.phead-chip:hover b { color: var(--acc); }
   border-left: var(--sp-4) solid transparent; border-right: var(--sp-4) solid transparent;
   border-bottom: var(--sp-4) solid var(--acc); }
 
+/* ---------- 「3D 白膜」快速弹窗（素材选择器 / 工作台共用；样式必须在公共层：
+   这几页各自的私有样式表在别的页面上不加载，弹窗就会变成一堆没有排版的文字） ---------- */
+dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
+.mq-body { display: grid; grid-template-columns: var(--sz-mq-rail) minmax(0, 1fr); gap: var(--sp-12); }
+.mq-rail { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.mq-rail .search { width: 100%; }
+.mq-list { flex: 1; min-height: var(--sz-mq-list-min); max-height: var(--sz-mq-list-max); overflow: auto;
+  display: flex; flex-direction: column; gap: var(--sp-4); }
+.mq-item {
+  display: flex; align-items: center; gap: var(--sp-8);
+  padding: var(--sp-4); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  background: var(--panel2); color: var(--txt); cursor: pointer; text-align: left; font-size: var(--fs-12);
+}
+.mq-item:hover { background: var(--acc-tint-10); }
+.mq-item.on { border-color: var(--acc); background: var(--sel-bg); }
+.mq-item img, .mq-item .ph {
+  width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-4);
+  background: var(--media-bg); object-fit: cover; display: block;
+}
+.mq-item .ph { display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.mq-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mq-stage { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.mq-view { height: var(--sz-mq-view); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
+  background: var(--media-bg); overflow: hidden; }
+.mq-view .mm-canvas { width: 100%; height: 100%; display: block; }
+.mq-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
+.mq-say { min-height: var(--sz-chip); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
+.mq-say.err { color: var(--err); }
+.mq-say.ok { color: var(--ok); }
+.mq-field { display: flex; flex-direction: column; gap: var(--sp-4); }
+.mq-field > label { font-size: var(--fs-12); color: var(--sub); }
+.mq-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.mq-empty { color: var(--sub); font-size: var(--fs-12); line-height: 1.7; }
+.mq-row { display: flex; align-items: center; gap: var(--sp-8); }
+
 /* 全局命令面板（外壳级浮层，由 web/ui/command.js 第一次唤起时才画出来） */
 .cmd-palette { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start;
   justify-content: center; padding-top: var(--sp-64); background: var(--pal-scrim); }

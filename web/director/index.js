@@ -151,6 +151,8 @@ export default {
       active.value = true;
       try { if (window.__directorSlicePause) window.__directorSlicePause(false); } catch (e) {}
       if (styleEl && !styleEl.isConnected) document.head.appendChild(styleEl);
+      /* 从建模台回来（这一页在页面池里常驻，引擎的启动那一段不会再跑）：接一次口袋 */
+      try { if (window.__directorModelHandoff) window.__directorModelHandoff(); } catch (e) { /* 回传失败由引擎自己报 */ }
       /* 隐藏期间可能改过窗口尺寸；放回文档后让导演台自己重排一次（它的 resize 监听在隐藏时是放行的）。 */
       setTimeout(() => { try { window.dispatchEvent(new Event('resize')); } catch (e) {} }, 0);
     });

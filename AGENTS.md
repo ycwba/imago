@@ -78,8 +78,16 @@
   库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > 状态仓里的 `sk_local_dir` 键 > `下载\成像`。
   提示词归档是库根下的 `提示词\`：跟着库根走，设置页不再单独给第二个位置（`PROMPTS_DIR` 只作部署 / 探针口子）。
 - `.renders/` 只剩 FCPXML 媒体包的临时落盘（`fcpxml-<stamp>/`）；持久工程目录在本机资产库下的 `FCPXML工程/<id>/`，与「存回本机」的素材同根。浏览器内合成成片，服务端没有 ffmpeg。
-- 七个页面：导演台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
+- 八个页面：导演台、建模台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
   路由表只有 `web/core/routes.js` 一份。
+- 建模台是唯一一页带**三维运行时**的页面：three 走 `web/vendor/three/`（vendored，见「Vue SPA」那一段），
+  只在这一页的 ESM 图里，首屏与开机预取都不碰它；模型本体是库根下 `白膜\<组>\<名>.json`（+ 同名 `.png` 缩略图），
+  导入的 3D 文件在 `白膜\_模型文件\`（下划线开头的组名保留给这一层）。
+- 骨架只有两套，都不做真蒙皮：人台是**参数化骨架**（关节是 `THREE.Bone`，肢体零件是关节的硬绑定子节点、
+  权重恒 1，没有 `Skeleton`；姿势 / 步态仍由程序算角度，`rig.js` 的 `applyPose` 是唯一写回口）；
+  导入的 3D 文件保留文件自带骨架，自带动画时按节点上四格（`clip` / `clipSpeed` / `clipLoop` / `clipOffset`）
+  由 `clip.js` 驱动。两条驱动共用白膜时间轴，只 `mixer.setTime`、不按 dt 累加。
+  不做 SkinnedMesh 自动权重 / 骨骼编辑 UI / clip 重定向 / IK / 物理 / 布料。
 
 ## 目录结构
 
@@ -110,6 +118,7 @@
 │  ├─ zip.js                    FCPXML 媒体包 zip
 │  ├─ providers/validate.js     registry 供应商声明校验
 │  └─ routes/                   system / static / capabilities / registry / relay / outbound / local-assets /
+│                               model3d（白膜库：list / file / thumb / asset / save / delete）/
 │                               usage / cache / skills / fcpxml / pick-dir / asr / models / search /
 │                               http（路由层唯一的 JSON 回包口径：sendJson / fail，默认 no-store）
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
@@ -132,18 +141,26 @@
 │  │                            local / capabilities / text-ai / gen-rules / fav / prompt-log / asset-picker /
 │  │                            ai-find / chars / ident / asset-ref / identity / semantic / asr / search /
 │  │                            zip-read / chat/text-util / chat/contracts
+│  ├─ model3d/                建模台三维内核：schema（模型文件形状）/ dsl（镜像·阵列·引用）/
+│  │                           mannequin（8 体型 · 20 姿势 · 步态）/ rig（关节写回 · 子关节轨道）/
+│  │                           crowd（阵列与合批）/ scene（DSL → three 场景图）/
+│  │                           loader（FBX·OBJ·GLB·GLTF 导入）/ clip（导入件动画播放 · mixer）/
+│  │                           anim（关键帧与轨迹采样）/ view（视口 · 两套相机 · 截图）/
+│  │                           palette（白膜灰阶，唯一一处）/ vault（模型库）/ ai（契约与流式）/
+│  │                           capture（出图出片）/ quick（白膜快速弹窗）/ bridge（跨页门面）
 │  ├─ features/chat.js          AI 助手外壳：悬浮球 / 抽屉 / 会话 / 发送循环
 │  ├─ features/chat-tools.js    助手工具循环与动作目录（TOOLS / ACTS / 两张形状表）
 │  ├─ package.json             {"type":"module"}（Node 判据按 ESM 读 web/ 模块）
 │  └─ styles/                   tokens / ui / wb / sidebar / chat / spa-*.css
 ├─ tools/
 │  ├─ precompile-vue.cjs        模板 → render 函数（开发期）
+│  ├─ vendor-three.cjs          一次性把 npm 包里的 three 取出来、改写裸说明符、落到 web/vendor/three/（幂等）
 │  ├─ tokenize-css.cjs          裸值体检 + 机械替换 + 值→令牌映射
 │  ├─ token-lib.cjs             上面两个工具的共用件（规则表 / 扫描范围 / 值→令牌映射）
 │  ├─ check-vars.cjs            令牌引用完整性
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
 │  └─ vue-templates/            模板源（开发期，不进运行时）
-├─ skills/<id>/SKILL.md         内置 Skill（随页面 / 触发词加载）
+├─ skills/<id>/SKILL.md         内置 Skill（随页面 / 触发词加载；`skills/model3d/` 是建模契约正文）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ .gitattributes               行尾的唯一权威（文本 LF · .ps1/.bat CRLF · 二进制不换算）
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
@@ -895,13 +912,20 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 | 一行素材的身份键 | `AssetLib.entryKey`（页面与缓存）；裸工作台任务记录用 `Wb.taskKey` |
 | 整包备份的格式版本与导入摘要 | `web/ui/datasync.js` 的 `PACK_VERSION`（v2）/ `assertPack` / `describePack`：整包恒带 `/backup/export` 出的服务端快照（业务键 / 资产索引 / 归档 / 云同步状态 + sha256）；导出写它，设置页确认框与 `importAll` 写入口同读一道闸；只认 v2，旧版 / 高版本 / 缺服务端段一律拒绝且零写入，导入先过代理的校验和才动浏览器那半截，失败在回执里报数（`tests/data-pack.cjs`） |
 | 备份中心的端点与健康提示 | `server/data-hub.js` 的 `handleBackup` + `backupStatus`：`status` 的 `ok` 同时看两份文件（快照仓与状态仓都得健康），`stateDegraded` 把 state.json 校验失败报给设置页那张「数据与备份」卡 |
+| 人台关节写回 / 子关节轨道 | `web/model3d/rig.js` 的 `quatOfDegrees` / `poseTableOf` / `applyPose` / `applyJoints` / `jointsOf` / `registerJoint`：角度（度）→ 关节四元数只在这一处；每次先把关节复位到 `baseRot` / `baseAt` 再叠加，子关节轨道与姿势表走同一条 `applyPose`（判据 `tests/model3d-rig.mjs`） |
+| 导入件的动画播放 | `web/model3d/clip.js` 的 `clipOf` / `clipNamesOf` / `loopOf` / `compileGait` / `mixerFor` / `bindClip` / `applyClip`：只 `mixer.setTime`、不 `mixer.update(dt)`（按 dt 累积会与墙钟漂移）；once / hold 夹住末帧；克隆蒙皮原型走 `SkeletonUtils.clone`（判据 `tests/model3d-clip.mjs`） |
 | 全局命令面板 / 统一快捷键 | `web/ui/command.js` 的 `window.CommandPalette`：Ctrl/Cmd+K 是全局唯一唤起键，候选页只从 `WB_ROUTES.pages` 现取、跳页只走 `GoPage.go`，不登记第二份动作目录；↑↓ / Enter / Esc 在面板输入框内消化并截断，输入框与输入法合成中不抢键，导演台的键盘作用域岛优先（`tests/command-palette.cjs`） |
 
 ## Vue SPA
 
 - **vendored 依赖（运行时零构建的唯一例外，`package.json` 不加运行时依赖）**：
   `vue.runtime.esm-browser.prod.js`、`web/vendor/mediabunny.min.mjs`、`web/vendor/mediabunny-aac-encoder.min.js`、
-  `web/vendor/asr/`（`@huggingface/transformers` + ONNX Runtime 的胶水与 `.wasm`）。全部按需加载，首屏不带。
+  `web/vendor/asr/`（`@huggingface/transformers` + ONNX Runtime 的胶水与 `.wasm`）、
+  `web/vendor/three/`（three 0.187 + 两个控制器 + 三个 loader + `SkeletonUtils.js` 与它们的依赖件；
+  蒙皮原型克隆必须走 `SkeletonUtils.clone`，普通 `clone(true)` 会让两个实例共享同一套骨架。MIT 见 `three.LICENSE.txt`）。
+  全部按需加载，首屏不带；three 更进一层：**只有建模台**（路由表里 `heavy: true` 的那一页）取它，
+  开机那串空闲预取跳过，`tests/perf/boot.cjs --strict` 守这一条。vendor 目录由 `tools/vendor-three.cjs` 生成，
+  文件头写着「由脚本生成，别手改」；`tests/metrics.cjs` 与静态判据都不把 `vendor/` 当我们的代码。
 - `web/app.js` 是唯一外壳：hash 路由 + `<KeepAlive>` 页面池；切页只离屏、不销毁。
   页面 DOM、滚动位置、筛选与多选状态都留在原地。
 - 路由表只有 `web/core/routes.js` 的 `WB_ROUTES`：页面文件 / id / 侧栏名（`label` 与两字 `short`）/
@@ -915,8 +939,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   `ROLE_ZH` 由 engine/panel.js 迟取现查；页面运行后才用到的都带 `window.Capabilities &&` 守卫），
   两侧没有先后依赖。样式表的挂载也只由 loader 负责（路径在路由表存一份）。
 - **预取**（`window.__spaPrefetch(file)`）：把某一页的整条链提前发出去，与切页那一路共用同一批去重表。
-  两个入口：`load` 之后按 250ms 一拍一页（当前页除外，`web/app.js` 的 `schedulePrefetch`）；
+  两个入口：`load` 之后按 250ms 一拍一页（当前页与 `heavy` 页除外，`web/app.js` 的 `schedulePrefetch`）；
   侧栏每一项的 `mouseenter` / `focus`（`web/ui/sidebar.js`）。预取失败不落缓存，真正切页时照常重试。
+  `heavy` 是路由表上的一个旗标：现在只有建模台带它 —— 把 three 的 2 MB 拖进开机预取，会把首屏的
+  「资源静默窗口」一路推到 TTI 之外（实测 1.45 秒）。
 - 切页可见性：`spa:page` 事件与 `window.__spaActivity.visible()`；隐藏页的轮询 / 抽帧 / 缩略图要停。
 - `window.__*` 是跨脚本层的唯一钩子面（经典脚本没法 import ESM，只这一族能跨过去）：
   每一枚钩子都有人读，页面自己挂的那一枚在卸载时清掉（`delete` 或赋 `null`），

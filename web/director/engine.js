@@ -2926,7 +2926,8 @@ async function libEntryToAssetId(it, name, contentType, provId, role) {
   if (aid && sameAssetSpace(it.provider, to) && !(template && template.requiresAudio)) return aid;
   return await AssetTransfer.toAsset(to, it.dl || it.src, { reg: REG, name, contentType, role, onStage: dlStage('素材') });
 }
-async function pickRefMedia(sh, kind) {
+/* `preset`：从别处（建模台回传）已经定好的那一条，有了就不弹选择器、直接走下面的上传 / 登记。 */
+async function pickRefMedia(sh, kind, preset) {
   const isAudio = kind === 'refaudio';
   const role = isAudio ? 'reference_audio' : 'reference_video';
   const label = isAudio ? '参考音频' : '参考视频';
@@ -2938,7 +2939,7 @@ async function pickRefMedia(sh, kind) {
     ? Capabilities.rule(rm, role, sh.combo) : { max: 1, accept: '' };
   const types = (window.Capabilities && Capabilities.slotTypes) ? Capabilities.slotTypes(rm, role) : (isAudio ? ['音乐', '音频'] : ['视频']);
   const note = cap.slotNote(role);
-  const list = await AssetPicker.open({
+  const list = preset ? [preset] : await AssetPicker.open({
     types, multiple: false, limit: 1,
     /* 这一镜的参考视频 / 参考音频**各只有一格**（提交体是 body.reference_video = { asset_id }），
        所以规则里的数量按 1 显示 —— 平台声明的 max 再大也没地方放，照抄会出现
@@ -5098,7 +5099,39 @@ if (dirLayout) Wb.split.enable({
   restoreLocalBlobs().then(() => { try { renderAll(); } catch { /* 首屏重画抛错不打断后面的恢复流程 */ } }).catch(() => {});
   hydrateThumbFrames();        // 上次抽好的缩略图首帧：读出来直接当图片用，不再等视频出画
   healStaleUrls();             // 存过期的签名外链：后台按任务号换新地址并写回工作区
+  setTimeout(() => { consumeModelHandoff().catch(() => {}); }, 0);   // 建模台送回来的白膜
 })();
+
+/* ---------- 建模台送回来的白膜 ----------
+   一次性口袋由 `window.Model3D` 写、这里消费一次。图走「参考图」那一条（addRefImage），
+   视频走 pickRefMedia 的 preset 形参（同一段上传 / 登记，只是不弹选择器）——
+   两条都是这一页原有的唯一写入口，不新造第三条。 */
+async function consumeModelHandoff() {
+  const M = window.Model3D;
+  if (!M || !M.consume) return;
+  let box = null;
+  try { box = M.consume('director'); } catch (e) { return; }
+  if (!box || !box.asset) return;
+  const a = box.asset;
+  const sh = (box.shot && (proj.shots || []).find(x => x.id === box.shot)) || curShot();
+  if (!sh) { setStatus('<span class="err">白膜送到了，但这一部还没有镜头可挂</span>'); return; }
+  const label = String(a.name || '白膜').replace(/\.[^.]+$/, '');
+  if (a.type === '视频') {
+    await pickRefMedia(sh, 'refvideo', {
+      assetId: a.assetId, src: a.src, dl: a.src, name: a.name, prompt: label,
+      type: '视频', duration: null,
+    });
+    return;
+  }
+  addRefImage(sh, Api.mediaSrc(a.src), label, a.assetId || null);
+  renderEditor();
+  scheduleSave();
+  setStatus('<span class="ok">✓ 白膜已作为参考图加入这一镜</span>');
+}
+
+/* 外壳的 onActivated 从这里接口袋（这一页在页面池里常驻：引擎只启动一次，
+   第二次从建模台回来时不能再指望启动那一段里的 setTimeout）。 */
+if (typeof window !== 'undefined') window.__directorModelHandoff = consumeModelHandoff;
 
 /* ============================================================================
    给外壳 / AI 助手的**时间线写入桥**（全项目只有这一份）

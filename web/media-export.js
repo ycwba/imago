@@ -757,5 +757,60 @@
     return ctx.createBuffer(2, len, rate);
   }
 
-  window.MediaExport = { framePlan, exportFilm, pickCodec, mixAudio, timeStretchCh, ensureAudioTrack };
+  /* 逐帧画出来的短片（三维白膜那条路）：调用方给一块画布与一个「画第 t 秒」的回调，
+     这里只负责帧计划、编码与打包 —— 与 exportFilm 共用 pickCodec / framePlan / Output / CanvasSource。
+     ⚠ `draw(t)` 必须**同步**把这一帧画进 canvas：中间再 await 别的异步，取帧时缓冲可能已被清掉。
+     容器：有 H.264 就 mp4（用户要的「直接生成 mp4」），没有才退 webm（换浏览器能解决）。 */
+  async function exportCanvas(o) {
+    const opts = o || {};
+    const canvas = opts.canvas;
+    if (!canvas) throw new Error('没有可画的画布');
+    if (typeof opts.draw !== 'function') throw new Error('没有帧回调');
+    const MB = await loadMb();
+    if (!MB) throw new Error('浏览器里没有 mediabunny，导不了视频');
+    const pk = await pickCodec();
+    const fps = clampN(Math.round(Number(opts.fps) || 24), 12, 60);
+    const duration = Math.max(0.2, Math.min(60, Number(opts.duration) || 3));
+    const plan = framePlan(duration, fps, 2);
+    const signal = opts.signal || null;
+    const throwIfAbort = () => { if (signal && signal.aborted) { const e = new Error('已取消'); e.name = 'AbortError'; throw e; } };
+    const onProgress = typeof opts.onProgress === 'function' ? opts.onProgress : () => {};
+    const target = new MB.BufferTarget();
+    const output = new MB.Output({ format: outputFormatOf(MB, pk), target });
+    const videoSource = new MB.CanvasSource(canvas, {
+      codec: pk.video,
+      bitrate: Math.max(1e6, Number(opts.bitrate) || 8e6),
+      keyFrameInterval: 2,
+      latencyMode: 'realtime',
+    });
+    output.addVideoTrack(videoSource, { frameRate: fps });
+    const abortOut = () => { output.cancel().catch(() => {}); };
+    if (signal) signal.addEventListener('abort', abortOut, { once: true });
+    try {
+      throwIfAbort();
+      await output.start();
+      const step = Math.max(1, Math.round(plan.length / 60));
+      for (const f of plan) {
+        throwIfAbort();
+        await opts.draw(f.timestamp, f.index);
+        await videoSource.add(f.timestamp, f.duration, { keyFrame: f.keyFrame });
+        if (f.index % step === 0) onProgress({ progress: Math.round((f.index / plan.length) * 92), msg: '正在合成 ' + (f.index + 1) + '/' + plan.length + ' 帧' });
+      }
+      throwIfAbort();
+      await output.finalize();
+    } catch (e) {
+      await output.cancel().catch(() => {});
+      throw e;
+    } finally {
+      if (signal) signal.removeEventListener('abort', abortOut);
+    }
+    onProgress({ progress: 98, msg: '正在打包…' });
+    return {
+      blob: new Blob([target.buffer], { type: pk.mime }),
+      ext: pk.ext, mime: pk.mime,
+      diag: { fps, frames: plan.length, duration, codec: pk.video },
+    };
+  }
+
+  window.MediaExport = { framePlan, exportFilm, exportCanvas, pickCodec, mixAudio, timeStretchCh, ensureAudioTrack };
 })();

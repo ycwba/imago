@@ -15,7 +15,10 @@
      `chunk`：modulepreload 只走静态 import 图，看不见 director/index.js 挂载时才发的那一次动态 import
      （engine.js 那一层）—— 不点名它就是三段串（needs → 页面 → 引擎）。 */
   const C = 'web/domain/capabilities.js', T = 'web/domain/text-ai.js',
-    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js';
+    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js',
+    /* 建模台的跨页门面（几十行）：工作台 / 导演台那两颗「建模」与素材选择器的「3D 白膜」
+       都只经这一份，three 与视口不在它里面。 */
+    M3D = 'web/model3d/bridge.js';
   /* `short`：窄形态（56px）下压在图标下面的**两字短标签**。
      窄形态里也要认得出每一项，所以短标签常驻、不靠悬停才知道这一项是什么。
      它必须和 `label` 放在同一张表里 —— 侧栏不许另抄一份（改了页面名忘了改短标签，
@@ -24,13 +27,22 @@
   const pages = [
     { file: 'director.html', id: 'director', label: '导演台', short: '导演', ic: 'film', title: '导演台', src: './director/index.js', root: '.director-page',
       chunk: ['./director/engine.js'],
-      needs: [C, T, P, D, S] },
+      needs: [C, T, P, D, S, M3D] },
+    /* 建模台：一句话建白膜 / 改白膜 / 出白膜图与动画。three 与视口都在这一页自己的 ESM 图里，
+       首屏一个字节都不带；`bridge` 是给别的页面用的跨页门面（写口袋 + 跳页，只有几十行）。 */
+    { file: 'model.html', id: 'model', label: '建模台', short: '建模', ic: 'model', title: '建模台', src: './pages/model.js', root: '.model-page',
+      css: 'web/styles/spa-model.css',
+      chunk: ['./model3d/view.js'],
+      /* `heavy`：这一页的 ESM 图会把 three（≈2.1 MB）带进来 —— 开机那一串空闲预取跳过它，
+         但不影响悬停侧栏 / 真点进来时的提前取（首屏预算那条判据守的就是这件事）。 */
+      heavy: true,
+      needs: [C, T, M3D] },
     { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
       css: 'web/styles/spa-chars.css',
       needs: [C, T, P, D, S] },
     { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
       css: 'web/styles/spa-studio.css',
-      needs: [C, T, P, D, S] },
+      needs: [C, T, P, D, S, M3D] },
     { file: 'favorites.html', id: 'favorites', label: '我的收藏', short: '收藏', ic: 'star', title: '我的收藏', src: './pages/favorites.js', root: '.fav-page',
       css: 'web/styles/spa-pages.css',
       needs: [D] },
@@ -122,6 +134,9 @@
     'web/domain/asset-picker.js': 'AssetPicker',
     'web/ui/datasync.js': 'DataSync',
     'web/domain/search.js': 'Search',
+    /* 建模台的跨页门面：工作台 / 导演台点「建模」时只用到这一份（写口袋 + 跳页），
+       three 与视口不在这一份里。 */
+    'web/model3d/bridge.js': 'Model3D',
   };
   window.__spaNeeds = function (list) {
     return Promise.all((list || []).map(src => {
