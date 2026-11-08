@@ -12,11 +12,59 @@
 node_modules/
 *.log
 .proxy-port
+.cache/
+coverage/
+*.tsbuildinfo
 
 # 密钥与本地配置：.env 里是真的平台密钥，只放行不含真实密钥的模板
 .env
 .env.*
 !.env.example
+# 私钥与证书：平台密钥之外的一切凭据形态同样不进库。
+# 范围钉在仓库根 —— tests/fixtures/pki/ 里那两份是判据自己用的自签证书与私钥，
+# 必须留在库里（它们不是真凭据，换机器照跑）；根目录的同名文件才是误提交。
+/*.pem
+/*.key
+/*.p12
+/*.pfx
+/id_rsa
+/id_ed25519
+
+# 编辑器与 IDE 的临时物：这些是「谁在这台机器上干活」的痕迹，不是产品的一部分。
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.orig
+*.rej
+*.bak
+
+# 操作系统的垃圾文件
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 仓库根散落的媒体与归档：交付物只该落库根（下载\成像）或 .renders\，
+# 根目录只留源码、模板、配置与判据。历史上 probe-clip.mp4 就是这么被加进库的。
+# 前导斜杠把范围钉在仓库根，tests/fixtures/ 与 web/ 里的同名文件不受影响。
+/*.mp4
+/*.mov
+/*.webm
+/*.avi
+/*.mkv
+/*.mp3
+/*.wav
+/*.flac
+/*.png
+/*.jpg
+/*.jpeg
+/*.gif
+/*.webp
+/*.zip
+/*.7z
+/*.tar
+/*.gz
 
 # 本机状态 / 桌面助手在自己的目录里写的记忆（与产品无关，换一台机器也不该带走）。
 # 这一族不是本仓库的代码写的，所以不适用「代码里没有就删」——工具随时会在项目里落文件。

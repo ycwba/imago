@@ -34,6 +34,7 @@
   - [写入可靠性](#写入可靠性)
   - [本机资产身份](#本机资产身份)
   - [云同步](#云同步)
+  - [Git 提交](#git-提交)
   - [Git 远端与推送](#git-远端与推送)
 - [公共层：唯一实现清单](#公共层唯一实现清单)
 - [Vue SPA](#vue-spa)
@@ -194,6 +195,7 @@
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面 / 触发词加载；`skills/model3d/` 是建模契约正文）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
 ├─ .gitattributes               行尾的唯一权威（文本 LF · .ps1/.bat CRLF · 二进制不换算）
+├─ .gitignore                   提交范围的唯一闸（用户数据 / 密钥 / 编辑器与系统临时物一律不进库）
 ├─ 启动.bat                     UTF-8 无 BOM + chcp 65001，薄入口
 ├─ launcher.ps1                 UTF-8 带 BOM + CRLF，WinForms 启动器
 ├─ package.json                 开发依赖：@vue/compiler-dom（模板预编译）+ pngjs（视觉指纹）
@@ -719,6 +721,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 
 ### 提交边界与用户数据
 
+**进库的只有四样**：源码与模板源（`web/` `server/` `tools/vue-templates/`）、预编译产物（`web/render/`）、
+vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `tests/`）。
+其余一律是**在用户机器上长出来的**（真实密钥、本机数据、用户作品、探针残留、缓存与截图）。
+
 - `.env`、`.data/`、`.renders/`、`.skills/`、`node_modules/` 都在 `.gitignore`。
   库根被指回项目内时，`/成像/`（顶层）与根下的 `/图片/` `/视频/` `/音频/` `/其他/` `/提示词/`
   （跟着 `server/user-dirs.js` 的 `AUTOSAVE_TOP_DIR` / `PROMPTS_DIR_NAME` 与
@@ -726,8 +732,20 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   一起被挡在提交之外：这些路径装的是用户作品，属于数据而不是缓存。
   斜杠钉在仓库根，不影响 `web/` 与 `tests/` 里的同名子路径；探针那一族写成 `*data-probe*/`，
   「带不带前导点都挡」。
+- **凭据只认根级**：私钥与证书写成 `/*.pem` `/*.key` `/*.p12` `/*.pfx` `/.env` 这一类**根级**路径，
+  不写成 `*.pem` —— `tests/fixtures/pki/` 里那两份自签证书是判据自己用的，换机器照跑，必须留在库里。
+  密钥形态不只 `.env`：证书、私钥、`.p12`、`.pfx`、SSH 私钥都算。
+- **编辑器与系统垃圾**：`.vscode/` `.idea/` `*.swp` `*~` `*.orig` `*.rej` `*.bak`
+  与 `.DS_Store` `Thumbs.db` `desktop.ini` 一律不进库；`coverage/` `.cache/` `*.tsbuildinfo` 同理。
+- **仓库根不许散落媒体与归档**：`/*.mp4` `/*.png` `/*.zip` 这一族用前导斜杠钉在根，
+  交付物只该落库根（`下载\成像`）或 `.renders\`。历史上根目录那个 `probe-clip.mp4` 就是这么进库的。
+- **忽略规则与跟踪状态不许打架**：被 `.gitignore` 挡着的文件不该还在库里 —— `.gitignore` 对已跟踪文件无效，
+  那条规则会静默失效。`.zcodeignore` 就是这么打架的：挡着它，它却还在库里（现已从库里移除，本地文件留着）。
+- **vendored 依赖不许被忽略**：`web/vendor/` 里的文件必须留在库里，忽略了会让新克隆缺件。
 - 用户的工作区、历史、归档、素材是用户数据：清理前先确认是测试残留。
 - 源码中的密钥只从 `.env` / 系统环境变量 / 设置页取。
+- 判据：`tests/git-scope.cjs` 盯这一节的每一条 —— 库里没有命中 `.gitignore` 的文件、没有密钥族与用户数据族、
+  根级没有散落媒体、`web/vendor/` 全在库里，以及本文点名的每一族都真的被挡住（文档不许说谎）。
 
 ### 写入可靠性
 
@@ -826,6 +844,27 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - 远端存在但读不下来 → 判 `error` 跳过，不 push；本地删除执行到底。
 - 浏览器对账的「体积相同」不能直接跳过（等长修改照比内容）；对账期间本地写入先进 held 暂存表。
 
+### Git 提交
+
+- **一个批次一次提交**：一次提交 = 一个主题（对应 `CHANGELOG.md` 里的一条，或几条合起来的一个主题）。
+  不相干的改动别混在一条里 —— 模板改动与判据改动混成一条，坏了的时候看不出是哪条改动坏的。
+- **提交前必跑**：`npm run check` + `npm run test`（秒级档，几秒）。
+  浏览器 e2e **不是**前置（要起隔离 proxy 与独立 Chrome，全量约十分钟）；
+  改动面大时用 `npm run test:fast` 按 `tests/map.cjs` 的映射挑相关判据就够。
+  CI 跑的是同一档（`npm run ci` = `check` + `static` + `test`）。
+- **主题一行 + 空行 + 要点列表**：要点一行一件事，别写成一段话。
+- **主题里的批次代号沿用既有字母族**（C / S / F / B / G / P / R / V 一类），别新造一套：
+  那是批次编号，不是版本号。改了产品版本就把版本号带上（`建模台 0.4.0: …`），与 `CHANGELOG.md` 的条目对齐；
+  小批次不带版本号。
+- **UTF-8 无 BOM**：提交信息带 BOM 会在标题第一个字前粘一个不可见字符
+  （`git log --format='%s' | Format-Hex` 开头是 `EF BB BF` 就是它）。
+  PowerShell 里 `$msg | git commit -F -` 正好会带 BOM —— 用 `git commit -F <文件>`，
+  或先写一份无 BOM 的文件再 `-F` 读它。
+- **行尾由 `.gitattributes` 定，不由这台机器定**：文本一律 LF，`.ps1` / `.bat` / `.cmd` 是 CRLF，二进制不换算。
+  提交前别手工改行尾 —— `core.autocrlf=true` 的机器检出来是 CRLF，那不是改动。
+- **大文件**：二进制按 `.gitattributes` 的 `binary` 声明；新增超过 1 MB 的非 vendored 文件先想清楚
+  （历史里的那一份要清得重写远端）。
+
 ### Git 远端与推送
 
 - 远端只有一个：`https://github.com/ycwba/imago.git`。它在本地克隆里的别名不固定
@@ -834,6 +873,16 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   盯的是地址，不是别名。
 - 远端 `main` 是真实历史；`archive/snapshot-gh` 分支保留着一份与本仓库无共同祖先的孤儿快照
   （同一份代码的早期版本）。两边是并行的两条历史，看到「共同祖先为零的另一个根提交」属于这种情况。
+  **别往它合，也别拿它当基线。**
+- 远端上另有 `feat/…` / `fix/…` / `workbuddy/…` 那些工作分支：各走各的，推 `main` 不带它们，
+  别顺手 `git push --all`。
+- **推完核对远端 HEAD**：`git ls-remote origin refs/heads/main` 那一串要与 `git rev-parse HEAD` 一致 ——
+  「push 报成功」与「远端真有这个提交」是两件事。
+- **推送失败先分清是网络还是仓库**：TLS 握手失败（`SSL routines::unexpected eof`）多半是**本机代理链**，
+  端口通不代表 TLS 通（`Test-NetConnection` 通、握手断，就是这种）。
+  先试直连：直连能通就用 `git -c http.proxy= -c https.proxy= push` 临时绕过，
+  **别把代理配置写进仓库**，也不必改全局 git 配置。
+  「远端地址写错 / 仓库不存在」是另一类错 —— 那要改配置与文档，不是重试。
 
 ## 公共层：唯一实现清单
 
@@ -1347,7 +1396,7 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 常驻判据的清单只有一份：`tests/all.cjs` 里的 `run()` 登记行（`tests/map.cjs` 的 registry 按源码文本现读这些行，
 两边不一致当场红）。这里只按域说各档管什么：
 
-- 静态纪律：`syntax` / `selfcheck` / `spa` / `static-guards` / `scope-guards` / `dup-guard` /
+- 静态纪律：`syntax` / `selfcheck` / `spa` / `static-guards` / `scope-guards` / `dup-guard` / `git-scope` /
   `architecture` / `metrics` / `ui-catalog` / `settings-schema` / `doc-contract`。
 - 服务端与数据：`routes-smoke` / `index-store` / `local-first` / `relay-retry` / `outbound-keepalive` /
   `proxy-tunnel` / `assetlib-cache` / `pull-scope` / `providers-validate` / `asr-settings` / `zip` /

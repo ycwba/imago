@@ -338,6 +338,10 @@ run('tests/static-guards.cjs', process.execPath, ['tests/static-guards.cjs']);
    断点档 / 判据条数 / 画面档数）必须与代码一致 —— 文档不许说谎，
    代码改了而文档没改，下一个人就照着过期文档写。 */
 run('tests/doc-contract.cjs', process.execPath, ['tests/doc-contract.cjs']);
+/* git 范围：库里不许有命中 .gitignore 的文件（规则与跟踪状态不许打架）、不许有密钥族与用户数据族、
+   仓库根不许散落媒体 / 归档、vendored 依赖必须留在库里，
+   以及规范正文点名的每一族都必须真的被挡住。 */
+run('tests/git-scope.cjs', process.execPath, ['tests/git-scope.cjs']);
 run('tests/data-pack.cjs', process.execPath, ['tests/data-pack.cjs']);
 /* 集中状态仓与快照仓：一次性迁移、校验和拒写、逻辑视图、轮转 / 校验 / 恢复、/backup/* 端点。
    整份在 os.tmpdir 的探针目录里跑，不写共享 .data。 */
