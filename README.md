@@ -1,7 +1,7 @@
 # 成像 · AI 创作工作台
 
-本地优先的 AI 创作工作台：八个页面（路由表 `web/core/routes.js` 共 8 条：导演台 / 建模台 / 素材库 /
-工作台 / 收藏 / 资产库 / 用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node
+本地优先的 AI 创作工作台：八个页面（路由表 `web/core/routes.js` 共 8 条：导演台 / 工作台 / 素材库 /
+建模台 / 收藏 / 资产库 / 用量 / 设置）由 Vue 3 SPA 统一承载，生成任务与数据全部经本机 Node
 代理转发与落盘。产品版本见 `package.json` 与 `CHANGELOG.md`。
 
 - 运行时零构建：浏览器直接加载静态文件。
@@ -44,18 +44,23 @@ npm install
 
 开关：`WB_LAUNCHER_DRYRUN=1` 只检查不启动，`WB_NOCOLOR=1` 关掉彩色输出。
 
+仓库更新走 `更新.bat`（唯一入口，`更新.bat check` 只比较不拉取）：工作区脏先 stash 再 pull、
+冲突保留现场不硬重置；拉完只在依赖变了时 `npm ci`，然后必跑 `npm run build`。
+
 ## 页面
+
+按侧栏顺序（设置不进侧栏）：
 
 | 页面 | 作用 |
 | --- | --- |
 | 导演台 | 分镜、候选生成、时间线剪辑、配音、成片导出、FCPXML（单文件 / 媒体包 / 工程目录）、项目文件导出 / 导入（完整工程） |
-| 建模台 | 一句话让文字 AI 写出参数化白模（小人 / 图元 / 群众 / 导入的 3D 文件），流式实时预览；导入件自带动画时可选 clip 并调速度 / 循环 / 偏移；白模库是多库模板仓库（`白膜\<库>\模型\<组>\`），场景是唯一工作区（`白膜\<库>\场景\<场景组>\`），库模型放进场景即成可编辑实体；多机位，节点与机位共用一套轨道；出白膜图 / 动画 mp4 进资产库，可回传工作台与导演台当参考 |
 | 工作台 | 视频 / 图像 / 语音三合一，按 `?t=video|image|audio` 切栏 |
 | 素材库 | 角色 / 场景 / 道具，体检、批量、身份锚点、使用关系、语义检索 |
-| 资产库 | 本机 / 云端产物、筛选、分页、批量下载与存回本机 |
+| 建模台 | 一句话让文字 AI 写出参数化白模（小人 / 图元 / 群众 / 导入的 3D 文件），流式实时预览；导入件自带动画时可选 clip 并调速度 / 循环 / 偏移；白模库是多库模板仓库（`白膜\<库>\模型\<组>\`），场景是唯一工作区（`白膜\<库>\场景\<场景组>\`），库模型放进场景即成可编辑实体；多机位，节点与机位共用一套轨道；出白膜图 / 动画 mp4 进资产库，可回传工作台与导演台当参考 |
 | 收藏 | 跨平台收藏、备注、复用 |
-| 设置 | 供应商与密钥（一家账号一张卡，六档能力平级：图片 / 视频 / 语音 / 文字 / 语音识别 / 联网搜索）、逐型号的输入能力、存放目录、数据与同步、Skill 管理 |
+| 资产库 | 本机 / 云端产物、筛选、分页、批量下载与存回本机 |
 | 用量 | 任务与花费统计、余额 |
+| 设置 | 供应商与密钥（一家账号一张卡，六档能力平级：图片 / 视频 / 语音 / 文字 / 语音识别 / 联网搜索）、逐型号的输入能力、存放目录、数据与同步、Skill 管理 |
 
 ## 生成与导出要点
 
@@ -96,6 +101,8 @@ npm install
 ## 目录
 
 ```text
+启动.bat / launcher.ps1       Windows 启动器（环境自检 + 图形界面，双击即用）
+更新.bat / update.ps1         仓库更新唯一入口（fetch → stash → pull → pop → build）
 proxy.js                      薄入口（require server/app.js）
 server/
   app.js                      组合根：配置、依赖装配、路由分发
@@ -237,11 +244,43 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe \
 - 源码与文档：UTF-8。
 - `启动.bat`：UTF-8 + `chcp 65001`。
 - `launcher.ps1`：UTF-8 带 BOM + CRLF（PowerShell 5.1 的要求）。
-- 不要提交 `.env`、`.data/`、`.assets/`、`.renders/`、`文件/`、`.skills/`：后两个是库根可能被指回项目内时的落点，里面是用户作品。
+- 提交范围只认 `.gitignore`：`.env`、`.data/`、`.renders/`、`.skills/`、`node_modules/` 不进库；
+  库根被指回项目内时，顶层 `成像/` 与根下的 `图片/` `视频/` `音频/` `其他/` `提示词/`
+  （含历史名 `.assets/` `文件/` `prompts/`）也一律挡住 —— 里面是用户作品。
+  判据 `tests/git-scope.cjs` 盯着这一节。
 - 产物本体默认在系统下载文件夹的 `成像\` 下，不在仓库里；仓库里的 `.data\local-assets\` 只是账。
 
-## 第三方
+## 第三方与参考项目
 
-- Vue 3.5.44 runtime-only，本地 vendored（`vue.runtime.esm-browser.prod.js`），MIT，
-  许可证见 `vue.LICENSE.txt`。
-- 开发依赖 `@vue/compiler-dom` 只用于预编译模板，不进入运行时。
+### Vendored 运行时依赖
+
+运行时零构建，第三方库全部本地 vendored、按需加载（首屏不带）：
+
+| 库 | 版本 | 许可证 | 落点与用途 |
+| --- | --- | --- | --- |
+| Vue | 3.5.44 | MIT（`vue.LICENSE.txt`） | `vue.runtime.esm-browser.prod.js`，runtime-only 无编译器 |
+| three.js | r187 | MIT（`three.LICENSE.txt`） | `web/vendor/three/`，只供建模台；由 `tools/vendor-three.cjs` 生成，别手改 |
+| mediabunny（含 AAC 编码器） | 1.62.0 | MPL-2.0（`web/vendor/*.LICENSE.txt`） | `web/vendor/mediabunny*`，浏览器内媒体解码 / 取帧 / 导出 |
+| @huggingface/transformers | 3.8.1 | Apache-2.0 | `web/vendor/asr/`，浏览器内语音识别 |
+| ONNX Runtime Web | 1.22.0-dev | MIT | `web/vendor/asr/`，Whisper 推理的 WASM 后端 |
+
+开发依赖（不进运行时）：`@vue/compiler-dom`（模板预编译）、`@babel/parser`（语法判据）、
+`pngjs`（视觉指纹）。
+
+### 参考项目
+
+设计与算法参考了以下两个开源项目（均为 MIT）。代码按本项目的架构（零构建 Vue SPA +
+命令式剪辑引擎 + 本机 Node 代理）重写，不是整份拷贝；具体参考点在对应源码的注释里逐处点名：
+
+- [MartinDelophy/ai-video-editor](https://github.com/MartinDelophy/ai-video-editor) ——
+  本地优先、创作者与 AI 助手共编一条真实时间线的浏览器视频编辑器。
+  **导演台与浏览器媒体管线**参考了它：时间轴比例尺与缩放语义（`web/director/tl-scale.js`）、
+  切点 roll 刀法与转场预设、离线导出管线形状（`web/media-export.js` 照其 `offlineVideoExport.js`：
+  帧计划 → 逐帧合成 → 混音 → 编码）、WSOLA 变速不变调（照其 `pitchPreservingTimeStretch.js`），
+  以及取帧的两处坑与解法（`web/media-backend.js`：远程稀疏关键帧不做定点 seek、首 GOP 黑帧补拍）。
+- [Flier123/agentic-3d-director](https://github.com/Flier123/agentic-3d-director) ——
+  AI 驱动的 3D 分镜导演台（React + Three.js，带动画时间轴与视频导出）。
+  **建模台**参考了它：模型小人的比例表、姿势表与步态公式（`web/model3d/mannequin.js`，
+  步频 / 臂摆基准常数同一组）、零件树结构、坐标约定（米 / Y 向上 / 朝 +Z，`web/model3d/schema.js`）
+  与小人落地偏移（`web/model3d/scene.js`）。与参考实现的有意偏差（`offsetY` 真的移动身体、
+  手腕关节真的转动）在注释里点了名。
