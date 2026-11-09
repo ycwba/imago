@@ -104,6 +104,7 @@ function validateProviders(providers) {
     if (!p || !p.name) errs.push('缺少 name');
     if (p && p.kind !== 'text' && !hasModelSource(p)) errs.push('缺少型号来源（models / modelDocs / newModelDefaults / endpoints.models）');
     if (p && p.kind === 'text' && !(p.endpoints && p.endpoints.chat)) errs.push('文字供应商缺少 endpoints.chat');
+    if (p && p.modelsExclude != null && typeof p.modelsExclude !== 'string') errs.push('modelsExclude 必须是正则文本（字符串）：' + p.modelsExclude);
     if (p && p.extraCaps != null) {
       if (!Array.isArray(p.extraCaps)) errs.push('extraCaps 必须是数组（asr / search）：' + p.extraCaps);
       else {
@@ -199,6 +200,9 @@ function validateInterfaceShapes(reg) {
     (Array.isArray(shapes[kind]) ? shapes[kind] : []).forEach(s => {
       const t = s && list.find(p => p.id === (s && s.template));
       if (!t) { errs.push('接口形状 ' + kind + '/' + ((s && s.id) || '?') + ' 的 template 不是真实存在的内置平台 id：' + (s && s.template)); return; }
+      if ((kind === 'asr' || kind === 'search') && (!t[kind] || (t.extraCaps || []).indexOf(kind) < 0)) {
+        errs.push('接口形状 ' + kind + '/' + s.id + ' 的模板 ' + t.id + ' 没有声明 ' + kind + '（形状会被画出来，选的人却永远调不通）');
+      }
       (Array.isArray(s.needs) ? s.needs : []).forEach(need => {
         if (need === 'retrieve' && !(t.endpoints && t.endpoints.retrieve && t.retrieve)) {
           errs.push('接口形状 ' + kind + '/' + s.id + ' 承诺了 retrieve 环节，但模板 ' + t.id

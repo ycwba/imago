@@ -262,17 +262,32 @@
 /* 能力行里那两枚控件同高一档：这一行没有 32px 的大控件，整行都小 ——
    状态牌 24 与「型号 n/m」28 并排差着 4px，看着就像没对齐。 */
 .settings-page .acct-mid > .crow > .st-btn { height: var(--sz-ctl-sm); }
+.settings-page .fcard-s { font-size: var(--fs-11); color: var(--sub); line-height: 1.4; margin-top: var(--sp-2); }
 .settings-page .acct .ghost.mini { flex: 0 0 auto; }
 
 /* 某一档的全局项（识图 / 语音识别 / 联网搜索）：画在顶着这一档那张卡里、那一行下面。 */
-.settings-page .capform-text, .settings-page .incard { border: var(--hair) solid var(--line); border-radius: var(--radius-10);
+.settings-page .incard { border: var(--hair) solid var(--line); border-radius: var(--radius-10);
   background: var(--panel); padding: var(--sp-8) var(--sp-8); margin: 0 0 var(--sp-8); }
-.settings-page .capform-text .tai-h { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
-  font-size: var(--fs-12); font-weight: 600; margin-bottom: var(--sp-4); }
-.settings-page .capform-text .krow, .settings-page .incard .krow { border-top: 0; }
+.settings-page .incard .krow { border-top: 0; }
 .settings-page .formslot:empty { display: none; }
 
 /* 型号清单面板（就地展开，不另起一层）：四态取回 / 逐个决定去留 / 自己填 id。 */
+.settings-page .mlist-row.text-model { flex-wrap: wrap; align-items: flex-start; row-gap: var(--sp-4); }
+.settings-page .text-model .mrow-line { display: flex; align-items: center; gap: var(--sp-8); min-width: 0; flex: 1 1 100%; }
+.settings-page .text-model .mrow-line > span:first-child { flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* 型号的输入能力：文 / 图 / 音 / 视。自动 = 空心，支持 = 淡强调底，不支持 = 压暗划线。
+   四枚都是 chip：统一 flex 居中 —— 「文」是一枚固定 span（不是按钮），不居中时字会顶到
+   上边框外面（实测被裁掉半截）。 */
+.settings-page .med-tags { display: flex; align-items: center; gap: var(--sp-4); padding-left: var(--sp-4); }
+.settings-page .med-tag { height: var(--sz-chip); min-width: var(--sz-chip); padding: 0 var(--sp-4);
+  display: inline-flex; align-items: center; justify-content: center;
+  border: var(--hair) solid var(--line); border-radius: var(--radius-4); background: var(--panel);
+  color: var(--sub); font-size: var(--fs-11); font-family: inherit; line-height: 1; cursor: pointer; }
+.settings-page .med-tag.fixed { cursor: default; background: var(--panel2); color: var(--sub); }
+.settings-page .med-tag.on { border-color: var(--acc-line-32); background: var(--sel-bg); color: var(--acc); }
+.settings-page .med-tag.off { text-decoration: line-through; opacity: .55; }
+.settings-page .med-tag:not(.fixed):hover { border-color: var(--acc); color: var(--acc); }
+
 .settings-page .mpanel { display: flex; flex-direction: column; gap: var(--sp-8); margin: 0 0 var(--sp-8);
   padding: var(--sp-8) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
   background: var(--panel); }
@@ -286,18 +301,9 @@
 .settings-page .mpanel .msg.ok { color: var(--ok); }
 .settings-page .mpanel .msg.err { color: var(--err); }
 
-/* 「手动加一档能力」：注册表没写这一家能做的那一档，在这里声明进来（型号自己填）。
-   展开时是一排可选档位（已声明的那几档不列），收起是卡里那一行小字。 */
+/* 「添加能力」只在自定义账号卡上出现：打开多能力表单；默认供应商不再临时补档。 */
 .settings-page .capadd { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; padding-top: var(--sp-8); }
-.settings-page .capadd .hint { font-size: var(--fs-11); color: var(--sub); flex: 1 1 0; min-width: 0; }
-.settings-page .capadd-open { align-items: flex-start; flex-direction: column; gap: var(--sp-8); }
-.settings-page .capadd-h { display: flex; align-items: center; gap: var(--sp-8); width: 100%; }
-.settings-page .capadd-h > span:first-child { font-size: var(--fs-12); font-weight: 600; }
-.settings-page .capadd-h .sp { flex: 1 1 auto; }
-.settings-page .pickrow { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
-.settings-page .pickchip { height: var(--sz-chip); padding: 0 var(--sp-8); }
-.settings-page .pickchip:hover { border-color: var(--acc); color: var(--acc); background: var(--acc-tint-10); }
-/* 手动声明的那一档在能力名后面挂一枚「手动」：它不在注册表里，看到它就该知道是这里加的。 */
+/* 手动声明的那一档在能力名后面挂一枚「手动」：旧数据里还能看到，点「撤掉」清掉。 */
 .settings-page .manual { flex: 0 0 auto; padding: var(--hair) var(--sp-4); border-radius: var(--radius-4);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11); }
 .settings-page .manual-note { padding: 0 0 var(--sp-8); font-size: var(--fs-11); color: var(--warn); line-height: 1.6; }
@@ -309,6 +315,10 @@
 .settings-page .cus-form .krow:first-child { padding-top: 0; }
 .settings-page .cus-form .krow > .kn { flex: 0 0 54px; }
 .settings-page .cus-form .krow input, .settings-page .cus-form .krow select { flex: 1 1 0; min-width: 0; }
+/* 勾选框 / 单选钮不跟着文字框一起拉宽：它们被上面那条拉成整行宽时，
+   型号名字会被挤到行尾（看上去像名字右对齐），而且勾选框本身变成一个巨大的空框。 */
+.settings-page .cus-form .krow input[type="checkbox"], .settings-page .cus-form .krow input[type="radio"] {
+  flex: 0 0 auto; width: auto; height: auto; }
 .settings-page .cus-form .hint { font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
 .settings-page .cus-form .hint code { padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-4);
   border: var(--hair) solid var(--line); background: var(--panel2); font-size: var(--fs-11); }
@@ -319,6 +329,45 @@
 .settings-page .cappick { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
 .settings-page .cappick .capcell.main { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .settings-page .cappick .hint { flex: 1 1 100%; margin-top: var(--sp-4); font-size: var(--fs-11); line-height: 1.6; }
+/* 自定义表单是**固定浮层**：打开不改变卡片流 / 文档高度，关闭时滚动位不会被拽走。
+   多类模型的配置一块接一块，按内容滚；这张卡本身仍是卡片流里的一格（在浮层后面）。 */
+.settings-page .cus-form {
+  position: fixed; z-index: 60; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(960px, calc(100vw - var(--sp-32)));
+  max-height: calc(100vh - var(--sp-64));
+  overflow-y: auto; box-sizing: border-box;
+  padding: var(--sp-24); border: var(--hair) solid var(--line); border-radius: var(--radius-14);
+  background: var(--panel); box-shadow: var(--shadow-4);
+}
+.settings-page .cus-scrim { position: fixed; inset: 0; z-index: 55;
+  background: color-mix(in srgb, var(--bg) var(--a-55), transparent); }
+.settings-page .cus-form .krow.align-start { align-items: flex-start; }
+.settings-page .cus-form-head { display: flex; align-items: center; gap: var(--sp-8);
+  padding-bottom: var(--sp-8); border-bottom: var(--hair) solid var(--line); }
+.settings-page .cus-form-head .t { font-size: var(--fs-14); font-weight: 600; }
+.settings-page .cus-form-head .sp { flex: 1 1 auto; }
+.settings-page .cus-caps { display: flex; flex-direction: column; gap: var(--sp-12); }
+.settings-page .capcfg { display: flex; flex-direction: column; gap: var(--sp-4);
+  padding-top: var(--sp-8); border-top: var(--hair) solid var(--line); }
+.settings-page .capcfg-h { display: flex; align-items: center; gap: var(--sp-8);
+  font-size: var(--fs-13); }
+.settings-page .capcfg-h .cg { width: var(--sp-24); height: var(--sp-24); border-radius: var(--radius-4);
+  background: var(--acc-tint-10); color: var(--acc); display: inline-flex; align-items: center; justify-content: center; }
+.settings-page .capcfg-h .sp { flex: 1 1 auto; }
+.settings-page .capcfg .krow { padding: var(--sp-4) 0; border-top: 0; }
+.settings-page .capcfg .krow > .kn { flex: 0 0 64px; }
+.settings-page .capcfg .msg { padding-top: var(--sp-4); }
+.settings-page .capcfg .msg:empty { display: none; }
+.settings-page .cfg-models { flex: 1 1 320px; min-width: 0; max-height: 220px; overflow-y: auto;
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2); padding: 0 var(--sp-8); }
+.settings-page .cfg-model { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) 0;
+  font-size: var(--fs-12); cursor: pointer; }
+.settings-page .cfg-model + .cfg-model { border-top: var(--hair) solid var(--line); }
+.settings-page .cfg-model > span:first-of-type { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.settings-page .cfg-model code { font-size: var(--fs-11); }
+.settings-page .cfg-model i { color: var(--sub); font-style: normal; font-size: var(--fs-11); }
+.settings-page .cfg-model-text { flex-wrap: wrap; row-gap: var(--sp-4); }
+
 
 /* 添加卡里的「还接着的那几家」：一行一家，点「添加」只把它请进界面，什么都不写。 */
 .settings-page .preset { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) 0; }

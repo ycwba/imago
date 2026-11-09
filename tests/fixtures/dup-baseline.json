@@ -1,5 +1,5 @@
 {
-  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。\n2026-10-22 三笔：`set`/`read`/`label`/`isRef` 是 asset-ref.cjs 的公开 API 面（点名的「拖素材的引用载荷」唯一实现，UMD 出口就叫这些名字）；`clean`/`grab` 是它内部的白名单过滤与 dataTransfer 取串，两三个局部短名，收进基线与上面存量同一口径。`hit`（voice-lanes 的行命中测试）、`labelOf`（chat 的引用标签）同口径登记。\n2026-10-23 两笔：浏览器内 ASR 一轮新增的局部短名照存量同一口径登记 —— `build`（asr-worker 里包 pipeline 的局部闭包）、`flush`（asr-text groupWords 的收段闭包）、`clean`/`fail`/`walk`/`dirOf`/`drop`（models.js 与相邻路由同一套局部小件）；同名 `E` 来自 vendored ORT 压缩档，web/vendor 整目录退出本判据扫描（第三方代码不是我们的重复实现）。\n2026-11-08 一笔（建模台）：web/model3d/* 与 web/pages/model.js 这批新模块里的局部短名照存量同一口径登记 —— cached / clamp01 / collect / emit / fill / idOf / kick / main / markDirty / mountView / newId / paintTools / rebuild 各自在本模块里只干一件事（fill 是「零件树填充」、fill(api.js) 是「拼请求体」，语义不同），跨文件同名不构成第二份实现；esc / q / ic / note / paint / walk / run 这些是各页惯用的单行短名，跟着新页面各加一份。\n",
+  "note": "同名函数定义跨文件计数基线（2026-10-20 收口后）。只许减：新增重复名或计数变大直接红；改完收口后重跑 node tests/dup-guard.mjs --write 重打。\n2026-10-22 三笔：`set`/`read`/`label`/`isRef` 是 asset-ref.cjs 的公开 API 面（点名的「拖素材的引用载荷」唯一实现，UMD 出口就叫这些名字）；`clean`/`grab` 是它内部的白名单过滤与 dataTransfer 取串，两三个局部短名，收进基线与上面存量同一口径。`hit`（voice-lanes 的行命中测试）、`labelOf`（chat 的引用标签）同口径登记。\n2026-10-23 两笔：浏览器内 ASR 一轮新增的局部短名照存量同一口径登记 —— `build`（asr-worker 里包 pipeline 的局部闭包）、`flush`（asr-text groupWords 的收段闭包）、`clean`/`fail`/`walk`/`dirOf`/`drop`（models.js 与相邻路由同一套局部小件）；同名 `E` 来自 vendored ORT 压缩档，web/vendor 整目录退出本判据扫描（第三方代码不是我们的重复实现）。\n2026-11-08 一笔（建模台）：web/model3d/* 与 web/pages/model.js 这批新模块里的局部短名照存量同一口径登记 —— cached / clamp01 / collect / emit / fill / idOf / kick / main / markDirty / mountView / newId / paintTools / rebuild 各自在本模块里只干一件事（fill 是「零件树填充」、fill(api.js) 是「拼请求体」，语义不同），跨文件同名不构成第二份实现；esc / q / ic / note / paint / walk / run 这些是各页惯用的单行短名，跟着新页面各加一份。\n2026-11-09 一笔（多模态 / @素材）：web/ui/asset-mention.js 的局部小件按存量登记（占位名已改成 escHtml / mediaUrl / newEl 一类，不与既有实现混名）；`row`（导演台时间线按镜头找行 / 设置页行渲染）是两处各管一种「行」，同口径登记。",
   "names": {
     "__spaDirty": 2,
     "__spaFlush": 2,
@@ -175,7 +175,8 @@
     "walk": 7,
     "withExt": 2,
     "write": 4,
-    "zh": 2
+    "zh": 2,
+    "row": 2
   },
   "single": {
     "fmtWhen": 1,

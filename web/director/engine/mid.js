@@ -391,7 +391,15 @@ function renderShotStrip(col) {
     all.forEach((sh, k) => {
       const c = sh.candidates.find(x => x.vid === sh.selId);
       const it = document.createElement('div');
-      it.className = 'strip-item' + (sh === curShot() ? ' sel' : '') + (shotReady(sh) ? ' ready' : '');
+      const prev = k > 0 ? all[k - 1] : null;
+      const chained = sh.linkPrev === 'tail';
+      const depOk = chained && prev && shotReady(prev);
+      const depText = chained
+        ? (prev
+          ? (depOk ? '已等到第 ' + k + ' 镜' : '等第 ' + k + ' 镜' + (prev.name ? '「' + prev.name + '」' : '') + '出画面（' + shotStatusOf(prev).text + '）')
+          : '等上一镜（这一镜在最前，没有可等的）')
+        : '';
+      it.className = 'strip-item' + (sh === curShot() ? ' sel' : '') + (shotReady(sh) ? ' ready' : '') + (chained ? ' chained' : '');
       it.dataset.sid = sh.id;
       it.draggable = true;
       const stripRaw = c?.url || sh.firstFrame || '';
@@ -400,8 +408,9 @@ function renderShotStrip(col) {
         : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
         : `<div class="ph"></div>`;
       it.innerHTML = `${thumb}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
-        <span class="st">${shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text}</span>`;
-      it.title = sh.name + '（点击切换，拖动排序）';
+        <span class="st">${shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text}</span>`
+        + (chained ? `<span class="dep${depOk ? ' ok' : ''}" title="${esc(depText)}">${icon(depOk ? 'check' : 'link', 10)}</span>` : '');
+      it.title = sh.name + (chained && prev ? ' · ' + depText : '') + '（点击切换，拖动排序）';
       /* 收养的条件只有一个：这一格此刻显示的还是**同一份素材**的首帧（键对得上）。
          换了选用的候选就不收 —— 留着旧节点等于界面在替用户说假话（卡片上播的是另一条视频的封面），
          而序号与状态那两行是重建的，收养动不到它们。 */

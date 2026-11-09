@@ -27,6 +27,9 @@ assert.ok(r.invalid.some(x => x.id === 'b' && x.errors.some(e => /kind/.test(e))
 assert.equal(validateProviders([good, equiv1, equiv2, docOnly, text]).ok, true);
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'video', relay: '/x' }]).ok, false, '没有型号来源要报错');
 assert.equal(validateProviders([{ id: 'x', name: 'X', kind: 'text', relay: '/x' }]).ok, false, '文字缺 chat 要报错');
+/* modelsExclude：某些平台 /models 把 TTS 也列进来，文字档要能声明排掉哪一类。 */
+assert.equal(validateProviders([{ ...text, id: 'x4', relay: '/textai/x4', modelsExclude: 1 }]).ok, false, 'modelsExclude 不是字符串要红');
+assert.equal(validateProviders([{ ...text, id: 'x5', relay: '/textai/x5', modelsExclude: '-tts' }]).ok, true, 'modelsExclude 字符串合法');
 /* extraCaps（语音识别 / 联网搜索）：拼错一个字母不会报错、只会让设置页少一格 —— 值必须按白名单查，
    而且只能挂在文字供应商上（只有它们才有 /audio/transcriptions 与对话模型）。
    两档还必须各带一份端点声明：只有 extraCaps 会在界面上多一行、点下去必失败；
@@ -95,6 +98,14 @@ const caught = validateProviders(corrupt);
 assert.equal(caught.ok, false, '把真实注册表第一家改成非法 kind，校验器却没红 —— 上面那条真实表判据是空的');
 assert.ok(caught.invalid.some(x => x.id === REGISTRY.providers[0].id && /kind/.test(x.errors.join(''))),
   '真实表改坏了，报错却没点名那一家');
+/* MiMo：文字与语音共用一把密钥，两个 relay 段；文字档要能被 TextAI 认到，
+   型号能力按 modelDocs 声明，并且 /models 里把 -tts 排掉。 */
+const mimoText = REGISTRY.providers.find(p => p.id === 'mimo-text');
+assert.ok(mimoText && mimoText.kind === 'text' && mimoText.keyId === 'mimo', 'MiMo 文字 AI 声明不见了');
+assert.ok(mimoText.endpoints && mimoText.endpoints.chat && mimoText.endpoints.models, 'MiMo 文字档缺 chat / models 端点');
+assert.ok((mimoText.modelDocs || []).some(m => m.id === 'mimo-v2.6-flash' && m.vision && m.audio && m.video),
+  'MiMo 文字型号的三类输入能力没声明');
+assert.equal(mimoText.modelsExclude, '-tts', 'MiMo 文字档没把 TTS 型号排掉');
 console.log('✓ 真实注册表校验通过（' + REGISTRY.providers.length + ' 家，v' + REGISTRY.version + '）');
 
 /* assetStore 声明（顶层一条）：/asset/<id>、渲染素材解析、本机补存三处都靠它知道

@@ -69,8 +69,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(!shell.pageScrolls, '页面自己在滚（整页高度 ' + shell.docH + 'px）—— 这一页是「两栏两滚」：页面不滚，滚的是目录轨与右栏那条文档');
     must(shell.railRight <= shell.docLeft, '左轨压住了右栏（轨右缘 ' + shell.railRight + ' > 文档左缘 ' + shell.docLeft + '）：两栏的宽度只从一枚令牌来');
     must(Math.abs(shell.railW - shell.trackW) <= 1, '左轨（' + shell.railW + 'px）比它那一列（' + shell.trackW + 'px）宽/窄：轨填满自己那一列，不许自己写一份宽度');
-    must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：14 张卡排成一条，就得能一路滚到底');
-    must(shell.railRows === 14, '目录轨只有 ' + shell.railRows + ' 行（5 组 14 张卡：一张卡一行）');
+    must(shell.docScrollable, '右栏那条文档不滚（内容 ' + shell.docH + ' / 视口 ' + shell.docClient + '）：15 张卡排成一条，就得能一路滚到底');
+    must(shell.railRows === 15, '目录轨只有 ' + shell.railRows + ' 行（5 组 15 张卡：一张卡一行）');
     must(shell.groups === 5, '目录轨不是 5 组：' + shell.groups);
     must(shell.notes === 0, '目录轨里又长出组说明（' + shell.notes + ' 条）：这一页不写说明句');
     must(/第 \d+ \/ \d+ 项/.test(shell.pos), '状态行没说得出「现在在第几项」：' + shell.pos);

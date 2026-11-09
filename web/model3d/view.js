@@ -17,8 +17,10 @@ import { TransformControls } from '../vendor/three/TransformControls.js';
 import {
   createStage, setPanorama, buildContent, disposeContent, disposeStage,
   boundsOf, updateCameraRig, setCameraRigs, setTrackPaths,
+  setStageLights, applyLightSample, tightenStageShadows, updateLightRig, setLightRigs,
+  setSketchMarks, screenToCamPath,
 } from './scene.js';
-import { sampleAnim, sampleCams } from './anim.js';
+import { sampleAnim, sampleCams, sampleLights } from './anim.js';
 import { findNode } from './schema.js';
 import { jointsOf, applyJoints } from './rig.js';
 import { applyClip } from './clip.js';
@@ -98,7 +100,11 @@ export function createView(host, opts = {}) {
   camGizmo.name = 'camera-gizmo';
   camGizmo.visible = false;
   stage.scene.add(camGizmo);
-
+  /* 灯的拖动代理：与 camGizmo 同一副用法（移动改位置，旋转环改看向）。 */
+  const lightGizmo = new THREE.Object3D();
+  lightGizmo.name = 'light-gizmo';
+  lightGizmo.visible = false;
+  stage.scene.add(lightGizmo);
   let doc = null;
   let content = null;
   let mode = 'director';
@@ -107,6 +113,7 @@ export function createView(host, opts = {}) {
   let aspect = '16:9';
   let selectedId = '';
   let selectedCam = '';
+  let selectedLight = '';
   let dragging = false;
   let rigOn = true;                    // 相机标识开关（页面偏好，不进模型文件）
   let dirty = true;
@@ -118,10 +125,19 @@ export function createView(host, opts = {}) {
   let onPick = null;
   let onTransform = null;
   let onCamTransform = null;
+  let onLightTransform = null;
   let onCameraChange = null;
   let onNotes = null;
+  let onSketchChange = null;
   let lastNotesKey = '';
   let lastPoseKey = '';
+  /* 涂鸦层：标注只存在页面手里（不进 doc），这里只负责画、采集与拾取。 */
+  let sketchOn = false;
+  let sketchTool = 'select';
+  let sketchColor = 'blue';
+  let sketchText = '';
+  let sketchMarks = [];
+  let stroke = null;
   const rt = new Map();                // `${w}x${h}` -> WebGLRenderTarget
 
   /* 置脏必须连着排一帧：只把 dirty 立起来、不踢 kick 的话，rAF 循环不会醒
@@ -147,6 +163,7 @@ export function createView(host, opts = {}) {
      机位视角里永远不画（那套线正好糊在画面中央）；出图 / 出片另在 grab 里强制摘掉。 */
   function syncRig() {
     if (stage.rigs) stage.rigs.visible = rigOn && mode === 'director';
+    if (stage.lightRigs) stage.lightRigs.visible = rigOn && mode === 'director';
     if (stage.paths) stage.paths.visible = mode === 'director';
   }
   /* 导演视角能不能转，只看「在导演视角 && 没在拖手柄」。
@@ -178,11 +195,37 @@ export function createView(host, opts = {}) {
     camGizmo.updateMatrixWorld(true);
   }
 
+  const lightLook = new THREE.Object3D();
+  function syncLightGizmo(light, sample) {
+    if (!light) return;
+    const at = (sample && sample.at) || light.at;
+    const target = (sample && sample.target) || light.target || [0, 0, 0];
+    lightGizmo.position.set(at[0], at[1], at[2]);
+    lightLook.position.set(at[0], at[1], at[2]);
+    lightLook.lookAt(new THREE.Vector3(target[0], target[1], target[2]));
+    lightGizmo.quaternion.copy(lightLook.quaternion);
+    lightGizmo.updateMatrixWorld(true);
+  }
+
+  /* 灯每帧跟着采样走：灯对象、标识、选中代理三处一起写。 */
+  function applyLights(time, nodeSamples) {
+    if (!doc) return;
+    const ns = nodeSamples || sampleAnim(doc.anim, time, doc);
+    const lights = sampleLights(doc.anim, doc, time, ns);
+    for (const light of (doc.scene.lights || [])) {
+      const s = lights[light.id] || light;
+      const rec = stage.lightMap.get(light.id);
+      if (rec) applyLightSample(rec, s);
+      updateLightRig(stage, light, s, light.id === selectedLight);
+      if (light.id === selectedLight && !dragging) syncLightGizmo(light, s);
+    }
+  }
+
   /* 把当前时刻的活动机位写进 camC，并把所有机位的视锥标识同步到这一帧。 */
   function applyCamera(t, nodeSamples) {
     if (!doc) return;
     const time = t == null ? playT : Math.max(0, Number(t) || 0);
-    const ns = nodeSamples || sampleAnim(doc.anim, time);
+    const ns = nodeSamples || sampleAnim(doc.anim, time, doc);
     const cams = sampleCams(doc.anim, doc, time, ns);
     const activeId = doc.scene.active;
     const activeCam = doc.scene.cams.find(c => c.id === activeId) || doc.scene.cams[0];
@@ -196,6 +239,7 @@ export function createView(host, opts = {}) {
         if (cam.id === selectedCam && !dragging) syncCamGizmo(cam, s);
       }
     }
+    applyLights(time, ns);
     markDirty();
   }
 
@@ -218,18 +262,17 @@ export function createView(host, opts = {}) {
     stage.floor.visible = doc.scene.view.ground;
     stage.grid.visible = doc.scene.view.grid;
     setCameraRigs(stage, doc.scene.cams, doc.scene.active, ASPECTS[aspect] || 16 / 9);
+    setStageLights(stage, doc.scene.lights, doc.scene.light);
+    setLightRigs(stage, doc.scene.lights, selectedLight);
     setTrackPaths(stage, doc);
     applyCamera(playT);
-    if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
+    if (selectedLight) setSelection({ kind: 'light', id: selectedLight });
+    else if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
     else setSelection(selectedId);
     const box = boundsOf(content);
     const span = Math.max(1, box.max.x - box.min.x, box.max.y - box.min.y, box.max.z - box.min.z);
     /* 阴影相机按内容收紧：白膜的自阴影条纹主要来自阴影贴图铺得太开 */
-    const sc = stage.key.shadow.camera;
-    const half = Math.max(2.5, span * 0.85);
-    sc.left = -half; sc.right = half; sc.top = half; sc.bottom = -half;
-    sc.near = 0.5; sc.far = 60;
-    sc.updateProjectionMatrix();
+    tightenStageShadows(stage, span);
     markDirty();
   }
 
@@ -241,6 +284,7 @@ export function createView(host, opts = {}) {
     lastNotesKey = '';
     if (first || o.resetTime) playT = 0;
     if (selectedCam && (!doc || !doc.scene.cams.some(c => c.id === selectedCam))) selectedCam = '';
+    if (selectedLight && (!doc || !doc.scene.lights.some(l => l.id === selectedLight))) selectedLight = '';
     if (o.aspect) aspect = o.aspect; else if (doc) aspect = doc.scene.view.aspect;
     mode = doc ? doc.scene.view.mode : mode;
     rebuild();
@@ -302,6 +346,7 @@ export function createView(host, opts = {}) {
     syncOrbitEnabled();
     if (sel && typeof sel === 'object' && sel.kind === 'cam') {
       selectedCam = String(sel.id || '');
+      selectedLight = '';
       selectedId = '';
       const cam = doc && doc.scene.cams.find(c => c.id === selectedCam);
       const rig = cam && stage.rigMap.get(cam.id);
@@ -319,7 +364,28 @@ export function createView(host, opts = {}) {
       markDirty();
       return;
     }
+    if (sel && typeof sel === 'object' && sel.kind === 'light') {
+      selectedLight = String(sel.id || '');
+      selectedCam = '';
+      selectedId = '';
+      const light = doc && doc.scene.lights.find(l => l.id === selectedLight);
+      const rig = light && stage.lightRigMap.get(light.id);
+      if (!light || !rig) {
+        helper.visible = false;
+        detachGizmos();
+        markDirty();
+        return;
+      }
+      syncLightGizmo(light);
+      helper.setFromObject(rig.pick);
+      helper.visible = true;
+      if (editable && mode === 'director') attachGizmos(lightGizmo);
+      else detachGizmos();
+      markDirty();
+      return;
+    }
     selectedCam = '';
+    selectedLight = '';
     selectedId = sel || '';
     const wrap = selectedId && content ? content.byId.get(selectedId) : null;
     /* 锁定的实体只画选中框、不挂手柄：手柄一挂上，拖一下就把锁定的东西挪了 */
@@ -340,6 +406,7 @@ export function createView(host, opts = {}) {
   function setEditable(v) {
     editable = v !== false;
     if (!editable) detachGizmos();
+    else if (selectedLight) setSelection({ kind: 'light', id: selectedLight });
     else if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
     else setSelection(selectedId);
     syncOrbitEnabled();
@@ -350,7 +417,8 @@ export function createView(host, opts = {}) {
     mode = m === 'camera' ? 'camera' : 'director';
     syncOrbitEnabled();
     syncRig();
-    if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
+    if (selectedLight) setSelection({ kind: 'light', id: selectedLight });
+    else if (selectedCam) setSelection({ kind: 'cam', id: selectedCam });
     else setSelection(selectedId);
     markDirty();
   }
@@ -387,12 +455,13 @@ export function createView(host, opts = {}) {
   function applyTime(t) {
     if (!doc || !content) return;
     playT = Math.max(0, Number(t) || 0);
-    const samples = sampleAnim(doc.anim, playT);
+    const samples = sampleAnim(doc.anim, playT, doc);
     const ids = Object.keys(samples);
     let needPose = false;
     const keyParts = [];
     for (const id of ids) {
       const s = samples[id];
+      const motionKey = s.motion ? (typeof s.motion === 'object' ? JSON.stringify(s.motion) : s.motion) : '';
       if (s.pose || s.motion) {
         const node = findNode(doc.scene.nodes, id);
         if (node && (node.kind === 'mannequin' || node.kind === 'crowd')) {
@@ -400,7 +469,7 @@ export function createView(host, opts = {}) {
           poseOverrides.set(id, { pose: s.pose || node.pose, motion: s.motion || '' });
         }
       }
-      keyParts.push(id + ':' + (s.pose || '') + ':' + (s.motion || ''));
+      keyParts.push(id + ':' + (s.pose || '') + ':' + motionKey);
     }
     const key = keyParts.join('|');
     const poseChanged = key !== lastPoseKey;
@@ -409,8 +478,10 @@ export function createView(host, opts = {}) {
       /* 姿势 / 步态变了 —— 重建（白膜的动；一帧三十来个零件，24fps 下够用） */
       const keep = selectedId;
       const keepCam = selectedCam;
+      const keepLight = selectedLight;
       rebuild();
-      if (keepCam) setSelection({ kind: 'cam', id: keepCam });
+      if (keepLight) setSelection({ kind: 'light', id: keepLight });
+      else if (keepCam) setSelection({ kind: 'cam', id: keepCam });
       else setSelection(keep);
     }
     for (const id of ids) {
@@ -419,6 +490,16 @@ export function createView(host, opts = {}) {
       if (wrap) {
         if (s.at) wrap.position.set(s.at[0], s.at[1], s.at[2]);
         if (s.rot) wrap.rotation.set(s.rot[0] * D2R, s.rot[1] * D2R, s.rot[2] * D2R);
+        /* 缩放键覆盖节点自身的 scale（镜像在 x 上取负：负号留给镜像） */
+        if (s.scale) {
+          const sx = wrap.scale.x < 0 ? -Math.abs(s.scale[0]) : Math.abs(s.scale[0]);
+          wrap.scale.set(sx, s.scale[1], s.scale[2]);
+        }
+        /* 显隐键只管「轨道让它出现 / 消失」；节点自己 hidden 的仍然不显示 */
+        if (s.visible != null) {
+          const node = findNode(doc.scene.nodes, id);
+          wrap.visible = s.visible && !(node && node.visible === false);
+        }
       }
       if (s.joints && s.joints.length) {
         const joints = jointsOf(content, id);
@@ -519,14 +600,156 @@ export function createView(host, opts = {}) {
   }
   window.addEventListener('pointerup', stopGizmoDrag, true);
   window.addEventListener('pointercancel', stopGizmoDrag, true);
-  window.addEventListener('blur', stopGizmoDrag);
+  window.addEventListener('blur', () => { cancelStroke(); stopGizmoDrag(); });
+
+  /* ---------------- 涂鸦（标注只存在页面手里，不进 doc） ---------------- */
+  const round3s = v => Math.round((Number(v) || 0) * 1000) / 1000;
+  function liveMarkOfStroke() {
+    if (!stroke) return null;
+    if (stroke.type === 'arrow') return { type: 'arrow', color: stroke.color, from: stroke.from, to: stroke.to };
+    if (stroke.pts.length < 2) return null;
+    return { type: stroke.type, color: stroke.color, pts: stroke.pts.slice() };
+  }
+  function syncSketch() {
+    const live = liveMarkOfStroke();
+    setSketchMarks(stage, live ? sketchMarks.concat([live]) : sketchMarks);
+    markDirty();
+  }
+  function notifySketch() {
+    if (!onSketchChange) return;
+    try { onSketchChange(sketchMarks.map(m => JSON.parse(JSON.stringify(m)))); } catch (e) { /* 页面自己不刷新不影响画 */ }
+  }
+  /* 参考深度面：选中实体的中心；机位视角取机位看向的点；否则取导演视角的焦点。 */
+  function sketchFocusPoint() {
+    if (selectedId && content) {
+      const o = content.byId.get(selectedId);
+      if (o) return o.getWorldPosition(new THREE.Vector3());
+    }
+    if (mode === 'camera' && doc) {
+      const c = doc.scene.cams.find(x => x.id === doc.scene.active) || doc.scene.cams[0];
+      if (c && Array.isArray(c.target)) return new THREE.Vector3().fromArray(c.target);
+    }
+    return orbit.target.clone();
+  }
+  function sketchPoint(e) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+    ray.setFromCamera(pointer, activeCamera());
+    const fwd = new THREE.Vector3();
+    activeCamera().getWorldDirection(fwd);
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(fwd, sketchFocusPoint());
+    const out = new THREE.Vector3();
+    if (!ray.ray.intersectPlane(plane, out)) return null;
+    return [round3s(out.x), round3s(out.y), round3s(out.z)];
+  }
+  function strokePoints(from, to) {
+    const cam = activeCamera();
+    const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+    const f = new THREE.Vector3().fromArray(from);
+    const d = new THREE.Vector3().fromArray(to).sub(f);
+    const u = d.dot(right);
+    const v = d.dot(up);
+    const ptOf = (vec) => [round3s(vec.x), round3s(vec.y), round3s(vec.z)];
+    if (stroke.type === 'rect') {
+      const a = f.clone();
+      const b = f.clone().addScaledVector(right, u);
+      const c = b.clone().addScaledVector(up, v);
+      const d2 = f.clone().addScaledVector(up, v);
+      return [ptOf(a), ptOf(b), ptOf(c), ptOf(d2)];
+    }
+    const r = Math.hypot(u, v);
+    const pts = [];
+    for (let i = 0; i <= 48; i++) {
+      const a = (i / 48) * Math.PI * 2;
+      pts.push(ptOf(f.clone().addScaledVector(right, Math.cos(a) * r).addScaledVector(up, Math.sin(a) * r)));
+    }
+    return pts;
+  }
+  function eraseNear(pt) {
+    const point = new THREE.Vector3().fromArray(pt);
+    let best = -1;
+    let bestD = 0.25;
+    sketchMarks.forEach((m, i) => {
+      const pts = m.type === 'arrow' ? [m.from, m.to] : (m.type === 'text' ? [m.at] : (m.pts || []));
+      for (const q of pts) {
+        if (!Array.isArray(q)) continue;
+        const d = point.distanceTo(new THREE.Vector3().fromArray(q));
+        if (d < bestD) { bestD = d; best = i; }
+      }
+    });
+    if (best >= 0) { sketchMarks.splice(best, 1); syncSketch(); notifySketch(); }
+  }
+  function beginStroke(e) {
+    const pt = sketchPoint(e);
+    if (!pt) return;
+    if (sketchTool === 'eraser') { eraseNear(pt); return; }
+    if (sketchTool === 'text') {
+      const txt = String(sketchText || '').trim();
+      if (!txt) return;
+      sketchMarks.push({ type: 'text', color: sketchColor, at: pt, text: txt.slice(0, 60) });
+      syncSketch();
+      notifySketch();
+      return;
+    }
+    stroke = { type: sketchTool, color: sketchColor, pts: [pt], from: pt, to: pt };
+    orbit.enabled = false;
+  }
+  function moveStroke(e) {
+    if (!stroke) return;
+    const pt = sketchPoint(e);
+    if (!pt) return;
+    if (stroke.type === 'arrow') { stroke.to = pt; syncSketch(); return; }
+    if (stroke.type === 'circle' || stroke.type === 'rect') {
+      stroke.to = pt;
+      stroke.pts = strokePoints(stroke.from, pt);
+      syncSketch();
+      return;
+    }
+    const last = stroke.pts[stroke.pts.length - 1];
+    if (!last || Math.hypot(pt[0] - last[0], pt[1] - last[1], pt[2] - last[2]) > 0.02) {
+      stroke.pts.push(pt);
+      syncSketch();
+    }
+  }
+  function endStroke() {
+    if (!stroke) return;
+    const m = liveMarkOfStroke();
+    if (m) sketchMarks.push(m);
+    stroke = null;
+    syncOrbitEnabled();
+    syncSketch();
+    if (m) notifySketch();
+  }
+  function cancelStroke() {
+    if (!stroke) return;
+    stroke = null;
+    syncOrbitEnabled();
+    syncSketch();
+  }
 
   /* ---------------- 拾取 ---------------- */
   const ray = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
   let downAt = null;
-  renderer.domElement.addEventListener('pointerdown', e => { downAt = { x: e.clientX, y: e.clientY }; });
+  renderer.domElement.addEventListener('pointerdown', e => {
+    /* 涂鸦档：gizmo 优先，其次实体，空白处才画；中键 / 右键永远归视口。 */
+    if (sketchOn && sketchTool !== 'select' && e.button === 0) {
+      if (gizmo.axis || gizmoR.axis || gizmo.dragging || gizmoR.dragging) return;
+      const rect = renderer.domElement.getBoundingClientRect();
+      pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
+      ray.setFromCamera(pointer, activeCamera());
+      if (content && ray.intersectObject(content.group, true).some(h => !h.object.isLineSegments)) return;
+      e.preventDefault();
+      beginStroke(e);
+      return;
+    }
+    downAt = { x: e.clientX, y: e.clientY };
+  });
+  renderer.domElement.addEventListener('pointermove', e => { if (stroke) moveStroke(e); });
+  renderer.domElement.addEventListener('pointercancel', () => { cancelStroke(); });
   renderer.domElement.addEventListener('pointerup', e => {
+    if (stroke) { endStroke(); downAt = null; return; }
     if (!downAt) return;
     const moved = Math.hypot(e.clientX - downAt.x, e.clientY - downAt.y);
     downAt = null;
@@ -538,12 +761,16 @@ export function createView(host, opts = {}) {
     if (mode === 'director' && rigOn && stage.rigMap) {
       for (const rig of stage.rigMap.values()) if (rig.pick) picks.push(rig.pick);
     }
+    if (mode === 'director' && rigOn && stage.lightRigMap) {
+      for (const rig of stage.lightRigMap.values()) if (rig.pick) picks.push(rig.pick);
+    }
     const hits = ray.intersectObjects([content.group, ...picks], true);
     for (const h of hits) {
       let o = h.object;
       if (o.isLineSegments) continue;             // 描边不参与拾取
-      while (o && !o.userData.camId && !o.userData.nodeId) o = o.parent;
+      while (o && !o.userData.camId && !o.userData.lightId && !o.userData.nodeId) o = o.parent;
       if (o && o.userData.camId) { if (onPick) onPick({ kind: 'cam', id: o.userData.camId }); return; }
+      if (o && o.userData.lightId) { if (onPick) onPick({ kind: 'light', id: o.userData.lightId }); return; }
       if (!o || !o.userData.nodeId) continue;
       /* 锁定的实体点不中（它自己也隐藏时更要点不中）——「锁住」在视口里就该是碰不到的 */
       const n = doc ? findNode(doc.scene.nodes, o.userData.nodeId) : null;
@@ -561,6 +788,12 @@ export function createView(host, opts = {}) {
       if (!onCamTransform) return;
       const pos = [round(camGizmo.position.x), round(camGizmo.position.y), round(camGizmo.position.z)];
       onCamTransform(selectedCam, { pos });
+      return;
+    }
+    if (selectedLight) {
+      if (!onLightTransform) return;
+      const at = [round(lightGizmo.position.x), round(lightGizmo.position.y), round(lightGizmo.position.z)];
+      onLightTransform(selectedLight, { at });
       return;
     }
     const obj = gizmo.object;
@@ -585,6 +818,18 @@ export function createView(host, opts = {}) {
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camGizmo.quaternion).normalize();
       const target = [round(pos[0] + dir.x * dist), round(pos[1] + dir.y * dist), round(pos[2] + dir.z * dist)];
       onCamTransform(selectedCam, { pos, target });
+      return;
+    }
+    if (selectedLight) {
+      if (!onLightTransform || !doc) return;
+      const light = doc.scene.lights.find(l => l.id === selectedLight);
+      if (!light) return;
+      const at = [round(lightGizmo.position.x), round(lightGizmo.position.y), round(lightGizmo.position.z)];
+      const t = light.target || [0, 0, 0];
+      const dist = Math.max(0.001, Math.hypot(t[0] - at[0], t[1] - at[1], t[2] - at[2]));
+      const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(lightGizmo.quaternion).normalize();
+      const target = [round(at[0] + dir.x * dist), round(at[1] + dir.y * dist), round(at[2] + dir.z * dist)];
+      onLightTransform(selectedLight, { at, target });
       return;
     }
     const obj = gizmoR.object;
@@ -627,11 +872,15 @@ export function createView(host, opts = {}) {
     const prevTarget = renderer.getRenderTarget();
     /* 出图 / 出片是交付物：视锥标识、路径线、选中框这类视口辅助物一个都不能进画面。 */
     const prevRigs = stage.rigs ? stage.rigs.visible : false;
+    const prevLightRigs = stage.lightRigs ? stage.lightRigs.visible : false;
+    const prevSketch = stage.sketch ? stage.sketch.visible : false;
     const prevPaths = stage.paths ? stage.paths.visible : false;
     const prevHelper = helper.visible;
     const prevGizmo = gizmo.getHelper().visible;
     const prevGizmoR = gizmoR.getHelper().visible;
     if (stage.rigs) stage.rigs.visible = false;
+    if (stage.lightRigs) stage.lightRigs.visible = false;
+    if (stage.sketch) stage.sketch.visible = false;
     if (stage.paths) stage.paths.visible = false;
     helper.visible = false;
     gizmo.getHelper().visible = false;
@@ -646,6 +895,8 @@ export function createView(host, opts = {}) {
     renderer.readRenderTargetPixels(t, 0, 0, W, H, buf);
     renderer.setRenderTarget(prevTarget);
     if (stage.rigs) stage.rigs.visible = prevRigs;
+    if (stage.lightRigs) stage.lightRigs.visible = prevLightRigs;
+    if (stage.sketch) stage.sketch.visible = prevSketch;
     if (stage.paths) stage.paths.visible = prevPaths;
     helper.visible = prevHelper;
     gizmo.getHelper().visible = prevGizmo;
@@ -683,10 +934,33 @@ export function createView(host, opts = {}) {
     setDoc, rebuild, fit, frameTo, applyCamera, setActiveCam,
     setRigVisible(v) { rigOn = v !== false; syncRig(); markDirty(); },
     setSelection, setEditable, setViewMode, setAspect, setNavMode,
+    /* 涂鸦：页面手里那一份 + 视口渲染。标注不进 doc；出图 / 出片时整组摘掉。 */
+    setSketch(o) {
+      const opt = o || {};
+      if (opt.on != null) sketchOn = !!opt.on;
+      if (opt.tool) sketchTool = String(opt.tool);
+      if (opt.color) sketchColor = String(opt.color);
+      if (opt.text != null) sketchText = String(opt.text);
+      if (!sketchOn) { stroke = null; syncOrbitEnabled(); }
+      syncSketch();
+      markDirty();
+    },
+    getSketch() { return sketchMarks.map(m => JSON.parse(JSON.stringify(m))); },
+    setSketchMarks(list) {
+      sketchMarks = Array.isArray(list) ? list.map(m => JSON.parse(JSON.stringify(m))) : [];
+      syncSketch();
+    },
+    clearSketch() { sketchMarks = []; syncSketch(); notifySketch(); },
+    getSketchCamPath() {
+      const c = doc && ((doc.scene.cams.find(x => x.id === doc.scene.active)) || doc.scene.cams[0]);
+      return c ? screenToCamPath(sketchMarks, { pos: c.pos }) : [];
+    },
+    set onSketchChange(fn) { onSketchChange = fn; },
     setActive(fn) { active = fn || (() => true); markDirty(); kick(); },
     set onPick(fn) { onPick = fn; },
     set onTransform(fn) { onTransform = fn; },
     set onCamTransform(fn) { onCamTransform = fn; },
+    set onLightTransform(fn) { onLightTransform = fn; },
     set onCameraChange(fn) { onCameraChange = fn; },
     set onNotes(fn) { onNotes = fn; },
     get playing() { return playing; },
@@ -708,7 +982,7 @@ export function createView(host, opts = {}) {
     bounds() { return boundsOf(content); },
     cameraPose() {
       if (!doc) return { pos: camC.position.toArray(), target: [0, 1, 0], fov: camC.fov };
-      const ns = sampleAnim(doc.anim, playT);
+      const ns = sampleAnim(doc.anim, playT, doc);
       const cams = sampleCams(doc.anim, doc, playT, ns);
       const active = doc.scene.cams.find(c => c.id === doc.scene.active) || doc.scene.cams[0];
       const s = cams[active.id] || active;

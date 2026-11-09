@@ -36,10 +36,17 @@ _createElementVNode("div", {
 class: "prompt-box",
 "data-r": "promptBox"
 }, [
+_createElementVNode("div", { class: "ta-wrap" }, [
+_createElementVNode("div", {
+class: "ta-back",
+"data-r": "promptBack",
+"aria-hidden": "true"
+}),
 _createElementVNode("textarea", {
 "data-r": "prompt",
 spellcheck: "false"
-}),
+})
+]),
 _createElementVNode("div", {
 class: "prompt-hint",
 "data-r": "promptHint",

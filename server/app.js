@@ -1004,8 +1004,9 @@ const localAssets = createLocalAssets({
    进 LOCAL_ONLY（同源 + wb_session 双闸）—— 清掉就是清缓存，读写都只服务本工作台。 */
 const cacheRoutes = createCacheRoutes({ readBody, log, dataDirPath });
 
-/* 白膜库：模型 JSON / 缩略图 / 导入的 3D 文件，落在库根下的 `白膜/`（跟着 `sk_local_dir` 走） */
-const model3dRoutes = createModel3dRoutes({ readBody, log, localRoot });
+/* 白膜库：模型 JSON / 缩略图 / 导入的 3D 文件，落在库根下的 `白膜/`（跟着 `sk_local_dir` 走）；
+   模型索引落在数据目录的 `model-index/`。 */
+const model3dRoutes = createModel3dRoutes({ readBody, log, localRoot, dataDirPath });
 
 /* ============================================================================
    分发表（`handleRequest` 的 if 链 → `[match, handler]` 表）

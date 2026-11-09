@@ -31,3 +31,6 @@ version: 1
 6. 不要解释、不要 markdown。
 
 只输出 JSON。
+
+**共享词汇表（导演台同一套）**：
+{glossary}

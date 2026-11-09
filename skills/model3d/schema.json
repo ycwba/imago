@@ -1,0 +1,643 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "白膜文档 v3",
+  "description": "imago 建模台的白膜 / 场景文档（kind=model 或 scene）v3：normalizeDoc 的当前形状，服务端写盘时只保留非默认字段，读入时补全。坐标单位为米，Y 向上，模型朝 +Z；fov 是竖直视场角；rot 是度制欧拉角（Rx·Ry·Rz）；scale 可给单个数或三元组，0 换成 1、负数保留。校验只丢坏节点、不整棵失败，本 Schema 描述的是「一棵树里每个节点都站得住」的那一档。灯光 = scene.lights[]（sun / point / spot，省掉用内置默认的两盏）+ 装置级 scene.light；通用阵列是节点的 array:{rows,cols,gapX,gapZ,jitter}（crowd 仍用自己的行列字段）。v1 / v2 的旧文件请先用 tools/migrate-model.cjs 迁移。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["scene"],
+  "properties": {
+    "v": {
+      "const": 3,
+      "x-help": "文档版本。省略按当前版（3）读；写 1 / 2 请先用 tools/migrate-model.cjs 迁移。"
+    },
+    "kind": {
+      "enum": ["model", "scene"],
+      "x-help": "model = 白模库里的实体模板；scene = 用户的工作场景。省略按 model 读。"
+    },
+    "name": {
+      "type": "string",
+      "x-help": "实体 / 场景名。模型必须给具体短名（2–12 字）；身份是「组/名」，与磁盘相对路径同形。"
+    },
+    "group": {
+      "type": "string",
+      "x-help": "组名。模型是白模库里的分组，场景是场景组；空串 = 未分组。"
+    },
+    "note": {
+      "type": "string",
+      "x-help": "备注，纯文本。"
+    },
+    "ts": {
+      "type": "number",
+      "x-help": "最后修改时间（毫秒时间戳）。"
+    },
+    "scene": { "$ref": "#/$defs/scene", "x-help": "场景本体：根节点、机位、全景与画幅视角设置。" },
+    "anim": { "$ref": "#/$defs/anim", "x-help": "时间轴：时长 / 帧率 / 循环与轨道列表。" },
+    "out": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/outItem" },
+      "x-help": "固定出片条：出图 / 出片的历史结果，picked 记勾选。"
+    },
+    "src": { "$ref": "#/$defs/src", "x-help": "这一份的来源：生成时的用户原话与 AI 判断的复用来源。" }
+  },
+  "$defs": {
+    "vec3": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 3,
+      "maxItems": 3,
+      "x-help": "三元组；坐标取 3 位小数，数值不设人为上限。"
+    },
+    "pair": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "scale": {
+      "oneOf": [
+        { "type": "number" },
+        { "$ref": "#/$defs/vec3" }
+      ],
+      "x-help": "缩放；单个数字等于三轴同值。0 会被换成 1（0 缩放的节点在 three 里等于消失），负数保留（镜像写法）。"
+    },
+    "color": {
+      "type": "string",
+      "pattern": "^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$",
+      "x-help": "颜色 #rrggbb 或 #rgb；不写就是白模灰阶。颜色沿父子树继承：给实体根 group 上色，整件都会换色。"
+    },
+    "node": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": {
+          "enum": ["group", "prim", "mannequin", "crowd", "asset", "ref"],
+          "x-help": "group 空组 / prim 图元与曲面 / mannequin 小人 / crowd 群众阵列 / asset 导入的 3D 文件 / ref 引用另一份白膜当子装配。"
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "x-help": "节点 id；轨道、机位 follow 与修改协议里的 op 都按它认人。同一棵树里唯一。"
+        },
+        "name": {
+          "type": "string",
+          "x-help": "显示名；可省。"
+        },
+        "fromModel": {
+          "type": "string",
+          "x-help": "场景实体记的来源模板（「组/名」）；从库放进场景时由程序写，不用手填。"
+        },
+        "at": {
+          "$ref": "#/$defs/vec3",
+          "x-help": "位置（米），相对父节点；省略为 [0,0,0]。"
+        },
+        "rot": {
+          "$ref": "#/$defs/vec3",
+          "x-help": "旋转（度，欧拉序 Rx·Ry·Rz，即 three 的 'XYZ'）；省略为 [0,0,0]。"
+        },
+        "scale": { "$ref": "#/$defs/scale", "x-help": "缩放；单个数字等于三轴同值；省略为 1。0 会被换成 1，负数保留（镜像写法）。" },
+        "visible": {
+          "type": "boolean",
+          "x-help": "false = 隐藏；省略为可见。"
+        },
+        "locked": {
+          "type": "boolean",
+          "x-help": "true = 锁定；省略为不锁。"
+        },
+        "color": { "$ref": "#/$defs/color", "x-help": "颜色 #rrggbb 或 #rgb；不写就继承父节点的颜色，一路没有就是白模灰阶。" },
+        "children": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" },
+          "x-help": "子节点；数量与嵌套深度都不设上限，子节点坐标相对父节点。"
+        },
+        "shape": {
+          "enum": ["box", "sphere", "cylinder", "cone", "capsule", "torus", "plate", "loft", "lathe", "extrude"],
+          "x-help": "prim 必填。box/plate 用 size；sphere/cone 用 r+h；cylinder 另收 r2；capsule 的 h 是柱身长（不含两端半球）；torus 用 r（环半径）+r2（管半径）；loft 用 rings；lathe 用 profile；extrude 用 poly+depth。"
+        },
+        "tone": {
+          "enum": ["hi", "mid", "lo"],
+          "x-help": "白模灰阶：hi 亮（主体）/ mid 中（次要）/ lo 暗（点缀）。prim 与 mannequin 默认 hi，crowd 默认 mid。"
+        },
+        "size": {
+          "$ref": "#/$defs/vec3",
+          "x-help": "box / plate 的三边尺寸；分量 0 会被换成 1。"
+        },
+        "r": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "x-help": "半径；球 / 柱 / 锥 / 胶囊 / 环的总半径。"
+        },
+        "r2": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "x-help": "柱的上半径（cylinder，省略等于 r）/ 环的管半径（torus）。"
+        },
+        "h": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "x-help": "高度；capsule 的 h 是柱身长，不含两端半球。"
+        },
+        "rings": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/ring" },
+          "x-help": "loft 放样环，至少 2 环，从下往上一路排；沿路径扫掠时改用 path + profile。"
+        },
+        "subdiv": {
+          "type": "integer",
+          "minimum": 1,
+          "x-help": "loft 环间细分段数（Catmull-Rom 补足）；不写保持旧版每两环 4 段平滑；不设上限。"
+        },
+        "path": {
+          "$ref": "#/$defs/path",
+          "x-help": "loft 沿路径扫掠：与 profile 一起用；不写就是等高 rings 那一套。"
+        },
+        "profile": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/profilePoint" },
+          "x-help": "lathe 旋转体轮廓 / loft 沿路径扫掠的半径曲线，至少 2 点；每点 [r,进度]，r 不许为负。"
+        },
+        "poly": {
+          "type": "array",
+          "minItems": 3,
+          "items": { "$ref": "#/$defs/pair" },
+          "x-help": "extrude 的闭合多边形（至少 3 点），每点 [x,y]。"
+        },
+        "depth": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "x-help": "extrude 的拉伸深度（米）；省略为 0.2。"
+        },
+        "seg": {
+          "type": "integer",
+          "minimum": 3,
+          "x-help": "曲面细分（正整数 >= 3，越大越顺）；球 / 柱 / 锥 / 胶囊 / 环 / 拉伸 / 放样 / 旋转体都认，省略按各形状默认。"
+        },
+        "mirror": {
+          "type": "boolean",
+          "x-help": "true = 关于 X=0 镜像一份。"
+        },
+        "repeat": {
+          "$ref": "#/$defs/repeat",
+          "x-help": "沿一条线复制；展开顺序是先 array / repeat，再对每一份 mirror。"
+        },
+        "array": {
+          "$ref": "#/$defs/array",
+          "x-help": "通用阵列：任意节点摆成 rows × cols 的网格。第一格落在节点自己的 at 上；间距可负（允许重叠 / 反向排）；jitter 是确定性的位置 / 朝向 / 缩放微差。crowd 用它自己的行列字段，不叠这一份。"
+        },
+        "body": {
+          "type": "string",
+          "x-help": "mannequin / crowd 的体型：mannequin（男）/ female / broad / muscular / slim / teen / child / chibi（二头身）；省略为 mannequin。"
+        },
+        "pose": {
+          "type": "string",
+          "x-help": "mannequin / crowd 的姿势：stand / t-pose / walk / run / sit / crouch / kneel-one / kneel-two / hands-on-hips / lean / bow / think / fight / kick / throw / push / wave / reach / cross-arms / phone；省略为 stand。未知姿势按 stand 渲染。"
+        },
+        "controls": {
+          "type": "object",
+          "additionalProperties": { "type": "number" },
+          "x-help": "小人微调：键是「关节.轴」= 度数，如 {\"rightShoulder.pitch\":60,\"leftKnee.bend\":20}。关节前缀 body / torso / head / leftShoulder / rightShoulder / leftElbow / rightElbow / leftHip / rightHip / leftKnee / rightKnee / leftFoot / rightFoot / leftHand / rightHand；轴 pitch/yaw/roll，肘膝用 bend，肩髋另有 twist/spread；body.offsetY 是整体升降。"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 1,
+          "x-help": "crowd 行数（正整数，不设上限）；省略为 3。"
+        },
+        "cols": {
+          "type": "integer",
+          "minimum": 1,
+          "x-help": "crowd 列数（正整数，不设上限）；省略为 3。"
+        },
+        "gapX": {
+          "type": "number",
+          "minimum": 0,
+          "x-help": "crowd 横向间距（米）；省略为 0.9。"
+        },
+        "gapZ": {
+          "type": "number",
+          "minimum": 0,
+          "x-help": "crowd 纵向间距（米）；省略为 0.9。"
+        },
+        "jitter": {
+          "type": "number",
+          "minimum": 0,
+          "x-help": "crowd 站姿微差；省略为 0。"
+        },
+        "file": {
+          "type": "string",
+          "pattern": "^_模型文件/",
+          "not": { "pattern": "\\.\\." },
+          "x-help": "asset 必填：导入的 3D 文件路径，形如 _模型文件/长凳.fbx。只认库内相对路径，不许 .. 越界。"
+        },
+        "lib": {
+          "type": "string",
+          "x-help": "asset 的来源库名；跨库引用时由程序写。"
+        },
+        "clay": {
+          "type": "boolean",
+          "x-help": "true（默认）= 统一换成白模材质；false 保留文件自带材质。"
+        },
+        "clip": {
+          "type": "string",
+          "x-help": "asset 的 clip 名，只能填提示词「动画摆件清单」里列出的名字；清单里没有的不要编。省略 = 静态。"
+        },
+        "clipSpeed": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "x-help": "clip 播放速度；省略为 1。"
+        },
+        "clipLoop": {
+          "enum": ["loop", "once", "hold"],
+          "x-help": "loop 循环 / once 播完停 / hold 播完停在末帧；省略为 loop。"
+        },
+        "clipOffset": {
+          "type": "number",
+          "x-help": "clip 起始偏移（秒）；省略为 0。"
+        },
+        "model": {
+          "type": "string",
+          "minLength": 1,
+          "x-help": "ref 必填：被引用的白膜身份「组/名」。引用不能成环。"
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "prim" } }, "required": ["kind"] },
+          "then": { "required": ["shape"] }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "prim" }, "shape": { "const": "loft" } },
+            "required": ["kind", "shape"]
+          },
+          "then": {
+            "anyOf": [
+              { "required": ["rings"] },
+              { "required": ["path", "profile"] }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "prim" }, "shape": { "const": "lathe" } },
+            "required": ["kind", "shape"]
+          },
+          "then": { "required": ["profile"] }
+        },
+        {
+          "if": {
+            "properties": { "kind": { "const": "prim" }, "shape": { "const": "extrude" } },
+            "required": ["kind", "shape"]
+          },
+          "then": { "required": ["poly"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "asset" } }, "required": ["kind"] },
+          "then": { "required": ["file"] }
+        },
+        {
+          "if": { "properties": { "kind": { "const": "ref" } }, "required": ["kind"] },
+          "then": { "required": ["model"] }
+        }
+      ]
+    },
+    "ring": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["rx", "rz"],
+      "properties": {
+        "y": { "type": "number", "x-help": "这一环的高度（米）。" },
+        "rx": { "type": "number", "exclusiveMinimum": 0, "x-help": "X 向半径。" },
+        "rz": { "type": "number", "exclusiveMinimum": 0, "x-help": "Z 向半径。" },
+        "cx": { "type": "number", "x-help": "X 向圆心偏移；省略为 0。" },
+        "cz": { "type": "number", "x-help": "Z 向圆心偏移；省略为 0。" }
+      }
+    },
+    "profilePoint": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2,
+      "x-help": "[r,y]；r 不许为负，非正会被抬起一个极小值。"
+    },
+    "repeat": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["n"],
+      "properties": {
+        "n": { "type": "integer", "minimum": 1, "x-help": "份数（不设人为上限；n <= 1 不生效）。" },
+        "dx": { "type": "number", "x-help": "每份的 X 向位移（米）。" },
+        "dy": { "type": "number", "x-help": "每份的 Y 向位移（米）。" },
+        "dz": { "type": "number", "x-help": "每份的 Z 向位移（米）。" }
+      }
+    },
+    "array": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "rows": { "type": "integer", "minimum": 1, "x-help": "行数（正整数，1 = 单排）；不设上限。" },
+        "cols": { "type": "integer", "minimum": 1, "x-help": "列数（正整数，1 = 单列）；不设上限。" },
+        "gapX": { "type": "number", "x-help": "相邻两列的 X 向间距（米，可为负）；省略为 1。" },
+        "gapZ": { "type": "number", "x-help": "相邻两行的 Z 向间距（米，可为负）；省略为 1。" },
+        "jitter": { "type": "number", "minimum": 0, "x-help": "每格的微差幅度（>= 0）；同样的输入每次算出来一样（重建不跳）。" }
+      }
+    },
+    "scene": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["nodes"],
+      "properties": {
+        "nodes": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/node" },
+          "x-help": "根层节点；数量不设上限。"
+        },
+        "cams": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/cam" },
+          "x-help": "机位列表；省略 = 一台默认机位。至少保留一个机位。"
+        },
+        "active": {
+          "type": "string",
+          "x-help": "当前机位 id；指不到任何一台时退回第一台。省略为第一台。"
+        },
+        "lights": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/light" },
+          "x-help": "灯实体列表（只收有位置的三种：太阳 / 点光 / 聚光）；省略 = 内置默认的主光 + 补光，写成空数组 = 只留半球光。"
+        },
+        "light": { "$ref": "#/$defs/lightDev", "x-help": "装置级灯光：半球光 / 地面阴影 / 曝光。省略 = 默认值。" },
+        "panorama": { "$ref": "#/$defs/panorama", "x-help": "背景全景图；省略 = 没有。" },
+        "view": { "$ref": "#/$defs/view", "x-help": "视角模式 / 画幅 / 网格与描边开关。" }
+      }
+    },
+    "cam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "x-help": "机位 id；轨道 of.kind=cam 与 scene.active 按它认人。" },
+        "name": { "type": "string", "x-help": "机位显示名；省略按序号起名。" },
+        "pos": { "$ref": "#/$defs/vec3", "x-help": "机位位置（米）；省略为默认机位坐标。" },
+        "target": { "$ref": "#/$defs/vec3", "x-help": "看向的目标点；省略为 [0,1,0]。" },
+        "fov": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180,
+          "x-help": "竖直视场角（度，three 的约定，不是水平角），必须在 0~180 之间；省略为 35。"
+        },
+        "follow": {
+          "type": "string",
+          "x-help": "跟随的节点 id；机位轨道里有 target 关键帧时不生效（关键帧优先）。"
+        }
+      }
+    },
+    "panorama": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "src": { "type": "string", "x-help": "全景图地址；空 = 没有全景。" },
+        "yaw": { "type": "number", "x-help": "全景朝向（度）；省略为 0。" },
+        "radius": { "type": "number", "exclusiveMinimum": 0, "x-help": "全景球半径（米）；省略为 20。" }
+      }
+    },
+    "light": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "shape"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "x-help": "灯 id；轨道 of.kind=light 与 light op 按它认人。" },
+        "name": { "type": "string", "x-help": "灯显示名；省略按序号起名。" },
+        "shape": { "enum": ["sun", "point", "spot"], "x-help": "sun 平行光 / point 点光 / spot 聚光。省略按 sun 读。" },
+        "at": { "$ref": "#/$defs/vec3", "x-help": "灯的位置（米）；省略为 [3,4,3]。" },
+        "target": { "$ref": "#/$defs/vec3", "x-help": "照向的目标点（sun / spot）；省略为 [0,0,0]。" },
+        "energy": { "type": "number", "minimum": 0, "x-help": "强度（不设人为上限）；省略时 sun 2 / spot 40 / point 10。" },
+        "color": { "$ref": "#/$defs/color", "x-help": "灯光颜色 #rrggbb；省略为白。" },
+        "follow": { "type": "string", "x-help": "跟随的节点 id（把 target 钉在它身上）；灯轨道里有 target 关键帧时不生效。" },
+        "shadow": {
+          "type": "object",
+          "additionalProperties": false,
+          "x-help": "投影设置（只对 sun 有效）；省略 = 不投影。",
+          "properties": {
+            "on": { "type": "boolean", "x-help": "true = 这盏灯投下阴影。" },
+            "mapSize": { "type": "integer", "minimum": 32, "x-help": "阴影贴图边长；省略为 2048。" },
+            "bias": { "type": "number", "x-help": "阴影偏移；省略为 -0.0005（压白膜上的自阴影条纹）。" },
+            "normalBias": { "type": "number", "x-help": "法线方向偏移；省略为 0.02。" }
+          }
+        },
+        "angle": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1.5707963,
+          "x-help": "spot 的锥角（弧度，0~π/2）；省略为 π/6。"
+        },
+        "penumbra": { "type": "number", "minimum": 0, "maximum": 1, "x-help": "spot 的柔边（0~1）；省略为 0.35。" },
+        "distance": { "type": "number", "minimum": 0, "x-help": "point / spot 的衰减距离（米，0 = 不衰减）；省略为 0。" }
+      }
+    },
+    "lightDev": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "hemi": {
+          "type": "object",
+          "additionalProperties": false,
+          "x-help": "半球光；省略 = 默认天空白 / 地面 #d9d4cc / 强度 1.35。",
+          "properties": {
+            "sky": { "$ref": "#/$defs/color", "x-help": "天空色。" },
+            "ground": { "$ref": "#/$defs/color", "x-help": "地面反光色。" },
+            "energy": { "type": "number", "minimum": 0, "x-help": "强度。" }
+          }
+        },
+        "ground": {
+          "type": "object",
+          "additionalProperties": false,
+          "x-help": "地面上的阴影底色（ShadowMaterial，不画实底）；省略 = #1a1a1a / 0.16。",
+          "properties": {
+            "color": { "$ref": "#/$defs/color", "x-help": "阴影颜色。" },
+            "opacity": { "type": "number", "minimum": 0, "maximum": 1, "x-help": "阴影浓度。" }
+          }
+        },
+        "exposure": { "type": "number", "exclusiveMinimum": 0, "x-help": "整体亮度倍率；省略为 1（不加不减）。" }
+      }
+    },
+    "view": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "enum": ["director", "camera"], "x-help": "视角模式：director 导演视角 / camera 机位视角；省略为 director。" },
+        "aspect": { "enum": ["16:9", "9:16", "1:1", "4:3"], "x-help": "画幅；省略为 16:9。" },
+        "grid": { "type": "boolean", "x-help": "false = 不画网格；省略为画。" },
+        "ground": { "type": "boolean", "x-help": "false = 不画地台；省略为画。" },
+        "outline": { "type": "boolean", "x-help": "false = 不描边；省略为描边。" }
+      }
+    },
+    "anim": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "duration": { "type": "number", "exclusiveMinimum": 0, "x-help": "时间轴时长（秒，大于 0）；省略为 4。" },
+        "fps": { "type": "integer", "minimum": 1, "x-help": "帧率（正整数）；省略为 24。" },
+        "loop": { "type": "boolean", "x-help": "false = 播到末尾停住；省略为循环。" },
+        "tracks": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/track" },
+          "x-help": "轨道列表；数量不设上限。"
+        }
+      }
+    },
+    "trackOf": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "id"],
+      "properties": {
+        "kind": { "enum": ["node", "cam", "light"], "x-help": "这条轨道驱动节点、机位还是灯光。" },
+        "id": { "type": "string", "minLength": 1, "x-help": "被驱动对象的 id。" }
+      }
+    },
+    "track": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "of"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "x-help": "轨道 id；track op 按它认人。" },
+        "of": { "$ref": "#/$defs/trackOf", "x-help": "这条轨道驱动的是哪个节点 / 哪台机位。" },
+        "enabled": { "type": "boolean", "x-help": "false = 停用；省略为启用。" },
+        "color": { "type": "integer", "minimum": 0, "x-help": "轨道色号（0~5，程序按调色板取模）；省略为 0。" },
+        "interp": { "enum": ["smooth", "linear", "hold"], "x-help": "关键帧插值；省略为 smooth。" },
+        "offset": { "type": "number", "minimum": 0, "x-help": "这条轨道从第几秒开始（之前它不动）；省略为 0。" },
+        "speed": { "type": "number", "exclusiveMinimum": 0, "x-help": "轨道倍速：局部时间 = (t − offset) × speed；省略为 1。" },
+        "duration": { "type": "number", "minimum": 0, "x-help": "这条轨道自己的长度（秒，0 = 跟全片时长一样）；省略为 0。" },
+        "keysMode": { "enum": ["override", "offset"], "x-help": "override = 关键帧接管路径（默认）；offset = 关键帧只当相对路径的偏移，路径形状保留。" },
+        "solo": { "type": "boolean", "x-help": "true = 只让被 solo 的轨道参与采样（调一条时其他先别动）。" },
+        "follow": { "type": "string", "x-help": "跟着哪个节点走：位移叠在被跟随节点的位置上（节点轨道用）。" },
+        "ease": { "enum": ["", "in", "out", "inout", "linear", "hold"], "x-help": "整条轨道的速度曲线（与 path.ease 同一套）；空 / 省略为 linear。" },
+        "motion": {
+          "oneOf": [
+            { "enum": ["", "walk", "run"] },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind"],
+              "properties": {
+                "kind": { "enum": ["walk", "run"], "x-help": "步态种类。" },
+                "speed": { "type": "number", "exclusiveMinimum": 0, "x-help": "步频倍率；省略为 1。" },
+                "stride": { "type": "number", "exclusiveMinimum": 0, "x-help": "步幅 / 腿摆倍率；省略为 1。" },
+                "arm": { "type": "number", "minimum": 0, "x-help": "臂摆倍率；省略为 1。" }
+              }
+            }
+          ],
+          "x-help": "walk / run = 让人物连续走动 / 跑（配合 path 才有位移）；也可以给对象调 speed / stride / arm；空 = 不做步态。"
+        },
+        "joint": { "type": "string", "x-help": "空 = 驱动整个节点；写子关节路径（如 torso/leftShoulder/leftElbow）时只转那一个关节，motion / path 对它无效。关节路径不截断层数。" },
+        "path": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/path" }
+          ],
+          "x-help": "运动路径；与 keys 至少要有一份。"
+        },
+        "keys": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/key" },
+          "x-help": "关键帧，按时间升序；数量不设上限。"
+        }
+      },
+      "anyOf": [
+        { "required": ["keys"], "properties": { "keys": { "minItems": 1 } } },
+        { "required": ["path"], "properties": { "path": { "type": "object" } } }
+      ]
+    },
+    "path": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["line", "circle", "rect", "free"], "x-help": "line 直线 / circle 圆弧 / rect 矩形 / free 折线；省略按 line 读。" },
+        "from": { "$ref": "#/$defs/vec3", "x-help": "起点（米）；省略为 [0,0,0]。" },
+        "to": { "$ref": "#/$defs/vec3", "x-help": "终点（米）；省略为 [0,0,2]。" },
+        "radius": { "type": "number", "exclusiveMinimum": 0, "x-help": "circle 的半径；省略为 1.5。" },
+        "clockwise": { "type": "boolean", "x-help": "circle 是否顺时针；省略为逆时针。" },
+        "pts": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/vec3" },
+          "x-help": "free 的折线点（至少 2 点）；路径点数不设上限。"
+        },
+        "closed": { "type": "boolean", "x-help": "free 是否闭合。" },
+        "look": { "enum": ["fixed", "heading", "target"], "x-help": "机位沿路径走时的朝向：fixed 保持自己的 target（默认）/ heading 沿切线 / target 看向 lookAt 那个节点。" },
+        "lookAt": { "type": "string", "x-help": "look=target 时要看的节点 id。" },
+        "ease": { "enum": ["in", "out", "inout", "linear", "hold"], "x-help": "沿路径的速度曲线（起停缓）；省略为 linear（旧行为）。" },
+        "framing": { "enum": ["center", "keep", "rule3"], "x-help": "有 look 时的构图：center 主体居中 / rule3 主体偏到三分之一 / keep 保持原位（暂按 center）。" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "kind": { "const": "free" } }, "required": ["kind"] },
+          "then": { "required": ["pts"] }
+        }
+      ]
+    },
+    "key": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["t"],
+      "properties": {
+        "t": { "type": "number", "minimum": 0, "x-help": "时间（秒），只要求 >= 0。" },
+        "at": { "$ref": "#/$defs/vec3", "x-help": "节点 / 机位在这一刻的位置。" },
+        "rot": { "$ref": "#/$defs/vec3", "x-help": "旋转（度，欧拉序 Rx·Ry·Rz）；关节轨道上是在当前姿势之上叠加。" },
+        "pose": { "type": "string", "x-help": "人台在这一刻的姿势名。" },
+        "target": { "$ref": "#/$defs/vec3", "x-help": "机位键的看向目标。" },
+        "fov": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "exclusiveMaximum": 180,
+          "x-help": "机位键的竖直视场角（0~180 度）。"
+        },
+        "energy": { "type": "number", "minimum": 0, "x-help": "灯光键的强度（不设人为上限）。" },
+        "color": { "$ref": "#/$defs/color", "x-help": "灯光键的颜色。" },
+        "scale": { "$ref": "#/$defs/scale", "x-help": "物体在这一刻的缩放（覆盖节点自身的 scale）。" },
+        "visible": { "type": "boolean", "x-help": "false = 这一刻起看不见（STEP：到下一帧才切）。" },
+        "ease": { "enum": ["smooth", "linear", "hold"], "x-help": "这一段的插值，覆盖轨道级 interp。" }
+      }
+    },
+    "outItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "x-help": "出片条 id。" },
+        "assetId": { "type": "string", "x-help": "本机 / 平台资产号。" },
+        "url": { "type": "string", "x-help": "结果地址。" },
+        "type": { "enum": ["image", "video"], "x-help": "出图还是出片；省略为 image。" },
+        "name": { "type": "string", "x-help": "显示名。" },
+        "at": { "type": "number", "x-help": "产出时间（毫秒时间戳）。" },
+        "picked": { "type": "boolean", "x-help": "false = 未勾选；省略为勾选。" }
+      }
+    },
+    "reuse": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "x-help": "白模库模型身份「库名 :: 组/名」。" },
+        "mode": { "enum": ["as-is", "base"], "x-help": "as-is 原样复用 / base 以它为底改；省略为 base。" },
+        "why": { "type": "string", "x-help": "一句复用的理由。" }
+      }
+    },
+    "src": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "prompt": { "type": "string", "x-help": "生成这一份时的用户原话。" },
+        "reuse": {
+          "oneOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/reuse" }
+          ],
+          "x-help": "AI 判断的复用来源；null = 全新生成。"
+        }
+      }
+    }
+  }
+}

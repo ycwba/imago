@@ -730,7 +730,9 @@ async function genAllConfirm(plan, q) {
     body(el) {
       el.innerHTML = '<div class="dlg-line">将生成 <b>' + n + '</b> 镜'
         + (cands > n ? '（共 ' + cands + ' 条）' : '') + '。' + price + '</div>'
-        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交。</div>' : '')
+        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交：'
+          + plan.wait.slice(0, 4).map(sh => esc((sh.name || '未命名') + ' ← ' + ((plan.deps.get(sh) || {}).name || '上一镜'))).join('；')
+          + (plan.wait.length > 4 ? '；等 ' + plan.wait.length + ' 镜' : '') + '。</div>' : '')
         + (q.unpriced ? '<div class="dlg-warn">另有 ' + q.unpriced + ' 镜报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '；它们照常生成，按平台实际结算。</div>' : '')
         + badHTML
         + '<div class="dlg-hint">报价为平台参数询价，不等于最终结算。</div>';

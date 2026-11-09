@@ -110,6 +110,20 @@ function keepBodyScroll(el, fn) {
       const out = el.querySelector('.pinl-out');
       const think = el.querySelector('.pinl-think');
       const lenEl = el.querySelector('.pinl-len');
+      /* 「停止这一轮」是这一块里唯一的中止入口：以前只画了按钮、没绑事件，
+         点了毫无反应（而面板还在继续收流）。按下就断开上游，并把按钮钉成「正在停止…」，
+         连点不会重复 abort；收尾由调用方的 fail() 把按钮收掉。 */
+      const stopBtn = el.querySelector('[data-act="stop"]');
+      let stopped = false;
+      if (stopBtn && o.onStop) {
+        stopBtn.onclick = () => {
+          if (stopped) return;
+          stopped = true;
+          stopBtn.disabled = true;
+          stopBtn.textContent = '正在停止…';
+          try { o.onStop(); } catch (e) { /* 已经断了也算停：不往外抛，免得把面板打碎 */ }
+        };
+      }
       let text = '', thinkTxt = '', over = false;
       return {
         push(piece, kind) {
@@ -135,6 +149,7 @@ function keepBodyScroll(el, fn) {
           over = true;
           const sp = el.querySelector('.pinl-load');
           if (sp) sp.remove();
+          if (stopBtn) stopBtn.remove();        // 已经结束了，不再留一颗能点的「停止」
           el.querySelector('[data-tt]').textContent = '这次没写完';
           el.insertAdjacentHTML('afterbegin', `<div class="pinl-err">${esc(msg || '生成失败')}</div>`);
         },
@@ -421,12 +436,41 @@ function keepBodyScroll(el, fn) {
         /* 流式：面板**在第一个片段到达时**才建 —— 页面不支持流式（还是一次性 chat）时
            一个字节都收不到，看到的和以前完全一样，不会先摆出一个空面板。
            signal 交给页面转发给 TextAI.chatStream，「停止」要真能把请求断掉（不是把面板藏起来）。 */
-        let lv = null, ab = null;
+        let lv = null, ab = null, pendingNote = '';
+        /* 面板还没进入流式（或在等第一片正文）时，把「带了什么 / 没带什么」先写进加载态里 ——
+           视频 / 音频被能力或体积挡掉时，用户当场就能看到原因，不用等结果出来才去读一行小字。 */
+        const noteInLoading = t => {
+          if (!t) return;
+          const box = host.querySelector('.pinl');
+          if (!box) return;
+          let el = box.querySelector('.pinl-note');
+          if (!el) {
+            el = document.createElement('div');
+            el.className = 'pinl-note';
+            box.appendChild(el);
+          }
+          el.textContent = t;
+        };
         const push = (piece, kind) => {
-          if (!lv) { ab = new AbortController(); lv = self.live(host, { title: 'AI 正在写…', onStop: () => ab.abort() }); }
+          if (!lv) {
+            ab = new AbortController();
+            lv = self.live(host, { title: 'AI 正在写…', onStop: () => ab.abort() });
+            /* 首片正文到达才建面板：在那之前准备好的「随附素材」说明先攒着，
+               面板一出现就补上（「已附带：视频…」/「没带：…」都要当场看得见）。 */
+            if (pendingNote) lv.note(pendingNote);
+          }
           lv.push(piece, kind);
         };
-        const ctl = { push, get signal() { return ab && ab.signal; } };
+        const ctl = {
+          push,
+          /* 调用方在 prep 之后把「带了什么 / 没带什么」交上来 —— 这条以前只在最后的结果面板里出现，
+             跑的那十几秒里用户完全不知道视频 / 音频有没有真发出去。 */
+          note: t => {
+            pendingNote = String(t || '');
+            if (lv) lv.note(pendingNote); else noteInLoading(pendingNote);
+          },
+          get signal() { return ab && ab.signal; },
+        };
         let r;
         try {
           r = await o.run(answers || '', ctl);

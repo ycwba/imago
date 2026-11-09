@@ -51,8 +51,12 @@ assert.ok(TextAI.DEF.board_edit.includes('12. 消息里若带着「用户已经�
 /* ---- 反问走单独一轮：这两条仍在 NO_ASK（正文永不接 ASK_NOTE）---- */
 assert.ok(TextAI.NO_ASK.includes('split') && TextAI.NO_ASK.includes('board_edit'),
   'split / board_edit 必须留在 NO_ASK（正文指令不接追问说明，反问是单独一轮）');
-assert.equal(TextAI.defaultPrompt('split'), TextAI.stripAskNote(TextAI.DEF.split),
+/* defaultPrompt 会把共享词汇表填进 {glossary}（9 份导演台 Skill 同一份定义） */
+const filledSplit = ctx.window.TplVars.fill(TextAI.DEF.split, { glossary: TextAI.GLOSSARY });
+assert.equal(TextAI.defaultPrompt('split'), TextAI.stripAskNote(filledSplit),
   'split 的默认指令不应带 ASK_NOTE');
+assert.ok(TextAI.GLOSSARY.includes('**镜头（shot）**') && filledSplit.includes('**镜头（shot）**'),
+  '词汇表真的填进了 split 正文');
 
 /* ---- askPolish：focus 真的拼进系统提示词；问答 JSON 能解析 ---- */
 const PROV = { id: 'probe', kind: 'text', relay: '/relay/probe', endpoints: { chat: '/chat/completions' }, keyId: 'probe' };

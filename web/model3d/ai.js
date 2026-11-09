@@ -1,23 +1,34 @@
 /* AI 建模 —— 契约调用、流式渐进解析、复用判定、ops 修改。
    契约正文在 `skills/model3d/SKILL.md`（与 `TextAI.DEF.model3d` 同源），这里只管五件事：
 
-   1. **喂什么**：用户这一句 + 勾选的白模库模型清单（可多库）+ 库里有动画的摆件清单 + 当前场景
-      （全部节点 / 机位 / 轨道，不截断；选中的子树完整再给一份）+ 参考图；
+   1. **喂什么**：用户这一句 + 服务端按这一句在全部白模库里检索到的模型清单 + 库里有动画的摆件清单 + 当前场景
+      （大纲只给骨架；选中的子树给全字段且只给一遍；两段合计超过预算时子树也退成骨架）+ 参考图；
    2. **新建怎么收**：模型是一棵树，`"nodes":[…]` 里每收全一个对象就能建一个零件出来 ——
       `scanNodes` 按括号配平把它捞出来，调用方每个节点重建一次场景（这就是「实时预览」）；
    3. **修改怎么收**：默认只收 `{"say":"…","ops":[…]}`，在克隆上经 `schema.applyDocOps` 应用；
       坏 op 跳过并计数；只有新建 / 复用才收整份 `model`；
    4. **复用**：AI 可以回 `reuse:{id,mode}` —— `as-is` 表示「不用改，就用那一个」，
       `base` 表示「以它当底稿改」；
-   5. **坏数据**：单个节点解析不出来只丢那一个（`dropped` 计数交给界面照实报），
-      整份没有就返回 null 让页面保留上一版。
+   5. **坏数据**：单个节点解析不出来只丢那一个（`dropped` 计数 + 明细交给界面照实报），
+      整份没有就返回 null 让页面保留上一版；
+   6. **几何体检**：整份模型进场景前过 `lint.js`（悬空落地 / 身高夹取 / 出画幅缩放），
+      修了什么并进 `say`；体检结论、丢件明细与被跳过的修改一起整理成「上一轮的问题」，
+      随结果交回页面，下一轮原样喂回提示词；
+   7. **自查工具**：拿不准空间与构图时，AI 可以先要一次测量（当前场景包围盒 / 选中子树包围盒 /
+      当前视口缩略图），程序量完把结果交回去再让它继续 —— 只开这三条，没有别的工具。
 
    CSP 不放行 eval，所以 AI 只能交数据；这条路走的是「写一棵参数化树」，不是 text-to-3D 服务。 */
 
 import { parseJsonLoose } from '../domain/json-loose.js';
-import { normalizeDoc, applyDocOps, findNode } from './schema.js';
+import { normalizeDoc, applyDocOps, findNode, outlineOf, sparseTrack, round3 } from './schema.js';
+import { subtreeIds } from './entities.js';
+import { lintDoc, boundsOfScene } from './lint.js';
 
 const CONTRACT = 'model3d.json';
+
+/* 「当前场景」那一段的字符预算（大纲 + 选中子树的完整字段）。超了就把选中子树退成骨架。
+   不做配置项：这是提示词的硬上限，不是可调的画质 —— 文档本身多大都照收。 */
+const SCENE_MAX_CHARS = 16000;
 
 const line = v => String(v == null ? '' : v).replace(/\s+/g, ' ').trim();
 
@@ -33,17 +44,135 @@ function animSpecOf(model) {
   };
 }
 
-/* 可调用的白模库清单：一行一条，够 AI 判断「要不要复用」。
-   `library` 只在跨库清单里出现，写进 id 让复用能回到正确的库。
-   条数与每行长度都不设上限 —— 清单太长时用户自己少勾几个库。 */
+/* 整份模型进场景之前先过几何体检：站不站得住、进不进画幅。只修位置与比例、不丢零件；
+   明细随结果交回页面（并进 say，下一轮再喂回提示词）。改选中实体的 ops 不走这里 ——
+   那是用户已经在编辑的场景，把既有零件挪到地上比不动更意外。 */
+function lintedModel(model, aspect) {
+  const out = normalizeDoc(model);
+  const lint = lintDoc(out.doc, { aspect });
+  return {
+    doc: lint.doc,
+    dropped: out.dropped,
+    lint: { fixes: lint.fixes, warnings: lint.warnings },
+  };
+}
+
+/* 几何体检的结论并进 say：模型自己那句话在前，改了什么 / 提醒什么跟在后面。
+   什么都没发现就原样交回，不往 say 里塞空话。 */
+export function lintSayOf(say, lint) {
+  const text = String(say || '');
+  const lines = [];
+  const fixes = (lint && lint.fixes) || [];
+  const warns = (lint && lint.warnings) || [];
+  if (fixes.length) lines.push('几何体检：' + fixes.join('；'));
+  if (warns.length) lines.push('体检提醒：' + warns.join('；'));
+  if (!lines.length) return text;
+  const tail = '（' + lines.join('。') + '）';
+  return text ? text.replace(/\s+$/, '') + '\n' + tail : tail;
+}
+
+/* 上一轮的问题：丢掉的条目、被跳过的修改、几何体检的结论，整理成一小段文字。
+   下一轮把它当 {problems} 喂回提示词 —— AI 才知道上一轮错在哪，不会对着一棵少了零件的树
+   继续引用已不存在的 id（那条 op 再被 scope 拒掉，用户只看到「什么也没发生」）。
+   没有问题时给一个空格：TplVars 把空串当「这一项没料」、占位符会原样留着，
+   一个空格才让整段从提示词里消失。 */
+export function problemsTextOf(r) {
+  const lines = [];
+  const details = (r && r.dropped && Array.isArray(r.dropped.details)) ? r.dropped.details : [];
+  for (const d of details) {
+    const what = d.what === 'cam' ? '一个机位' : d.what === 'track' ? '一条轨道'
+      : d.what === 'out' ? '一条出片记录' : '一个零件';
+    const label = d.id ? (d.id + (d.name ? '「' + d.name + '」' : '')) : what;
+    lines.push('丢了 ' + label + '（' + d.why + '）');
+  }
+  for (const e of ((r && Array.isArray(r.errors)) ? r.errors : [])) {
+    if (e && e.why) lines.push('跳过一条修改：' + e.why);
+  }
+  const lint = (r && r.lint) || {};
+  for (const f of (Array.isArray(lint.fixes) ? lint.fixes : [])) lines.push('几何体检改过：' + f);
+  for (const w of (Array.isArray(lint.warnings) ? lint.warnings : [])) lines.push('体检提醒：' + w);
+  if (r && r.why) lines.push('这一轮的结果：' + r.why);
+  if (!lines.length) return ' ';
+  return '**上一轮的问题**（程序按上一轮结果整理；这一轮别重犯）：\n' + lines.map(x => '- ' + x).join('\n');
+}
+
+/* ---------- 自查工具（只在建模这一轮开着） ---------- */
+
+/* 三条只读工具：量当前场景 / 量选中子树 / 看一眼视口。AI 拿不准空间与构图时先问一句，
+   程序量完把结果交回去，它再继续写最终的树 —— 比盲猜「主体居中偏下」可靠。
+   工具结果只给模型看；最终输出仍是契约要求的那份 JSON。
+   轮次照联网工具那一套收口：几轮之后不再接 CALL，收一次尾让它直接交结果。 */
+const TOOL_MAX_ROUNDS = 3;
+const TOOL_NOTE = '【自查工具（这次建模里可用）】拿不准场景的空间与构图时，先只输出一行 CALL，'
+  + '程序量完把结果交回给你，你再继续完成原任务；不需要就完全不要提这些工具。\n'
+  + '量当前场景的包围盒：CALL: get_scene_bbox {}\n'
+  + '量当前选中子树的包围盒：CALL: get_selected_bbox {}\n'
+  + '看一眼当前构图：CALL: render_thumbnail {}\n'
+  + 'CALL 单独占一行，不要和 JSON 混在一起写。最终结果只按原要求输出，不要提工具、调用或缩略图这些过程。';
+
+/* 与 TextAI 的联网工具同一套 CALL 写法，但只认这三条 —— 这一层没有别的工具可用。 */
+function toolCallOf(txt) {
+  let s = String(txt == null ? '' : txt).trim();
+  const fence = /^```(?:json|text)?\s*([\s\S]*?)```$/i.exec(s);
+  if (fence) s = fence[1].trim();
+  const m = /^CALL\s*[:：]\s*(get_scene_bbox|get_selected_bbox|render_thumbnail)\b/i.exec(s);
+  return m ? m[1].toLowerCase() : '';
+}
+
+const boxText = box => {
+  const r = v => String(round3(v));
+  const dimOf = i => round3(box.max[i] - box.min[i]);
+  return 'min(' + box.min.map(r).join(', ') + ') → max(' + box.max.map(r).join(', ') + ')，'
+    + '中心(' + [0, 1, 2].map(i => r((box.min[i] + box.max[i]) / 2)).join(', ') + ')，'
+    + '尺寸 ' + dimOf(0) + ' × ' + dimOf(1) + ' × ' + dimOf(2) + ' 米';
+};
+
+/* 工具的执行只有这一处。`thumbnail` 由页面递进来（视口与视口里的相机只在页面手里）。 */
+async function runCheckTool(name, ctx) {
+  const doc = ctx && ctx.doc;
+  if (name === 'get_scene_bbox') {
+    const box = boundsOfScene(doc);
+    if (!box) return { text: '【场景包围盒】当前场景没有能量尺寸的零件（空的，或只有导入的摆件 —— 外观未知不参与量尺寸）。' };
+    return { text: '【场景包围盒】' + boxText(box) + '。地面是 y=0。' };
+  }
+  if (name === 'get_selected_bbox') {
+    const sel = (doc && ctx.selectedId && Array.isArray(doc.scene && doc.scene.nodes))
+      ? findNode(doc.scene.nodes, ctx.selectedId) : null;
+    if (!sel) return { text: '【选中子树包围盒】当前没有选中任何节点（先在场景里点中一件再量）。' };
+    const head = '【选中子树包围盒】' + (sel.name ? '「' + sel.name + '」' : '') + '（' + sel.id + '）';
+    const box = boundsOfScene({ scene: { nodes: [sel] } });
+    if (!box) return { text: head + '：这棵子树没有能量尺寸的零件（导入的摆件外观未知，不参与）。' };
+    return { text: head + '：' + boxText(box) + '。' };
+  }
+  if (name === 'render_thumbnail') {
+    let url = '';
+    try { url = ctx.thumbnail ? String((await ctx.thumbnail()) || '') : ''; } catch (e) { url = ''; }
+    if (!url) return { text: '【视口缩略图】现在拿不到视口画面（不在建模台或画布还没起来）；只按包围盒判断。' };
+    return {
+      text: '【视口缩略图】当前构图已经附在这一轮后面（最后一张图；当前型号支持识图就能看到，看不到就只按包围盒判断）。'
+        + '看图核一遍主体的大小与位置，再决定要不要调 at / scale。',
+      image: { label: '当前视口', url },
+    };
+  }
+  return { text: '【工具失败】不认识的工具：' + name + '。' };
+}
+
+/* 白模库检索清单：一行一条，够 AI 判断「要不要复用」。
+   服务端检索出来的一行本来就带 `库名 :: 模型id`；只有 id 还没带库名时这里补上。
+   结构摘要（`brief`）比零件名多一层形状与阵列份数，是「能不能当餐桌用」这类判断的第二眼；
+   旧数据没有它时退回零件名。条数与每行长度都不设上限 —— 库大就列全，不替用户截断。 */
 export function catalogText(models) {
   const rows = (models || []).map(m => {
+    const rawId = String(m.id || m.model || '');
+    const library = String(m.library || '');
+    const id = (library && rawId.indexOf(' :: ') < 0) ? library + ' :: ' + rawId : rawId;
     const nodes = Number(m.nodes) > 0 ? '（' + m.nodes + ' 个零件）' : '';
+    const brief = Array.isArray(m.brief) && m.brief.length ? ' [ ' + m.brief.join(' / ') + ' ]' : '';
+    const parts = Array.isArray(m.parts) && m.parts.length ? '：' + m.parts.join('、') : '';
     const why = m.note ? '：' + String(m.note) : '';
-    const id = m.library ? String(m.library) + ' :: ' + m.id : m.id;
-    return '- ' + id + nodes + why;
+    return '- ' + id + nodes + (brief || parts) + why;
   });
-  return rows.length ? rows.join('\n') : '（勾选的白模库里还没有模型）';
+  return rows.length ? rows.join('\n') : '（白模库里还没有模型）';
 }
 
 /* 库里有动画的摆件清单：AI 写 clip 时只能填这里列出的 clip 名。
@@ -60,7 +189,7 @@ export function animationText(entries) {
 }
 
 /* 给 AI 看的紧凑节点：省略默认值，但所有几何字段与所有节点都保留，不截断。 */
-function compactNode(n) {
+export function compactNode(n) {
   const o = {};
   for (const k of Object.keys(n)) {
     if (k === 'children') continue;
@@ -83,29 +212,80 @@ function compactNode(n) {
   return o;
 }
 
-/* 当前模型：机位、节点、轨道全部给；节点只省略默认值。不截断节点数 / 字符数。 */
+/* 机位、灯光与时间轴各一行：够 AI 调机位 / 灯 / 改时长，几乎不占字。 */
+function sceneMetaLines(doc) {
+  const scene = (doc && doc.scene) || {};
+  const out = [];
+  const camTracks = new Map();
+  for (const tr of ((doc && doc.anim && doc.anim.tracks) || [])) {
+    if (!tr || !tr.of || tr.of.kind !== 'cam') continue;
+    const list = camTracks.get(tr.of.id) || [];
+    list.push(tr);
+    camTracks.set(tr.of.id, list);
+  }
+  for (const c of (Array.isArray(scene.cams) ? scene.cams : [])) {
+    const name = line(c.name);
+    const trs = camTracks.get(c.id) || [];
+    out.push('机位 ' + line(c.id) + (name ? '「' + name + '」' : '')
+      + ' pos=[' + (c.pos || []).join(',') + '] target=[' + (c.target || []).join(',') + '] fov=' + c.fov
+      + (c.follow ? ' follow=' + c.follow : '')
+      + (scene.active === c.id ? ' · 当前' : '')
+      + (trs.length ? ' · 轨道 ' + trs.map(tr => tr.id + '('
+        + (tr.path ? tr.path.kind + (tr.path.look ? '/' + tr.path.look : '') : 'keys')
+        + ' ' + (tr.keys || []).length + '帧'
+        + (tr.offset ? ' 偏移' + tr.offset + 's' : '')
+        + (tr.speed && tr.speed !== 1 ? ' ' + tr.speed + '×' : '')
+        + ')').join('；') : ''));
+  }
+  const lights = Array.isArray(scene.lights) ? scene.lights : [];
+  if (lights.length) {
+    out.push('灯 ' + lights.map(l => line(l.id) + (l.name ? '「' + l.name + '」' : '') + ' ' + l.shape
+      + ' at=[' + (l.at || []).join(',') + ']'
+      + (l.target ? ' target=[' + l.target.join(',') + ']' : '')
+      + ' energy=' + l.energy
+      + (l.color && l.color !== '#ffffff' ? ' color=' + l.color : '')
+      + (l.follow ? ' follow=' + l.follow : '')
+      + (l.shape === 'sun' && l.shadow && l.shadow.on ? ' 投影' : '')).join('；'));
+  } else {
+    out.push('灯：没有实体灯（只有半球环境光）');
+  }
+  const dev = scene.light || {};
+  out.push('灯光装置 hemi.energy=' + ((dev.hemi && dev.hemi.energy) || 0) + ' exposure=' + (dev.exposure || 1));
+  const anim = (doc && doc.anim) || {};
+  out.push('时间轴 ' + (anim.duration || 0) + 's · ' + (anim.fps || 0) + 'fps · ' + (anim.loop === false ? '不循环' : '循环'));
+  return out;
+}
+
+/* 当前场景：两段 —— 大纲（骨架）+ 选中子树的完整细节。
+   选中的那棵子树在大纲里只占摘要行，全字段只在第二段出现：同一棵树不喂两遍。
+   两段合计超过 SCENE_MAX_CHARS 时，第二段退成骨架（id 仍可用），几何字段不再给出。 */
 export function currentText(doc, selectedId) {
   if (!doc || !doc.scene || !doc.scene.nodes || !doc.scene.nodes.length) {
     return '（新建：当前没有模型；这是全新生成，不是修改）';
   }
-  const body = {
-    kind: doc.kind || 'model',
-    name: doc.name,
-    group: doc.group,
-    scene: {
-      view: doc.scene.view,
-      panorama: doc.scene.panorama,
-      cams: doc.scene.cams,
-      active: doc.scene.active,
-      nodes: doc.scene.nodes.map(compactNode),
-    },
-    anim: doc.anim,
-  };
-  if (selectedId) {
-    const n = findNode(doc.scene.nodes, selectedId);
-    if (n) body.selected = n;
+  const head = '【场景大纲】顶层不带缩进的是实体；每行 = id「名字」(形状或种类) 子n（n 是子节点数），'
+    + '只够认出结构；节点坐标 / 材质 / 轨道不在这里（机位与时间轴在末尾各一行）。';
+  let text = head + '\n' + outlineOf(doc).concat(sceneMetaLines(doc)).join('\n');
+  const sel = selectedId ? findNode(doc.scene.nodes, selectedId) : null;
+  if (!sel) return text;
+
+  const ids = subtreeIds(sel);
+  const tracks = ((doc.anim && doc.anim.tracks) || [])
+    .filter(t => t && t.of && t.of.kind === 'node' && ids.has(t.of.id));
+  const detailHead = '\n\n【选中实体完整细节】这棵子树给全字段（id 都在下面；改它只用这些 id），其它节点只有大纲：\n';
+  const full = JSON.stringify({ node: compactNode(sel), tracks: tracks.map(sparseTrack) });
+  if (text.length + detailHead.length + full.length <= SCENE_MAX_CHARS) {
+    return text + detailHead + full;
   }
-  return JSON.stringify(body);
+
+  const skeleton = outlineOf({ scene: { nodes: [sel] } }).join('\n');
+  const trs = tracks.map(t => '- ' + t.id + ' → ' + t.of.id + '（' + (t.keys ? t.keys.length : 0) + ' 个关键帧'
+    + (t.path ? '，带路径 ' + t.path.kind : '') + '）');
+  return text
+    + '\n\n【选中实体骨架】这棵子树共 ' + ids.size + ' 个节点，完整字段超过提示词预算（' + SCENE_MAX_CHARS + ' 字），只给骨架；'
+    + '几何字段没给出，不要凭空猜坐标，只做结构改动（add / remove / move / group），或者请用户先选中更小的范围。\n'
+    + skeleton
+    + (trs.length ? '\n轨道摘要：\n' + trs.join('\n') : '');
 }
 
 /* 流式里「已经收全的那些节点」：从 `"nodes":[` 开始按括号配平扫，
@@ -145,6 +325,68 @@ export function scanNodes(text) {
   return out;
 }
 
+/* 涂鸦标注：页面手里那一份（不进 doc）。这里只把它整理成给 AI 看的文字。
+   颜色是语义：蓝 = 相机路径 / 黄 = 主体 / 红 = 避开 / 绿 = 保留 / 白 = 说明 / 灰黑 = 参考。
+   camPath 是程序从蓝线换算好的机位位移 —— 让 AI 照抄，别让它做三维换算。 */
+function sketchTextOf(sk) {
+  if (!sk || !Array.isArray(sk.marks) || !sk.marks.length) return ' ';
+  const lines = ['模式：' + (sk.mode === 'subject' ? 'subject（主体这么走，镜头跟住）' : 'camera（镜头这么动）')];
+  if (sk.aspect || sk.duration || sk.fps) {
+    lines.push('画幅 ' + (sk.aspect || '16:9') + ' · 时间轴 ' + (sk.duration || 4) + 's · ' + (sk.fps || 24) + 'fps');
+  }
+  for (const m of sk.marks) {
+    if (!m || typeof m !== 'object') continue;
+    const col = String(m.color || 'blue');
+    if (m.type === 'arrow') {
+      lines.push('- arrow · ' + col + '：' + JSON.stringify(m.from || []) + ' → ' + JSON.stringify(m.to || []));
+    } else if (m.type === 'text') {
+      lines.push('- text · ' + col + '：' + String(m.text || '') + ' @ ' + JSON.stringify(m.at || []));
+    } else if (Array.isArray(m.pts) && m.pts.length) {
+      lines.push('- ' + (m.type || 'path') + ' · ' + col + '：' + m.pts.length + ' 点，'
+        + JSON.stringify(m.pts[0]) + ' → ' + JSON.stringify(m.pts[m.pts.length - 1]));
+    }
+  }
+  if (Array.isArray(sk.camPath) && sk.camPath.length) {
+    lines.push('程序算好的机位路径（照抄，不要自己换算）：' + JSON.stringify(sk.camPath));
+  }
+  return lines.join('\n');
+}
+
+/* 这一轮的占位符取值。抽出来是为了能直接对着契约正文断言「下一轮的提示词里真的
+   带上了上一轮的问题」—— 纯计算，不发请求、不碰 window。
+   `problems` 为空时给一个空格：整段从提示词里消失，而不是留一行空标题。
+   `media` 是 prepareMedia 交回来的素材（图片 / 视频 / 声音）；老的 `images` 仍然认。 */
+export function promptVarsOf(opts) {
+  const o = opts || {};
+  const mode = o.mode;
+  const anims = animationText(o.animations);
+  const media = (Array.isArray(o.media) ? o.media : [])
+    .concat((o.images || []).filter(x => !(o.media || []).length));
+  const n = { image: 0, video: 0, audio: 0 };
+  const refs = media.map(x => {
+    const kind = x && x.kind === 'video' ? 'video' : x && x.kind === 'audio' ? 'audio' : 'image';
+    n[kind] += 1;
+    const tag = kind === 'image' ? '图' : kind === 'video' ? '视频' : '音频';
+    const label = line(x && (x.label || x.name)) || (tag + n[kind]);
+    return tag + n[kind] + ' = ' + label;
+  });
+  const problems = String(o.problems || '');
+  return {
+    prompt: String(o.prompt || ''),
+    catalog: String(o.catalog || '（白模库里还没有模型）'),
+    animations: anims || ' ',
+    current: currentText(o.doc, o.selectedId),
+    selected: o.selectedId ? ('当前选中：' + o.selectedId) : '（当前没有选中对象）',
+    refImages: refs.length ? refs.join('、') : '（这次没有参考素材）',
+    aspect: String(o.aspect || '16:9'),
+    mode: mode === 'auto' ? '自动判断：没选中就新增实体；选中了就按用户的话修改选中的实体'
+      : mode === 'edit' ? '修改选中实体'
+        : (mode === 'entity' ? '在场景里新增一个实体' : '新建一个模型'),
+    problems: problems.trim() ? problems : ' ',
+    sketch: sketchTextOf(o.sketch),
+  };
+}
+
 /* 这一轮的 system / user：占位符由 TextAI.prompt 填（填不上时占位符原样留着，AI 会自己补） */
 function messages(vars) {
   const sys = window.TextAI.prompt('model3d', false, vars);
@@ -154,13 +396,14 @@ function messages(vars) {
 
 /* 跑一轮。返回 { say, reuse, doc, ops, applied, skipped, errors, dropped, raw, fallback }：
    · `reuse.mode === 'as-is'` 时 `doc` 为 null（页面该去加载 `reuse.id` 那一份）；
-   · `doc` 为 null 且没有 reuse 时表示这一轮没拿到可用的树 / ops（页面保留上一版并报错）。
+   · `doc` 为 null 且没有 reuse 时表示这一轮没拿到可用的树 / ops（页面保留上一版并报错）；
+   · 整份模型分支多一个 `lint: { fixes, warnings }`（几何体检改了什么 / 提醒了什么）。
    新建模式流式过程中每收到新的完整节点就回调一次 `onNodes(nodes, text)`；
    修改模式只回显正文，不边收边改（ops 必须整份收全才能可靠应用）。 */
 export async function run(opts) {
   const {
-    prompt, doc, mode: modeIn, catalog, animations, aspect, selectedId, images, scope,
-    signal, onNodes, onSay, onText,
+    prompt, doc, mode: modeIn, catalog, animations, aspect, selectedId, images, media, scope, problems,
+    sketch, thumbnail, signal, onNodes, onSay, onText,
   } = opts || {};
   const TextAI = window.TextAI;
   if (!TextAI) throw new Error('文字 AI 没就绪');
@@ -170,26 +413,10 @@ export async function run(opts) {
 
   const mode = modeIn === 'auto' ? 'auto'
     : (modeIn === 'edit' ? 'edit' : (modeIn === 'entity' ? 'entity' : (modeIn === 'new' ? 'new' : (doc && doc.scene.nodes.length ? 'edit' : 'new'))));
-  /* 清单为空时给一个空格：TplVars 把空串当「这一项没料」、占位符会原样留着，
-     一个空格才让整段从提示词里消失（不占 token，也不会让 AI 以为漏了材料）。 */
-  const anims = animationText(animations);
-  const refs = (images || []).map((x, i) => {
-    const label = line(x && (x.label || x.name)) || ('图' + (i + 1));
-    return '图' + (i + 1) + ' = ' + label;
-  });
-  const vars = {
-    prompt: String(prompt || ''),
-    catalog: String(catalog || '（这次没有可调用的白模库）'),
-    animations: anims || ' ',
-    current: currentText(doc, selectedId),
-    selected: selectedId ? ('当前选中：' + selectedId) : '（当前没有选中对象）',
-    refImages: refs.length ? refs.join('、') : '（这次没有参考图）',
-    aspect: String(aspect || '16:9'),
-    mode: mode === 'auto' ? '自动判断：没选中就新增实体；选中了就按用户的话修改选中的实体'
-      : mode === 'edit' ? '修改选中实体'
-        : (mode === 'entity' ? '在场景里新增一个实体' : '新建一个模型'),
-  };
+  const vars = promptVarsOf({ prompt, doc, mode, catalog, animations, media, images, aspect, selectedId, problems, sketch });
   const m = messages(vars);
+  /* 每一轮的结果都带一份「上一轮的问题」文本，页面存住、下一轮原样交回来 */
+  const withProblems = r => { r.problems = problemsTextOf(r); return r; };
   let buf = '';
   let lastCount = 0;
   const push = chunk => {
@@ -210,10 +437,35 @@ export async function run(opts) {
     }
   };
 
-  const txt = await TextAI.chatStream(REG, m.sys, m.user, { signal, noTools: true, images }, push);
+  const sys = m.sys + '\n\n' + TOOL_NOTE;
+  const normMedia = x => ({ kind: x && (x.kind === 'video' || x.kind === 'audio') ? x.kind : 'image', label: x && x.label, url: x && x.url });
+  const refMedia = (Array.isArray(media) ? media : [])
+    .concat((Array.isArray(images) ? images : []).filter(x => !(media || []).length))
+    .map(normMedia).filter(x => x.url);
+  const extra = [];
+  const toolImages = [];
+  let txt = '';
+  for (let round = 0; round < TOOL_MAX_ROUNDS; round += 1) {
+    buf = '';
+    txt = await TextAI.chatStream(REG, sys, m.user, {
+      signal, noTools: true, media: refMedia.concat(toolImages), extraMessages: extra,
+    }, push);
+    const call = toolCallOf(txt);
+    if (!call) break;
+    const res = await runCheckTool(call, { doc, selectedId, thumbnail });
+    extra.push({ role: 'assistant', content: txt });
+    extra.push({ role: 'user', content: '工具结果（不是用户的新要求）：\n' + res.text });
+    if (res.image) toolImages.push({ kind: 'image', label: res.image.label, url: res.image.url });
+  }
+  if (toolCallOf(txt)) {
+    /* 工具轮次用完还想要：收一次尾，让它直接交结果（与联网工具同一副处理） */
+    buf = '';
+    txt = await TextAI.chatStream(REG, sys + '\n\n【注意】工具调用次数已用完，直接给出最终结果，不要再输出 CALL。',
+      m.user, { signal, noTools: true, media: refMedia.concat(toolImages), extraMessages: extra }, push);
+  }
   const loose = parseJsonLoose(txt) || tryParseTail(buf);
   if (!loose || typeof loose !== 'object') {
-    return { say: '', reuse: null, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt, why: '这一轮没有拿到 JSON' };
+    return withProblems({ say: '', reuse: null, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt, why: '这一轮没有拿到 JSON' });
   }
   const say = String(loose.say || '');
   const reuseRaw = loose.reuse;
@@ -223,37 +475,43 @@ export async function run(opts) {
     why: String(reuseRaw.why || ''),
   } : null;
   if (reuse && reuse.mode === 'as-is') {
-    return { say, reuse, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt };
+    return withProblems({ say, reuse, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt });
   }
 
-  /* 自动：选中了且回 ops → 改选中实体；否则回 model → 新增一个实体。
-     不把 ops 应用到没选中的场景上 —— 那是「AI 自己删了别的东西」的那条路。 */
+  /* 自动：回 ops → 按选中范围改（没选中时是场景级修改：灯 / 机位 / 时间轴）；
+     否则回 model → 新增一个实体。没选中时交来的 ops 只拿来改场景级对象 ——
+     增删实体仍然必须交 model，那是「AI 自己删了别的东西」的那条路。 */
   if (mode === 'auto' && doc) {
     const ops = Array.isArray(loose.ops) ? loose.ops : [];
-    if (ops.length && selectedId) {
-      const r = applyDocOps(doc, ops, { scope: Array.isArray(scope) ? new Set(scope) : null });
-      return {
+    const sceneOps = ops.length ? ops.every(op => {
+      const k = String((op && op.op) || '');
+      return k === 'light' || k === 'cam' || k === 'anim' || k === 'track';
+    }) : false;
+    if (ops.length && (selectedId || sceneOps)) {
+      const r = applyDocOps(doc, ops, { scope: (selectedId && Array.isArray(scope)) ? new Set(scope) : null });
+      return withProblems({
         say, reuse, doc: r.doc, ops,
         applied: r.applied, skipped: r.skipped, errors: r.errors,
         dropped: r.dropped, raw: txt, fallback: '',
         why: (!r.doc.scene.nodes.length ? '这一轮把模型改空了' : ''),
-      };
+      });
     }
     const model = (loose.model && typeof loose.model === 'object') ? loose.model
       : (loose.scene && typeof loose.scene === 'object' ? loose : null);
     if (model) {
-      const out = normalizeDoc(model);
-      return {
-        say, reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
+      const out = lintedModel(model, aspect);
+      return withProblems({
+        say: lintSayOf(say, out.lint), reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
         dropped: out.dropped, raw: txt, fallback: 'model', anim: animSpecOf(model),
+        lint: out.lint,
         name: line(model && model.name),
         why: (!out.doc.scene.nodes.length ? '这一轮没有任何零件' : ''),
-      };
+      });
     }
-    return {
+    return withProblems({
       say, reuse, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt,
       why: selectedId ? '这一轮既没有 ops，也没有新实体' : '这一轮没有拿到新实体',
-    };
+    });
   }
 
   /* 修改：默认 ops。整份 model 只在新建 / 复用时收；编辑模式收到 model 也接受，
@@ -262,34 +520,36 @@ export async function run(opts) {
     const ops = Array.isArray(loose.ops) ? loose.ops : [];
     if (ops.length) {
       const r = applyDocOps(doc, ops, { scope: Array.isArray(scope) ? new Set(scope) : null });
-      return {
+      return withProblems({
         say, reuse, doc: r.doc, ops,
         applied: r.applied, skipped: r.skipped, errors: r.errors,
         dropped: r.dropped, raw: txt, fallback: '',
         why: (!r.doc.scene.nodes.length ? '这一轮把模型改空了' : ''),
-      };
+      });
     }
     if (loose.model && typeof loose.model === 'object') {
-      const out = normalizeDoc(loose.model);
-      return {
-        say, reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
+      const out = lintedModel(loose.model, aspect);
+      return withProblems({
+        say: lintSayOf(say, out.lint), reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
         dropped: out.dropped, raw: txt, fallback: 'model',
+        lint: out.lint,
         why: (!out.doc.scene.nodes.length ? '这一轮没有任何零件' : ''),
-      };
+      });
     }
-    return { say, reuse, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt, why: '修改模式没有拿到 ops' };
+    return withProblems({ say, reuse, doc: null, ops: [], applied: 0, skipped: 0, errors: [], dropped: null, raw: txt, why: '修改模式没有拿到 ops' });
   }
 
   const model = loose.model || loose;
-  const out = normalizeDoc(model);
+  const out = lintedModel(model, aspect);
   /* 复用关系写进 doc.src：模型文件自己记得「我是照着谁改的」 */
   out.doc.src = { prompt: String(prompt || ''), reuse };
-  return {
-    say, reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
+  return withProblems({
+    say: lintSayOf(say, out.lint), reuse, doc: out.doc, ops: [], applied: 0, skipped: 0, errors: [],
     dropped: out.dropped, raw: txt, fallback: '', anim: animSpecOf(model),
+    lint: out.lint,
     name: line(model && model.name),
     why: (!out.doc.scene.nodes.length ? '这一轮没有任何零件' : ''),
-  };
+  });
 }
 
 /* 兜底：AI 把 JSON 写在最后一段、`parseJsonLoose` 也没捞到时，从尾巴上找最外层对象 */

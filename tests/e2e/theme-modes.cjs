@@ -2,12 +2,12 @@
 /* 主题两根轴：5 套配色 + 跟随系统（深色由浅色现算）。
    用户要的是：底色配色能挑，日夜能跟系统走，深色不是另一份手写色值。
    这一条盯八件事：
-     ① 缺省：浅色 + 海洋（两个键都没设过时解析出来的就是这一档）
+     ① 缺省：跟随系统 + 海洋（两个键都没设过时按系统档解析；这一条把系统档仿成浅色，缺省在任何机器上都判得动）
      ② 设置页「外观与界面」里两行都在（配色 5 档 / 日夜 3 档），点一下当场生效并落盘
      ③ 5 套配色 × 浅/深：强调色两两不同，中性色逐字节不动（换配色只换强调色那一族）
      ④ 跟随系统：偏好 system 时由系统的深色档决定 data-theme，系统档一变当场跟着变
      ⑤ 侧栏那颗「换背景」：跟随系统时点一下 = 按**解析后**的那一档取反并钉住，不再跟系统
-     ⑥ 坏值回落：存储里是认不出的名字时退回 浅色 / 海洋，data-theme 里永远不出现 system
+     ⑥ 坏值回落：存储里是认不出的名字时退回缺省（跟随系统 → 系统档浅色 = light）/ 海洋，data-theme 里永远不出现 system
      ⑦ 深色确实是「深色」：底与字的亮度掉转过来；换配色不动底色（深色档也一样）
      ⑧ 强调色墨压在**组件真正用的那几块底**上仍然读得出来：淡底（选中态 / 软底 / 描边）压在表面上、
         实心档上的墨（白字只许压 `--pri`，语义实底 `--acc/--ok/--warn/--err/--sub` 上换成掏出来的面板色），
@@ -62,6 +62,11 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
        `.data` 上的镜像一直落后，`DataSync.boot` 在对账时把旧主题拉回来并整页刷新，
        第 ⑤ 步那颗侧栏按钮就点在一次重载的半空里。 */
     await page.skipDataSyncBoot();
+    /* 缺省档是「跟随系统」：先把系统档仿成浅色 —— 缺省那一档在任何机器上都解析成 light，
+       判据不再依赖跑测试这台机器自己的深浅设置。 */
+    await page.cdp.send('Emulation.setEmulatedMedia', {
+      media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }],
+    });
     await page.goto(proxy.base + '/shell.html');
     await page.waitFor(() => !!window.__themeApply && !!window.LS, 30000);
     /* 全新浏览器档位 + 全新探针数据目录：两个键本来就该是空的。 */
@@ -190,7 +195,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
 
     /* ── ① 缺省：浅色 + 海洋 ───────────────────────────────────── */
     let t = await readTheme();
-    must(t.theme === 'light', '两个键都没设过时 data-theme 该是 light，实际「' + t.theme + '」');
+    must(t.theme === 'light', '两个键都没设过时缺省走「跟随系统」（系统档已仿成浅色）→ data-theme 该是 light，实际「' + t.theme + '」');
     must(t.palette === 'ocean', '两个键都没设过时 data-palette 该是 ocean，实际「' + t.palette + '」');
 
     /* ── ② 设置页两行 + 点「莓果」当场生效并落盘 ───────────────── */
@@ -220,7 +225,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     must(rows.theme.opts.length === 3, '日夜该是 3 档（浅色 / 深色 / 跟随系统），实际 ' + JSON.stringify(rows.theme.opts));
     must(rows.theme.opts.some(o => o === 'system:跟随系统'), '日夜那三档里没有「跟随系统」：' + JSON.stringify(rows.theme.opts));
     must(rows.palette.on === 'ocean', '缺省配色那一格该亮在海洋，实际「' + rows.palette.on + '」');
-    must(rows.theme.on === 'light', '缺省日夜那一格该亮在浅色，实际「' + rows.theme.on + '」');
+    must(rows.theme.on === 'system', '没设过时日夜那一格该亮在缺省档「跟随系统」，实际「' + rows.theme.on + '」');
 
     /* 点「莓果」→ 自动保存（400ms 防抖）→ 解析口被调 → data-palette 跟上、键落盘。 */
     await page.eval(() => {
@@ -376,11 +381,14 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
       applied: document.documentElement.dataset.theme,
     }));
     must(pinned2.stored === 'dark' && pinned2.applied === 'dark', '再点一次「换背景」该回到 dark：' + JSON.stringify(pinned2));
-    await page.cdp.send('Emulation.setEmulatedMedia', { media: '', features: [] });
+    /* ⑥ 要在确定的系统档下判缺省回落：把系统档仿成浅色再进（不清空仿真）。 */
+    await page.cdp.send('Emulation.setEmulatedMedia', {
+      media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }],
+    });
 
     /* ── ⑥ 坏值回落：认不出的名字退回缺省，data-theme 不出现 system ── */
     seen = await applyTheme('neon', 'lava');
-    must(seen.theme === 'light', 'dir_theme 是认不出的「neon」时该退回 light，实际「' + seen.theme + '」');
+    must(seen.theme === 'light', 'dir_theme 是认不出的「neon」时该退回缺省（跟随系统 → 系统档浅色）= light，实际「' + seen.theme + '」');
     must(seen.palette === 'ocean', 'dir_palette 是认不出的「lava」时该退回 ocean，实际「' + seen.palette + '」');
     seen = await applyTheme('system', 'violet');
     must(seen.theme === 'light' || seen.theme === 'dark', 'system 被原样写进了 data-theme（「' + seen.theme + '」）：那里只放解析后的一档');
@@ -404,13 +412,13 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
       must(key(c['--bg'].rgba) === key(darkC['--bg'].rgba),
         '深色档换配色「' + pal + '」把底改了（' + key(darkC['--bg'].rgba) + ' → ' + key(c['--bg'].rgba) + '）');
     }
-    /* 收尾：两个键都清掉，回到缺省那一档（浅色 + 海洋），不给下一次导航留一个怪状态。 */
+    /* 收尾：两个键都清掉，回到缺省那一档（跟随系统 + 海洋），不给下一次导航留一个怪状态。 */
     await applyTheme(null, null);
 
     must(!page.errors.length, '页面有异常：\n  ' + page.errors.join('\n  '));
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 主题两根轴：缺省浅色 + 海洋 · 设置页两行 · 5 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度 · 强调色压在淡底与实底上');
+    console.log('✓ 主题两根轴：缺省跟随系统 + 海洋 · 设置页两行 · 5 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度 · 强调色压在淡底与实底上');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

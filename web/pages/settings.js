@@ -64,6 +64,12 @@ const SET_ROWS = [
   /* 润色行为（导演台的拆分镜 / 改分镜反问也读这一档） */
   { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
     opts: [['ai', 'AI 判断（推荐）'], ['on', '强制先问'], ['off', '从不问']] },
+  /* 建模台：视频转白模时「文字 AI 看不了视频要不要在本机取几帧」以及取几帧。
+     auto = 只在视频没能随消息附上时取帧；on = 不管支不支持都取；off = 不取。 */
+  { card: 'model', kind: 'sel', key: 'sk_model_vframes', label: '视频看不明白时取帧', def: 'auto',
+    opts: [['auto', '看不了视频时取帧（推荐）'], ['on', '总是取帧'], ['off', '不取帧']] },
+  { card: 'model', kind: 'sel', key: 'sk_model_vframe_n', label: '一次取几帧', def: '4',
+    opts: [['2', '2 帧'], ['4', '4 帧'], ['6', '6 帧'], ['8', '8 帧']] },
 ];
 
 const SettingsView = {
@@ -88,9 +94,8 @@ const SettingsView = {
     const cusNameEl = ref(null);
     const cusBaseEl = ref(null);
     const cusKeyEl = ref(null);
-    const cusExtraEl = ref(null);
-    const cusShapeEl = ref(null);
     const cusCapEl = ref(null);
+    const cusCapsBoxEl = ref(null);
     const pageBoxEl = ref(null);
     const uiPrefsBoxEl = ref(null);
     const storePrefsBoxEl = ref(null);
@@ -99,6 +104,7 @@ const SettingsView = {
     const storeRowsEl = ref(null);
     const assistantBoxEl = ref(null);
     const polishBoxEl = ref(null);
+    const modelBoxEl = ref(null);
     const sysRowsEl = ref(null);
     const usageRowsEl = ref(null);
     const usageGoSlotEl = ref(null);
@@ -141,109 +147,155 @@ const SettingsView = {
     const navSumShort = ref('');   /* 轨底那一行短摘要（5 组 · 15 栏） */
     const navPos = ref('');        /* 状态行左边：现在在第几项 */
 
-    /* ---------- 添加自定义供应商 ----------
-       界面只收：接口形状、显示名、地址、密钥、**能力档位**、型号清单；密钥按 sk_key_<新 id> 单独存。
-       清单写成 sk_custom（DataSync 镜像成 .data/sk_custom.json，代理读那份合并进 /registry）。
-       「能力档位」与卡顶那排能力格同一副图标、可多选：第一个选中的是**主档**（決定接口形状与端点，
-       也决定这条自定义条目建出来是哪种 kind），其余按「本机手动声明」记在这一家上
-       （`sk_caps_<新 id>`，与卡里「＋ 手动加一档能力」同一个键、同一套语义）。 */
+    /* ---------- 添加 / 编辑供应商（一个条目 = 一张账号卡 + 多档能力） ----------
+       六档能力同一层级：图片生成 / 视频生成 / 语音合成 / 文字 AI / 语音识别 / 联网搜索。
+       每一档各自选接口形状与型号 —— 清单写成 sk_custom 的 caps[]，代理按档各建声明、
+       共用同一个 keyId，设置页仍是一张账号卡。 */
+    const CUS_KIND_ZH = {
+      image: '图片生成', video: '视频生成', audio: '语音合成', text: '文字 AI',
+      asr: '语音识别', search: '联网搜索',
+    };
+    const cusKindZh = id => CUS_KIND_ZH[id] || capZh(id);
+    const cusKinds = () => window.provKinds().concat(['asr', 'search']);
     const cusShown = ref(false);
     const cusEditing = ref('');
-    const cusShapeSel = ref('');
-    const cusShapeOpts = ref([]);
-    const cusShapeShown = ref(false);
     const cusName = ref('');
     const cusBase = ref('');
     const cusKey = ref('');
     const cusKeyShown = ref(false);
-    const cusExtra = ref('');
-    const cusFetched = ref([]);
-    const cusFetchFrom = ref('');
-    const cusOff = reactive(new Set());
-    const cusModelRows = ref([]);
-    const cusModelsEmpty = ref('');
     const cusMsg = ref('');
     const cusMsgCls = ref('');
     const cusCount = ref('');
     const cusAddText = ref('添加这一家');
     const cusCancelShown = ref(false);
-    const cusFetchBusy = ref(false);
+    const cusFetchBusy = ref('');
     const cusMineGroups = ref([]);
     const cusMineShown = ref(false);
-    /* 能力档位：多选，**第一个 = 主档**（列表顺序就是选中顺序）。 */
-    const cusCaps = ref(['image']);
+    const cusCaps = ref(['image']);          /* 选中的能力（顺序 = 卡片里那一排的顺序） */
     const cusNamePh = ref('例如「我的中转站」');
+    /* kind → { shapeId, models:[{id,name,on,vision,audio,video}] } */
+    const cusCfg = new Map();
     let cusAutoName = '';
     let cusAutoBase = '';
 
-    /* 档 → 接口形状那一族。语音识别 / 联网搜索没有自己的接口族：它们跑在文字那一套上。 */
-    const shapeKindOf = cap => (cap === 'asr' || cap === 'search') ? 'text' : cap;
-    const cusKind = () => shapeKindOf(cusCaps.value[0] || 'image');
-    function cusFamilies(kind) {
-      return ((REG && REG.interfaceShapes) || {})[kind] || [];
-    }
-    const cusProvById = id => (REG.providers || []).find(p => p.id === id) || null;
-    /* 照哪一家的接口形状：只按**主档**那一族找（没有了「先选一家内置平台」这一层，
-       所以模板永远来自 interfaceShapes —— 这就是「你跑的是哪一套协议」那件事）。 */
-    function cusTemplate() {
-      const fam = cusFamilies(cusKind()).find(f => f.id === cusShapeSel.value);
+    function cusFamilies(kind) { return ((REG && REG.interfaceShapes) || {})[kind] || []; }
+    const cusProvById = id => (((REG && REG.providers) || []).find(p => p.id === id) || null);
+    function cusTplOf(kind) {
+      const cfg = cusCfg.get(kind);
+      const fam = cusFamilies(kind).find(f => f.id === (cfg && cfg.shapeId)) || cusFamilies(kind)[0];
       return fam ? cusProvById(fam.template) : null;
     }
-    function cusSetMsg(text, cls) {
-      cusMsg.value = text || '';
-      cusMsgCls.value = cls || '';
+    function cusDefaultModels(kind, shapeId) {
+      const fams = cusFamilies(kind);
+      const fam = fams.find(f => f.id === shapeId) || fams[0];
+      const tpl = fam ? cusProvById(fam.template) : null;
+      if (!tpl) return [];
+      if (kind === 'asr' || kind === 'search') {
+        const decl = tpl[kind] || {};
+        const ids = Array.isArray(decl.models) ? decl.models.map(m => (m && m.id) || m) : [];
+        if (!ids.length && decl.model) ids.push(decl.model);
+        return [...new Set(ids.map(String).filter(Boolean))].map(id => ({ id, name: '', on: true }));
+      }
+      return [...new Set(((tpl.models || []).map(m => m && m.id).filter(Boolean)).map(String))]
+        .map(id => ({ id, name: '', on: true }));
     }
-    function paintCusCount() {
-      if (!cusCount) return;
-      const caps = cusCaps.value;
-      const list = Api.customList();
-      cusCount.value = caps.map(capZh).join(' + ') + ' · 合计已接 ' + list.length + ' 家';
+    function cusCfgOf(kind) {
+      let c = cusCfg.get(kind);
+      if (!c) {
+        const shapeId = (cusFamilies(kind)[0] || {}).id || '';
+        c = { shapeId, models: cusDefaultModels(kind, shapeId) };
+        cusCfg.set(kind, c);
+      }
+      return c;
     }
-    /* 显示名预填：按主档自动编号（「图片 1 / 视频 2」这种），换档跟着换，用户改过就不再动。 */
-    function cusDefaultName(kind) {
-      const zh = capZh(kind);
-      const taken = new Set(Api.customList().filter(e => e && (e.kind || 'image') === kind).map(e => (e.name || '').trim()));
+    function cusSetMsg(text, cls) { cusMsg.value = text || ''; cusMsgCls.value = cls || ''; }
+
+    /* 只认新形状：启动时 `migrateProviderStorage` 已把旧条目抬成 caps[]。 */
+    function cusCapsOfEntry(e) {
+      return (e && Array.isArray(e.caps)) ? e.caps : [];
+    }
+    function loadCusEntry(e) {
+      cusCaps.value = [];
+      cusCfg.clear();
+      cusCapsOfEntry(e).forEach(cap => {
+        const kind = String((cap && cap.kind) || '');
+        if (cusKinds().indexOf(kind) < 0 || cusCaps.value.indexOf(kind) >= 0) return;
+        cusCaps.value.push(kind);
+        const fams = cusFamilies(kind);
+        const shapeId = (cap.shapeId && fams.some(f => f.id === cap.shapeId)) ? cap.shapeId
+          : ((fams.find(f => f.template === cap.shape) || {}).id || (fams[0] || {}).id || '');
+        const cfg = { shapeId, models: [] };
+        const defaults = cusDefaultModels(kind, shapeId);
+        const byId = new Map(defaults.map(m => [m.id, m]));
+        (cap.models || []).forEach(m => {
+          const id = String((m && m.id) || (typeof m === 'string' ? m : '') || '').trim();
+          if (!id) return;
+          cfg.models.push({ id, name: String((m && m.name) || ''), on: true,
+            vision: m && m.vision, audio: m && m.audio, video: m && m.video,
+            _default: byId.has(id) });
+        });
+        cusCfg.set(kind, cfg);
+      });
+      if (!cusCaps.value.length) { cusCaps.value = ['image']; cusCfgOf('image'); }
+    }
+    /* 显示名预填：按第一类自动编号（「图片生成 1 / 视频生成 2」这种），换类型跟着换，用户改过就不再动。 */
+    function cusDefaultName() {
+      const kind = cusCaps.value[0] || 'image';
+      const zh = cusKindZh(kind);
+      const taken = new Set(Api.customList().filter(e => {
+        const caps = cusCapsOfEntry(e);
+        return caps.length && caps[0].kind === kind;
+      }).map(e => (e.name || '').trim()));
       for (let i = 1; i < 200; i++) { const n = i === 1 ? zh : zh + ' ' + i; if (!taken.has(n)) return n; }
       return zh;
     }
-    function cusFillName() { cusAutoName = cusDefaultName(cusKind()); cusName.value = cusAutoName; }
+    function cusFillName() { cusAutoName = cusDefaultName(); cusName.value = cusAutoName; }
     function cusSyncName() {
       if (cusEditing.value) return;
       const cur = String(cusName.value || '').trim();
       if (!cur || cur === cusAutoName) cusFillName();
     }
     function cusFillBase() {
-      const t = cusTemplate();
-      const b = (t && t.base) || '';
-      cusAutoBase = b;
-      cusBase.value = b;
+      const t = cusTplOf(cusCaps.value[0] || 'image');
+      cusAutoBase = (t && t.base) || '';
+      cusBase.value = cusAutoBase;
     }
     function cusSyncBase() {
       const cur = String(cusBase.value || '').trim();
       if (!cur || cur === cusAutoBase) cusFillBase();
     }
-    /* 「已添加的几家」列在这张卡里：按档分组、全部列出来（不再只列「当前那一档」—— 一排分段开关已经撤掉）。
-       点某一家的「编辑」会把上面那一格「哪一档」切到它自己那一档，否则改了档就变成另一条声明。 */
+    function paintCusCount() {
+      if (!cusCount) return;
+      const chosen = cusCaps.value.map(cusKindZh).join(' + ') || '还没选类型';
+      cusCount.value = chosen + ' · 合计已接 ' + Api.customList().filter(e => cusCapsOfEntry(e).length).length + ' 家';
+    }
+    /* 「已添加的几家」：按第一类分组、全部列出来；一行里把它会做的几类都念出来。 */
     function paintCusMine() {
-      const list = Api.customList().filter(e => e && e.id);
+      /* 搬迁之后这里只剩真正的供应商条目（keyId-only 的补能力条目不在这一列里）。 */
+      const list = Api.customList().filter(e => e && !e.keyId && e.id && cusCapsOfEntry(e).length);
       cusMineShown.value = !!list.length;
-      const kinds = window.provKinds();
-      const extra = [...new Set(list.map(e => e.kind || 'image'))].filter(k => kinds.indexOf(k) < 0);
+      const cusGroupOf = e => { const caps = cusCapsOfEntry(e); return (caps[0] && caps[0].kind) || 'image'; };
+      const kinds = cusKinds();
+      const extra = [...new Set(list.map(cusGroupOf))].filter(k => kinds.indexOf(k) < 0);
       cusMineGroups.value = kinds.concat(extra).map(k => {
-        const mine = list.filter(e => (e.kind || 'image') === k);
+        const mine = list.filter(e => cusGroupOf(e) === k);
         return {
-          kind: k, zh: capZh(k),
-          items: mine.map(e => ({ id: e.id, name: e.name || e.id, modelsN: (e.models || []).length })),
+          kind: k, zh: k === 'text' ? '文字 AI' : cusKindZh(k),
+          items: mine.map(e => ({
+            id: e.id,
+            name: e.name || e.id,
+            capsZh: cusCapsOfEntry(e).map(c => cusKindZh(c && c.kind)).join(' / '),
+            modelsN: cusCapsOfEntry(e).reduce((n, c) => n + ((c && c.models) || []).length, 0),
+          })),
         };
       }).filter(g => g.items.length);
     }
     function openCus() {
       cusShown.value = true;
       if (cusEditing.value) cusReset();
-      cusShapeSel.value = '';
       renderCus();
       nextTick(() => {
-        if (cusCardEl.value) scrollToEl(cusCardEl.value);
+        /* 表单是固定浮层，不需要把文档滚过来；把光标放在该填的那一格。 */
         const focus = String(cusName.value || '').trim() ? cusBaseEl.value : cusNameEl.value;
         if (focus) window.focusQuiet(focus);
       });
@@ -255,90 +307,203 @@ const SettingsView = {
       renderProv();
       cusSetMsg('', '');
     }
-    /* 能力档 → 接口形状 → 型号 联动：清单全取自 /registry 的声明。
-       没有「先选一家内置平台」这一格了 —— 那条路就是「另一家内置平台」，与「添加自己的」是两件事；
-       这一张卡只做后者（要接内置那几家，上面那张卡里点「添加」）。 */
     function renderCus() {
-      const kind = cusKind();
       paintCusCaps();
       paintCusNamePh();
       paintCusCount();
       paintCusMine();
-      const fams = cusFamilies(kind);
-      cusShapeShown.value = true;
-      cusShapeOpts.value = fams.length
-        ? fams.map(f => ({ id: f.id, label: f.name }))
-        : [{ id: '', label: '这一类还没有登记接口形状' }];
-      const sk = cusShapeSel.value;
-      cusShapeSel.value = fams.some(f => f.id === sk) ? sk : ((fams[0] && fams[0].id) || '');
-      if (!fams.length) {
-        cusModelsEmpty.value = '注册表没有这一类的接口形状。';
-        cusModelRows.value = [];
-        cusSyncBase();
-        cusSyncName();
-        nextTick(syncCusDropdowns);
-        return;
-      }
       cusSyncBase();
       cusSyncName();
-      nextTick(syncCusDropdowns);
-      rebuildCusModels();
+      paintCusCapBlocks();
     }
-    /* 能力档位那一排图标：与卡顶那排能力格同一副（.capcell），点一下加/去；第一个选中的是主档。 */
+    /* 能力那一排：**可多选**，六档平级（图片 / 视频 / 语音 / 文字 / 识别 / 搜索）。
+       选中一档就在下面画那一档的接口形状与型号；不再把识别 / 搜索当文字档的开关。 */
     function paintCusCaps() {
       const el = cusCapEl.value;
       if (!el) return;
-      const caps = cusCaps.value;
-      el.innerHTML = allCaps().map(c => {
-        const on = caps.indexOf(c) >= 0;
-        const main = caps[0] === c;
-        return '<button class="capcell' + (on ? ' on' : '') + (main ? ' main' : '') + '" type="button"'
-          + ' data-cuscap="' + window.esc(c) + '" title="' + window.esc(capZh(c)
-            + (main ? ' · 主档' : on ? ' · 已选' : '')) + '">'
+      el.innerHTML = cusKinds().map(c => {
+        const on = cusCaps.value.indexOf(c) >= 0;
+        return '<button class="capcell' + (on ? ' on main' : '') + '" type="button"'
+          + ' data-cuscap="' + window.esc(c) + '" title="' + window.esc(cusKindZh(c) + (on ? ' · 已选' : ' · 点一下选上')) + '">'
           + capGlyph(c) + '</button>';
-      }).join('');
+      }).join('') + '<span class="hint">可多选 · 六档能力平级</span>';
     }
     function pickCusCap(cap) {
-      const caps = cusCaps.value.slice();
-      const i = caps.indexOf(cap);
-      if (i >= 0) { if (caps.length === 1) return; caps.splice(i, 1); }
-      else caps.push(cap);
-      cusCaps.value = caps;      /* 换主档会换接口形状族 */
+      if (cusKinds().indexOf(cap) < 0) return;
+      if (cusCaps.value.indexOf(cap) >= 0) {
+        if (cusCaps.value.length === 1) { cusSetMsg('至少要留一档能力。', 'err'); return; }
+        cusCaps.value = cusCaps.value.filter(k => k !== cap);
+        cusCfg.delete(cap);
+      } else {
+        cusCaps.value = cusCaps.value.concat([cap]);
+        cusCfgOf(cap);
+      }
       renderCus();
     }
-    /* 显示名的占位符按主档那几家已接的名字走（不再由「选了一家内置平台」自动填）。 */
-    function paintCusNamePh() {
-      cusNamePh.value = '例如「我的中转站」';
+    function paintCusNamePh() { cusNamePh.value = '例如「我的中转站」'; }
+    /* 每一档的配置块：接口形状 · 型号清单 ·（文字档）每行能收的输入。 */
+    function capBlockHTML(kind) {
+      const cfg = cusCfgOf(kind);
+      const es = window.esc(kind);
+      const fams = cusFamilies(kind);
+      const shapeOpts = fams.length
+        ? fams.map(f => '<option value="' + window.esc(f.id) + '"' + (f.id === cfg.shapeId ? ' selected' : '') + '>'
+          + window.esc(f.name) + '</option>').join('')
+        : '<option value="">这一档还没有登记接口形状</option>';
+      const rows = cfg.models.map(m => {
+        const id = window.esc(m.id);
+        if (kind !== 'text') {
+          return '<label class="cfg-model"><input type="checkbox" data-cfg-model="' + id + '" data-cfg-kind="' + es + '"'
+            + (m.on ? ' checked' : '') + '><span><code>' + id + '</code>'
+            + (m.name && m.name !== m.id ? ' <i>' + window.esc(m.name) + '</i>' : '') + '</span></label>';
+        }
+        const mediaTagOf = (field, zh) => {
+          const v = m[field];
+          const cls = v === true ? ' on' : v === false ? ' off' : '';
+          const tip = v === true ? '已声明支持' + zh + '输入（点一下改为不支持）'
+            : v === false ? '已声明不支持' + zh + '输入（点一下改回自动）'
+              : '自动判断' + zh + '输入（点一下声明支持）';
+          return '<button class="med-tag' + cls + '" type="button" data-cfg-med="' + field + '"'
+            + ' data-cfg-kind="' + es + '" data-cfg-id="' + id + '" title="' + window.esc(tip) + '">' + zh + '</button>';
+        };
+        return '<label class="cfg-model cfg-model-text"><input type="checkbox" data-cfg-model="' + id + '" data-cfg-kind="' + es + '"'
+          + (m.on ? ' checked' : '') + '><span><code>' + id + '</code>'
+          + (m.name && m.name !== m.id ? ' <i>' + window.esc(m.name) + '</i>' : '') + '</span>'
+          + '<span class="med-tags"><span class="med-tag fixed" title="文字输入始终支持">字</span>'
+          + mediaTagOf('vision', '图') + mediaTagOf('audio', '音') + mediaTagOf('video', '视') + '</span></label>';
+      }).join('');
+      return '<section class="capcfg" data-capcfg="' + es + '">'
+        + '<header class="capcfg-h"><span class="cg">' + capGlyph(kind) + '</span>'
+          + '<b>' + window.esc(cusKindZh(kind)) + '</b><span class="sp"></span>'
+          + '<button class="ghost mini" type="button" data-cfg-del="' + es + '" title="移除这一档">移除</button></header>'
+        + '<div class="krow thin"><span class="kn">接口形状</span>'
+          + '<select data-cfg-shape="' + es + '">' + shapeOpts + '</select></div>'
+        + '<div class="krow thin align-start"><span class="kn">型号</span>'
+          + '<div class="cfg-models">' + (rows || '<span class="hint sm">还没有型号：下面填 id 或点「取一次」。</span>') + '</div></div>'
+        + '<div class="krow thin"><span class="kn">添加型号</span>'
+          + '<input data-cfg-new="' + es + '" placeholder="型号 id，逗号分隔多个">'
+          + '<button class="ghost mini" type="button" data-cfg-add="' + es + '">添加</button>'
+          + ((kind === 'asr' || kind === 'search') ? ''
+            : '<button class="ghost mini" type="button" data-cfg-fetch="' + es + '"'
+              + (cusFetchBusy.value === kind ? ' disabled' : '') + '>' + (cusFetchBusy.value === kind ? '获取中…' : '取一次') + '</button>')
+          + '</div>'
+        + '<div class="msg" data-cfg-msg="' + es + '"></div>'
+        + '</section>';
     }
-    function syncCusDropdowns() {
-      if (!window.Dropdowns) return;
-      [cusShapeEl.value].forEach(el => {
-        if (!el) return;
-        Dropdowns.build(el.parentElement || el);
-        Dropdowns.sync(el);
+    function paintCusCapBlocks() {
+      const el = cusCapsBoxEl.value;
+      if (!el) return;
+      el.innerHTML = cusCaps.value.map(capBlockHTML).join('');
+    }
+    function cusCfgMsg(kind, text, cls) {
+      const el = cusCapsBoxEl.value && cusCapsBoxEl.value.querySelector('[data-cfg-msg="' + window.esc(kind) + '"]');
+      if (!el) { cusSetMsg(text, cls); return; }
+      el.className = 'msg ' + (cls || '');
+      el.textContent = text;
+    }
+    function cusAddIds(kind, raw) {
+      const cfg = cusCfgOf(kind);
+      const ids = String(raw || '').split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
+      if (!ids.length) return 0;
+      ids.forEach(id => {
+        if (!cfg.models.some(m => m.id === id)) cfg.models.push({ id, name: '', on: true });
       });
+      paintCusCapBlocks();
+      return ids.length;
     }
-    /* 型号清单：一律现取，不预填模板写死的那份；三个来源并成一份、默认全勾。 */
-    function rebuildCusModels() {
-      const t = cusTemplate();
-      if (!t) { cusModelRows.value = []; return; }
-      const saved = cusEditing.value ? (((Api.customList().find(e => e && e.id === cusEditing.value) || {}).models) || []) : [];
-      const savedIds = saved.map(m => (m && m.id) || m).filter(Boolean);
-      const typed = [...new Set(String(cusExtra.value || '').split(/[,，\s]+/).map(s => s.trim()).filter(Boolean))];
-      const all = [];
-      const push = (id, name, tag) => { if (id && !all.some(x => x.id === id)) all.push({ id: String(id), name: name || id, tag }); };
-      savedIds.forEach(id => push(id, (saved.find(m => (m && m.id) === id) || {}).name || id, 'saved'));
-      cusFetched.value.forEach(m => push(m.id, m.name || m.id, 'fetched'));
-      typed.forEach(id => push(id, id, 'typed'));
-      const tagZh = { saved: '已保存', fetched: '接口返回', typed: '手填' };
-      cusModelRows.value = all.map(x => ({ id: x.id, name: x.name, tag: x.tag, tagZh: tagZh[x.tag] || '' }));
-      cusModelsEmpty.value = all.length ? '' : '还没有型号。';
+    async function fetchCusModelsFor(kind, btn) {
+      if (kind === 'asr' || kind === 'search') {
+        cusCfgMsg(kind, '这一档没有型号清单接口：直接在下面添加型号。', '');
+        return;
+      }
+      const t = cusTplOf(kind);
+      if (!t) { cusCfgMsg(kind, '先选一个「接口形状」。', 'err'); return; }
+      const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
+      if (!httpsBaseOk(base)) { cusCfgMsg(kind, '先填接口地址（要 https:// 开头）。', 'err'); return; }
+      const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
+      if (!key) { cusCfgMsg(kind, '先填密钥。', 'err'); if (cusKeyEl.value) window.focusQuiet(cusKeyEl.value); return; }
+      cusFetchBusy.value = kind;
+      if (btn) { btn.disabled = true; btn.textContent = '获取中…'; }
+      try {
+        const r = await Net.fetch('/custom/models', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shape: t.id, base, key }), timeout: 25000, retry: 0,
+        });
+        let d = {};
+        try { d = (await r.json()) || {}; } catch (e) { throw new Error('代理没有返回 JSON（HTTP ' + r.status + '）'); }
+        const list = Array.isArray(d.models) ? d.models : [];
+        if (!list.length) throw new Error(d.error || ('它没有返回型号列表（HTTP ' + r.status + '）'));
+        const cfg = cusCfgOf(kind);
+        list.forEach(m => {
+          const id = String((m && (m.id || m.name)) || '').trim();
+          if (!id) return;
+          const hit = cfg.models.find(x => x.id === id);
+          if (hit) { if (!hit.name) hit.name = String((m && m.name) || ''); }
+          else cfg.models.push({ id, name: String((m && m.name) || ''), on: true });
+        });
+        paintCusCapBlocks();
+        cusCfgMsg(kind, '从「' + (d.from || base) + '」拿到 ' + list.length + ' 个型号，已全部勾上。', 'ok');
+      } catch (e) { cusCfgMsg(kind, '获取失败：' + errText(e), 'err'); }
+      finally {
+        cusFetchBusy.value = '';
+        if (btn) { btn.disabled = false; btn.textContent = '取一次'; }
+      }
     }
-    function onCusModelToggle(id, ev) {
-      if (ev.target.checked) cusOff.delete(id); else cusOff.add(id);
+    function cusCycleMedia(kind, id, field) {
+      const cfg = cusCfgOf(kind);
+      const m = cfg.models.find(x => x.id === id);
+      if (!m) return;
+      const cur = m[field];
+      m[field] = cur === undefined ? true : cur === true ? false : undefined;
+      paintCusCapBlocks();
     }
-    function cusPicked() {
-      return cusModelRows.value.filter(x => !cusOff.has(x.id)).map(x => ({ id: x.id }));
+    let cusWired = false;
+    function initCusForm() {
+      if (cusWired) return;
+      cusWired = true;
+      /* 类型那一排的点击由账号卡流的委托（provListEl 上的 [data-cuscap]）接住 ——
+         表单被搬进那张卡里，不要再绑第二份：两个 handler 各 toggle 一次等于没点。 */
+      if (!cusCapsBoxEl.value) return;
+      cusCapsBoxEl.value.addEventListener('click', ev => {
+        const t = ev.target;
+        const rm = t.closest && t.closest('[data-cfg-del]');
+        if (rm) { ev.preventDefault(); pickCusCap(rm.dataset.cfgDel); return; }
+        const add = t.closest && t.closest('[data-cfg-add]');
+        if (add) {
+          ev.preventDefault();
+          const kind = add.dataset.cfgAdd;
+          const inp = cusCapsBoxEl.value.querySelector('[data-cfg-new="' + window.esc(kind) + '"]');
+          const n = cusAddIds(kind, (inp || {}).value || '');
+          if (n && inp) inp.value = '';
+          return;
+        }
+        const ft = t.closest && t.closest('[data-cfg-fetch]');
+        if (ft) { ev.preventDefault(); fetchCusModelsFor(ft.dataset.cfgFetch, ft); return; }
+        const med = t.closest && t.closest('[data-cfg-med]');
+        if (med) { ev.preventDefault(); cusCycleMedia(med.dataset.cfgKind, med.dataset.cfgId, med.dataset.cfgMed); return; }
+      });
+      cusCapsBoxEl.value.addEventListener('change', ev => {
+        const t = ev.target;
+        const sh = t.closest && t.closest('[data-cfg-shape]');
+        if (sh) {
+          const cfg = cusCfgOf(sh.dataset.cfgShape);
+          cfg.shapeId = sh.value;
+          cfg.models = cusDefaultModels(sh.dataset.cfgShape, cfg.shapeId);
+          paintCusCapBlocks();
+          return;
+        }
+        const m = t.closest && t.closest('[data-cfg-model]');
+        if (m) { const cfg = cusCfgOf(m.dataset.cfgKind); const hit = cfg.models.find(x => x.id === m.dataset.cfgModel); if (hit) hit.on = !!m.checked; paintCusCount(); return; }
+      });
+      cusCapsBoxEl.value.addEventListener('keydown', ev => {
+        if (ev.key !== 'Enter') return;
+        const inp = ev.target.closest && ev.target.closest('[data-cfg-new]');
+        if (!inp) return;
+        ev.preventDefault();
+        const kind = inp.dataset.cfgNew;
+        const n = cusAddIds(kind, inp.value);
+        if (n) inp.value = '';
+      });
     }
     async function afterCustomChanged(droppedKid) {
       try { await DataSync.flush(); } catch (e) {}
@@ -359,55 +524,36 @@ const SettingsView = {
         if (droppedKid && top && typeof top.__sbBalanceDrop === 'function') top.__sbBalanceDrop(droppedKid);
       } catch (e) {}
     }
-    function onCusShapeChange(ev) { if (ev && ev.target) cusShapeSel.value = ev.target.value; renderCus(); }
     function cusReset() {
       cusEditing.value = '';
       cusAddText.value = '添加这一家';
       cusCancelShown.value = false;
-      cusName.value = ''; cusBase.value = ''; cusKey.value = ''; cusExtra.value = '';
+      cusName.value = ''; cusBase.value = ''; cusKey.value = '';
       cusAutoName = '';
+      cusAutoBase = '';
       cusCaps.value = ['image'];
-      cusFetched.value = []; cusFetchFrom.value = ''; cusOff.clear();
+      cusCfg.clear();
+      cusCfgOf('image');
       renderCus();
     }
     async function editCus(kid) {
       const e = Api.customList().find(x => x && x.id === kid);
       if (!e) { acctMsg(kid, '清单里找不到这一条，刷新一次页面。', 'err'); return; }
-      /* 编辑哪一家：档位回填成「它自己的主档 + 手动声明的那几档」（与卡里那几行一致）。 */
-      cusCaps.value = [e.kind || 'image'].concat(manualCapsOf(kid));
+      loadCusEntry(e);
       cusShown.value = true;
       /* 「哪一张卡里有这一格」要重画网格才知道：添加卡里那个落点是 cusShown 变了才画出来的。 */
       renderProv();
       cusEditing.value = kid;
-      cusOff.clear();
       cusAutoName = '';
       cusAutoBase = '';
-      cusShapeSel.value = '';
-      renderCus();
-      /* 还原「当初选的是哪一族形状」：shapeId 是新写法，老条目只剩 shape（模板 provider id），
-         照它反查回那一族。 */
-      const fams = cusFamilies(e.kind);
-      const byShapeId = e.shapeId && fams.some(f => f.id === e.shapeId) ? e.shapeId
-        : ((fams.find(x => x.template === e.shape) || {}).id || '');
-      if (byShapeId) cusShapeSel.value = byShapeId;
-      renderCus();
       cusName.value = e.name || '';
-      cusAutoName = '';
-      cusAutoBase = '';
       cusBase.value = e.base || '';
       cusKey.value = keyFor(kid);
-      cusExtra.value = '';
-      cusFetched.value = []; cusFetchFrom.value = '';
-      rebuildCusModels();
       cusAddText.value = '保存这一家';
       cusCancelShown.value = true;
-      paintCusMine();
+      renderCus();
       cusSetMsg('正在改「' + (e.name || kid) + '」。', '');
-      nextTick(() => {
-        syncCusDropdowns();
-        /* 卡片刚从 hidden 里放出来时量位置才算数：同步那一行代码还在隐藏态里，滚不动。 */
-        if (cusCapEl.value) scrollToEl(cusCapEl.value, 'center');
-      });
+      nextTick(() => { if (cusNameEl.value) window.focusQuiet(cusNameEl.value); });
     }
     async function removeCus(kid) {
       const e = Api.customList().find(x => x && x.id === kid);
@@ -428,11 +574,6 @@ const SettingsView = {
       cusSetMsg('已删掉「' + ((e && e.name) || kid) + '」。', 'ok');
     }
     async function addCus() {
-      const t = cusTemplate();
-      if (!t) {
-        cusSetMsg('先在「接口形状」里选一套协议。', 'err');
-        return;
-      }
       const name = String(cusName.value || '').trim();
       if (!name) { cusSetMsg('写个显示名', 'err'); return; }
       const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
@@ -440,25 +581,43 @@ const SettingsView = {
         cusSetMsg('地址要以 https:// 开头。', 'err');
         return;
       }
-      const clash = Api.hostOwner(REG, base, t);
-      if (clash && clash.kind === 'other-provider' && !clash.custom) {
-        cusSetMsg('这个地址是「' + clash.name + '」的官方地址，接口形状要换成它自己那一档。', 'err');
-        return;
+      const caps = [];
+      for (const kind of cusCaps.value) {
+        const cfg = cusCfgOf(kind);
+        const fams = cusFamilies(kind);
+        const fam = fams.find(f => f.id === cfg.shapeId) || fams[0];
+        if (!fam) { cusSetMsg('「' + cusKindZh(kind) + '」没有可用的接口形状。', 'err'); return; }
+        const tpl = cusProvById(fam.template);
+        if (!tpl) { cusSetMsg('找不到「' + fam.name + '」对应的模板声明。', 'err'); return; }
+        if (kind === 'asr' || kind === 'search') {
+          if (!tpl[kind] || (tpl.extraCaps || []).indexOf(kind) < 0) {
+            cusSetMsg('「' + fam.name + '」没有声明' + cusKindZh(kind) + '，换一个接口形状。', 'err');
+            return;
+          }
+        } else if (tpl.kind !== kind) {
+          cusSetMsg('「' + fam.name + '」不是' + cusKindZh(kind) + '那一类。', 'err');
+          return;
+        }
+        const models = cfg.models.filter(m => m.on && m.id).map(m => {
+          const one = { id: m.id };
+          if (m.name && m.name !== m.id) one.name = m.name;
+          ['vision', 'audio', 'video'].forEach(k => { if (m[k] !== undefined) one[k] = !!m[k]; });
+          return one;
+        });
+        if (!models.length && kind !== 'asr' && kind !== 'search') { cusSetMsg('「' + cusKindZh(kind) + '」至少加一个型号。', 'err'); return; }
+        const clash = Api.hostOwner(REG, base, tpl);
+        if (clash && clash.kind === 'other-provider' && !clash.custom) {
+          cusSetMsg('这个地址是「' + clash.name + '」的官方地址，接口形状要换成它自己那一档。', 'err');
+          return;
+        }
+        caps.push({ kind, shape: tpl.id, shapeId: fam.id, models });
       }
-      const models = cusPicked();
-      if (!models.length) { cusSetMsg('至少勾一个型号', 'err'); return; }
+      if (!caps.length) { cusSetMsg('至少选一档能力。', 'err'); return; }
       const id = cusEditing.value || Api.customId();
+      const beforeCaps = cusEditing.value
+        ? cusCapsOfEntry(Api.customList().find(e => e && e.id === id) || {}) : [];
       const list = Api.customList().filter(e => e && e.id !== id);
-      list.push({
-        id, name, kind: t.kind, shape: t.id,
-        prov: '',
-        shapeId: cusShapeSel.value,
-        base, models,
-      });
-      /* 选了两个以上档位：第一个是主档（这条自定义条目就是它），其余记成「手动声明」——
-         与卡里「＋ 手动加一档能力」同一个键、同一套语义：识别 / 搜索真能用，
-         生成三档只算声明（那一行会写明还差注册表一条端点）。 */
-      const extraCaps = cusCaps.value.slice(1);
+      list.push({ id, name, base, caps });
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
       /* 先落密钥、再落那份清单：密钥这一格写不进去（配额满 / 隐私模式）时当场收工，
          不会出现「卡片说已添加、下一次调用才发现根本没有密钥」。写盘走 `window.LS`
@@ -477,50 +636,26 @@ const SettingsView = {
         cusSetMsg('「' + name + '」没有保存：本机存储写不进清单这一格，先清一次缓存再重试。', 'err');
         return;
       }
+      /* 编辑时删掉的那几类：把它们的型号偏好槽一起摘掉，免得下次加回同一类时旧清单又冒出来。 */
+      if (window.ModelPrefs && window.ModelPrefs.dropKind) {
+        beforeCaps.forEach(c => {
+          if (caps.every(x => x.kind !== c.kind)) window.ModelPrefs.dropKind(id, c.kind);
+        });
+      }
       await afterCustomChanged();
-      /* 多选的其余档：记成这一家的「手动声明」（sk_caps_<id>）。识别 / 搜索真能用；
-         生成三档只算声明 —— 卡里那一行会写明还差注册表一条端点，这里不假装。 */
-      setManualCaps(id, extraCaps);
       const wasEditing = cusEditing.value;
       cusReset();
       /* 加完 / 存完就收起来（回到「预设」形态）：这张卡平时是清单，展开只是临时填一填。
          回执走 Toast —— 收起之后表单里那一行字没人看得见。 */
       cusShown.value = false;
       renderProv();
-      Toast.receipt('已' + (wasEditing ? '保存' : '添加') + '「' + name + '」。'
-        + (extraCaps.length ? '另外 ' + extraCaps.map(capZh).join(' / ') + ' 记成了「手动声明」那一档。' : '')
-        + (t.kind === 'text' ? ''
-          : capZh(t.kind) + '这一档的型号下拉里已有它。'), 'ok');
+      Toast.receipt('已' + (wasEditing ? '保存' : '添加') + '「' + name + '」（'
+        + caps.map(c => cusKindZh(c.kind)).join(' / ') + '）。', 'ok');
     }
     function cancelCus() {
       const n = cusEditing.value;
       cusReset();
       cusSetMsg(n ? '已取消编辑。' : '', '');
-    }
-    /* 获取型号列表：拿表单里现在的地址与密钥去问它自己（只读接口，不建任务、不扣费）。 */
-    async function fetchCusModels() {
-      const t = cusTemplate();
-      if (!t) { cusSetMsg('先选一个「接口形状」。', 'err'); return; }
-      const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
-      if (!httpsBaseOk(base)) { cusSetMsg('先填接口地址（要 https:// 开头）。', 'err'); return; }
-      const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
-      if (!key) { cusSetMsg('先填密钥。', 'err'); if (cusKeyEl.value) window.focusQuiet(cusKeyEl.value); return; }
-      cusFetchBusy.value = true;
-      try {
-        const r = await Net.fetch('/custom/models', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ shape: t.id, base, key }), timeout: 25000, retry: 0,
-        });
-        let d = {};
-        try { d = (await r.json()) || {}; } catch (e) { throw new Error('代理没有返回 JSON（HTTP ' + r.status + '）'); }
-        const list = Array.isArray(d.models) ? d.models : [];
-        if (!list.length) throw new Error(d.error || ('它没有返回型号列表（HTTP ' + r.status + '）'));
-        cusFetched.value = list;
-        cusFetchFrom.value = (d.from || base);
-        rebuildCusModels();
-        cusSetMsg('从「' + cusFetchFrom.value + '」拿到 ' + list.length + ' 个型号，已全部勾上。', 'ok');
-      } catch (e) { cusSetMsg('获取失败：' + errText(e), 'err'); }
-      finally { cusFetchBusy.value = false; }
     }
 
     /* ---------- 可折叠的一块（供应商卡里的「型号清单」） ----------
@@ -619,10 +754,85 @@ const SettingsView = {
       dropPending();
       if (saveRun) await saveRun;
     }
+    /* ---------- 旧供应商数据的最后一次搬迁 ----------
+       旧版本有两条落盘形状：一条只有 `kind + shape + models`，以及「给已有账号补识别 / 搜索」
+       的 `keyId + extras[]`。新实现只认 `caps[]`，启动时一次性把两者转过来，随后删掉
+       更老的 `sk_caps_<keyId>`（那一份连型号都没有，已无法还原成可用声明）。
+       搬迁失败不抛：下一次启动再试，界面上按空清单画，不拿旧形状当第二套真相。 */
+    function migrateProviderStorage() {
+      let changed = false;
+      try {
+        window.LS.keys().filter(k => k.indexOf('sk_caps_') === 0).forEach(k => {
+          window.LS.del(k);
+          /* 这一枚也可能是服务器镜像里的旧键：只删本机的话，下次开机 DataSync 又把它拉回来。 */
+          try {
+            if (window.Net && Net.fetch) {
+              Net.fetch('/data/' + encodeURIComponent(k) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 })
+                .catch(() => {});
+            }
+          } catch (e) { /* 镜像删不掉下次启动会再清一遍，不拦本机这次搬迁 */ }
+          changed = true;
+        });
+        const list = Api.customList();
+        let dirty = false;
+        list.forEach(e => {
+          if (!e || typeof e !== 'object') return;
+          if (Array.isArray(e.caps) && e.caps.length) {
+            let changedCaps = false;
+            const next = [];
+            e.caps.forEach(c => {
+              if (!c || typeof c !== 'object') return;
+              const kind = String(c.kind || '');
+              if (kind === 'text' && (c.asr || c.search)) {
+                const textCap = { ...c };
+                delete textCap.asr; delete textCap.search;
+                next.push(textCap);
+                ['asr', 'search'].forEach(field => {
+                  if (!c[field]) return;
+                  const from = String((c[field] && c[field].from) || '');
+                  const fams = cusFamilies(field);
+                  const shapeId = (fams.find(f => f.template === from) || {}).id || '';
+                  next.push({ kind: field, shape: from, shapeId, models: cusDefaultModels(field, shapeId) });
+                });
+                changedCaps = true;
+              } else next.push(c);
+            });
+            if (changedCaps) { e.caps = next; dirty = true; }
+            if ('extras' in e) { delete e.extras; dirty = true; }
+            return;
+          }
+          const caps = [];
+          if (e.kind && e.shape) {
+            caps.push({ kind: e.kind, shape: e.shape, shapeId: e.shapeId || '', models: e.models || [] });
+          }
+          if (Array.isArray(e.extras)) {
+            e.extras.forEach(x => {
+              const kind = String((x && x.kind) || '');
+              if (kind !== 'asr' && kind !== 'search') return;
+              const from = String((x && x.from) || '');
+              const fams = cusFamilies(kind);
+              const shapeId = (fams.find(f => f.template === from) || {}).id || '';
+              caps.push({ kind, shape: from, shapeId, models: cusDefaultModels(kind, shapeId) });
+            });
+          }
+          if (!caps.length) return;
+          e.caps = caps;
+          delete e.kind; delete e.shape; delete e.shapeId; delete e.models; delete e.extras;
+          dirty = true;
+        });
+        if (dirty) { Api.customSet(list); changed = true; }
+      } catch (e) { /* 搬迁不成功就照空清单画，下一次启动再试 */ }
+      return changed;
+    }
     async function loadReg() {
       try { setREG(await Api.registry()); } catch (e) { setREG(null); }
       if (window.Api) Api.setRegistry(REG);
       try { envInfo = (window.Api && Api.envStatus) ? await Api.envStatus() : {}; } catch (e) { envInfo = {}; }
+      const migrated = migrateProviderStorage();
+      if (migrated) {
+        try { Api.clearCaches(); setREG(await Api.registry()); } catch (e) { /* 刷新失败：下一次进设置页再来 */ }
+        if (window.Api) Api.setRegistry(REG);
+      }
       renderProv();
       renderCus();
       syncServiceProvs();
@@ -636,8 +846,6 @@ const SettingsView = {
     const fetched = new Map();      // slot → [{id,name}]（本轮内存副本，不落盘）
     const fetchedOf = p => (p ? fetched.get(slotOfProv(p)) : null) || [];
     const modelDraft = new Map();   // keyId → 还没落盘的型号
-    const visionDraft = { v: null };
-    let visionTipSeq = 0;
     let textForm = null;
 
     const textProvList = () => (window.TextAI ? TextAI.all(REG) : []);
@@ -678,7 +886,7 @@ const SettingsView = {
       if (f.state === 'busy') { el.className = 'st warn'; el.textContent = '正在取…'; }
       else if (f.state === 'done') { el.className = 'st ok'; el.textContent = '已取回 ' + f.n + ' 个 · ' + f.ms + 'ms'; }
       else if (f.state === 'err') { el.className = 'st err'; el.textContent = '取失败：' + f.why; }
-      else if (p && p.endpoints && p.endpoints.models) { el.className = 'st alt'; el.textContent = '还没取过'; }
+      else if (p && !p.serviceOnly && p.endpoints && p.endpoints.models && slotCap(slot) !== 'asr' && slotCap(slot) !== 'search') { el.className = 'st alt'; el.textContent = '还没取过'; }
       else { el.className = 'st off'; el.textContent = '这一档没有型号接口'; }
       const btn = q('[data-tfetch="' + window.esc(slot) + '"]');
       if (btn) btn.textContent = f.state === 'busy' ? '取回中…' : '取一次型号清单';
@@ -687,7 +895,7 @@ const SettingsView = {
         const p2 = provBySlot(slot);
         const n = p2 ? allModelsOf(p2).length : 0;
         const vis = p2 ? allModelsOf(p2).filter(x => !(window.ModelPrefs && ModelPrefs.isOff(p2, x.id))).length : 0;
-        const text = !!(p2 && p2.kind === 'text');
+        const text = slotCap(slot) === 'text' && !!(p2 && p2.kind === 'text' && !p2.serviceOnly);
         note.textContent = '共 ' + n + ' 个 · ' + (text ? '全站润色在用那一个'
           : '工作台列 ' + vis + ' 个') + (p2 && ((p2.models || []).length) ? ' · 注册表里写了 ' + p2.models.length + ' 个' : '');
       }
@@ -699,17 +907,24 @@ const SettingsView = {
     function allModelsOf(p) {
       const map = new Map();
       const skip = id => !!(p && window.Capabilities && Capabilities.skipMedia && Capabilities.skipMedia(p, id));
+      /* 型号清单还要过这一条自己的 modelsFilter / modelsExclude（与代理、TextAI 同一套判据）：
+         MiMo 的文字档排掉 -tts、语音档只留 -tts；旧数据里混进来的另一类型号也在这里被挡住。 */
+      const modelAllowed = id => (window.TextAI && TextAI.modelAllowed) ? TextAI.modelAllowed(p, id) : true;
       const put = (id, name, api) => {
         const s = String(id || '').trim();
-        if (!s || skip(s)) return;
+        if (!s || skip(s) || !modelAllowed(s)) return;
         const cur = map.get(s);
         if (cur) { if (!cur.name && name) cur.name = String(name).trim(); cur.api = cur.api || api; }
         else map.set(s, { id: s, name: String(name || '').trim(), api, typed: false });
       };
       const prefs = (window.ModelPrefs && p) ? ModelPrefs.of(p) : { typed: [], off: [], got: [] };
+      const svc = !!(p && (p.modelKind === 'asr' || p.modelKind === 'search'));
+      const ownModels = svc && !p.serviceOnly
+        ? ((p.serviceModels && p.serviceModels[p.modelKind]) || [])
+        : ((p && p.models) || []);
       (prefs.got || []).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
       fetchedOf(p).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
-      ((p && p.models) || []).forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
+      ownModels.forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
       prefs.off.forEach(id => put(id, '', false));
       prefs.typed.forEach(id => put(id, '', false));
       const tset = new Set(prefs.typed);
@@ -784,7 +999,7 @@ const SettingsView = {
         box.innerHTML = '<div class="mlist-empty">还没有型号。</div>';
         return;
       }
-      const text = p.kind === 'text';
+      const text = slotCap(slot) === 'text' && p.kind === 'text' && !p.serviceOnly;
       const es = window.esc(slot);
       box.innerHTML = list.map(x => {
         const id2 = window.esc(x.id);
@@ -794,14 +1009,28 @@ const SettingsView = {
             + ' data-tdel="' + id2 + '" data-tkid="' + es + '">' + ic('close', 10) + '</button>' : '';
         if (text) {
           const on = x.id === cur;
-          return '<div class="mlist-row' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
+          const mm = window.ModelPrefs ? ModelPrefs.mediaOf(p, x.id) : {};
+          const mediaTag = (kind, zh) => {
+            const mode = mm[kind] || '';
+            const cls = mode === 'on' ? ' on' : mode === 'off' ? ' off' : '';
+            const tip = mode === 'on' ? '这个型号支持' + zh + '输入（点一下改为不支持）'
+              : mode === 'off' ? '这个型号不支持' + zh + '输入（点一下改回自动）'
+                : '自动判断' + zh + '输入（点一下改为支持）';
+            return '<button class="med-tag' + cls + '" type="button" data-tmedit="' + kind + '"'
+              + ' data-tkid="' + es + '" title="' + window.esc(tip) + '">' + zh + '</button>';
+          };
+          return '<div class="mlist-row text-model' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
             + ' data-tpick-model="' + id2 + '" data-tkid="' + es + '"'
             + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
             + ' title="' + (on ? '全站润色在用这一个'
               : '设为全站润色用的型号') + '">'
+            + '<span class="mrow-line">'
             + '<span>' + ((x.name && x.name !== x.id) ? '<b>' + window.esc(x.name) + '</b> ' : '') + '<code>' + id2 + '</code></span>'
-            + '<span class="mlist-src">' + (on ? '正在用' : src) + '</span>' + del
-            + '</div>';
+            + '<span class="mlist-src">' + (on ? '正在用' : src) + '</span>' + del + '</span>'
+            + '<span class="med-tags" title="模型能收的输入（点一下切换）">'
+            + '<span class="med-tag fixed" title="文字输入始终支持">字</span>'
+            + mediaTag('image', '图') + mediaTag('audio', '音') + mediaTag('video', '视')
+            + '</span></div>';
         }
         const off = window.ModelPrefs ? ModelPrefs.isOff(p, x.id) : false;
         return '<div class="mlist-row' + (off ? ' off' : '') + '">'
@@ -832,7 +1061,6 @@ const SettingsView = {
       modelDraft.set(kid, m);
       renderModelRows(slot);
       paintFetchNote(slot);
-      refreshVisionTip(kid);
       panelMsg(slot, '已选择型号：' + m + '（全站润色都用它）', 'msg');
       markChanged();
     }
@@ -858,37 +1086,6 @@ const SettingsView = {
         renderModelRows(slot);
         paintFetchNote(slot);
       });
-      scheduleAutofetch();
-      const tv = q('[data-tvision]');
-      if (tv) {
-        tv.value = visionDraft.v != null ? visionDraft.v : (window.LS.get('sk_text_vision') || 'auto');
-        const tvRow = tv.closest('.krow');
-        if (window.Dropdowns && tvRow) { Dropdowns.build(tvRow); Dropdowns.sync(tvRow); }
-        refreshVisionTip(tv.dataset.tvision);
-      }
-    }
-    /* 识图能力：自动 / 支持 / 不支持（存 sk_text_vision）。它跟着「文字档」那一条声明走，
-       所以按 keyId 找回那一条，而不是按卡上正在展开的某一档。 */
-    async function refreshVisionTip(kid) {
-      const el = q('[data-vtip="' + kid + '"]');
-      if (!el || !window.TextAI) return;
-      const seq = ++visionTipSeq;
-      const REG2 = REG || { providers: [] };
-      const p2 = textProvOf(kid);
-      if (!p2) { el.textContent = '没认出这一家供应商，刷新一下页面再试。'; return; }
-      const mdl = ((selOf(kid) || {}).value) || '';
-      el.textContent = '加载中…';
-      let v;
-      try { v = await TextAI.visionAsync(REG2, p2, mdl); }
-      catch (e) { v = TextAI.vision(REG2, p2, mdl); }
-      if (seq !== visionTipSeq) return;
-      if (!v.model) {
-        el.textContent = '还没选型号。';
-        return;
-      }
-      el.textContent = v.ok
-        ? '当前型号 ' + v.model + '：润色时会带上参考图 / 首尾帧一起发给它（依据：' + v.why + '）。'
-        : '当前型号 ' + v.model + '：润色时只发文字（依据：' + v.why + '）。确实能识图就把上面选成「支持识图」。';
     }
     const cleanKey = s => String(s == null ? '' : s).replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
     /* 接口地址的判据：代理的出站护栏只放行公网 https，http / 内网地址每一笔请求都会被代理当场拒 ——
@@ -911,10 +1108,10 @@ const SettingsView = {
       const d = await Api.request(p, 'models');
       const raw = Api.modelRows(d);
       const seen = new Set(), out = [];
-      const re = p.modelsFilter ? new RegExp(p.modelsFilter) : null;
       (raw || []).forEach(m => {
         const id = String((m && (m.id || m.name)) || m || '').trim();
-        if (!id || seen.has(id) || (re && !re.test(id))) return;
+        if (!id || seen.has(id)) return;
+        if (window.TextAI && TextAI.modelAllowed && !TextAI.modelAllowed(p, id)) return;
         seen.add(id);
         out.push({ id, name: String((m && m.name) || '') });
       });
@@ -968,6 +1165,21 @@ const SettingsView = {
     /* 型号面板里那一格的操作：取清单 / 测试 / 自己填 / 移除 / 点一行选中。
        与卡上那一族开关（账号卡流那份 onAcctClick）各认各的 data-*，挂在同一颗网格上互不抢。 */
     async function onPanelClick(ev) {
+      /* 型号行上的 图 / 音 / 视：点一下在自动 → 支持 → 不支持之间切换，按型号存。 */
+      const mt = ev.target.closest && ev.target.closest('[data-tmedit]');
+      if (mt && ev.target.closest('[data-tpick-model]')) {
+        ev.preventDefault(); ev.stopPropagation();
+        const slot = slotOfEl(mt), p = provBySlot(slot);
+        const id2 = ev.target.closest('[data-tpick-model]').dataset.tpickModel;
+        const kind = mt.dataset.tmedit;
+        if (p && id2 && ['image', 'audio', 'video'].indexOf(kind) >= 0 && window.ModelPrefs) {
+          const cur2 = ModelPrefs.mediaOf(p, id2)[kind] || '';
+          ModelPrefs.setMedia(p, id2, kind, cur2 === '' ? 'on' : cur2 === 'on' ? 'off' : '');
+          renderModelRows(slot);
+          markChanged();
+        }
+        return;
+      }
       const row = ev.target.closest('[data-tpick-model]');
       if (row && !ev.target.closest('[data-tdel]')) {
         ev.preventDefault();
@@ -988,10 +1200,11 @@ const SettingsView = {
         const id2 = b.dataset.tdel, sel2 = selOf(kid);
         const was = sel2 && sel2.value === id2;
         TextAI.removeCustom(prov, id2);
+        markChanged();
         renderModelRows(slot);
         fillModelOptions(slot);
         setCount(slot);
-        if (was) refreshVisionTip(kid);
+        if (was) fillModelOptions(slot);
         panelMsg(slot, '已移除型号「' + id2 + '」（只清本机记录）', 'msg ok');
         return;
       }
@@ -1002,12 +1215,12 @@ const SettingsView = {
         /* 逗号分隔一次填多个：一行的输入框，多次落盘 —— 与「自己填」那一格的说法一致。 */
         const ids = raw.split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
         ids.forEach(id2 => TextAI.addCustom(prov, id2));
+        markChanged();
         if (inp) inp.value = '';
         renderModelRows(slot);
         fillModelOptions(slot, ids[ids.length - 1]);
         setCount(slot);
         panelMsg(slot, '已添加 ' + ids.join('、') + '（只属于「' + (prov.name || '这一家') + '」这一家）', 'msg ok');
-        if (prov.kind === 'text') refreshVisionTip(kid);
         return;
       }
       if (b.dataset.tfetch != null) {
@@ -1018,7 +1231,6 @@ const SettingsView = {
           const from = (p.kind === 'text' ? (TextAI.base(p) || p.base) : (p.base || '')) || '这一家的默认地址';
           panelMsg(slot, '从「' + from + '」取回 ' + list.length + ' 个型号，当前选中 '
             + (((selOf(kid) || {}).value) || '—'), 'msg ok');
-          if (p.kind === 'text') refreshVisionTip(kid);
           markChanged();
           if (p.kind === 'text') {
             try {
@@ -1064,33 +1276,31 @@ const SettingsView = {
         }
         const hide = !cb.checked;
         ModelPrefs.setOff(p, id2, hide);
+        markChanged();
         const wasCur = ((selOf(kid) || {}).value) === id2;
         renderModelRows(slot);
         fillModelOptions(slot);
         setCount(slot);
         const sel2 = selOf(kid);
         if (sel2) modelDraft.set(kid, sel2.value);
-        refreshVisionTip(kid);
         panelMsg(slot, (hide ? '已隐藏 ' : '已展示 ') + id2 + '（按账号存）'
           + (hide && wasCur ? '　|　它原本是选中的型号，下拉已换到清单里的第一个' : ''),
           'msg ok');
         return;
       }
-      const s = ev.target.closest('[data-tmodel],[data-tvision]');
+      const s = ev.target.closest('[data-tmodel]');
       if (!s) return;
-      const kid = s.dataset.tmodel || s.dataset.tvision;
-      if (s.dataset.tvision) { visionDraft.v = s.value; refreshVisionTip(kid); return; }
+      const kid = s.dataset.tmodel;
       modelDraft.set(kid, s.value);
       const slot = slotKey(kid, 'text');
       renderModelRows(slot);
       setCount(slot);
       panelMsg(slot, '已选择型号：' + (s.value || '（空）') + '（全站润色都用它）', 'msg');
-      refreshVisionTip(kid);
     }
     function initTextForm() {
       textForm = {
         prov: curTextProv, list: textProvList, provBySlot, textProvOf, fetchedOf, paint: paintTextCards,
-        clearDrafts() { modelDraft.clear(); visionDraft.v = null; },
+        clearDrafts() { modelDraft.clear(); },
         flushDrafts(W, Wdel, skipped, domKeys) {
           for (const [kid, m] of modelDraft) {
             if (domKeys && domKeys.has(kid)) continue;
@@ -1099,7 +1309,6 @@ const SettingsView = {
             if (p && TextAI.ownsModel && !TextAI.ownsModel(p, m, fetchedOf(p))) { skipped.push('型号「' + m + '」（不属于' + (p.name || '这一家') + '）'); continue; }
             W('sk_model_' + kid, m);
           }
-          if (visionDraft.v != null && !q('[data-tvision]')) W('sk_text_vision', visionDraft.v);
         },
       };
       /* textForm 只给这一页自己用（以前还挂过 window.__textForm，全站没有读它的地方）。
@@ -1607,6 +1816,7 @@ const SettingsView = {
     /* ---------- SET_ROWS 的渲染与写盘（一处声明，两处现取） ---------- */
     const MANIFEST_HOSTS = () => ({
       net: netBoxEl.value, store: storeRowsEl.value, assistant: assistantBoxEl.value, polish: polishBoxEl.value,
+      model: modelBoxEl.value,
     });
     function checkedOf(r) {
       const v = window.LS.get(r.key);
@@ -1745,8 +1955,6 @@ const SettingsView = {
           W('sk_model_' + kid, m);
         }
       });
-      const tvEl = q('[data-tvision]');
-      if (tvEl) W('sk_text_vision', tvEl.value);
       /* 清单声明的那几行（润色反问 + AI 助手四颗开关 + 产物档位 + 左栏两块 + 网络三档数值）：
          值按 SET_ROWS 声明的三态现写，新增一行不用再回到这里补一句 W()。 */
       saveManifestRows(W, Wdel);
@@ -1783,7 +1991,7 @@ const SettingsView = {
        普通设置行那一批改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
        只有助手那五颗开关**保留字面量**：tests/settings-schema.cjs 判据⑤点名要在这张数组里看到它们
        （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
-    const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_caps_', 'sk_text_', 'sk_polish_', 'sk_dir_',
+    const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
       'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
       'sk_custom', 'sk_local_dir',
       /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
@@ -3209,7 +3417,11 @@ const SettingsView = {
       const kid = autoServiceKid('asr');
       return kid ? (REG.providers || []).find(p => String(p.keyId || p.id) === kid) || null : null;
     });
-    const asrModelPh = computed(() => (asrProvider.value && asrProvider.value.asr && asrProvider.value.asr.model) || 'whisper-1');
+    const asrModelPh = computed(() => {
+      const p = asrProvider.value;
+      const first = p && Array.isArray(p.models) && p.models[0] && p.models[0].id ? String(p.models[0].id) : '';
+      return first || (p && p.asr && p.asr.model) || 'whisper-1';
+    });
     /* 在线识别有没有落点：没有的话，本机识别卡里的「在线服务 / 自动」要说明先接一家云供应商。 */
     const asrOnlineReady = computed(() => {
       provEpoch.value;
@@ -3239,7 +3451,6 @@ const SettingsView = {
       const seen = new Set();
       const list = [];
       (REG.providers || []).forEach(p => {
-        if (p.kind !== 'text') return;
         if ((p.extraCaps || []).indexOf(cap) < 0) return;
         if (!(cap === 'asr' ? p.asr : p.search)) return;
         const kid = String(p.keyId || p.id);
@@ -3247,14 +3458,6 @@ const SettingsView = {
         seen.add(kid);
         list.push({ id: p.id, name: p.name + (p.custom ? '（我的）' : '') });
       });
-      if (cap === 'asr') {
-        (REG.providers || []).filter(p => p.kind === 'text').forEach(p => {
-          const kid = String(p.keyId || p.id);
-          if (seen.has(kid) || manualCapsOf(kid).indexOf('asr') < 0) return;
-          seen.add(kid);
-          list.push({ id: p.id, name: p.name + '（手动声明）' });
-        });
-      }
       const cur = ['auto', 'tavily'].includes(String(curId || '')) ? '' : String(curId || '');
       if (cur && !list.some(x => x.id === cur)) {
         const p = (REG.providers || []).find(x => x.id === cur);
@@ -3894,6 +4097,7 @@ const SettingsView = {
         return;
       }
       if (window.Dropdowns) Dropdowns.build(rootEl.value);
+      initCusForm();
       initNet();
       /* SET_ROWS 声明的那几行（网络 / 产物档位 / 左栏两块 / 助手四颗 / 润色反问）在这里现画，
          再把这一页已有的折叠绑上（本机维护那一组默认收着 —— 键没存过就是收起，见 initFolds）。 */
@@ -3960,7 +4164,6 @@ const SettingsView = {
     const {
       provGroups, provUsable, curTextId, autoServiceKid, hostKidOf, allCaps, acctAll,
       draftKey, keyFor, keyCleared, keyDraft, acctOffSet, panelOpen, fetchNote,
-      manualCapsOf, setManualCaps,
       slotKey, slotKid, slotCap, slotOfProv, provBySlot,
       renderProv, refreshProvNotes, paintAccountBalances, acctMsg,
       textPick, setTextPick,
@@ -3970,7 +4173,7 @@ const SettingsView = {
       asrFormEl, asrLocalFormEl, searchFormEl, cusCardEl, cusShown,
       regOf: () => REG, envOf: () => envInfo, textFormOf: () => textForm,
       markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange,
-      syncServiceProvs, scrollToEl, openCus, hideCus, pickCusCap, editCus, removeCus,
+      syncServiceProvs, openCus, hideCus, pickCusCap, editCus, removeCus, afterCustomChanged,
       asr, asrLocal, asrBrowser, search,
     });
 
@@ -3982,14 +4185,12 @@ const SettingsView = {
       saveText, saveKind,
       acctToolsEl, provListEl, provErrEl, acctParkEl,
       asrFormEl, asrLocalFormEl, searchFormEl,
-      cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus,
-      cusCapEl, cusNamePh,
-      cusShapeEl, cusShapeSel, cusShapeOpts, cusShapeShown, onCusShapeChange,
+      cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus, hideCus,
+      cusCapEl, cusCapsBoxEl, cusNamePh,
       cusNameEl, cusName, cusBaseEl, cusBase, cusKeyEl, cusKey, cusKeyShown,
-      cusExtraEl, cusExtra, rebuildCusModels, cusModelRows, cusOff, onCusModelToggle, cusModelsEmpty,
-      cusFetchBusy, fetchCusModels, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,
+      cusFetchBusy, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,
       pageBoxEl, uiPrefsBoxEl, storePrefsBoxEl, charsBoxEl,
-      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl,
+      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl, modelBoxEl,
       dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
       backupInfo, backupMsg, backupRows, backupBusy, backupListEl, refreshBackupCenter, createBackup, verifyBackup,

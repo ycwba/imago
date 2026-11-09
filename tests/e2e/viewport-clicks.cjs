@@ -333,8 +333,10 @@ const SETTINGS = [
      两击量的都是那条文档（不是卡里那格 —— 添加卡在两种形态下会整块换掉自己那一格）。 */
   { g: 'settings', name: '设置页·打开自定义表', sel: '.set-doc-scroll', host: '.set-doc-scroll',
     click: '[data-cus-open]', kind: 'goto', target: '.set-doc-scroll [data-cus-close]', wait: 2600 },
-  { g: 'settings', name: '设置页·返回预设（收缩）', sel: '.set-doc-scroll', host: '.set-doc-scroll',
-    click: '[data-cus-close]', kind: 'shrink', pin: 'acct' },
+  /* 自定义表是固定浮层：关掉它不改变文档高度，所以量的是「文档滚动位与眼前那一屏不动」，
+     不是「把卡片流那一格还回来」（浮层后面那一格本来就一直在原位）。 */
+  { g: 'settings', name: '设置页·返回预设（关闭浮层）', sel: '.set-doc-scroll', host: '.set-doc-scroll',
+    click: '[data-cus-close]', kind: 'keep', mode: 'frac', frac: 0.5 },
   { g: 'settings', name: '设置页·暂时不用', click: 'input[data-off]', kind: 'keep', wait: 800 },
   /* 目录轨那一行的**目的**就是把右边的文档滚到那一张卡：这一击断言的是「真的滚过去了」，
      与上面七击相反 —— 公共件的还原不许把调用点自己的滚动抹掉。控件在左轨、滚的是右文档。

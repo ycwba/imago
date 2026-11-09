@@ -937,19 +937,23 @@
         return mb.dataURL(src, which, atSeconds, maxSide);
       },
       async dataURLFromFile(f, which, maxSide) {
-        const tmp = URL.createObjectURL(f);
-        try { return await this.dataURL(tmp, which, null, maxSide); } finally { URL.revokeObjectURL(tmp); }
+        /* File 直接交给解码层：MediaBackend 会选 BlobSource。
+           自己再包一层 blob: 地址交给 UrlSource 会在部分文件上卡住（见 MediaBackend 的说明）。 */
+        return await this.dataURL(f, which, null, maxSide);
+      },
+      /* 地址直接取一帧 → 首帧槽位要的图片素材（不下载整段视频）。
+         src 可以是同源 /asset、/getv、外链（内部会包 /fetch）或 File / Blob。 */
+      async fromSrc(src, which, label) {
+        const last = which !== 'first' && which !== 'start';
+        const { blob } = await this.grab(src, which);
+        const base = String(label || 'video').replace(/\.[^.]+$/, '') || 'video';
+        const png = new File([blob], base + (last ? '-尾帧' : '-首帧') + '.png', { type: 'image/png' });
+        return { file: png, url: URL.createObjectURL(png), name: png.name, type: '图片', fromVideo: label || '视频' };
       },
       /* 视频文件 → 首帧槽位要的图片素材（PNG，文件名保留来源视频名，方便用户认出来源）。
          返回 { file, url, name, type:'图片', fromVideo }；槽位 kind 由调用方补。 */
       async fromFile(f, which) {
-        const last = which !== 'first' && which !== 'start';
-        const tmp = URL.createObjectURL(f);
-        let blob;
-        try { ({ blob } = await this.grab(tmp, which)); } finally { URL.revokeObjectURL(tmp); }
-        const base = String(f.name || 'video').replace(/\.[^.]+$/, '') || 'video';
-        const png = new File([blob], base + (last ? '-尾帧' : '-首帧') + '.png', { type: 'image/png' });
-        return { file: png, url: URL.createObjectURL(png), name: png.name, type: '图片', fromVideo: f.name || '视频' };
+        return await this.fromSrc(f, which, f && f.name);
       },
     },
 

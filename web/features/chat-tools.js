@@ -201,6 +201,32 @@
     return { 条数: rows.length, 条目: rows };
   }
   const TOOLS = {
+    /* ---------- 建模台：只读面（写入走 `WBBridge.model3d`）---------- */
+    model_list: {
+      arg: '无参数',
+      doc: '建模台的白模库 / 当前场景：库名、库里模型 id、当前场景实体（id / 名字 / 种类 / 零件数）、灯。改白膜前先用它拿 id',
+      run: () => modelRead('list', {}),
+    },
+    model_read: {
+      arg: '{ "id": "实体 id" }',
+      doc: '读建模台当前场景里某个实体的完整节点树与它的轨道（id / 名字 / 形状 / 坐标）。节点很多时先看返回里的大纲',
+      run: a => modelRead('read', a),
+    },
+    model_view: {
+      arg: '{ "ask": "可选：想让我看什么" }',
+      doc: '看一眼建模台当前的视口（活动机位的构图），用于评价构图 / 光感。需要当前文字型号支持识图',
+      async run(a) {
+        const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('model3d') : null;
+        if (!A || typeof A.thumbnail !== 'function' || (typeof A.ready === 'function' && !A.ready())) {
+          return { 错误: '建模台现在拿不到视口（先切到建模台并打开场景）' };
+        }
+        let url = '';
+        try { url = await A.thumbnail(); } catch (e) { url = ''; }
+        if (!url) return { 错误: '视口画面没拍出来（画布还没起来，或这一页不在前台）' };
+        const r = await lookAtImage('建模台当前视口', url, a && a.ask);
+        return r.err ? { 错误: r.err } : { 视口: r.text, 型号: r.model };
+      },
+    },
     skill: {
       arg: '{ "id": "Skill 的 id" }',
       doc: '读一份 Skill 的正文（这一类提示词/流程该怎么写）。本轮已加载的那两份可以直接读；没加载的你自己判断要不要读（清单在【可用 Skill】里）——回合内最多再读 2 份、按需总额度约 1000 token，超了会回「预算用完了」。加载后照它的写法，但输出契约与格式优先',
@@ -558,7 +584,7 @@
           /* 「侧栏余额」有两个口径，以前这一行把它们混成一条报了：
              `sb_bal_on` 是**整区开不开**，`sb_bal_show` 存的是**隐藏名单**（哪些家不显示，默认全显示）。
              用户问「余额怎么不显示」时，拿隐藏名单当开关读出来的是一个列表，答不到真凶。 */
-          界面: { 主题: window.LS.get('dir_theme') || 'light', 配色: window.LS.get('dir_palette') || 'ocean',
+          界面: { 主题: window.LS.get('dir_theme') || 'system', 配色: window.LS.get('dir_palette') || 'ocean',
             侧栏展开: window.LS.get('sb_open') || '',
             侧栏余额区: window.LS.get('sb_bal_on') === '0' ? '已关掉整区' : '开',
             侧栏余额隐藏了哪几家: (window.SbBal && SbBal.off()) || [] },
@@ -767,7 +793,7 @@
     },
     read_file: {
       arg: '{ "index": 0, "chars": 6000, "ask": "想让图里看出什么" }',
-      doc: '读一个附件的内容：文本给原文；图片在当前文字型号支持识图时真的去看；视频/音频读不出内容（本机没有听/看视频的模型）',
+      doc: '读一个附件的内容：文本给原文；图片 / 视频 / 音频在当前文字型号支持对应输入时随这条消息一起交给模型（没带上的原因写在附件回执里）',
       async run(a) {
         const i = Number(a.index);
         const list = ctxFiles();
@@ -797,7 +823,9 @@
         const playable = rec.kind === '视频' || rec.kind === '音频';
         return { 名称: rec.name, 类型: rec.kind, 大小: window.fmtBytes(rec.size),
           结论: playable
-            ? '本机没有听视频/音频内容的模型，读不出里面的内容。需要它参与生成就直接当素材提交（RUN generate 的 inputs），不要替它编内容。'
+            ? '视频 / 音频按当前文字型号的能力随消息一起附上（型号行的 图 / 音 / 视 小标）：'
+              + '附上了就直接看 / 听；附件回执里写「没带（原因）」就是这次模型收不到它，那才明说不知道，别替它编。'
+              + '要它参与生成就直接当素材提交（RUN generate 的 inputs）。'
             : '这一类文件（' + (rec.mime || '没声明类型') + '）本工作台不解析，读不出正文；要它参与生成就直接当素材提交（RUN generate 的 inputs），'
               + '要看内容就请用户把正文粘进输入框。**不要**根据文件名猜里面写了什么。' };
       },
@@ -1266,6 +1294,11 @@
   const ADJUST = {
     sk_polish_ask: { 名: 'AI 润色前是否反问', 取值: ['ai', 'on', 'off'], 说: 'ai = 由文字 AI 自己判断要不要先问要点' },
     sk_text_vision: { 名: '文字 AI 识图', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明；按型号名猜是禁止的' },
+    sk_text_audio: { 名: '文字 AI 听声音', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明' },
+    sk_text_video: { 名: '文字 AI 看视频', 取值: ['auto', 'on', 'off'], 说: 'auto = 先看接口字段再看平台声明' },
+    sk_model_vframes: { 名: '建模台 · 视频看不明白时取帧', 取值: ['auto', 'on', 'off'],
+      说: 'auto = 只在视频没能随消息附上时在本机取帧；on = 总是取；off = 不取' },
+    sk_model_vframe_n: { 名: '建模台 · 视频一次取几帧', 取值: ['2', '4', '6', '8'], 说: '均匀取这个张数' },
   };
   function pageRows() {
     const t = window.PAGE_TARGETS;
@@ -1654,6 +1687,31 @@
     return r;
   }
   const dirRead = (method, a) => bridgeRead('导演台', 'director', method, a);
+
+  /* ---------- 建模台（唯一写入桥 `WBBridge.model3d`）----------
+     与导演台同一副形状：check 纯读、run 写入 + 撤销快照；op 与建模 AI 的 ops 词汇一致
+     （update / add / remove / move / group / ungroup / cam / light / track / anim），
+     动作表只转发，校验全在页面那一份桥里。 */
+  function modelBridge() {
+    const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get('model3d') : null;
+    return (A && typeof A.check === 'function' && typeof A.run === 'function') ? A : null;
+  }
+  const modelRead = (method, a) => bridgeRead('建模台', 'model3d', method, a);
+  function modelCheck(op, a) {
+    const A = modelBridge();
+    if (!A) return { err: '建模台这一层还没加载（或者你不在建模台）：先切到建模台再让我动白膜' };
+    let r = null;
+    try { r = A.check(op, a); } catch (e) { r = { ok: false, err: errText(e) }; }
+    if (!r || r.ok === false) return { err: (r && (r.err || r.text)) || '建模台拒绝了这次操作' };
+    return { 说明: r.text || '建模操作', 人话: r.lines || [r.text || ''] };
+  }
+  async function modelRun(op, a) {
+    const A = modelBridge();
+    if (!A) throw new Error('建模台这一层还没加载：先切到建模台');
+    const r = await A.run(op, a);
+    if (!r || r.ok === false) throw new Error((r && (r.err || r.text)) || '建模台拒绝了这次操作');
+    return { ok: true, text: r.text || '做完了' };
+  }
   /* 写动作的 operationId 由助手生成（注册表按它做 24 小时去重，同一意图不会跑两遍）。
      check 与 run 之间还有一道**身份对账**（桥按块 id 现对）：用户在「执行 / 取消」之间自己动过轨道，
      run 那一次就会因身份对不上当场拒掉，绝不拿旧计划盖新编辑 ——
@@ -1976,6 +2034,33 @@
         + '典型用法：先 cut 切开，再对后半段 set speed。',
       check: timelineApplyCheck, run: timelineApplyRun,
     },
+    /* ---------- 建模台：写入走 `WBBridge.model3d`，op 词汇与建模 AI 同一套 ---------- */
+    model_edit: {
+      arg: '{ "scope": "scene|selection", "ops": [ …与建模 AI 相同的 op… ] }',
+      title: '改建模台里的白膜',
+      doc: '对建模台当前场景套白膜 op（与建模 AI 同一套词汇：update / add / remove / move / group / ungroup / cam / light / track / anim）。'
+        + '不给 scope = 场景级（能改灯 / 机位 / 时间轴）；scope:"selection" = 只改当前选中实体的子树。'
+        + '节点与灯的 id 从 model_list / model_read 拿，不要自己编；改坏了用 model_undo 退回。',
+      check: a => modelCheck('edit', a), run: a => modelRun('edit', a),
+    },
+    model_new: {
+      arg: '{ "name": "白膜名字" }',
+      title: '新建一个白膜（建模台）',
+      doc: '在建模台当前场景里新建一个空实体（2–12 字的名字），之后可以用 model_edit 往它里面加零件。',
+      check: a => modelCheck('new', a), run: a => modelRun('new', a),
+    },
+    model_add_to_scene: {
+      arg: '{ "id": "白模库里的模型 id" }',
+      title: '把白模库的模型放进场景（建模台）',
+      doc: '把白模库里的某份模型深拷贝成当前场景里的可编辑实体。id 从 model_list 的【库里模型】拿。',
+      check: a => modelCheck('add', a), run: a => modelRun('add', a),
+    },
+    model_undo: {
+      arg: '无参数',
+      title: '撤销助手上一次改白膜（建模台）',
+      doc: '把建模台退回到助手上一次经桥改动之前（最多 20 步；与建模台自己的 AI 撤销是两条账）。',
+      check: () => modelCheck('undo', {}), run: () => modelRun('undo', {}),
+    },
     /* ---------- 字幕三条写动作：都落桥的 set + kind:'subtitle' ----------
        字幕挂在整份成片上，时间就是成片秒（与 SRT / 导出同一把尺子）。 */
     subtitle_update: {
@@ -2034,12 +2119,23 @@
      「哪些页面能用」与「参数长什么样」两项，供 ActionRegistry.list 与提示词过滤共用。
      跨页硬调不静默执行 —— runTool 与注册表都会按当前 route 拒绝并说明先切页。 */
   const DIRECTOR = 'director.html';
+  const MODEL = 'model.html';
   const TOOL_ROUTE = {
     timeline_get: DIRECTOR, timeline_history: DIRECTOR,
     subtitle_list: DIRECTOR, subtitle_export_srt: DIRECTOR,
     media_info: DIRECTOR, media_frames: DIRECTOR, media_transcription: DIRECTOR,
     export_status: DIRECTOR, export_list: DIRECTOR,
+    model_list: MODEL, model_read: MODEL, model_view: MODEL,
   };
+  /* 每个查询结果喂回模型的字数档位：大列表短、单文件 / 逐行明细长（没声明的一律走默认 7000）。
+     声明与工具名放在同一处，运行处只认 toolCap(id)，不再一刀切。 */
+  const TOOL_CAP = {
+    overview: 3000, history: 2000, tasks: 2000, assets_usage: 4000,
+    model_list: 4000, model_read: 8000,
+    subtitle_list: 20000, media_transcription: 20000, export_list: 2000,
+    read_file: 20000, tool_result_read: 20000,
+  };
+  const toolCap = id => TOOL_CAP[id] || 0;
   /* 写动作的**策略**只在这一张表里说三件事：花不花钱（effect）、在哪一页出现（route）、怎么退（undo）。
      以前这三项摊在 ACT_ROUTE / ACTION_EFFECT / ACTION_UNDO 三张表里，新增一条动作要四处各补一行，
      而漏哪一处都不报错，全是静默坏：
@@ -2069,6 +2165,10 @@
     export_save_to_assets: { effect: 'write', route: DIRECTOR },
     save_char: { effect: 'write', route: 'chars.html' },
     remove_char: { effect: 'write', route: 'chars.html' },
+    model_edit: { effect: 'write', route: MODEL, undo: 'model_undo' },
+    model_new: { effect: 'write', route: MODEL, undo: 'model_undo' },
+    model_add_to_scene: { effect: 'write', route: MODEL, undo: 'model_undo' },
+    model_undo: { effect: 'write', route: MODEL },
   };
   const actMeta = id => ACTION_META[id] || {};
   const actRoute = id => actMeta(id).route || '*';
@@ -2086,6 +2186,16 @@
       site: { type: 'string' }, freshness: { type: 'string', enum: ['day', 'week', 'month', 'year'] } } },
     web_read: { type: 'object', properties: { url: { type: 'string' }, maxChars: { type: 'integer', min: 500, max: 20000 } } },
     subtitle_list: { type: 'object', properties: { id: { type: 'string' }, voiceId: { type: 'string' } } },
+    model_list: { type: 'object', properties: {} },
+    model_read: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    model_view: { type: 'object', properties: { ask: { type: 'string' } } },
+    model_edit: { type: 'object', properties: {
+      scope: { type: 'string', enum: ['scene', 'selection'] },
+      ops: { type: 'array', minItems: 1 },
+    }, required: ['ops'] },
+    model_new: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    model_add_to_scene: { type: 'object', properties: { id: { type: 'string' } }, required: ['id'] },
+    model_undo: { type: 'object', properties: {} },
     subtitle_export_srt: { type: 'object', properties: {} },
     media_info: { type: 'object', properties: { assetId: { type: 'string' }, src: { type: 'string' }, shot: { type: 'integer', min: 1 }, take: { type: 'integer', min: 1 }, shotId: { type: 'string' } } },
     media_frames: { type: 'object', properties: { assetId: { type: 'string' }, src: { type: 'string' },
@@ -2235,7 +2345,7 @@
 
       return {
         TOOLS, ACTS, ACTION_META, TOOL_INPUT, visibleActs, visibleTools, regClosed,
-        TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh,
+        TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh, toolCap,
         registry: () => actionReg, regError: () => actionRegErr, ready: () => actionRegReady,
       };
     },

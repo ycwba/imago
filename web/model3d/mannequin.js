@@ -178,21 +178,27 @@ function rotLimb(c, prefix, limit) {
   ];
 }
 
-/* 连续步态：走 / 跑都是相位上的正弦。与参考项目同一组常数（步频 1.65 / 2.45，臂摆 26 / 48），
-   这样同一个「行走」在两边的节奏一致，用户不会觉得素材换了套动作。 */
+/* 连续步态：走 / 跑都是相位上的正弦。基准常数与参考项目一致（步频 1.65 / 2.45，
+   臂摆 26 / 48），这样同一个「行走」在两边的节奏一致。`motion` 可以是字符串
+   （walk / run），也可以是 {kind, speed, stride, arm}：speed 调步频、stride 调步幅 /
+   腿摆、arm 调臂摆。 */
 export function gaitControls(motion, t) {
-  if (motion !== 'walk' && motion !== 'run') return null;
-  const running = motion === 'run';
-  const cadence = running ? 2.45 : 1.65;
+  const conf = (motion && typeof motion === 'object') ? motion : { kind: motion };
+  if (conf.kind !== 'walk' && conf.kind !== 'run') return null;
+  const running = conf.kind === 'run';
+  const speedK = Number(conf.speed) > 0 ? Number(conf.speed) : 1;
+  const strideK = Number(conf.stride) > 0 ? Number(conf.stride) : 1;
+  const armK = Number.isFinite(Number(conf.arm)) && Number(conf.arm) >= 0 ? Number(conf.arm) : 1;
+  const cadence = (running ? 2.45 : 1.65) * speedK;
   const phase = t * cadence * Math.PI * 2;
   const stride = Math.sin(phase);
   const opposite = Math.sin(phase + Math.PI);
   const footCycle = Math.sin(phase + Math.PI / 2);
   const bounce = Math.abs(Math.sin(phase));
-  const armSwing = running ? 48 : 26;
-  const hipSwing = running ? 46 : 28;
+  const armSwing = (running ? 48 : 26) * armK;
+  const hipSwing = (running ? 46 : 28) * strideK;
   const kneeBase = running ? 16 : 4;
-  const kneeLift = running ? 48 : 26;
+  const kneeLift = (running ? 48 : 26) * strideK;
   return {
     'body.offsetY': bounce * (running ? 0.07 : 0.035),
     'body.pitch': running ? 7 : 1.5,
@@ -210,7 +216,9 @@ export function gaitControls(motion, t) {
   };
 }
 
-/* 把姿势表与步态叠起来：步态只覆盖它自己那几项，其余照姿势走。 */
+/* 三层叠加的顺序在这里定死（契约里也写着这一条，判据 tests/model3d-anim.mjs 盯着）：
+   姿势表 → 节点的 controls（覆盖同一关节）→ 步态（再覆盖它自己那几项）；
+   关节轨道的 rot 不在这张表里 —— 它到 rig.applyPose 里在 base 之上叠加（最后一步）。 */
 export function controlsOf({ pose, motion, t, controls }) {
   const merged = Object.assign({}, poseOf(pose).controls, controls || {});
   const gait = gaitControls(motion, t || 0);

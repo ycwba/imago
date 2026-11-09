@@ -49,7 +49,7 @@ function readBody(req, res, limit) {
   });
 }
 
-const routes = createModel3dRoutes({ readBody, log: () => {}, localRoot: () => root });
+const routes = createModel3dRoutes({ readBody, log: () => {}, localRoot: () => root, dataDirPath: () => path.join(root, '.data') });
 const call = (method, url, body) => new Promise(resolve => {
   const u = new URL('http://local' + url);
   const res = fakeRes();
@@ -90,6 +90,11 @@ const call = (method, url, body) => new Promise(resolve => {
     const r = await call('POST', '/model3d/save', { library: '系列A', kind: 'model', name: '椅子', group: '', model: doc });
     const d = JSON.parse(r.text);
     ok(r.status === 200 && d.id === '椅子' && d.library === '系列A', '保存模型到指定库');
+    const savedRaw = fs.readFileSync(path.join(base, '系列A', '模型', '椅子.json'), 'utf8');
+    const saved = JSON.parse(savedRaw);
+    ok(JSON.stringify(saved.scene.nodes[0]) === '{"kind":"prim","id":"p","shape":"box"}', '写盘只留非默认字段：' + JSON.stringify(saved.scene.nodes[0]));
+    ok(!('cams' in saved.scene) && !('view' in saved.scene) && !('anim' in saved) && !('src' in saved), '默认机位 / 视角 / 时间轴 / 来源不写盘');
+    ok(!savedRaw.includes('"fromModel"') && !savedRaw.includes('"rot"') && !savedRaw.includes('"scale"') && !savedRaw.includes('"at"'), '空关系与全零变换不写盘');
     const f = await call('GET', '/model3d/file?library=' + encodeURIComponent('系列A') + '&kind=model&id=' + encodeURIComponent('椅子'));
     ok(f.status === 200 && JSON.parse(f.text).name === '椅子', '读回模型');
     const mv = await call('POST', '/model3d/save', { library: '系列A', kind: 'model', id: '椅子', name: '长椅', group: '', model: doc });
@@ -108,6 +113,42 @@ const call = (method, url, body) => new Promise(resolve => {
     ok(JSON.parse(fs.readFileSync(path.join(base, '系列A', '模型', '人物', '长椅.json'), 'utf8')).group === '人物', '组改名回写 doc.group');
     const dg = await call('POST', '/model3d/model-group/delete', { library: '系列A', from: '人物' });
     ok(dg.status === 200 && fs.existsSync(path.join(base, '系列A', '模型', '长椅.json')), '删模型组后模型退回未分组');
+  }
+
+  /* 检索索引：按用户那句话在全部库里找模型，保存 / 删除 / 改组名都跟上 */
+  {
+    const doc = {
+      v: 3, kind: 'model', name: '餐桌', src: { prompt: '四条腿的木质餐桌，能当饭桌用' },
+      scene: { nodes: [
+        { kind: 'prim', id: 'top', name: '桌面', shape: 'box', size: [1.2, 0.08, 0.8], at: [0, 0.75, 0] },
+        { kind: 'prim', id: 'legs', name: '桌腿', shape: 'box', size: [0.08, 0.75, 0.08], repeat: { n: 4, dx: 0.5, dy: 0, dz: 0.3 } },
+      ] },
+    };
+    const sv = await call('POST', '/model3d/save', { library: '系列A', kind: 'model', name: '餐桌', group: '', model: doc });
+    ok(sv.status === 200 && JSON.parse(sv.text).id === '餐桌', '存一件带提示词的模型');
+    const saved = JSON.parse(fs.readFileSync(path.join(base, '系列A', '模型', '餐桌.json'), 'utf8'));
+    ok(saved.src && saved.src.prompt === '四条腿的木质餐桌，能当饭桌用', '建模提示词随模型落盘');
+    const c1 = JSON.parse((await call('GET', '/model3d/catalog?q=' + encodeURIComponent('库里有没有能当餐桌的'))).text);
+    ok(c1.ok && c1.total >= 2 && c1.matched >= 1, '检索命中（' + c1.matched + '/' + c1.total + '）');
+    ok(c1.rows[0] && c1.rows[0].id === '系列A :: 餐桌', '最匹配的一条排第一，带库名');
+    const dish = c1.rows.find(r => r.id === '系列A :: 餐桌');
+    ok(dish && Array.isArray(dish.brief) && dish.brief.join(' / ') === '桌面 box / 桌腿 box×4',
+      '检索行带结构摘要：' + (dish && JSON.stringify(dish.brief)));
+    ok(c1.rows.every(r => String(r.id).indexOf(' :: ') > 0), '每行都是「库名 :: 模型id」');
+    ok(c1.rows.some(r => r.id === '默认库 :: 角色/少女'), '跨库一起检索（旧布局的模型也在）');
+    const del = await call('POST', '/model3d/delete', { library: '系列A', kind: 'model', id: '餐桌' });
+    const c2 = JSON.parse((await call('GET', '/model3d/catalog?q=' + encodeURIComponent('库里有没有能当餐桌的'))).text);
+    ok(del.status === 200 && !c2.rows.some(r => r.id === '系列A :: 餐桌'), '删掉的模型不再出现在检索结果里');
+
+    const cg = await call('POST', '/model3d/model-group/create', { library: '系列A', name: '家具' });
+    const s2 = await call('POST', '/model3d/save', {
+      library: '系列A', kind: 'model', name: '书柜', group: '家具',
+      model: { v: 3, kind: 'model', name: '书柜', src: { prompt: '五层的木书柜' }, scene: { nodes: [] } },
+    });
+    const rg = await call('POST', '/model3d/model-group/rename', { library: '系列A', from: '家具', to: '家具组' });
+    const c3 = JSON.parse((await call('GET', '/model3d/catalog?q=' + encodeURIComponent('书柜'))).text);
+    ok(cg.status === 200 && s2.status === 200 && rg.status === 200, '建组、入组、改组名');
+    ok(c3.rows.some(r => r.id === '系列A :: 家具组/书柜' && r.group === '家具组'), '改组名后检索里的 id 跟着改');
   }
 
   /* 场景 / 场景组 */
@@ -140,6 +181,8 @@ const call = (method, url, body) => new Promise(resolve => {
     const lib = await call('POST', '/model3d/library/delete', { id: '系列A' });
     ok(lib.status === 200 && !fs.existsSync(path.join(base, '系列A')), '删库移进 trash');
     ok(fs.readdirSync(path.join(base, '.trash')).length === 1, 'trash 里有那一份');
+    const c4 = JSON.parse((await call('GET', '/model3d/catalog?q=' + encodeURIComponent('书柜'))).text);
+    ok(!c4.rows.some(r => r.library === '系列A'), '删库后这一库的检索条目一起消失');
   }
 
   fs.rmSync(root, { recursive: true, force: true });

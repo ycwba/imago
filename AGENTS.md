@@ -70,7 +70,8 @@
 - 所有生成平台都经本地代理转发；平台密钥只保存在代理侧，页面只与同源地址通信。
 - 数据默认留在本机：`.data/state.json`（全部业务键：设置、密钥、云同步状态与基线、ASR / 搜索 / Skill 状态）
   与 `.data/backup.json`（最多 5 份带 sha256 的快照）是业务数据仅有的两份文件；另有本机资产账
-  `.data/local-assets/`、模型缓存 `.data/models/` 与代理运行态（`.cap-cache.json` / `.session` / `.proxy.lock`）。
+  `.data/local-assets/`、白模检索索引 `.data/model-index/`、模型缓存 `.data/models/` 与代理运行态
+  （`.cap-cache.json` / `.session` / `.proxy.lock`）。
   `.skills/`（用户 Skill）；用户可见产物与归档在 `下载\成像\` 下按 `图片/` `视频/`
   `音频/` `其他/` 分，提示词归档在 `提示词/`。
 - `/data/<key>` 是 `state.json` 的逻辑视图：HTTP 契约不变，但盘上不再有单个 `<key>.json`，
@@ -79,7 +80,7 @@
   库根只有一条算法（`server/local-root.js`）：`ASSETS_DIR` > 状态仓里的 `sk_local_dir` 键 > `下载\成像`。
   提示词归档是库根下的 `提示词\`：跟着库根走，设置页不再单独给第二个位置（`PROMPTS_DIR` 只作部署 / 探针口子）。
 - `.renders/` 只剩 FCPXML 媒体包的临时落盘（`fcpxml-<stamp>/`）；持久工程目录在本机资产库下的 `FCPXML工程/<id>/`，与「存回本机」的素材同根。浏览器内合成成片，服务端没有 ffmpeg。
-- 八个页面：导演台、建模台、素材库、工作台（视频 / 图像 / 语音）、收藏、资产库、用量、设置（设置不进侧栏）。
+- 八个页面（也是侧栏顺序）：导演台、工作台（视频 / 图像 / 语音）、素材库、建模台、收藏、资产库、用量、设置（设置不进侧栏）。
   路由表只有 `web/core/routes.js` 一份。
 - 建模台是唯一一页带**三维运行时**的页面：three 走 `web/vendor/three/`（vendored，见「Vue SPA」那一段），
   只在这一页的 ESM 图里，首屏与开机预取都不碰它。
@@ -87,14 +88,39 @@
   场景是唯一工作区：`白膜\<库>\场景\<场景组>\<场景>.json`；导入的 3D 文件在
   `白膜\<库>\_模型文件\`（下划线开头的组名保留给这一层）。旧布局首次扫描整体迁进 `默认库\`，旧组路径保留。
 - 模型 / 场景文件是 v3：`kind:'model'|'scene'`、`scene.cams[] + scene.active`（多机位）、
-  `anim.tracks[]` 用 `of:{kind:'node'|'cam',id}` 统一驱动节点与机位、`anim.loop` 控制回卷 / 停住、
+  `scene.lights[] + scene.light`（灯实体与装置级半球光 / 地面阴影 / 曝光）、
+  `anim.tracks[]` 用 `of:{kind:'node'|'cam'|'light',id}` 统一驱动节点 / 机位 / 灯光、`anim.loop` 控制回卷 / 停住、
   `out[]` 存固定出片条（`picked` 记勾选）。场景实体是普通节点，`fromModel` 记来源模板；
   从库放模型 = 深拷贝成可编辑实体，存回库时根 transform 归零。
+  灯实体只有三种有位置的形态（`sun` / `point` / `spot`）；`lights` 整段省略 = 内置默认的主光 + 补光
+  （与旧画面逐参数一致），写成空数组 = 只留半球光；装置级三样不可增删。灯能打关键帧
+  （`energy` / `color` / `at` / `target`）、能 follow 节点；AI 用 `light` op 增删改（选中实体时与机位一样被拒）。
   节点可带 `color:'#rrggbb'`（3 / 6 位），颜色沿父子树继承；不写就是白模灰阶。
+  任意节点可带 `array:{rows,cols,gapX,gapZ,jitter}` 通用阵列（第一格落在节点 `at` 上，间距可负、
+  抖动确定）；它与 `repeat` / `mirror` 在 `dsl.js` 的 `variantsOf` 里统一展开（先阵列、再 repeat、
+  最后镜像），crowd 仍用自己的行列字段。`loft` 可带 `subdiv`（环间 Catmull-Rom 细分；不写保持
+  旧的每两环 4 段）或 `path` + `profile`（沿路径扫掠）。
   AI 只有一个入口：没选中实体时交整份 `model` 新增一件；选中后用户要改它就交带 scope 的 `ops`，
-  scope 外的增删改一律跳过；参考图可在右栏「加图片」或直接拖进面板。AI 可以用 `anim` 决定时长 /
+  scope 外的增删改一律跳过；没选中时交来的 ops 只收场景级（`cam` / `light` / `anim` / `track`），
+  节点增删仍必须交 `model`；参考素材可在右栏「图片 / 视频 / 声音」加进来，也可以直接拖进面板。
+  素材只给文字 AI 看、不进场景：图片照旧缩到 1024 再发，视频 / 声音按 `TextAI.prepareMedia`
+  的能力闸随消息附上（`{refImages}` 里按 图 / 视频 / 音频 各自编号）。右栏只有一颗「选素材」，
+  点开全站统一的 `AssetPicker`（资产库 / 收藏 / 素材库 / 本地上传）；「视频转白模」也走它选视频。
+  看不了视频时按设置页「建模台」卡的 `sk_model_vframes`（自动 / 总是 / 不取）与 `sk_model_vframe_n`
+  （2 / 4 / 6 / 8 帧）在本机用 `MediaBackend` 取帧当图片交给它。AI 可以用 `anim` 决定时长 /
   fps / 循环（选中实体时也生效），轨道 op 只能动选中子树里的节点。
-  右栏「AI 可调用的白模库」可多选，清单按 `库名 :: 模型id` 列出，复用沿同一格式认回库。
+  轨道可带自己的时钟（`offset` / `speed` / `duration`）、`solo`、`keysMode:"offset"`（关键帧只当路径偏移）
+  与节点 `follow`；机位 path 可带 `look:"heading"|"target"` + `lookAt`；键支持 `scale` / `visible`（STEP）/
+  `ease`；`motion` 可给对象调 `speed` / `stride` / `arm`。关节叠加顺序写死：
+  姿势表 → 节点 controls → 步态 → 关节轨道（在 base 上叠加）。
+  生成一轮里 AI 还可以先调三条受限自查工具（`get_scene_bbox` / `get_selected_bbox` /
+  `render_thumbnail`，写法与联网工具同一套 `CALL:`）：工具结果只回灌给它、不画进界面，
+  最多三轮再收尾，最终仍只按契约交 `model` / `ops`；视口缩略图由页面以 `thumbnail` 递进来。
+  几何体检（`lint.js`）在整份模型进场景前修悬空 / 身高 / 出画幅；丢件明细、被跳过的 op 与体检结论
+  整理成「上一轮的问题」随结果回传，下一轮作为 `{problems}` 喂回提示词。
+  AI 的白模库清单由服务端索引按用户那句话在**全部**库里检索（`GET /model3d/catalog`，索引落
+  `.data/model-index/`，名字 / 组 / 零件 / 大纲 / 建模提示词一起匹配），每条按 `库名 :: 模型id` 列出，
+  复用沿同一格式认回库；`save` / `delete` 增量维护索引，库与组改名、删库、删组后整表重扫。
   AI 新建实体必须给顶层 `name`；模型里带多机位 / `of.kind:'cam'` 运镜时，机位与相机轨道一起并进场景
   （只有默认单机位的普通模型不重复加机位）。
   白模库模型按组过滤 / 展示；实体存入库时可填组，模型卡可移组，组支持新建、改名、删除
@@ -148,7 +174,7 @@
 │  ├─ zip.js                    FCPXML 媒体包 zip
 │  ├─ providers/validate.js     registry 供应商声明校验
 │  └─ routes/                   system / static / capabilities / registry / relay / outbound / local-assets /
-│                               model3d（白模库：多库 / 模型 / 场景 / 场景组 / 3D 文件）/
+│                               model3d（白模库：多库 / 模型 / 场景 / 场景组 / 3D 文件 / 检索索引）/
 │                               usage / cache / skills / fcpxml / pick-dir / asr / models / search /
 │                               http（路由层唯一的 JSON 回包口径：sendJson / fail，默认 no-store）
 ├─ shell.html                   SPA 外壳（CSP、启动脚本、公共模块）
@@ -167,7 +193,7 @@
 │  ├─ director/                 index + template.html + engine.js + engine/<域>.js + 纯算法模块 / worker
 │  ├─ render/                   预编译生成的 render 函数（由工具生成）
 │  ├─ ui/                       ui / forms / net / store / kv / toast / datasync / skills / workbench /
-│  │                            sidebar / badge-state / raw-request / index
+│  │                            sidebar / badge-state / raw-request / asset-mention / index
 │  ├─ domain/                   api / assetlib / gen-forms / asset-transfer / export-dir / export-formats /
 │  │                            local / capabilities / text-ai / gen-rules / fav / prompt-log / asset-picker /
 │  │                            ai-find / chars / ident / asset-ref / identity / semantic / asr / search /
@@ -191,6 +217,7 @@
 │  ├─ token-lib.cjs             上面两个工具的共用件（规则表 / 扫描范围 / 值→令牌映射）
 │  ├─ check-vars.cjs            令牌引用完整性
 │  ├─ migrate-skills.cjs        一次性迁移：用户 Skill 目录换根
+│  ├─ sync-skill-contracts.cjs  从 skills/<id>/SKILL.md 生成 TextAI.DEF 的正文副本与 GLOSSARY（--check 只比对）
 │  └─ vue-templates/            模板源（开发期，不进运行时）
 ├─ skills/<id>/SKILL.md         内置 Skill（随页面 / 触发词加载；`skills/model3d/` 是建模契约正文）
 ├─ tests/                       常驻判据、单元、e2e、fixtures、数据基线
@@ -246,11 +273,22 @@ frame-ancestors 'none'; worker-src 'self' blob:
   `node --check` 看不见它。
 - 启动器自检：`powershell -NoProfile -ExecutionPolicy Bypass -File launcher.ps1 -SelfTest`
   （`-EnvFile` / `-StateFile` / `-EnvAdd` / `-NoBrowser` 只给探针用）。
-- `启动.bat` 另带命令：`menu` / `check` / `log` / `dir` / `page` / `selftest` / `clean` / `help`；
-  双击仍是「检查环境 → 预解析 → 隐藏控制台拉起启动器」，命令只给排障用。
+- `启动.bat` 另带命令：`menu` / `check` / `log` / `dir` / `page` / `selftest` / `clean` / `help` /
+  `update` / `theme`；双击仍是「检查环境 → 预解析 → 隐藏控制台拉起启动器」，命令只给排障用。
+- **`更新.bat` 是仓库更新的唯一入口**（薄壳，真正干活的是 `update.ps1`，UTF-8 带 BOM + CRLF）：
+  自检（git / 仓库 / main / origin）→ `git fetch`（120 秒超时；TLS 失败时直连再试一次，
+   不改任何 git 配置）→ 比较 HEAD 与 origin/main → 工作区脏先 `git stash push -u`（含未跟踪）→
+  `git pull --no-edit origin main` → `git stash pop`。**绝不 reset --hard / checkout . / clean -fd / stash drop**；
+  pop 冲突只报文件清单并保留 stash（给出 `git stash pop`），pull 冲突先 `merge --abort` 再列文件。
+  拉完只在 package.json / package-lock.json 变了时 `npm ci`，然后必跑 `npm run build`；
+  代理还在跑只提醒「关掉启动器再开」，不替用户杀进程。命令：`更新.bat [check|log|help]`，
+  `启动.bat update` 转发；图形启动器「检查更新」按钮走 `update.ps1 -Check`。
+- **控制台主题三档**：`.env` 的 `WB_THEME=system|day|night`（默认 system，读
+  `HKCU\...\Themes\Personalize` 的 `AppsUseLightTheme`，读不到按浅色）；`system` 与网页端同名。
+  `启动.bat theme day|night|system` 把它写回 `.env`（保留原行尾）；`WB_NOCOLOR=1` 优先级最高。
 - 双击自检只起必要的外部进程：`node --version`（顺带判 node 在不在）、
   `certutil -hashfile`（预解析印记）。powershell 存在性看 `%SystemRoot%` 下的 exe，
-  `.env` 的 PORT 用批处理原生 `for /f` 读。彩色检测用 `ver` 的子进程读主版本号，
+  `.env` 的 PORT / WB_THEME 用批处理原生 `for /f` 读。彩色检测用 `ver` 的子进程读主版本号，
   老系统或 `WB_NOCOLOR=1` 自动降级纯文本。
 - 控制台颜色变量名避开 `CD`：cmd 的动态变量 `%CD%` 会在变量为空时插进当前目录，
   把「无彩色」那一档的输出搅乱。当前名字是 `CDIM`。
@@ -553,8 +591,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - 静态判据的存量表按只减不增维护（`GUARD_WRITE=1` 重打表，但每条都要补一句原因）。
 - 断点档位名单只有 `tests/support.cjs` 的 `BREAKPOINTS` 一份：静态判据 G22 与文档契约都读它，
   「布局」那一节列出的档位也要跟着它改 —— 改档位而不改规范，文档契约当场红。
-- 视觉回归：七条路由（工作台按视频 / 图像 / 语音分三档 → 九档），再加两档「要喂状态才画得出来」的
-  「字幕编辑区 / 助手来源卡片」，共 11 档 × 1024/1440 × 浅 / 深主题 = 44 个画面，24×14 RGB 指纹；
+- 视觉回归：八条路由（八页含设置；工作台按视频 / 图像 / 语音分三档 → 十档），再加两档「要喂状态才画得出来」的
+  「字幕编辑区 / 助手来源卡片」，共 12 档 × 1024/1440 × 浅 / 深主题 = 48 个画面，24×14 RGB 指纹；
   字幕那一档的输入素材是入库的 `tests/fixtures/media/probe-clip.mp4`（2 秒样本），不依赖本机转码工具。
 
 ## 文案
@@ -633,6 +671,19 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - 张数、参考图上限、默认值、下拉选项都由声明提供；平台没声明的那一档整档不画、一个字不发。
 - 平台的接口怪癖也要声明化：`pollVia:'list'`、`cancelMethod`、`noPromptField`、
   `create.idempotencyKey`、`create.topBools`、`create.shapeFields`、`create.template`。
+- **文字 AI 的三类输入（图片 / 声音 / 视频）按型号判**：`TextAI.media()` / `mediaAsync` 依次读
+  这个型号自己的覆盖（`ModelPrefs.mediaOf` / `setMedia`；设置页型号行上的 图 / 音 / 视 三枚小标，
+  自动 → 支持 → 不支持；自定义供应商在添加表里逐型号声明，落到模型的 `vision` / `audio` / `video`）
+  → 账号级旧开关 `sk_text_vision` / `sk_text_audio` / `sk_text_video` 兜底
+  （界面不再写它们）→ `/models` 接口字段
+  （`input_modalities`、`vision` / `supports_audio` / `supports_video`、能力数组）→ 注册表里该型号的
+  `vision` / `audio` / `video` → 按不支持。设置入口是**账号卡 → 型号面板 →「这个型号能收的输入」**
+  每行右侧那三枚小标（不在账号卡的能力行里：供应商提供哪类服务与模型能吃什么不是一回事）；
+  同一个文字供应商里，有的型号只收文字、有的收图 / 声 / 视，覆盖值跟着型号走；
+  型号清单本身按账号 + 能力档分槽、并按 `modelsFilter` / `modelsExclude` 过滤（见「供应商」一节）；
+  `prepareMedia` 只放行支持的那几类并逐条说清「没带 / 为什么」，
+  `_mediaParts` 按 OpenAI 兼容的 `image_url` / `input_audio` / `video_url` 拼，
+  平台可用注册表的 `mediaInput` 换成 `audio_url` / `input_video`。
 - 有 `cancel` 端点才有能点的取消按钮；没有 `credits` 端点就不显示余额但保留勾选框（压暗 + title）。
 
 ### 供应商
@@ -648,34 +699,49 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
   `resolveAssetStore()` 的结果，平台名与密钥名不在别处出现；没有声明就照实回「这家没有资产接口」。
 - 「型号清单响应的数组落在哪个字段」也只由顶层 `REGISTRY.modelList.fields` 声明：页面 `Api.modelRows`
   与服务端 `/custom/models`（`modelRowsOf`）读同一份。
-- 用户自定义中转走设置页「添加自定义供应商」：按类型（图片 / 视频 / 语音 / 文字）填表，存
-  `sk_custom`，代理 `buildCustom` 整条克隆模板；relay `/custom/<id>`，密钥 `sk_key_<id>`。
+- 用户自定义中转走设置页「添加 / 编辑供应商」：一个条目 = **一张账号卡 + 一组能力**
+  （`sk_custom` 条目的 `caps[]`）。一张表里先填显示名 / 地址 / 密钥，再**多选六档能力**
+  （图片生成 / 视频生成 / 语音合成 / 文字 AI / 语音识别 / 联网搜索），
+  每一档各自选接口形状与型号；文字档的型号行可逐条标 图 / 音 / 视 输入能力（写进模型的
+  `vision` / `audio` / `video`）。代理 `buildCustom` 按档各建一条 provider、共用同一个
+  `keyId = 条目 id`（relay 仍按 provider id 各占一段），设置页按 keyId 归并回一张卡；
+  密钥按 `sk_key_<条目 id>` 存。识别 / 搜索各建一条 `serviceOnly` 的承载 provider
+  （`kind:'text'`、`modelKind:'asr'|'search'`），不并进文字那一条 —— 两档型号各存各的。
+- **给已有账号补能力（旧数据兼容，不再有新入口）**：旧版 `sk_custom` 条目可以带 `keyId`（那一家）+
+  `caps[]`，代理建 `manual=true` 的 provider（`custom=false`，`keyEnv` 用那一家自己的，base 必须与那一家同主机）；
+  旧数据里已经手动补上的那一档仍按「手动」显示、可单独撤掉。**设置页的默认供应商卡不再出现
+  「＋ 添加能力」** —— 要接新协议请用「添加供应商」新建一家，默认平台的能力以注册表声明为准。
+  自定义账号仍走整张多能力表单。本地 / 浏览器内识别有自己的常驻卡，不出现在别的供应商卡里。
 - 内置平台也要先「添加一次」才进「供应商与密钥」卡；用官方地址添加自己是正常路径。
-- 类型档：`image / video / audio / text`；文字 AI 的供应方、密钥、地址、型号、识图开关都在「文字」档里，
-  一家一张卡。类型名与顺序只有 `ui.js` 的 `provKindZh` / `provKinds` 一份。
+- **能力档 = 供应商提供哪一类服务**：`image / video / audio / text / asr / search`
+  （名字是图片生成 / 视频生成 / 语音合成 / 文字 AI / 语音识别 / 联网搜索）。
+  前四档在注册表里各是一条 `kind` 的 provider；后两档由 provider 的 `extraCaps` +
+  `asr` / `search` 端点声明承载。**界面六档完全平级**：同一排能力格、同一套筛选芯片、
+  同一个「添加能力」、同一套型号面板。
+  **模型能吃什么不是供应商档位**：文字型号的图片 / 声音 / 视频输入能力放在那个账号的型号面板里
+  （「这个型号能收的输入」），自定义供应商则在添加表里逐型号声明；两者都不进账号卡能力行。
 - **「供应商与密钥」是账号卡流**：
-  · 归并按 `keyId`（`provGroups()`）：一个账号一张卡，卡顶那一排能力格只画这家会的几档
+  · 归并按 `keyId`（`provGroups()`）：一个账号一张卡，卡顶那一排能力格只画这家会的六档
     （`.capcell`：强调描边 = 主位 / 淡底 = 在用 / 白底 = 备用 / 压暗 = 停用），一档一行
-    （`.crow`：能力名 · 状态牌 · 文字档那一个型号下拉 + 测试 / 其余档「型号 n/m」就地展开清单）。
+    （`.crow`：能力名 · 状态牌 · 型号 n/m 就地展开清单；文字档另有型号下拉 + 测试）。
   · 等高竖排：列宽 `--sz-acct-w`（`auto-fill` 铺满），卡高 `--sz-acct`，卡内 `.acct-mid` 自己滚 ——
     展开密钥行、展开型号面板都不改卡的外形。型号面板摊开时钉住点中的那一行
     （`Wb.viewport.reveal(面板, { pin: 行 })`），多出的高度由 `.acct-mid` 内滚消化。
   · 密钥默认收着，开关是名字右边那颗 `.keytoggle`；名字本身链官网（↗）；
     接口地址不在卡上改（预设那几家一律走官方地址，中转站 / 网关加成自定义供应商）。
-  · 型号面板按槽（`keyId:档`）存「展开的是哪一格 / 刚取回的那一份」，两档同时开着不会串档；
-    落盘仍是账号级（`sk_model_<keyId>`、状态仓里 `sk_model_prefs` 键的 `typed` / `off` / `got`），
-    面板里那一行 hint 照实说「按账号存」；默认型号只有账号级这一层。
+  · 型号偏好按**账号 + 能力档**分槽（`sk_model_prefs` 的键是 `<keyId>:<kind>`，`typed` / `off` /
+    `got` / `media` 都在这一格）；服务档的型号另走 `serviceModels` 交给转写 / 搜索路由，
+    不会污染文字下拉。旧的按 `keyId` 那一份只作兜底，读出来之前按这一条的
+    `modelsFilter` / `modelsExclude` 过滤，所以 MiMo 那种共用一个 `/v1/models` 的账号
+    不会把语音型号混进文字下拉。当前润色型号仍是 `sk_model_<keyId>`。
   · 添加供应商 = 卡片流末尾那张虚线卡，两个形态、同一张卡：常态列预设那几家（点「添加」请进界面并摊开
     密钥行，不写盘；填了密钥才由自动保存落 `sk_key_<keyId>`）；「＋ 自定义」让这张卡自己变成自定义表
-    （右上角「返回预设」），字段在卡内 `.acct-mid` 里滚。这张表只收：接口形状 →
-    显示名 → 地址 → 密钥 → 能力档位（与卡顶 `.capcell` 同一副图标、可多选：第一个是主档，决定接口形状
-    与 kind；其余记成 `sk_caps_<id>` 手动声明）→ 型号。
-  · 手动加一档能力（`.capadd` / `MANUAL_OK`）：存 `sk_caps_<keyId>`（JSON 数组），`provGroups()` 并在
-    `caps` 后面，`capProv()` 合成一条只用于界面的伪声明（`manual: true`、`endpoints` 空 → 型号面板
-    没有「取一次」）。那一行挂「手动」标记、可撤掉。`MANUAL_OK` 收 `image / video / audio / asr`：
-    生成三档加完只是声明（真能出图还要注册表里一条端点声明，行里写明）；识别加完就能用（走这家自己的
-    OpenAI 兼容 `/audio/transcriptions`）；搜索没有可通用的接口形状，不提供手动声明；
-    文字对话由 `TextAI` 按 `kind: 'text'` 筛，不在 `.capadd` 这一档。
+    （右上角「返回预设」）。表单是**固定浮层**（打开不改变卡片流 / 文档高度，关闭不拽走滚动位），
+    表里依次是：显示名 / 地址 / 密钥 → **能力（六档多选）** → 每一档的接口形状 + 型号清单
+    →（文字档）每行 图 / 音 / 视。
+  · 「＋ 添加能力」只出现在**自定义账号**卡上：打开那张多能力表单；默认供应商（注册表里的平台）
+    不再提供临时补档入口，要接新协议请用「添加供应商」新建一家。旧数据里已经手动补上的那一档
+    仍按「手动」显示、可单独撤掉。
   · 卡底右侧那枚余额与左侧栏「账户余额」是同一份：取数 / 解析 / `sb_bal_cache` 缓存只有 `sidebar.js` 的
     `balRowOf` 一份（设置页经 `window.SbBalance.rowOf` / `fetchRows` 读与补问），取回一轮广播
     `sb-balance-updated`，设置页只就地换那几枚。只有声明了 `endpoints.credits` 的账号有这一枚；
@@ -683,9 +749,10 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     默认全勾时侧栏每一轮都问过，这边一个请求都不多发。
   · 按档筛的芯片（数字 = 账号数）+ 摘要条 + 排序（主位 / 在用 → 备用 → 没接上）。
   · 一家账号一张卡之后不存在「当前哪一档」这个状态；`sk_prov_tab` 只留在 `LEGACY_KEYS` 里负责清盘。
-- **语音识别（`asr`）与联网搜索（`search`）与四类平台同一层级，但不是一类平台**：
-  · 它们是两档**真能力**：只有注册表里同时声明了 `extraCaps` 与端点声明（`asr` / `search`）的文字供应商，
-    账号卡上才有「识」/「搜」那一行；没声明的家不画 —— 画上去点下去只会得到一次对不上的失败。
+- **语音识别（`asr`）与联网搜索（`search`）**：
+  · 它们是两档**真能力**，和图片 / 视频 / 语音 / 文字同一层级。注册表里同时声明了
+    `extraCaps` 与端点声明（`asr` / `search`）的供应商，账号卡上直接有「识」/「搜」那一行；
+    没声明的家不再提供补档入口；自定义供应商在添加表里直接把这两档勾成独立配置块。
   · 设置与图片 / 视频同一套：**在线**那一块住在声明了这一档的那一家账号卡里那一行下面
     （`hostKidOf` 定「哪一张卡」：识别看 `asr.service.providerId`、搜索看 `search.provider`，
     没选时用自动那一家；一家都没声明就停在 `.acct-park`，屏幕上不画）。
@@ -702,8 +769,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     或 `chat`（对话接口里开联网 server tool，OpenRouter 的 `openrouter:web_search`）。
   · 没选渠道时 `provider` 为 `auto` / 空：服务端按「第一家声明了这一档且拿得到密钥」挑
     （搜索优先接口型，避免自动选中一个还缺对话型号的 chat 族）。
-  · 自定义供应商克隆模板时 `extraCaps` / `asr` / `search` 一律摘掉（`CUSTOM_STRIP`）：那些端点属于模板那一家，
-    安到用户自己的网关上就是错的地址。
+  · 自定义供应商克隆模板时 `extraCaps` / `asr` / `search` 一律摘掉（`CUSTOM_STRIP`）：
+    端点属于模板那一家；识别 / 搜索由 `caps[]` 里显式勾选的那一档按点名声明重新挂上。
   · 官方搜索接口（2026-10 起）：DeepSeek `POST /v1/tools/search`、智谱 `POST /paas/v4/web_search`、
     Kimi `POST /v1/tools/search_pro`、OpenRouter chat 的 `openrouter:web_search`。
     它们都是真正的联网搜索；让对话模型自己输出网址拿不到真实链接，那条路不成立。
@@ -900,6 +967,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 弹窗 / 确认 | `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | AI 挑几条 / 就地润色 / 提示词表单 | `AiFind.run` / `InlinePolish` / `PromptForm`（正文六句只在 `TextAI`）；`AiFind.run` 先 **await 页面的重画**再写回执 —— 素材库 / 收藏的 render 是异步的，反过来的话失败 / 没挑到那一句会被「N 项」覆盖，看起来像点了没反应 |
+| 提示词里的 @素材 | `web/ui/asset-mention.js` 的 `createAssetMention` / `insertToken` / `mentionAt` / `libraryPicChoices` / `libraryTokenOf`：候选浮层、镜像高亮、悬停小卡、角色资产二级菜单与光标处插入都在这一份；导演台与工作台只经上下文给「候选从哪来、选中之后做什么」 |
 | 「拆成几张 / 按什么维度拆」那一排选项 | `SplitPlan`（`web/ui/forms.js`）：工作台图像栏「拆分片段生成」与导演台右栏「按描述生成这一镜的画面」共用这一份 —— 张数档与维度档（`FAM[家]`）、那一排的 HTML（`html`）、读 DOM（`read`，节点取手由页面交进来，件内不查 `document`）、发给文字 AI 的「张数：…／拆分维度：…」那两行（`userLines`）都只在这里。两家的契约仍然分开（工作台 `img_split.json`、导演台 `story.json`），共享的是控制面与那两行的写法；当前值由调用方拿着（导演台右栏每 3 秒整片重画，存 DOM 会被抹掉），「自动」那句报的张数范围必须与各家契约正文里的兜底那一条一致（判据 `tests/split-plan.mjs`） |
 | 「让 AI 干一件事」那颗按钮的外观 | `aiBtnHTML` / `aiBtnState`（`web/ui/ui.js`）：页面里的动作按钮外壳只有 `.tool.acc` + `.ic` 图标 + `.tx` 一行字这一种；忙与闲只换 `.tx`，那两句话挂在节点的 `data-idle` / `data-busy` 上，整栏重画（导演台右栏每 3 秒一次）也不会丢当前状态。**名字与说明句在各家族那一份里**：润色类 `InlinePolish.btnHTML`（作用域只写进 title，按钮上那行字全站同一句「AI 润色」）、AI 搜索类 `AiFind.btnHTML`（`LABEL` / `BUSY` / `TITLE` / `failText` 只在那一处；外壳按**搜索组件**画成 `.fb-ai`，与输入框同高、同档小圆角（`--radius-6`，与「多选 / 刷新」一致）、不带图标，不是紫色动作按钮）；页面直接调这两枚生成外壳，忙与闲都经 `aiBtnState` 换字（判据 `tests/selfcheck.cjs` §5b） |
 | 页面尺寸 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS` |
@@ -944,6 +1012,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 浏览器内 ASR 的算法 | `web/director/asr-text.js`（WAV 拆 PCM / 词级成段 / 转写清洗与可疑判定；worker 与 Node 判据共用同一份） |
 | ASR 模型代下载与模型状态 | `server/routes/models.js`（`/models/<id>/<file>` + `/models/status`；双镜像按序试、每一跳过出站护栏、`.part` 原子改名、同一文件单飞） |
 | 文字 AI | `web/domain/text-ai.js` 的 `TextAI`（含 `polishImages` / `qaOf` 契约） |
+| 文字型号能收哪些输入 | `web/domain/gen-forms.js` 的 `ModelPrefs.mediaOf` / `setMedia`（按型号存 `image` / `audio` / `video` 覆盖；型号偏好按 `<keyId>:<kind>` 分槽，旧的按账号那一份只作兜底并按 `modelsFilter` / `modelsExclude` 过滤）→ `TextAI.media()` 读取；设置页型号行上的 图 / 音 / 视 三枚小标是唯一写入点，自定义供应商在添加表里逐型号声明（落到模型的 `vision` / `audio` / `video`） |
 | 提示词归档 | `web/domain/prompt-log.js` 的 `PromptLog` |
 | 收藏 | `web/domain/fav.js` 的 `Fav`（身份 / 落盘 / 备注）；卡面那颗星的按钮与接线是 `Wb.favBtnHTML` / `Wb.bindFavBtn`（资产库与工作台共用），条目归一 `Wb.favEntryOf` |
 | 素材库 | `web/domain/chars.js` 的 `Chars`（`Lib` / `Pipe` / `SET`） |
@@ -965,7 +1034,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
 | Skill 的使用场景 | `web/domain/text-ai.js` 的 `SKILL_SCENE_GROUPS` / `SKILL_SCENES`（分组 + 场景；场景名与「用在哪」沿用 `PROMPTS`，变量说明在 `SKILL_VARS`） |
 | 设置页的目录轨 | `web/pages/settings.js` 的 `groupEls` / `cardsOf` / `navTitleOf`（全部从 DOM 现读；清单只有这一份。轨上只放栏目标题，不摆当前值 —— 值在右边那张卡里） |
-| 设置页「供应商与密钥」的账号卡流 | `web/pages/settings/accounts.js` 的 `createAccountCards(deps)`：`provGroups` / `capProv` / `capState` / `priKidOf` / `autoServiceKid` / `hostKidOf` / `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `placeForms` / `manualCapsOf` / `setManualCaps` / `localAccountCardHTML`；型号面板的槽名 `slotKey` / `provBySlot` 与档位名图标 `capZh` / `capGlyph` 也只在这一份里。页面经 deps 递进注册表 / 环境密钥 / 型号面板读写 / 自动保存的现取口，卡片自己的草稿与槽位不在页面留第二份 |
+| 设置页「供应商与密钥」的账号卡流 | `web/pages/settings/accounts.js` 的 `createAccountCards(deps)`：`provGroups` / `capProv` / `capState` / `priKidOf` / `autoServiceKid` / `hostKidOf` / `accountCardHTML` / `capRowHTML` / `modelPanelHTML` / `capAddHTML` / `removeManualCap` / `placeForms` / `localAccountCardHTML`；型号面板的槽名 `slotKey` / `provBySlot` 与档位名图标 `capZh` / `capGlyph` 也只在这一份里。六档能力（图片 / 视频 / 语音 / 文字 / 识别 / 搜索）平级；「＋ 添加能力」只给自定义账号。文字型号的「能收图片 / 声音 / 视频」按**型号行上三枚小标**记（`ModelPrefs.media`；模型输入能力，不是供应商标出来的服务档位）。页面经 deps 递进注册表 / 环境密钥 / 型号面板读写 / 自动保存的现取口，卡片自己的草稿与槽位不在页面留第二份 |
 | 设置页的两条通道（语音识别 / 联网搜索） | 通道自己的状态与选项在 `web/pages/settings.js`：`serviceProvOpts` / `syncServiceProvs` / `asrProvider` / `asrModelPh` / `searchEngineName` / `searchNeedsModel`；「哪张卡收这一档、表单搬到哪」跟着账号卡流住在 `web/pages/settings/accounts.js`（`LOCAL_ASR_KID` / `localAccountCardHTML` / `hostKidOf` / `placeForms` / `asrEffectiveRoute`）。在线表单在 `.acct-park`，画完网格搬进声明了这一档的云供应商卡；本机 / 浏览器内的表单在常驻的本机识别账号卡里；服务端按注册表的 `asr` / `search` 声明调 |
 | 中文名 / 类型 | `ui.js` 的 `provKindZh` / `provKinds`、`isAudioType` / `mediaKindOf` / `fileExtOf`、文件类型档的档位与顺序 `mediaKindTabs` / `mediaKindRank`（全部 → 视频 → 图片 → 音频） |
 | 字数闸 | `gen-forms.js` 的 `CharLimits`（`bounds` / `tts` / `prompt` / `why` / `cntLine`） |
@@ -1179,6 +1248,9 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   所有文字 AI 调用默认可用；助手自己的工具循环与纯协议调用（反问 JSON / 看图说明 / 起标题 / 设置探针）
   传 `noTools: true` 退出。总开关关着时连工具说明都不加。
 - **用户可见的正文生成一律流式**：拆分镜 / 各页 AI 润色 / 新台词 / 关键帧规划走 `AiStream.text` 或 `TextAI.chatStream`；只有短 JSON 判定（反问 / 拆素材）、后台标题、AI 搜索这类没有正文面板的步骤保留一次性 `chat`。
+- **润色每一轮都重新准备随附素材**（反问 / 润色 / 按句再改各自 prep 一次，不是只在第一轮带）：图片缩到 1024，
+  声音 / 视频按 `TextAI.prepareMedia` 的能力闸原样读字节；`polishExtra` 与素材清单按 图片 / 声音 / 视频
+  说清附上了哪几类，编号与提交体同源。工作台、导演台、建模台三处都用这一份。
 - 抽屉缺省是球旁的浮窗：贴着悬浮球摆（左上方，放不下就翻到另一侧，最后夹进视口并让开侧栏），
   宽 `--ac-w` / 高 `--ac-h` 由左沿与下沿两根把手拖，记本机 `ai_chat_w` / `ai_chat_h`；
   **浮窗只能随球拖动** —— 拖标题栏挪的是球（球与浮窗是一组），浮窗永远贴着球。
@@ -1192,12 +1264,21 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   拖外部文件到球仍是上传；窗口空白处不接引用（球是唯一落点）。
 - 只读工具 `task_detail` 查单条任务：先按本机缓存反查平台 / 产物号 / 提示词，再向平台问一次现状；
   多条一次问（最多 8 条，同轮共用一次列表请求），查不到按原因码说清。
+- **助手能改建模台**：只读 `model_list` / `model_read` / `model_view`，写入 `model_edit` /
+  `model_new` / `model_add_to_scene` / `model_undo` 一律走 `WBBridge.model3d`（check 纯读、run 写入 +
+  20 步撤销快照，页面不在前台就不执行）；op 词汇与建模 AI 同一套（`schema.js` 的 `applyDocOps`）。
+  `model_view` 拍的是活动机位当前视口（与建模 AI 的 `render_thumbnail` 同一份 `view.shot`）。
+- 查询结果喂回模型按工具档位裁剪（`chat-tools.js` 的 `TOOL_CAP`，未声明回 7000）；
+  同一查询连着两次没有新结果时把「可能问不通、换问法」写回上下文。
 - 写动作只经 `web/core/actions.js` 的 `ActionRegistry`；`inject` 这一族动作不提供。
 - 动作默认直接执行、不强制过程可见：结果回执 + 撤销必须可见；跨页给「去看看」，定位按需。
 - 内容写动作必须有 `undo` 或显式 `irreversible`；花钱动作声明 `cancel`。
 - Skill：`skills/<id>/SKILL.md`；按页面 + 触发词自动加载（最多 2 个），未命中的由 `skill` 工具按需加载。
-  内置 Skill 正文由 `TextAI.DEF` 同源生成；正文只有「启用的 Skill → 内置默认」两级，
-  设置页不改正文（`sk_polish_ask` 那一档管的是「动手前要不要先反问」）。
+  内置 Skill 正文的退回副本由 `tools/sync-skill-contracts.cjs` 从 `skills/<id>/SKILL.md` 生成
+  （`npm run build` 先跑它；`build:check` / `npm run check` 跑 `--check`），别再手抄；
+  正文只有「启用的 Skill → 内置默认」两级，设置页不改正文（`sk_polish_ask` 那一档管的是「动手前要不要先反问」）。
+  导演台 9 份 Skill 共用 `skills/_glossary.md`（镜头 / 候选 / 素材 / 占位符 / 首帧 / 尾帧 / 草稿 / 选中）：
+  正文里写 `{glossary}`，`TextAI.defaultPrompt` 在发请求前统一填进去。
 - **项目引用规则 = Skill 正文里的变量占位符**（`{cast}` `{what}` `{board}` `{assets}` `{dur}` …）：
   程序在发请求前按当前项目把实际内容填进去（`window.TplVars.fill`，唯一一份填法）。
   填不上的原样留着（AI 看到 `{cast}` 三个字也知道那是要它自己补的位子；留空会让它以为「这一段没有内容」）。
@@ -1255,6 +1336,12 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
     `loadCaps` / `onCapReady`，与导演台右栏 `installCapRepaint` 同一套）—— 接上这一下，
     型号下拉才不会停在「没配生图平台」那句假话上。
 - 工作台三类型共用一页：`?t=video|image|audio`；型号与提示词分类型记住；右栏历史三类型合并、按 `assetId` 去重。
+- 参考素材区整块接拖放：落在具体格子上就按那一格；落在素材区空白处 / 提示词框上时按载荷或文件类型自动找格
+  （图片 → 参考图，视频 → 参考视频（没有就首帧），声音 → 参考音频），平台只收一类时照实拒绝。
+  站内卡片走 `AssetRef` 载荷，外部文件走 `File`；两条最后都进 `refIntoSlot` 这一条落槽链。
+- 提示词里的 `@素材` 与导演台同一份浮层（`web/ui/asset-mention.js`）：候选 = 这一栏已有的参考素材 +
+  素材库（角色 / 场景 / 道具）；选中把 `@名字` / `@名字·资产名` 写进提示词，素材库那一条顺手把它的图
+  加进「参考图」槽位（能力声明 / 互斥 / 上限 / 去重与点槽位选一张同一套）。候选数据由页面按本栏现状给。
 - **视频栏与图像栏的两颗「送过去」只在页面里拼载荷，写入格式沿用既有的那几处**：
   · 「送进图像栏」（`web/pages/studio/cross-col.js` 的 `promptIntoImage`）把视频栏那句提示词三处一起写
     （textarea 节点 + 该型草稿 + `studio_prompt_image`），
@@ -1603,8 +1690,9 @@ PORT=6300 DATA_DIR=.data-probe ASSETS_DIR=.assets-probe RENDER_DIR=.renders-prob
   注册表声明 `pollVia:'list'`，列表才是状态依据。
 - **SparkCine**：上传用下划线字段 + `sha256` 必填；详情 `outputs[].asset_id`；创建要求 `Idempotency-Key`；
   视频「平台自动润色」是 `create.topBools.optimize_prompt`（顶层）。
-- **MiMo**：语音同步合成，没有任务号；本地 `audio_tasks` 是唯一凭据。`tts.encoding:'hex'`
-  的返回按十六进制解码。
+- **MiMo**：文字与语音合成共用一把 `MIMO_API_KEY`（`mimo-text` 与 `mimo` 两个 relay 段；
+  文字走 `/v1/chat/completions`，`/v1/models` 同时列 TTS，文字档用 `modelsExclude:'-tts'` 排掉）。
+  语音同步合成，没有任务号；本地 `audio_tasks` 是唯一凭据。`tts.encoding:'hex'` 的返回按十六进制解码。
 - **MiniMax**：`t2a_v2` 的 `data.audio` 是十六进制；语音字数区间见 `tts.minChars/maxChars`。
 - **VGENV 参考图**：非上传素材要转 dataURL（`reference_image` 模板 `image_url:{url}` 只收平台能取到的地址）。
 - **幂等与重试**：没有幂等键的 POST 一律不自动重试；`PROMPT_COMPILER_UPSTREAM_ERROR` 表示任务未创建、

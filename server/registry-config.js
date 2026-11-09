@@ -161,8 +161,23 @@ const REGISTRY = {
      没声明的家不再画「识 / 搜」两行 —— 画上去只会让用户在一家没有那个端点的平台上白试一次。
      旧代理（v21）不读这两个对象：设置页会把「自动」当成一个不存在的供应商，
      所以 PROXY_VERSION_MIN 一起升到 22，让页面先要求重启代理。
+     v23：文字供应商可带 `modelsExclude`（正则文本，匹配到的 id 不进这一档的型号清单）。
+     MiMo 的 /v1/models 同时列 TTS 与对话模型：语音那一档用 modelsFilter 只留 -tts，
+     文字这一档用 modelsExclude 把 -tts 排掉。旧代理原样下发这个字段（页面自己过滤），
+     不需要新的 PROXY_VERSION_MIN。
+     v24：自定义供应商支持**一个账号多类模型**（`sk_custom` 条目带 `caps[]`，一条记录
+     可以同时声明图片 / 视频 / 语音合成 / 文字 AI，并给文字 AI 挂语音识别 / 联网搜索）。
+     旧条目（`kind` + `shape` + `models`）照旧认，读的时候当「只有一类」。代理会按类各建
+     一条 provider、共用同一个 keyId（设置页仍是一张账号卡）。型号偏好也改按
+     `keyId:kind` 分槽，旧键按账号存的那份继续当兜底、并按 modelsFilter / modelsExclude 过滤。
+     页面与本结构同时发布，旧代理不认识 `caps`，所以 PROXY_VERSION_MIN 一起升到 24。
+     v25：语音识别 / 联网搜索升成和图片 / 视频 / 语音 / 文字平级的独立能力档。
+     自定义条目可以在 `caps[]` 里为它们各写一项（`kind:'asr'|'search'` + shape + models），
+     代理为每一档各建一条 `serviceOnly` 承载 provider（`kind:'text'`、`modelKind` 指向那一档），
+     不再并进文字那一条。`interfaceShapes` 补 asr / search 两组。旧条目的 `extras[]`
+     与文字档上的 `asr` / `search` 子对象仍按只读兼容搬成独立 caps。PROXY_VERSION_MIN 一起升到 25。
      改注册表结构时顺手 +1。 */
-  version: 22,
+  version: 25,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -220,6 +235,30 @@ const REGISTRY = {
     text: [
       { id: 'openai-chat', name: 'OpenAI 兼容对话（POST /chat/completions + GET /models）',
         template: 'deepseek', note: '市面上绝大多数中转站 / 企业网关跑的就是这一套' },
+    ],
+    /* 语音识别 / 联网搜索与四类平台同一层级：形状清单同样只列真实声明过这一档的内置平台。
+       自定义网关兼容哪一家的转写 / 搜索接口，就选哪一家的形状；协议字段从模板克隆。 */
+    asr: [
+      { id: 'openai-asr', name: 'OpenAI 兼容转写（POST /audio/transcriptions，multipart）',
+        template: 'openai', note: 'whisper-1 / gpt-4o-transcribe 那一族' },
+      { id: 'zhipu-asr', name: '智谱转写（POST /audio/transcriptions，model + file）',
+        template: 'zhipu', note: 'glm-asr-2512' },
+      { id: 'chat-audio', name: '对话式转写（POST /chat/completions + input_audio）',
+        template: 'dashscope', note: '百炼 qwen3-asr-flash 那一族' },
+      { id: 'siliconflow-asr', name: '硅基流动转写（POST /audio/transcriptions）',
+        template: 'siliconflow', note: 'SenseVoice / TeleSpeech 那一族' },
+      { id: 'minimax-asr', name: 'MiniMax 转写（POST /speech_to_text）',
+        template: 'minimax-text', note: 'asr-1.0' },
+    ],
+    search: [
+      { id: 'moonshot-search', name: 'Kimi 搜索接口（POST /tools/search_pro）',
+        template: 'moonshot', note: '返回 search_results，每条带 title / url / snippet / date' },
+      { id: 'zhipu-search', name: '智谱搜索接口（POST /web_search）',
+        template: 'zhipu', note: 'search_result 数组，网址在 link' },
+      { id: 'deepseek-search', name: 'DeepSeek 搜索接口（POST /v1/tools/search）',
+        template: 'deepseek', note: '结果在 results 数组' },
+      { id: 'openrouter-search', name: 'OpenRouter 对话联网搜索（chat + server tool）',
+        template: 'openrouter', note: '对话接口里开 web_search，型号由用户自己选' },
     ],
   },
   providers: [
@@ -703,6 +742,27 @@ const REGISTRY = {
           stream: false,
         },
       },
+    },
+    {
+      /* MiMo 的文字 AI 与上面那家语音合成**同一个账号**（keyId: 'mimo'，共用 MIMO_API_KEY）：
+         设置页会归并成一张卡，卡里列出「文字 AI / 语音合成」两档。
+         relay 与语音那段分开（/mimo-text，不写成 /mimo/text —— 前缀命中的是第一条声明，
+         嵌在 /mimo 下面会和语音那一段抢请求）。 */
+      id: 'mimo-text', name: 'MiMo 文字 AI', displayName: 'MiMo', kind: 'text', relay: '/mimo-text',
+      keyId: 'mimo',
+      base: 'https://api.xiaomimimo.com', keyEnv: 'MIMO_API_KEY', site: 'https://mimo.mi.com',
+      endpoints: {
+        chat: '/v1/chat/completions',
+        models: '/v1/models',
+      },
+      /* /v1/models 同时列着 TTS 型号；文字这一档只留对话模型（-tts 的归语音合成那张卡）。 */
+      modelsExclude: '-tts',
+      /* 不是型号清单（清单归接口），只记录文档里这个 id 能收什么：
+         MiMo V2.6 Flash 是文本 + 图片 + 视频 + 声音输入，1M 上下文。 */
+      modelDocs: [
+        { id: 'mimo-v2.6-flash', name: 'MiMo V2.6 Flash（文本 / 图片 / 视频 / 声音）',
+          modes: ['text'], vision: true, audio: true, video: true, contextWindow: 1000000 },
+      ],
     },
     {
       /* ---- 文字 AI（OpenAI 兼容）：多家并存，谁在用由页面按 sk_text_prov 选 ----
@@ -1229,7 +1289,7 @@ function createRegistryConfig(deps) {
   const { readKey, safeOutboundUrl } = deps;
 
   /* ============================================================================
-     用户在设置页「添加自定义供应商」时登记的接口（图片 / 视频 / 语音 / 文字 AI）
+     用户在设置页「添加自定义供应商」时登记的接口（六档能力：图片 / 视频 / 语音 / 文字 / 识别 / 搜索）
      ----------------------------------------------------------------------------
      为什么大多不需要改代码：市面上大量的中转站 / 企业网关跑的就是这里已经支持的那套接口，
      只是**换一个地址、换一把密钥、型号清单不一样**。所以「添加一家」= 拿一条内置声明当
@@ -1243,7 +1303,8 @@ function createRegistryConfig(deps) {
      清单从哪来：设置页把表单写进 localStorage 的 `sk_custom`（一份 JSON 数组），
      ui.js 的 DataSync 顺手镜像成 `.data/sk_custom.json` —— 这一节读的就是那个文件。
      于是自定义平台自动跟着数据文件走（换机器、云同步、整包备份都不用另外登记一次）。
-     条目形状：`{ id, name, kind, shape:<内置 provider id>, base:<https 地址>, models:[{id,name}] }`
+     条目形状：`{ id, name, base, caps:[{ kind, shape:<内置 provider id>, shapeId, models:[{id,name}] }] }`
+      （旧版 `kind + shape + models` 与 `keyId + extras[]` 仍按只读兼容搬成 caps）。
 
      安全三条（动这里之前先读）：
      1. **地址只收公网 https**：过 safeOutboundUrl，回环 / 内网 / 明文 http / 解析到内网的域名
@@ -1260,6 +1321,85 @@ function createRegistryConfig(deps) {
      清单是**本机**文件、每条都要过一次下面的 customProblem（公网 https / 型号齐全 / 不撞别家），
      刷不爆什么，所以这一层闸撤掉，只留下面那些真判据。 */
   const CUSTOM_ID_RE = /^[A-Za-z0-9][A-Za-z0-9_-]{1,40}$/;
+  /* 一个自定义供应商 = 一张账号卡 + 一到六档能力。同一档只允许一条（一档一套接口形状），
+     每档建一条 provider，共用 `keyId = 条目 id` —— 设置页按 keyId 归并成一张卡，
+     与内置那几家（MiMo 的文字 + 语音）同一副形状。 */
+  const CUSTOM_KIND_ZH = {
+    image: '图片生成', video: '视频生成', audio: '语音合成', text: '文字 AI',
+    asr: '语音识别', search: '联网搜索',
+  };
+  const CUSTOM_KINDS = Object.keys(CUSTOM_KIND_ZH);
+  const SERVICE_KINDS = ['asr', 'search'];
+  const isServiceKind = kind => SERVICE_KINDS.indexOf(String(kind || '')) >= 0;
+  /* 一条自定义条目 = 一张账号卡 + 一组能力。六档同一形状：`caps[]` 里每一项是
+     `{ kind, shape, shapeId, models, ... }`；语音识别 / 联网搜索不再挂在文字那一类下面。
+     旧条目仍照读：`kind + shape` 抬成一项；`keyId + extras[]` 抬成 asr/search 两项
+     （型号取模板声明里的默认型号）。写入口只写新形状。 */
+  function customCapsOf(e) {
+    if (!e || typeof e !== 'object') return [];
+    const expand = list => {
+      const out = [];
+      (Array.isArray(list) ? list : []).forEach(c => {
+        if (!c || typeof c !== 'object') return;
+        const kind = String(c.kind || '');
+        if (kind === 'text' && (c.asr || c.search)) {
+          const textCap = { ...c };
+          delete textCap.asr; delete textCap.search;
+          out.push(textCap);
+          ['asr', 'search'].forEach(field => {
+            const decl = c[field];
+            if (!decl) return;
+            const from = String((decl && decl.from) || '');
+            const tpl = REGISTRY.providers.find(p => p.id === from);
+            out.push({ kind: field, shape: from, shapeId: '', models: defaultServiceModels(tpl, field) });
+          });
+          return;
+        }
+        out.push(c);
+      });
+      return out;
+    };
+    if (Array.isArray(e.caps) && e.caps.length) return expand(e.caps);
+    if (e.kind && e.shape) {
+      return expand([{ kind: e.kind, shape: e.shape, shapeId: e.shapeId, models: e.models,
+        asr: e.asr, search: e.search }]);
+    }
+    /* 旧版「给已有账号补的识别 / 搜索」只存 `extras[]`：没有 models，
+       这里按模板声明补默认型号，读侧照常能用；下一次在设置页保存时写成新形状。 */
+    if (Array.isArray(e.extras)) {
+      return e.extras.map(x => {
+        const kind = String((x && x.kind) || '');
+        if (!isServiceKind(kind)) return null;
+        const tpl = REGISTRY.providers.find(p => p.id === String((x && x.from) || ''));
+        return { kind, shape: (x && x.from) || '', models: defaultServiceModels(tpl, kind) };
+      }).filter(Boolean);
+    }
+    return [];
+  }
+  function defaultServiceModels(tpl, kind) {
+    if (!tpl || !tpl[kind]) return [];
+    const decl = tpl[kind];
+    const ids = Array.isArray(decl.models)
+      ? decl.models.map(m => (m && m.id) || m) : [];
+    if (!ids.length && decl.model) ids.push(decl.model);
+    return ids.filter(Boolean).map(id => ({ id: String(id) }));
+  }
+  function ownerOfKey(builtins, kid) {
+    const key = String(kid || '');
+    if (!key) return null;
+    return builtins.find(p => String(p.keyId || p.id) === key) || null;
+  }
+  /* provider id 只在主类上用条目 id；其余类加 `-<kind>` 后缀。后缀不参与界面显示，
+     只用于 relay 分段与「按 id 找这一条」。 */
+  const customProvId = (id, kind, index) => index > 0 ? String(id) + '-' + String(kind) : String(id);
+  /* 额外能力（语音识别 / 联网搜索）的接口声明从点名的那一家内置平台克隆：
+     `shape` 就是那一家（openai 的 /audio/transcriptions、deepseek 的 /v1/tools/search…）。
+     不在这里编字段 —— 克隆的是已经过校验的真实声明。 */
+  function serviceDecl(builtins, kind, shape) {
+    const t = builtins.find(p => p.id === String(shape || ''));
+    if (!t || !t[kind] || (t.extraCaps || []).indexOf(kind) < 0) return null;
+    return JSON.parse(JSON.stringify(t[kind]));
+  }
   /* 内置声明里不能跟着用户走的那几项：身份、地址、密钥来源，以及「同一上游按媒体类型落到
      另一条内置 provider」的路由（mediaProviders 里写的是内置 id，自定义条目套上去会指错家）。
      pricing 也摘：单价是各家自己的事，照抄内置那一份会报出假价格（用量与预估都不该骗人）。 */
@@ -1267,14 +1407,14 @@ function createRegistryConfig(deps) {
     'name', 'displayName', 'kind', 'models', 'mediaProviders', 'pricing', 'custom', 'customShape',
     /* `extraCaps` / `asr` / `search` 一律摘掉：那一族声明的是**内置那一家**的端点
        （/v1/tools/search、/paas/v4/web_search…），照模板克隆一份会把这些地址安到用户自己的网关上。
-       自定义账号要识别 / 搜索，由设置页「手动加一档能力」当场声明（识别走这家自己的
-       OpenAI 兼容 /audio/transcriptions；搜索没有可通用的接口形状，不提供手加）。 */
+       自定义账号要识别 / 搜索，由 caps[] 里显式勾选、再按点名的那一家声明重新挂上
+       （buildCustom 最后那一段）；不勾就一条都不带。 */
     /* default：内置「没显式选过时首选哪家」的旗标不能跟着复制 —— 照 OpenRouter 克隆一家，
        表现就成了「凭空多了一家默认」，润色打到用户的网关上。
        baseEditable：这一家的地址本来就是用户自己填的（就在 sk_custom 里），
        没有「官方地址 + 临时覆盖」这回事。摘掉它，代理也就**不接受**这条 relay 上的 x-up-base 头
        —— 否则浏览器递一个头就能把密钥改道送到别的主机。 */
-    'default', 'baseEditable'];
+    'default', 'baseEditable', 'extraCaps', 'asr', 'search'];
 
   const customNotice = { reason: '', dropped: [] };    // 最近一次读清单时丢掉的问题条目，/registry 带回去说明
   /* 缓存要连着 notice 一起存：以前只缓存了 provs，而 customNotice 是在**进函数时就清空**的，
@@ -1285,7 +1425,11 @@ function createRegistryConfig(deps) {
   function customProviders() {
     let text = null;
     try { text = readKey('sk_custom'); }
-    catch (e) { customNotice.reason = '读取 sk_custom 失败：' + e.message; return []; }
+    catch (e) {
+      customNotice.reason = '读取 sk_custom 失败：' + e.message;
+      _customCache = { raw: null, provs: [], reason: customNotice.reason, dropped: [] };
+      return [];
+    }
     if (_customCache.raw === text) {
       customNotice.reason = _customCache.reason;
       customNotice.dropped = _customCache.dropped;
@@ -1301,7 +1445,7 @@ function createRegistryConfig(deps) {
     }
     const list = Array.isArray(raw) ? raw : (Array.isArray(raw && raw.data) ? raw.data : []);
     const out = [];
-    /* 四种类型都能当模板（文字 AI 也算一类）。旧的清单里如果有拿文字平台当形状的条目，
+    /* 六档都是模板（文字 AI 也算一类）。旧的清单里如果有拿文字平台当形状的条目，
        以前是「找不到模板」被丢掉并说明；现在它合法了，不必再让页面重新添加一次。 */
     const builtins = REGISTRY.providers;
     /* **不数家数上限**（v11 起，见上面「不设家数上限」那段）。坏条目照旧一条条说明为什么被丢掉，
@@ -1310,36 +1454,87 @@ function createRegistryConfig(deps) {
       const id = String((e && e.id) || '').slice(0, 44);
       const bad = customProblem(e, builtins, out);
       if (bad) { customNotice.dropped.push({ id, why: bad }); return; }
-      out.push(buildCustom(e, builtins.find(p => p.id === e.shape)));
+      const owner = e.keyId ? ownerOfKey(builtins, e.keyId) : null;
+      const caps = customCapsOf(e);
+      caps.forEach((cap, i) => {
+        if (isServiceKind(cap.kind)) return;
+        out.push(buildCustom(e, builtins.find(p => p.id === cap.shape), cap, i, owner));
+      });
+      /* 识别 / 搜索各自一条只承载这一档的 provider：接口声明从这里克隆，型号也各存各的。
+         一条条目里同时有文字档时不并进去 —— 并进去会让两档共用一份型号清单。 */
+      caps.filter(cap => isServiceKind(cap.kind)).forEach(cap => {
+        const carrier = buildServiceCarrier(e, cap, owner);
+        attachServiceCaps(carrier, cap);
+        out.push(carrier);
+      });
     });
     _customCache = { raw: text, provs: out, reason: customNotice.reason, dropped: customNotice.dropped };
     return out;
   }
-  /* 一条自定义条目能不能用；能用返回 ''，不能用返回「为什么不能用」（界面与日志同一句话） */
+  /* 一条自定义条目能不能用；能用返回 ''，不能用返回「为什么不能用」（界面与日志同一句话）。
+     v24 起一条条目是一组 caps[]：每一类各自校验形状 / 型号，额外能力（语音识别 / 联网搜索）
+     再校验「点名的那一家内置声明真的存在」。 */
   function customProblem(e, builtins, already) {
     if (!e || typeof e !== 'object') return '不是对象';
     if (!CUSTOM_ID_RE.test(String(e.id || ''))) return 'id 只能是字母数字与 -_（1~41 位）';
     if (already.some(x => x.id === e.id)) return 'id 重复';
     if (builtins.some(p => p.id === e.id)) return 'id 和内置平台撞名';
-    if (!builtins.some(p => p.id === e.shape)) return '找不到当模板的内置平台（shape）';
-    /* 条目自己声明的类型要和模板的类型一致：不一致就是清单被手改过（或页面改过类型后留下的旧条目）。
-       照模板的 kind 建出来，界面按 e.kind 分组、按模板的 kind 使用，两边对不上就是「加了但找不到」。 */
-    if (e.kind && (builtins.find(p => p.id === e.shape) || {}).kind !== e.kind) {
-      return '类型「' + e.kind + '」与模板「' + e.shape + '」不是同一类';
-    }
     if (!/^https:\/\//i.test(String(e.base || ''))) return '地址必须以 https:// 开头';
     if (!safeOutboundUrl(String(e.base || ''))) return '地址不是公网 https（回环 / 内网 / 域名解析到内网都拒绝）';
-    if (!Array.isArray(e.models) || !e.models.length) return '一个型号都没勾';
+    const caps = customCapsOf(e);
+    if (!caps.length) return '没有声明任何能力';
+    if (e.keyId && !ownerOfKey(builtins, e.keyId)) return '要补能力的账号不存在（keyId：' + e.keyId + '）';
+    const owner = e.keyId ? ownerOfKey(builtins, e.keyId) : null;
+    if (owner && !sameHost(e.base, owner.base)) {
+      return '补能力的地址必须与「' + (owner.name || owner.id) + '」的地址相同（' + owner.base + '）';
+    }
+    const seen = new Set();
+    let firstTpl = null;
+    for (let i = 0; i < caps.length; i++) {
+      const cap = caps[i] || {};
+      const kind = String(cap.kind || '');
+      if (CUSTOM_KINDS.indexOf(kind) < 0) return '不认识的能力「' + kind + '」';
+      if (seen.has(kind)) return '「' + (CUSTOM_KIND_ZH[kind] || kind) + '」声明了两次';
+      seen.add(kind);
+      const tpl = builtins.find(p => p.id === cap.shape);
+      if (!tpl) return '找不到当模板的内置平台（' + (CUSTOM_KIND_ZH[kind] || kind) + ' 的 shape：' + (cap.shape || '(空)') + '）';
+      /* 识别 / 搜索的「形状」必须点名一家真的声明过这一档的内置平台；
+         其余五档要求模板类型与能力一致。 */
+      if (isServiceKind(kind)) {
+        if (!tpl[kind] || (tpl.extraCaps || []).indexOf(kind) < 0) {
+          return (kind === 'asr' ? '语音识别' : '联网搜索') + '的接口形状「' + cap.shape + '」没有声明这一档';
+        }
+      } else if (tpl.kind !== kind) {
+        return '「' + (CUSTOM_KIND_ZH[kind] || kind) + '」的接口形状「' + cap.shape + '」是 '
+          + (CUSTOM_KIND_ZH[tpl.kind] || tpl.kind) + ' 那一类';
+      }
+      const models = Array.isArray(cap.models) ? cap.models : [];
+      if (!isServiceKind(kind) && !models.length) return '「' + (CUSTOM_KIND_ZH[kind] || kind) + '」一个型号都没加';
+      if (models.some(m => !String((m && m.id) || (typeof m === 'string' ? m : '') || '').trim())) {
+        return '「' + (CUSTOM_KIND_ZH[kind] || kind) + '」里有空型号';
+      }
+      const pid = customProvId(e.id, kind, i);
+      if (already.some(x => x.id === pid) || builtins.some(p => p.id === pid)) return 'id 重复（' + pid + '）';
+      firstTpl = firstTpl || tpl;
+    }
+    for (const c of caps.filter(x => isServiceKind(x.kind))) {
+      const pid = String(e.id) + '-service-' + c.kind;
+      if (already.some(x => x.id === pid) || builtins.some(p => p.id === pid)) return 'id 重复（' + pid + '）';
+    }
     /* 地址撞**别的**内置平台官方地址 = 拿 A 家的地址配 B 家的协议（设置页表单也拦这一种）。
        注意**不再**把「撞模板自己的官方地址」当错：v11 起内置平台也要先添加一次才进设置页清单，
        那个官方地址正是设置页自动填进去的默认值，照它添加就是「我要用这一家」。
        模板自己那个 host 要排除掉 —— 同一个上游往往有好几条内置 id（按媒体类型分的），
-       它们彼此不算「撞」。 */
-    const tpl = builtins.find(p => p.id === e.shape) || {};
-    const other = builtins.find(p => p.base && !sameHost(p.base, tpl.base) && sameHost(e.base, p.base));
-    if (other) {
-      return '这个地址是「' + (other.name || other.id) + '」的官方地址，却配着「'
-        + (tpl.name || tpl.id) + '」的接口形状 —— 选它自己、填密钥就能用，不用添加一遍';
+       它们彼此不算「撞」。手动补在已有账号上的条目不跑这一段：它们本来就该用那家的地址。 */
+    if (!owner) {
+      for (const cap of caps) {
+        const tpl = builtins.find(p => p.id === cap.shape) || firstTpl || {};
+        const other = builtins.find(p => p.base && !sameHost(p.base, tpl.base) && sameHost(e.base, p.base));
+        if (other) {
+          return '这个地址是「' + (other.name || other.id) + '」的官方地址，却配着「'
+            + (tpl.name || tpl.id) + '」的接口形状 —— 选它自己、填密钥就能用，不用添加一遍';
+        }
+      }
     }
     return '';
   }
@@ -1349,33 +1544,125 @@ function createRegistryConfig(deps) {
     const x = h(a), y = h(b);
     return !!x && !!y && x === y;
   }
-  function buildCustom(e, tpl) {
+  function buildCustom(e, tpl, cap, index, owner) {
     const p = {};
     Object.entries(tpl).forEach(([k, v]) => { if (!CUSTOM_STRIP.includes(k)) p[k] = v; });
-    p.id = String(e.id);
-    p.keyId = p.id;                                   // 密钥按这一家自己存：sk_key_<id>
+    const baseName = String(e.name || e.id).slice(0, 40);
+    p.id = customProvId(e.id, cap.kind, index);
+    /* 密钥按**这一张账号卡**存：一个供应商几类模型共用 sk_key_<keyId>。
+       给已有账号补能力时 keyId 是那家账号；否则就是这条条目自己。
+       relay 仍按 provider id 各占一段（转发闸 / 转发前缀都按 relay 认家）。 */
+    p.keyId = String(e.keyId || e.id);
+    p.accountName = baseName;
     p.relay = CUSTOM_RELAY + '/' + p.id;
     p.base = safeOutboundUrl(String(e.base)).replace(/\/+$/, '');
-    p.name = String(e.name || p.id).slice(0, 40);
-    p.displayName = p.name;
+    p.name = index > 0 ? (baseName + ' · ' + CUSTOM_KIND_ZH[cap.kind]) : baseName;
+    p.displayName = baseName + ' · ' + (CUSTOM_KIND_ZH[cap.kind] || cap.kind);
     p.kind = tpl.kind;
-    p.custom = true;
+    p.custom = !owner;
+    p.manual = !!owner;
+    p.manualId = owner ? String(e.id) : '';
+    /* 补在已有账号上的 provider 用那一家自己的 keyEnv：base 已经在 customProblem 里
+       校验过与 owner 同主机，回退到内置环境密钥才是安全的。 */
+    if (owner) {
+      p.keyEnv = owner.keyEnv || '';
+      p.defaultKey = owner.defaultKey || '';
+    }
     p.customShape = tpl.id;
     p.customShapeName = tpl.displayName || tpl.name;
+    /* 模板的型号过滤是**那一家的上游怪癖**（MiMo 的 -tts 只适用于 MiMo 的型号命名）：
+       照搬到用户网关上会把用户自己勾的 `tts-1` 这类 id 一起挡掉。自定义这一家的型号
+       就是用户在表里明确勾选的那几个，过滤交给设置页的「隐藏」按需处理。 */
+    delete p.modelsFilter;
+    delete p.modelsExclude;
+    /* 余额接口也是那一家的：模板里的 /user/balance、/wallet 在用户的网关上未必存在。
+       照抄会让卡上永远挂一枚「读取失败」的余额；要查余额得由用户自己的网关声明（以后再加）。 */
+    if (p.endpoints && p.endpoints.credits) {
+      p.endpoints = { ...p.endpoints };
+      delete p.endpoints.credits;
+    }
+    delete p.balance;
     /* 型号：id 在模板里出现过 → 用模板那份完整声明（只换显示名）；
        没出现过（这一家自己多出来的型号）→ 能力先照模板第一个型号起步，等它自己的 /models 覆盖。
-       为什么要给个起步：档位全空的型号在工作台里既选不了比例也选不了画质，看着像坏了。 */
-    /* 模板能给的能力参照物 = 模板自己的清单（v13 起多半是空的）+ 那份按 id 写的 modelDocs。
-       前者归接口，后者归文档，两者都不是「替你决定这一家有什么型号」—— 用户勾了哪些才列哪些。 */
+       为什么给个起步：档位全空的型号在工作台里既选不了比例也选不了画质，看着像坏了。
+       文字型号的输入能力（图 / 音 / 视）由条目里的 `vision` / `audio` / `video` 声明，
+       那是用户在「添加 / 编辑供应商」那张表里点出来的，与内置家的 modelDocs 同一套字段。 */
     const tmodels = (tpl.models || []).concat(tpl.modelDocs || []);
-    p.models = (e.models || []).map(x => {
+    p.models = (cap.models || []).map(x => {
       const id = String((x && x.id) || (typeof x === 'string' ? x : '') || '').trim();
       const hit = tmodels.find(m => m.id === id);
       const base = hit || tmodels[0] || { modes: [] };
       const m = { ...base, id, name: String((x && x.name) || (hit && hit.name) || id).slice(0, 60) };
+      ['vision', 'audio', 'video'].forEach(k => {
+        if (x && x[k] !== undefined) m[k] = !!x[k];
+      });
       if (!hit) m.optionsFrom = (tmodels[0] && tmodels[0].id) || '';
       return m;
     }).filter(m => m.id);
+    return p;
+  }
+  /* 只承载语音识别 / 联网搜索的账号位：本身不是一类生成平台，kind 仍是 text（服务端按
+     kind:'text' 找转写 / 搜索渠道），`serviceOnly` 让账号卡不去画「文字 AI」那一行。
+     型号来自用户给这一档加的清单；搜索 chat 那一族要用型号，也从这一份里挑。 */
+  function buildServiceCarrier(e, service, owner) {
+    const tpl = REGISTRY.providers.find(p => p.id === service.shape) || {};
+    const p = {};
+    Object.entries(tpl).forEach(([k, v]) => { if (!CUSTOM_STRIP.includes(k)) p[k] = v; });
+    const baseName = String(e.name || e.id).slice(0, 40);
+    p.id = String(e.id) + '-service-' + service.kind;
+    p.keyId = String(e.keyId || e.id);
+    p.accountName = baseName;
+    p.relay = CUSTOM_RELAY + '/' + p.id;
+    p.base = safeOutboundUrl(String(e.base)).replace(/\/+$/, '');
+    p.name = baseName + ' · ' + (CUSTOM_KIND_ZH[service.kind] || service.kind);
+    p.displayName = p.name;
+    p.kind = 'text';
+    p.modelKind = service.kind;
+    p.serviceOnly = true;
+    p.custom = !owner;
+    p.manual = !!owner;
+    p.manualId = owner ? String(e.id) : '';
+    if (owner) {
+      p.keyEnv = owner.keyEnv || '';
+      p.defaultKey = owner.defaultKey || '';
+    }
+    p.customShape = tpl.id;
+    p.customShapeName = tpl.displayName || tpl.name;
+    delete p.modelsFilter;
+    delete p.modelsExclude;
+    if (p.endpoints && p.endpoints.credits) {
+      p.endpoints = { ...p.endpoints };
+      delete p.endpoints.credits;
+    }
+    delete p.balance;
+    /* 这一条只给转写 / 搜索用：型号由用户自己加，不向上游取文字模型清单。 */
+    if (p.endpoints) {
+      p.endpoints = { ...p.endpoints };
+      delete p.endpoints.models;
+    }
+    p.models = serviceModelsOf([service], tpl);
+    return p;
+  }
+  function serviceModelsOf(services, tpl) {
+    const map = new Map();
+    services.forEach(cap => {
+      (cap.models || []).forEach(x => {
+        const id = String((x && x.id) || (typeof x === 'string' ? x : '') || '').trim();
+        if (!id) return;
+        const hit = ((tpl && tpl.models) || []).find(m => m && m.id === id);
+        map.set(id, { ...(hit || { modes: [] }), id, name: String((x && x.name) || (hit && hit.name) || id).slice(0, 60) });
+      });
+    });
+    return [...map.values()];
+  }
+  function attachServiceCaps(p, service) {
+    if (!p) return p;
+    const kind = String(service.kind || '');
+    const decl = serviceDecl(REGISTRY.providers, kind, service.shape);
+    if (!decl) return p;
+    p[kind] = decl;
+    p.extraCaps = [...new Set([...(p.extraCaps || []), kind])];
+    p.capabilityKinds = [...new Set([...(p.capabilityKinds || []), kind])];
     return p;
   }
   /* ============================================================================
@@ -1383,11 +1670,13 @@ function createRegistryConfig(deps) {
      ----------------------------------------------------------------------------
      存 localStorage 的 `sk_model_prefs`（ui.js 的 DataSync 顺手镜像成 `.data/sk_model_prefs.json`，
      `sk_model_` 这一条 SYNCABLE 前缀盖得住它，所以云同步与整包备份都不用另外登记）：
-     `{ "<keyId>": { "typed": ["型号id"], "off": ["型号id"] } }`
+     `{ "<keyId>:<kind>": { "typed": ["型号id"], "off": ["型号id"] } }`
      两件事合在一个键里是刻意的：「显示 / 隐藏」与「自己添加 / 删掉」改的都是同一份清单，
      拆成两个键就会出现「只删得掉、藏不住」或反之（而界面上一颗勾覆盖的是整行）。
-     按 **keyId** 归并（与密钥同一口径）：一家平台同时做图片与视频时共用一把密钥，
-     它的型号清单也应当是一份 —— 否则「在图片那张卡藏了 img-2-5t，视频那张卡里它还在」。
+     v24 起按 **账号 + 能力档** 分槽：同一把密钥下文字与语音各有各的型号清单，否则 MiMo
+     那种「一个账号两类模型、共用一个 /v1/models」的家会把 TTS 型号混进文字下拉。
+     旧的 `"<keyId>": …` 那份仍然读：**只作兜底**，并且按这一条的 modelsFilter / modelsExclude
+     过滤（文字档排掉 -tts，语音档只留 -tts）；用户在新槽里改过一次之后就不再读旧格子。
 
      为什么**不**拿 `sk_text_models_<kid>` 继续用：那一键只管文字一类，
      生成三类若各长出一个「手填型号」的键与判据，就是同一件事的第四份实现（文字 AI 那份已经
@@ -1452,23 +1741,55 @@ function createRegistryConfig(deps) {
   /* 把偏好合到一条 provider 上：追加手填的、剔掉勾掉的。没有偏好的家**原样返回**（不复制），
      免得每次 /registry 都把十几条声明重抄一遍 —— 也免得有人以为「复制出来的那份才是真的」。 */
   function withModelPrefs(p, prefs) {
-    const pref = prefs[String(p.keyId || p.id)];
-    if (!pref || (!pref.typed.length && !pref.off.length)) return p;
+    const kid = String(p.keyId || p.id);
+    const kind = String(p.modelKind || p.kind || '');
+    /* 新槽优先（账号 + 能力档）；旧的按账号那一份只作兜底。 */
+    const pref = (kind && prefs[kid + ':' + kind]) || prefs[kid];
+    /* 识别 / 搜索挂在文字 provider 上时，这两档的型号保存在自己的槽里（kids:asr / :search）。
+       不能并进 `models`（那会把文字下拉染成识别型号），单独挂一份 `serviceModels`，
+       由这两档的转发路由先读它。 */
+    const serviceModels = {};
+    (p.extraCaps || []).forEach(c => {
+      if (c !== 'asr' && c !== 'search') return;
+      const sp = prefs[kid + ':' + c];
+      if (!sp) return;
+      const ids = [...new Set([...(sp.typed || []), ...(sp.got || []).map(m => (m && m.id) || m)]
+        .map(x => String(x || '').trim()).filter(Boolean))];
+      if (ids.length) serviceModels[c] = ids;
+    });
+    const hasService = Object.keys(serviceModels).length > 0;
+    if (!pref || (!pref.typed.length && !pref.off.length)) {
+      return hasService ? { ...p, serviceModels } : p;
+    }
+    /* 旧兜底那一份可能混着同一账号另一类模型的 id：按这一条自己的过滤声明筛一遍。
+       modelsFilter 是白名单（语音档只留 -tts），modelsExclude 是黑名单（文字档排掉 -tts）。 */
+    const prefAllowed = id => {
+      const s = String(id || '');
+      if (!s) return false;
+      try { if (p.modelsFilter && !new RegExp(p.modelsFilter).test(s)) return false; } catch (e) {}
+      try { if (p.modelsExclude && new RegExp(p.modelsExclude).test(s)) return false; } catch (e) {}
+      return true;
+    };
+    const typed = pref.typed.filter(prefAllowed);
+    const off = pref.off.filter(prefAllowed);
+    if (!typed.length && !off.length) return hasService ? { ...p, serviceModels } : p;
     const models = (p.models || []).slice();
-    pref.typed.forEach(id => { if (!models.some(m => m && m.id === id)) models.push(modelDeclFor(p, id)); });
-    const merged = { ...p, models: pref.off.length ? models.filter(m => !pref.off.includes(String(m && m.id))) : models };
+    typed.forEach(id => { if (!models.some(m => m && m.id === id)) models.push(modelDeclFor(p, id)); });
+    const merged = { ...p, models: off.length ? models.filter(m => !off.includes(String(m && m.id))) : models };
     /* 手填的型号在 /capabilities 那一侧是「接口没给过的」，apply 会把它们保留（声明优先），
        但上游真给出同 id 的声明时应当覆盖 —— 那已由 Capabilities.apply 第一段循环做掉。
        这里刻意不再往 provider 上抄一份「哪些是手填的 / 哪些被藏了」：页面本来就读同一个 localStorage 键，
        多带一份就是第二个真相源（两边不一致时没人说得清哪一份是用户刚勾的）。 */
+    if (hasService) merged.serviceModels = serviceModels;
     return merged;
   }
-  /* 内置 + 自定义 + 型号偏好。/registry、relay 转发、/capabilities 三处都读它 —— 合并只在这一个地方做，
-     免得出现「设置页加好了、能力接口却说找不到平台」。
+  /* 内置 + 自定义 + 型号偏好。/registry、relay 转发、/capabilities
+     三处都读它 —— 合并只在这一个地方做，免得出现「设置页加好了、能力接口却说找不到平台」。
      偏好只读一次（一次 statSync + 可能的解析）再逐家套：一条请求里问二十次同一个文件没有意义。 */
   function allProviders() {
     const prefs = modelPrefs();
-    return REGISTRY.providers.concat(customProviders()).map(p => withModelPrefs(p, prefs));
+    return REGISTRY.providers.concat(customProviders())
+      .map(p => withModelPrefs(p, prefs));
   }
 
 

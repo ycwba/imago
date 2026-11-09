@@ -36,7 +36,49 @@ export function nodeColorOf(node) {
   const s = String(raw).trim();
   return /^#[0-9a-f]{3}([0-9a-f]{3})?$/i.test(s) ? s : null;
 }
+/* 涂鸦标注的颜色是语义（给 AI 的结构化输入），不是装饰：
+   蓝 = 相机路径 / 黄 = 主体运动 / 红 = 避开 / 绿 = 保留 / 白 = 说明 / 灰与黑 = 背景参考。
+   这些是画在三维里的像素，不跟主题走（与白膜同一份理由）。 */
+export const SKETCH = {
+  blue: 0x2f6fd0,
+  yellow: 0xe0a52e,
+  red: 0xc0392b,
+  green: 0x2f9e44,
+  white: 0xf5f5f2,
+  gray: 0x8a8a86,
+  black: 0x24242a,
+};
+
 export function trackColorOf(i) {
   const n = Math.abs(Math.round(Number(i) || 0));
   return TRACK_COLORS[n % TRACK_COLORS.length];
 }
+
+/* 布光预设：一组 `lights[]` + `light` 装置的整套替换，面板上点一下换一套。
+   `null` = 用内置默认（schema 的 defaultLights / defaultLightDev，与旧画面逐字节一致）。
+   这些是「打光方案」而不是取色，放在这里是因为它们同样属于画面常量、不跟主题走。 */
+export const LIGHT_PRESETS = [
+  { id: 'default', name: '默认白膜', lights: null, light: null },
+  {
+    id: 'three', name: '三点布光',
+    lights: [
+      { id: 'l-key', name: '主光', shape: 'sun', at: [3.6, 4.6, 4.0], target: [0, 0.9, 0], energy: 2.4, color: '#ffffff', shadow: { on: true, mapSize: 2048, bias: -0.0005, normalBias: 0.02 } },
+      { id: 'l-fill', name: '补光', shape: 'sun', at: [-4.2, 2.6, 3.2], target: [0, 0.9, 0], energy: 0.7, color: '#ffffff' },
+      { id: 'l-rim', name: '轮廓光', shape: 'sun', at: [0.8, 3.4, -4.6], target: [0, 1.2, 0], energy: 1.1, color: '#dfe8ff' },
+    ],
+    light: { hemi: { sky: '#ffffff', ground: '#d9d4cc', energy: 1.1 }, ground: { color: '#1a1a1a', opacity: 0.16 }, exposure: 1 },
+  },
+  {
+    id: 'rim', name: '侧逆光',
+    lights: [
+      { id: 'l-key', name: '侧逆光', shape: 'sun', at: [-4.4, 3.2, -3.6], target: [0, 1, 0], energy: 1.8, color: '#fff4e6', shadow: { on: true, mapSize: 2048, bias: -0.0005, normalBias: 0.02 } },
+      { id: 'l-fill', name: '正面补光', shape: 'sun', at: [2.8, 1.6, 4.2], target: [0, 0.8, 0], energy: 0.35, color: '#ffffff' },
+    ],
+    light: { hemi: { sky: '#ffffff', ground: '#d9d4cc', energy: 0.9 }, ground: { color: '#1a1a1a', opacity: 0.16 }, exposure: 1 },
+  },
+  {
+    id: 'flat', name: '无影平光',
+    lights: [],
+    light: { hemi: { sky: '#ffffff', ground: '#e9e6e0', energy: 2.2 }, ground: { color: '#1a1a1a', opacity: 0.08 }, exposure: 1 },
+  },
+];

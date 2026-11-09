@@ -356,8 +356,17 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
      ·  +1 枚（2026-11-06，全局命令面板）：`web/ui/command.js` 挂在首屏。唤起键是 document 捕获阶段的
         一枚 keydown 监听，用户在任何一页、页面刚出来那一帧都可能按；按需补载会漏掉第一次按键
         （补载完还得等用户再按一次）。浮层本身已推迟到第一次唤起才画，所以只多这一枚薄脚本，
-        字节上限不用动。实跑 30 枚 / 844594 字节。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 848500;
+        字节上限不用动。实跑 30 枚 / 844594 字节。
+     ·  +0.5KB（2026-11-09，文字型号按型号记输入能力）：`web/domain/gen-forms.js` 的 ModelPrefs
+        记录多了一份 `media`（image / audio / video 三档的按型号覆盖）与 `mediaOf` / `setMedia`。
+        它必须与「这一家有哪些型号」在同一份账（`sk_model_prefs`）里，页面只读现取；
+        `web/ui/ui.js` 同批只是把四个档位中文名写全。实跑 30 枚 / 849263 字节（登记上限 850000）。
+     ·  +3KB（2026-11-09，型号偏好按「账号 + 能力档」分槽）：`web/domain/gen-forms.js` 的 ModelPrefs
+       把 `typed` / `off` / `got` / `media` 从按 keyId 改成按 `keyId:kind` 存，旧格子只作兜底并按
+       modelsFilter / modelsExclude 过滤；`web/domain/text-ai.js` 的 `modelGroups` / `model` /
+       `rawModels` 同步按这一道判据筛。两份都是首屏取数底座（设置页、工作台、助手共用），
+       没有按需的落点。实跑 30 枚 / 852210 字节（登记上限 856000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 856000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

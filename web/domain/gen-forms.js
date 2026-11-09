@@ -76,12 +76,42 @@ window.ModelPrefs = {
       return (v && typeof v === 'object' && !Array.isArray(v)) ? v : {};
     } catch { return {}; }             // 读坏了就当没勾过，绝不拿脏数据当写入底座
   },
-  /* 认出这一家：与 TextAI.hasProv 同一条判据（认不出就不读写，宁可不加也不能写到别家去）。 */
-  kid(prov) { const k = prov && (prov.keyId || prov.id); return k ? String(k) : ''; },
+  /* 认出这一家：与 TextAI.hasProv 同一条判据（认不出就不读写，宁可不加也不能写到别家去）。
+     v24 起一格 = **账号 + 能力档**（`keyId:kind`）：同一个账号下文字与语音各有各的清单，
+     否则 MiMo 那种共用一个 /v1/models 的家会把 TTS 型号混进文字下拉、反过来也一样。 */
+  baseKid(prov) { const k = prov && (prov.keyId || prov.id); return k ? String(k) : ''; },
+  kid(prov) {
+    const k = this.baseKid(prov);
+    if (!k) return '';
+    /* `modelKind` 是「这一档的型号槽」：识别 / 搜索共用一条载体 provider 时，
+       槽位仍按 asr / search 分开，不跟文字模型挤同一格。 */
+    const kind = prov && (prov.modelKind || prov.kind) ? String(prov.modelKind || prov.kind) : '';
+    return kind ? k + ':' + kind : k;
+  },
+  /* 这一条自己的型号过滤（与代理 withModelPrefs 同一套判据）：
+     modelsFilter 是白名单，modelsExclude 是黑名单。旧数据按账号存、可能混着另一类的 id，
+     读出来之前要按它筛一遍 —— 这正是「MiMo 的文字档列出 TTS 型号」那条的修法。 */
+  _allow(prov, id) {
+    const s = String(id || '');
+    if (!s) return false;
+    /* 过滤规则写歪了（非法正则）按「不过滤」处理：宁可按旧行为多列一个，也不要整份清单消失。 */
+    try { if (prov && prov.modelsFilter && !new RegExp(prov.modelsFilter).test(s)) return false; } catch (e) { /* 见上：坏规则不拦 */ }
+    try { if (prov && prov.modelsExclude && new RegExp(prov.modelsExclude).test(s)) return false; } catch (e) { /* 见上：坏规则不拦 */ }
+    return true;
+  },
   of(prov) {
     const k = this.kid(prov);
-    if (!k) return { typed: [], off: [], got: [] };
-    const e = this._raw()[k] || {};
+    if (!k) return { typed: [], off: [], got: [], media: {} };
+    const raw = this._raw();
+    let e = raw[k];
+    let legacy = false;
+    if (!e) {
+      /* 旧格子按账号存（keyId 没有 :kind）：只作兜底，读出来的每一项都过 `_allow`。
+         用户在新槽里改过一次之后 `raw[k]` 就在了，旧格子从此不再参与这一类。 */
+      const lk = this.baseKid(prov);
+      if (lk && raw[lk]) { e = raw[lk]; legacy = true; }
+    }
+    e = e || {};
     const list = a => (Array.isArray(a) ? a.map(x => String(x).trim()).filter(Boolean) : []);
     /* got = 「这一家的接口给过哪些型号」，落盘的一份。
        为什么必须落盘：以前它只活在设置页的内存 Map 里，于是
@@ -93,8 +123,19 @@ window.ModelPrefs = {
       .map(m => (m && typeof m === 'object'
         ? { id: String(m.id || '').trim(), name: String(m.name || '').trim() }
         : { id: String(m || '').trim(), name: '' }))
-      .filter(m => m.id);
-    return { typed: list(e.typed), off: list(e.off), got };
+      .filter(m => m.id && this._allow(prov, m.id));
+    /* media = 这个**型号**能收哪些输入（image / audio / video 三档，值 on / off）。
+       与 provider 能提供哪类服务是两件事：同一个文字供应商里，有的型号只收文字、
+       有的收图片 / 声音 / 视频。没写的档按接口字段 / 平台声明自动判。
+       旧格子里的 media 只属于文字模型那一档 —— 非文字档不拿它兜底。 */
+    const media = (!legacy || (prov && prov.kind === 'text' && !prov.serviceOnly))
+      && e.media && typeof e.media === 'object' && !Array.isArray(e.media) ? e.media : {};
+    return {
+      typed: list(e.typed).filter(id => this._allow(prov, id)),
+      off: list(e.off).filter(id => this._allow(prov, id)),
+      got,
+      media,
+    };
   },
   typed(prov) { return this.of(prov).typed; },
   got(prov) { return this.of(prov).got; },
@@ -121,6 +162,24 @@ window.ModelPrefs = {
     const s = String(id || '');
     return !!s && this.of(prov).off.includes(s);
   },
+  /* 这个型号的输入能力覆盖（只记用户显式改过的档）：{ image:'on'|'off', ... }。 */
+  mediaOf(prov, id) {
+    const s = String(id || '');
+    if (!s || !this.kid(prov)) return {};
+    const m = this.of(prov).media[s];
+    return (m && typeof m === 'object' && !Array.isArray(m)) ? Object.assign({}, m) : {};
+  },
+  /* 改这一档：'on' / 'off' 写覆盖，'auto' 删掉覆盖（回到接口 / 平台判断）。 */
+  setMedia(prov, id, kind, mode) {
+    const s = String(id || '');
+    if (!s || !this.kid(prov) || ['image', 'audio', 'video'].indexOf(kind) < 0) return;
+    const all = this.of(prov).media || {};
+    const one = Object.assign({}, all[s] || {});
+    if (mode === 'on' || mode === 'off') one[kind] = mode;
+    else delete one[kind];
+    if (Object.keys(one).length) all[s] = one; else delete all[s];
+    this._set(prov, { media: all });
+  },
   _set(prov, patch) {
     const k = this.kid(prov);
     if (!k) return false;                       // 认不出这一家就不写：见上面第 ① 条
@@ -129,7 +188,7 @@ window.ModelPrefs = {
     /* 三个字段**都要**先带出来再打 patch：早先这里只带 typed 与 off，
        于是 setOff(勾一下「展示」) 会把同一格里的 got 整份抹掉 ——
        表现为「我刚获取的型号列表，勾了一下就没了」，而勾选与获取看着毫无关系。 */
-    all[k] = Object.assign({ typed: cur.typed || [], off: cur.off || [], got: cur.got || [] }, patch);
+    all[k] = Object.assign({ typed: cur.typed || [], off: cur.off || [], got: cur.got || [], media: cur.media || {} }, patch);
     try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch {}
     return true;
   },
@@ -162,7 +221,7 @@ window.ModelPrefs = {
        而下拉仍然按 isOff 筛（同一个判据），于是一条被藏住的文字型号会：
        画在设置页那张清单里，点下去却报「不在下拉的选项里」。
        挡住写入口，这一类就再也不会产生「藏得住、看不见」的记录。 */
-    if (off && prov && prov.kind === 'text') return;
+    if (off && prov && (prov.modelKind || prov.kind) === 'text' && !prov.serviceOnly) return;
     const list = this.of(prov).off.filter(x => x !== s);
     if (off) list.push(s);
     this._set(prov, { off: list });
@@ -174,24 +233,42 @@ window.ModelPrefs = {
      以前四处都调 Api.clearCaches()：全站的列表快照、在飞报价与 env 探测一起被清，
      设置页点一次「获取型号列表」就能让别的页面下一轮全部重打上游。 */
   _bust(prov) {
-    const kid = this.kid(prov);
+    /* 注册表缓存按 provider / keyId 认（不带 `:kind`）：这里传基础账号 id。 */
+    const kid = this.baseKid(prov);
     if (!kid || !window.Api || !Api.invalidateModels) return;
     try { Api.invalidateModels(kid); } catch (e) {}
   },
+  /* 编辑供应商时撤掉某一类：只摘掉那一格的型号偏好（`<keyId>:<kind>`）。
+     不摘的话下次加回同一类时，旧清单会从盘上原样冒出来。 */
+  dropKind(keyId, kind) {
+    const k = String(keyId || '');
+    const slot = k && kind ? k + ':' + String(kind) : '';
+    if (!slot) return;
+    const all = this._raw();
+    if (!(slot in all)) return;
+    delete all[slot];
+    try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch { /* 隐私模式：删不掉就只影响本机记录 */ }
+  },
   /* 一家整个从本机消失时（设置页删掉自定义那一家）把它名下的记录摘掉，
-     不然死数据跟着云同步出网，换台机器还多出一份没人认领的清单。 */
+     不然死数据跟着云同步出网，换台机器还多出一份没人认领的清单。
+     v24 起还要摘掉这一家的每一个能力槽（`<keyId>:<kind>`）与旧格子（`<keyId>`）。 */
   drop(keyId) {
     const k = String(keyId || '');
     if (!k) return;
     const all = this._raw();
-    if (!(k in all)) return;
-    delete all[k];
+    let hit = false;
+    Object.keys(all).forEach(key => {
+      if (key !== k && !key.startsWith(k + ':')) return;
+      delete all[key];
+      hit = true;
+    });
+    if (!hit) return;
     try { localStorage.setItem(this.KEY, JSON.stringify(all)); } catch {}
   },
-  /* 旧键 `sk_text_models_<kid>`（文字 AI 那份「自己填的型号」）搬进 typed。
+  /* 旧键 `sk_text_models_<kid>`（文字 AI 那份「自己填的型号」）搬进 `<kid>:text` 的 typed。
      只在模块装好时跑一次：搬完删旧键（localStorage 的 removeItem 会经 DataSync 变成
      DELETE /data/<键>，服务端那份也跟着没 —— 留着就是「两个键都说这一家自己填了什么」）。
-     新键里已经有这一家时**不搬**（以新键为准）：万一旧键是另一台机器同步回来的陈旧值，
+     新槽里已经有这一家时**不搬**（以新槽为准）：万一旧键是另一台机器同步回来的陈旧值，
      拿它覆盖本机刚填的那一批就是倒退。 */
   migrate() {
     const moved = [];
@@ -207,9 +284,10 @@ window.ModelPrefs = {
         let old = [];
         try { const v = JSON.parse(localStorage.getItem(key) || '[]'); old = Array.isArray(v) ? v.map(String) : []; } catch {}
         all = all || this._raw();
-        const cur = (all[kid] || {}).typed || [];
+        const slot = kid + ':text';
+        const cur = (all[slot] || {}).typed || [];
         const merged = [...new Set(cur.concat(old.map(x => x.trim()).filter(Boolean)))];
-        if (merged.length !== cur.length || JSON.stringify(merged) !== JSON.stringify(cur)) all[kid] = Object.assign({}, all[kid], { typed: merged });
+        if (merged.length !== cur.length || JSON.stringify(merged) !== JSON.stringify(cur)) all[slot] = Object.assign({}, all[slot], { typed: merged });
         localStorage.removeItem(key);
         moved.push(kid);
       }
@@ -1255,7 +1333,7 @@ window.AiStream = {
     const host = opt.host || null;
     /* 没有容器、也没人要 onChunk：退回普通 chat（行为与以前一致，不摆一个看不见的面板） */
     if (!host && typeof opt.onChunk !== 'function') {
-      return await window.TextAI.chat(REG, sys, user, { images: opt.images });
+      return await window.TextAI.chat(REG, sys, user, { images: opt.images, media: opt.media });
     }
     const ctl = new AbortController();
     const live = this.panel(host, {
@@ -1263,7 +1341,7 @@ window.AiStream = {
     });
     try {
       const txt = await window.TextAI.chatStream(REG, sys, user,
-        { images: opt.images, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
+        { images: opt.images, media: opt.media, signal: ctl.signal }, (piece, kind) => live.push(piece, kind), opt.prov);
       live.done();
       /* 面板在最后会把「正在接收…」收掉；返回值优先用 chatStream 的正规返回，
          它为空（某家只吐片段不给收尾包）时用我们攒的那一份兜底。 */

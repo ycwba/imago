@@ -1076,6 +1076,7 @@ $btnOpen = New-Object System.Windows.Forms.Button
 $btnCopy = New-Object System.Windows.Forms.Button
 $btnLog = New-Object System.Windows.Forms.Button
 $btnDir = New-Object System.Windows.Forms.Button
+$btnUpdate = New-Object System.Windows.Forms.Button
 $btnQuit = New-Object System.Windows.Forms.Button
 
 $btnStart.Text = '启动'
@@ -1085,6 +1086,7 @@ $btnOpen.Text = '打开页面'
 $btnCopy.Text = '复制地址'
 $btnLog.Text = '打开日志'
 $btnDir.Text = '项目目录'
+$btnUpdate.Text = '检查更新'
 $btnQuit.Text = '退出并停服务'
 
 $mainY = 140
@@ -1100,10 +1102,10 @@ foreach ($b in @($btnStart, $btnStop, $btnRestart, $btnOpen)) {
 }
 
 $subY = 188
-$subX = @(20, 136, 252)
-$subW = @(108, 108, 108)
+$subX = @(20, 136, 252, 368)
+$subW = @(108, 108, 108, 108)
 $i = 0
-foreach ($b in @($btnCopy, $btnLog, $btnDir)) {
+foreach ($b in @($btnCopy, $btnLog, $btnDir, $btnUpdate)) {
   $b.Location = New-Object System.Drawing.Point((px $subX[$i]), (px $subY))
   $b.Size = New-Object System.Drawing.Size((px $subW[$i]), (px 30))
   Style-Button $b $Palette.Card $Palette.SoftHi $Palette.Muted
@@ -1121,7 +1123,7 @@ $chkAuto.Font = $smallFont
 $chkAuto.ForeColor = $Palette.Muted
 $chkAuto.AutoSize = $true
 $chkAuto.Checked = $true
-$chkAuto.Location = New-Object System.Drawing.Point((px 380), (px ($subY + 6)))
+$chkAuto.Location = New-Object System.Drawing.Point((px 488), (px ($subY + 6)))
 
 # ---------- 日志卡 ----------
 $pnlLog = New-Object System.Windows.Forms.Panel
@@ -1388,6 +1390,21 @@ $btnLog.Add_Click({
 $btnDir.Add_Click({
   try { Start-Process explorer.exe $Root; Add-LogLine '已在资源管理器里打开项目目录。' }
   catch { Add-LogLine "打不开目录：$($_.Exception.Message)" }
+  Refresh-View
+})
+$btnUpdate.Add_Click({
+  $f = Join-Path $Root 'update.ps1'
+  if (-not (Test-Path -LiteralPath $f)) {
+    Add-LogLine '找不到 update.ps1：更新脚本不在项目目录里。'
+    Refresh-View
+    return
+  }
+  try {
+    Start-Process -FilePath 'powershell.exe' `
+      -ArgumentList ('-NoProfile -ExecutionPolicy Bypass -File "{0}" -Check' -f $f) `
+      -WorkingDirectory $Root
+    Add-LogLine '已打开更新检查窗口（只检测，不拉取）。'
+  } catch { Add-LogLine "打不开更新检查：$($_.Exception.Message)" }
   Refresh-View
 })
 

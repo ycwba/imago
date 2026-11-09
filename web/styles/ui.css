@@ -739,7 +739,9 @@ button.armed { min-width: 4.6em; }
      · `.pick`       单选档（文字 AI）当前选中的那一个
    生成三类多选（勾选 = 出现在工作台型号下拉里）；文字 AI 单选（选中的那个就是全局润色模型）。 */
 .mlist { display: flex; flex-direction: column; gap: var(--sp-2); max-height: 264px; overflow-y: auto;
-  overscroll-behavior: contain; border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  /* 滚到尽头要把滚动交还给外面那一层（设置页的文档列）：contain 会让触控板在清单上用不了 ——
+     清单滚到底之后整页再也不动了。 */
+  overscroll-behavior: auto; border: var(--hair) solid var(--line); border-radius: var(--radius-6);
   padding: var(--sp-4) var(--sp-8); background: var(--panel); }
 /* 勾选框由上面那条 `:where(input[type=checkbox/radio])` 整颗自绘（appearance:none），
    accent-color 对它已经不起作用，这里只留排布。 */
@@ -1625,6 +1627,52 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .mq-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
 .mq-empty { color: var(--sub); font-size: var(--fs-12); line-height: 1.7; }
 .mq-row { display: flex; align-items: center; gap: var(--sp-8); }
+
+/* ---------- 提示词里的 @素材（工作台与导演台共用；浮层由 web/ui/asset-mention.js 画） ----------
+   镜像层铺在 textarea 底下，只给 @片段 画底；字号 / 行高 / 内边距由脚本按那一只
+   textarea 现算并写在行内样式上（两个页面的输入框不是同一套尺寸）。 */
+.ta-wrap { position: relative; }
+.ta-back { position: absolute; inset: 0; overflow: hidden; pointer-events: none;
+  box-sizing: border-box; white-space: pre-wrap; word-wrap: break-word; color: transparent; }
+.ta-back .ta-at { background: var(--atbg); border-radius: var(--radius-4); }
+/* 鼠标滑过 @片段 时那张小卡 */
+.am-peek { position: fixed; z-index: 61; display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  box-shadow: var(--shadow-2); pointer-events: none; }
+.am-peek[hidden] { display: none; }
+.am-peek .pk-t { width: 40px; height: 40px; flex: 0 0 40px; border-radius: var(--radius-4); overflow: hidden;
+  background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.am-peek .pk-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.am-peek .pk-n { font-size: var(--fs-13); color: var(--txt); font-weight: 600; }
+.am-peek .pk-k { font-size: var(--fs-11); color: var(--sub); }
+/* 候选浮层：挂在 body 上、position:fixed（编辑器会重画，挂里面会跟着丢）。 */
+.am-box { position: fixed; z-index: 60; width: 328px; max-height: 268px; overflow-y: auto;
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  box-shadow: var(--shadow-2); padding: var(--sp-4); }
+.am-box[hidden] { display: none; }
+.am-box .mt-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
+.am-box .mt-i.on { background: var(--panel2); }
+.am-box .mt-i.off { opacity: .55; }
+.am-box .mt-t { width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--radius-4); overflow: hidden;
+  background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.am-box .mt-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.am-box .mt-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-box .mt-k { flex: 0 0 auto; max-width: 52%; font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-box .mt-i.has-sub::after { content: '›'; margin-left: var(--sp-2); font-size: var(--fs-14); line-height: 1; color: var(--sub); }
+.am-box .mt-empty { padding: var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
+/* 二级菜单：鼠标停在某个角色上时，从右边滑出一列「这一位有哪些图」。 */
+.am-sub { position: fixed; z-index: 62; width: 272px; max-height: 300px; overflow-y: auto;
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
+  box-shadow: var(--shadow-2); padding: var(--sp-4); }
+.am-sub[hidden] { display: none; }
+.am-sub .ms-h { padding: var(--sp-4) var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
+.am-sub .ms-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
+.am-sub .ms-i:hover { background: var(--panel2); }
+.am-sub .ms-t { width: 34px; height: 34px; flex: 0 0 34px; border-radius: var(--radius-4); overflow: hidden;
+  background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
+.am-sub .ms-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.am-sub .ms-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.am-sub .ms-k { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); }
 
 /* 全局命令面板（外壳级浮层，由 web/ui/command.js 第一次唤起时才画出来） */
 .cmd-palette { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start;

@@ -247,6 +247,14 @@ export function createDock(opts = {}) {
     changed(tr.enabled === false ? '轨道已停用' : '轨道已启用');
   }
 
+  function toggleSolo(id) {
+    const d = doc();
+    const tr = d && d.anim.tracks.find(t => t.id === id);
+    if (!tr) return;
+    tr.solo = tr.solo !== true;
+    changed(tr.solo ? '只看这一条轨道' : '取消独奏');
+  }
+
   function setPathKind(kind) {
     const tr = selectedTrackOf();
     if (!tr) return;
@@ -273,6 +281,15 @@ export function createDock(opts = {}) {
     }
     const keys = (tr.keys || []).map((k, i) => '<span class="mm-key-chip">' + k.t.toFixed(2) + 's'
       + '<button class="ui-linkbtn" type="button" data-dock-act="delKey" data-key-index="' + i + '" title="删掉这一帧">×</button></span>').join('');
+    const numIn = (field, val, step) => '<input class="ui-inp" type="number" step="' + (step || '0.01') + '" data-dock-field="' + field + '" value="' + (Number(val) || 0) + '">';
+    const look = p && p.look ? p.look : 'fixed';
+    const lookRow = (tr.of && tr.of.kind === 'cam' && p)
+      ? '<label>朝向</label><select class="ui-inp" data-dock-field="look">'
+        + [['fixed', '保持'], ['heading', '沿切线'], ['target', '看节点']].map(([v, t]) =>
+          '<option value="' + v + '"' + (look === v ? ' selected' : '') + '>' + t + '</option>').join('')
+        + '</select>'
+        + (look === 'target' ? '<input class="ui-inp" data-dock-field="lookAt" value="' + dEsc(p.lookAt || '') + '" placeholder="节点 id">' : '')
+      : '';
     return '<div class="mm-dock-edit">'
       + '<div class="mm-row"><label>路线</label><select class="ui-inp" data-dock-field="pathKind">'
       + [['none', '定点'], ['line', '直线'], ['circle', '圆'], ['rect', '矩形'], ['free', '自由']].map(([v, t]) =>
@@ -281,6 +298,16 @@ export function createDock(opts = {}) {
       + [['smooth', '平滑'], ['linear', '线性'], ['hold', '保持']].map(([v, t]) =>
         '<option value="' + v + '"' + ((tr.interp || 'smooth') === v ? ' selected' : '') + '>' + t + '</option>').join('')
       + '</select></div>'
+      + '<div class="mm-row"><label>偏移</label>' + numIn('offset', tr.offset || 0)
+      + '<label>倍速</label>' + numIn('speed', tr.speed || 1)
+      + '<label>时长</label>' + numIn('trackDuration', tr.duration || 0) + '</div>'
+      + '<div class="mm-row"><label>关键帧</label><select class="ui-inp" data-dock-field="keysMode">'
+      + [['override', '接管'], ['offset', '叠加路径']].map(([v, t]) =>
+        '<option value="' + v + '"' + ((tr.keysMode || 'override') === v ? ' selected' : '') + '>' + t + '</option>').join('')
+      + '</select>' + lookRow
+      + '<label>独奏</label><select class="ui-inp" data-dock-field="solo">'
+      + '<option value="0"' + (tr.solo ? '' : ' selected') + '>关</option>'
+      + '<option value="1"' + (tr.solo ? ' selected' : '') + '>开</option></select></div>'
       + fields
       + '<div class="mm-row"><span class="sp"></span>'
       + '<button class="ghost mini" type="button" data-dock-act="key">' + dIcon('key', 12) + ' 在播放头打关键帧</button>'
@@ -299,12 +326,18 @@ export function createDock(opts = {}) {
     const selected = selectedTrackOf();
     const rows = tracks.map(tr => {
       const on = tr.id === selectedTrack;
-      return '<div class="mm-track-row' + (on ? ' on' : '') + (tr.enabled === false ? ' off' : '') + '" data-track-id="' + dEsc(tr.id) + '">'
+      return '<div class="mm-track-row' + (on ? ' on' : '') + (tr.enabled === false ? ' off' : '') + (tr.solo ? ' solo' : '') + '" data-track-id="' + dEsc(tr.id) + '">'
         + '<span class="mm-track-dot" style="background:#' + trackColorOf(tr.color).toString(16).padStart(6, '0') + '"></span>'
         + '<span class="mm-track-ic">' + dIcon(trackIcon(tr), 11) + '</span>'
         + '<span class="mm-track-name" title="' + dEsc(trackName(d, tr)) + '">' + dEsc(trackName(d, tr)) + '</span>'
-        + '<span class="mm-track-kind">' + (tr.of && tr.of.kind === 'cam' ? '机位' : '节点') + ' · ' + pathKindZh(tr.path && tr.path.kind) + '</span>'
+        + '<span class="mm-track-kind">' + (tr.of && tr.of.kind === 'cam' ? '机位' : (tr.of && tr.of.kind === 'light' ? '灯光' : '节点')) + ' · ' + pathKindZh(tr.path && tr.path.kind)
+        + (tr.offset ? ' · 偏移 ' + tr.offset + 's' : '')
+        + (tr.speed && tr.speed !== 1 ? ' · ' + tr.speed + '×' : '')
+        + (tr.keysMode === 'offset' ? ' · 叠加' : '')
+        + (tr.follow ? ' · 跟随' : '')
+        + '</span>'
         + '<span class="mm-track-n">' + (tr.keys || []).length + ' 帧</span>'
+        + '<button class="mm-tree-mini' + (tr.solo ? ' on' : '') + '" type="button" data-dock-act="solo" data-track-id="' + dEsc(tr.id) + '" title="' + (tr.solo ? '取消独奏' : '只看这一条轨道') + '">' + dIcon('star', 11) + '</button>'
         + '<button class="mm-tree-mini" type="button" data-dock-act="toggle" data-track-id="' + dEsc(tr.id) + '" title="' + (tr.enabled === false ? '启用' : '停用') + '">' + dIcon('eye', 11) + '</button>'
         + '<button class="mm-tree-mini" type="button" data-dock-act="delTrack" data-track-id="' + dEsc(tr.id) + '" title="删除轨道">' + dIcon('trash', 11) + '</button>'
         + '<span class="mm-track-bar" data-scrub="' + dEsc(tr.id) + '" title="点一下定位">'
@@ -362,6 +395,7 @@ export function createDock(opts = {}) {
         if (a === 'addCam') { addTrack('cam'); return; }
         if (a === 'clearAnim') { clearAnim(); return; }
         if (a === 'toggle') { toggleEnabled(act.dataset.trackId); return; }
+        if (a === 'solo') { toggleSolo(act.dataset.trackId); return; }
         if (a === 'delTrack') { deleteTrack(act.dataset.trackId); return; }
         if (a === 'key') { addKey(); return; }
         if (a === 'clearKeys') { clearKeys(); return; }
@@ -404,7 +438,19 @@ export function createDock(opts = {}) {
         const tr = selectedTrackOf();
         if (!tr) return;
         if (k === 'interp') tr.interp = f.value;
-        else if (k === 'pathKind') { setPathKind(f.value); return; }
+        else if (k === 'offset') tr.offset = Math.max(0, dNum(f.value, 0));
+        else if (k === 'speed') { const v = dNum(f.value, 1); tr.speed = v > 0 ? v : 1; }
+        else if (k === 'trackDuration') tr.duration = Math.max(0, dNum(f.value, 0));
+        else if (k === 'keysMode') tr.keysMode = f.value === 'offset' ? 'offset' : 'override';
+        else if (k === 'solo') tr.solo = f.value === '1';
+        else if (k === 'look') {
+          if (!tr.path) return;
+          if (f.value === 'fixed') { delete tr.path.look; delete tr.path.lookAt; }
+          else tr.path.look = f.value;
+        } else if (k === 'lookAt') {
+          if (!tr.path) return;
+          tr.path.lookAt = String(f.value || '').trim();
+        } else if (k === 'pathKind') { setPathKind(f.value); return; }
         else if (k === 'pts') {
           const pts = String(f.value || '').split(/\n+/).map(line => line.split(',').map(x => Number(x.trim())).filter(x => Number.isFinite(x)))
             .filter(p => p.length >= 3).map(p => [p[0], p[1], p[2]]);

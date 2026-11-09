@@ -98,13 +98,6 @@ type: "file",
 "data-r": "mmFile3d",
 accept: ".fbx,.obj,.glb,.gltf",
 hidden: ""
-}),
-_createElementVNode("input", {
-type: "file",
-"data-r": "mmImgInput",
-accept: "image/*",
-multiple: "",
-hidden: ""
 })
 ]),
 _createCommentVNode(" 中栏：工具条 + 视口 + 固定出片条 + 底部轨道坞 "),

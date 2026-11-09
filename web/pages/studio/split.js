@@ -47,9 +47,6 @@ export function createSplit(d) {
   async function planImageSegments() {
     const src = ($('prompt').value || '').trim();
     let user = '把下面这段描述拆成图片提示词：\n' + src + userLines();
-    const pm = polishMaterials();
-    if (pm.length) user += '\n' + window.TextAI.materialNote(pm);
-    user += '\n只返回 JSON。';
     const refList = polishImageList();
     let images = [];
     visionNote = '';
@@ -64,6 +61,11 @@ export function createSplit(d) {
         }
       }
     } catch (e) { console.warn('[拆分] 参考图附带失败：', e.message); }
+    /* 素材清单的「已附上」按这一轮真的带上的那几张标（与润色那一处同一把尺子）。 */
+    const sent = new Set(images.map(x => x.label));
+    const pm = polishMaterials().map(x => Object.assign({}, x, { sent: x.kind === '图片' && sent.has(x.label) }));
+    if (pm.length) user += '\n' + window.TextAI.materialNote(pm);
+    user += '\n只返回 JSON。';
     const txt = await window.AiStream.text(reg(), window.TextAI.prompt('img_split'), user,
       { images, host: $('polishInline'), title: 'AI 正在拆分片段…' });
     const segs = parseSegs(txt);

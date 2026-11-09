@@ -28,6 +28,12 @@
     { file: 'director.html', id: 'director', label: '导演台', short: '导演', ic: 'film', title: '导演台', src: './director/index.js', root: '.director-page',
       chunk: ['./director/engine.js'],
       needs: [C, T, P, D, S, M3D] },
+    { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
+      css: 'web/styles/spa-studio.css',
+      needs: [C, T, P, D, S, M3D] },
+    { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
+      css: 'web/styles/spa-chars.css',
+      needs: [C, T, P, D, S] },
     /* 建模台：一句话建白膜 / 改白膜 / 出白膜图与动画。three 与视口都在这一页自己的 ESM 图里，
        首屏一个字节都不带；`bridge` 是给别的页面用的跨页门面（写口袋 + 跳页，只有几十行）。 */
     { file: 'model.html', id: 'model', label: '建模台', short: '建模', ic: 'model', title: '建模台', src: './pages/model.js', root: '.model-page',
@@ -37,12 +43,6 @@
          但不影响悬停侧栏 / 真点进来时的提前取（首屏预算那条判据守的就是这件事）。 */
       heavy: true,
       needs: [C, T, M3D] },
-    { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
-      css: 'web/styles/spa-chars.css',
-      needs: [C, T, P, D, S] },
-    { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
-      css: 'web/styles/spa-studio.css',
-      needs: [C, T, P, D, S, M3D] },
     { file: 'favorites.html', id: 'favorites', label: '我的收藏', short: '收藏', ic: 'star', title: '我的收藏', src: './pages/favorites.js', root: '.fav-page',
       css: 'web/styles/spa-pages.css',
       needs: [D] },

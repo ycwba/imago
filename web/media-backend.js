@@ -36,6 +36,16 @@
     const s = String(src || '');
     return /^https?:/i.test(s) ? '/fetch?url=' + encodeURIComponent(s) : s;
   }
+  function isBlobSrc(src) {
+    return !!(src && typeof src === 'object' && typeof src.size === 'number'
+      && (typeof src.arrayBuffer === 'function' || typeof src.slice === 'function'));
+  }
+  /* mediabunny 的输入源按类型选：**File / Blob 必须走 BlobSource**。
+     包成 blob: 地址交给 UrlSource 时，它的分段读取在部分文件上会一直等数据
+     （实测同一段视频走服务端地址 1.2 秒出帧，走 blob: 地址 12 秒超时都拿不到）。 */
+  function mbSourceOf(M, src) {
+    return isBlobSrc(src) ? new M.BlobSource(src) : new M.UrlSource(sameSrc(src));
+  }
   function videoEl(src) {
     const v = document.createElement('video');
     v.muted = true; v.playsInline = true; v.preload = 'auto';
@@ -84,7 +94,9 @@
   /* 兜底取一帧 → { blob, w, h }（PNG）。which: 'first'|'start'|'last'|undefined + atSeconds 覆盖 */
   async function grabByVideo(src, which, atSeconds) {
     const first = which === 'first' || which === 'start';
-    const v = videoEl(src);
+    /* File / Blob 不能直接塞给 <video>：给它一枚临时对象地址，收尾一起放掉。 */
+    const tmpUrl = isBlobSrc(src) ? URL.createObjectURL(src) : '';
+    const v = videoEl(tmpUrl || src);
     try {
       await videoMeta(v);
       let dur = isFinite(v.duration) ? Number(v.duration) : 0;
@@ -97,7 +109,10 @@
       } else if (dur > 0) {
         await videoSeek(v, first ? 0 : Math.max(0, dur - 0.05));
       } else if (!first) {
-        throw new Error('这个视频读不到时长，取不到最后一帧（可改用图片作首帧，或先转码）');
+        /* 读不到时长（直播式 MP4 / moov 在文件尾的流）也照样能取最后一帧：
+           currentTime 设一个极大值，浏览器会夹到真实末尾并触发 seeked。
+           比直接报「取不到最后一帧」有用 —— 那种文件恰恰是这一条兜底最该接住的。 */
+        await videoSeek(v, 1e7);
       }
       const w = v.videoWidth, h = v.videoHeight;
       if (!w || !h) throw new Error('视频里没有可用画面（可能是纯音频或已损坏的文件）');
@@ -109,6 +124,7 @@
       return { blob, w, h };
     } finally {
       releaseVideo(v);
+      if (tmpUrl) { try { URL.revokeObjectURL(tmpUrl); } catch (e) { /* 放不掉就跟着页面走 */ } }
     }
   }
 
@@ -176,7 +192,7 @@
   async function infoByMb(src) {
     const M = await loadM();
     if (!M) return null;
-    const input = new M.Input({ source: new M.UrlSource(sameSrc(src)), formats: M.ALL_FORMATS });
+    const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
     try {
       const dur = await input.computeDuration();
       const vt = await input.getPrimaryVideoTrack();
@@ -208,15 +224,30 @@
     const M = await loadM();
     if (!M) return null;
     const first = which === 'first' || which === 'start';
-    const input = new M.Input({ source: new M.UrlSource(sameSrc(src)), formats: M.ALL_FORMATS });
+    const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
     try {
       const vt = await input.getPrimaryVideoTrack();
       if (!vt || !(await vt.canDecode())) return null;
-      const dur = await input.computeDuration();
+      const dur = Number(await input.computeDuration());
       let t;
-      if (atSeconds != null) t = Math.max(0, Math.min(Number(atSeconds), Math.max(0, dur - 0.05)));
-      else if (first) t = 0.26;                  // 避开首 GOP 合成黑帧，取回后归一回 0
-      else t = Math.max(0, dur - 0.05);
+      if (atSeconds != null) {
+        if (!Number.isFinite(dur) || dur <= 0) return null;   // 时长读不出来：交 <video> 兜底
+        t = Math.max(0, Math.min(Number(atSeconds), Math.max(0, dur - 0.05)));
+      } else if (first) t = 0.26;                  // 避开首 GOP 合成黑帧，取回后归一回 0
+      else {
+        /* 「最后一帧」不能直接拿 dur-0.05：采样器只收时间戳 ≥ 请求点的样本，
+           而低帧率视频最后一帧的时间戳可能比 dur 早一整帧（10fps 就早 0.1s）——
+           请求点落在最后一包之后，它会一直等下一个样本，表现就是「一直在取尾帧」。
+           按实测帧率退一帧半，保证请求点落在最后一帧自己的时长里。 */
+        if (!Number.isFinite(dur) || dur <= 0) return null;
+        let back = 0.05;
+        try {
+          const st = await vt.computePacketStats(120);
+          const rate = st && Number(st.averagePacketRate);
+          if (rate > 0) back = Math.max(0.05, 1.5 / rate);
+        } catch (e) { /* 帧率拿不到就按 0.05 兜底 */ }
+        t = Math.max(0, dur - back);
+      }
       const sink = new M.CanvasSink(vt);
       let canvas;
       try { canvas = await canvasAt(sink, t); } catch (e) { return null; }
@@ -246,7 +277,7 @@
     const o = opts || {};
     const M = await loadM();
     if (!M) return { mode: 'fallback' };
-    const input = new M.Input({ source: new M.UrlSource(sameSrc(src)), formats: M.ALL_FORMATS });
+    const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
     const made = [];
     try {
       const vt = await input.getPrimaryVideoTrack();
@@ -399,7 +430,7 @@
       throw e;
     };
     throwIfAborted();
-    const input = new M.Input({ source: new M.UrlSource(sameSrc(src)), formats: M.ALL_FORMATS });
+    const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
     try {
       const track = await input.getPrimaryAudioTrack();
       if (!track) throw new Error('这一份素材里没有音轨，没法做语音识别');
@@ -511,12 +542,20 @@
     },
 
     /* 取一帧 → { blob, w, h }（PNG）。主档 mediabunny → 兜底 <video>。
-       which: 'first'|'start'|'last'|undefined；atSeconds 有值时截该时刻。 */
+       which: 'first'|'start'|'last'|undefined；atSeconds 有值时截该时刻。
+       主档必须有超时：mediabunny 遇到「算出来的时长比真实视频长一点」的文件时，
+       canvasesAtTimestamps 会一直等下一个包、永远不返回（界面表现就是「一直在取尾帧，
+       取不出来」）。超时即退 <video> 兜底 —— 那一条自带 20s / 15s 上限，整条链才有界。 */
     async grab(src, which, atSeconds) {
+      let got = null, to = 0;
       try {
-        const r = await grabByMb(src, which, atSeconds);
-        if (r) return r;
-      } catch (e) { /* 主档失败退兜底 */ }
+        got = await Promise.race([
+          grabByMb(src, which, atSeconds),
+          new Promise((_, rej) => { to = setTimeout(() => rej(new Error('主档取帧超时')), 12000); }),
+        ]);
+      } catch (e) { got = null; }
+      finally { clearTimeout(to); }
+      if (got) return got;
       return grabByVideo(src, which, atSeconds);
     },
 

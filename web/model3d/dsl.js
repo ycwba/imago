@@ -6,20 +6,34 @@
    引用层数、展开后的节点数都不设上限：用户要引用多深就多深，规模由机器自己承担。 */
 
 import { walkNodes } from './schema.js';
+import { arrayLayout } from './crowd.js';
 
-/* 一个节点要额外复制几份、各自带什么偏移。mirror 走 X 负向（左右对称最常见的写法），
-   repeat 按 n / dx / dy / dz 排成一列。两者可以叠加（先镜像、再各自阵列）。 */
+/* 一个节点要额外复制几份、各自带什么偏移。
+   `array` 是通用阵列（rows × cols，第一格落在节点自己的 at 上）；
+   `repeat` 在每个阵列格上再排一列；`mirror` 把前面展开出来的全部再镜像一份。
+   jitter 的位置 / 朝向 / 缩放微差由 arrayLayout 给（确定性，重建不跳）。 */
 export function variantsOf(node) {
-  const out = [{ at: [0, 0, 0], mirrorX: false }];
+  const cells = (node && node.array) ? arrayLayout(node.array).cells : [{ at: [0, 0, 0], yaw: 0, scale: 1 }];
   const rep = node && node.repeat;
-  if (rep && rep.n > 1) {
-    for (let i = 1; i < rep.n; i++) {
-      out.push({ at: [rep.dx * i, rep.dy * i, rep.dz * i], mirrorX: false });
+  const n = rep && rep.n > 1 ? Math.max(1, Math.round(rep.n)) : 1;
+  const out = [];
+  for (const cell of cells) {
+    for (let i = 0; i < n; i++) {
+      out.push({
+        at: [
+          cell.at[0] + (i ? rep.dx * i : 0),
+          cell.at[1] + (i ? rep.dy * i : 0),
+          cell.at[2] + (i ? rep.dz * i : 0),
+        ],
+        mirrorX: false,
+        yaw: cell.yaw || 0,
+        scale: cell.scale == null ? 1 : cell.scale,
+      });
     }
   }
   if (node && node.mirror === true) {
     const base = out.slice();
-    for (const v of base) out.push({ at: [v.at[0], v.at[1], v.at[2]], mirrorX: true });
+    for (const v of base) out.push({ at: [v.at[0], v.at[1], v.at[2]], mirrorX: true, yaw: v.yaw, scale: v.scale });
   }
   return out;
 }
@@ -30,8 +44,15 @@ export function cloneNodeForVariant(node, variant) {
      翻转与 scale.x=-1 是一对，缺一半就是「镜像到旁边去了」。 */
   const x = copy.at[0] + variant.at[0];
   copy.at = [variant.mirrorX ? -x : x, copy.at[1] + variant.at[1], copy.at[2] + variant.at[2]];
+  const yaw = Number(variant.yaw) || 0;
+  if (yaw) copy.rot = [copy.rot[0], copy.rot[1] + yaw, copy.rot[2]];
+  const s = variant.scale == null ? 1 : Number(variant.scale);
+  if (Number.isFinite(s) && s !== 1) {
+    copy.scale = [copy.scale[0] * s, copy.scale[1] * s, copy.scale[2] * s];
+  }
   delete copy.mirror;
   delete copy.repeat;
+  delete copy.array;
   return { node: copy, mirrorX: !!variant.mirrorX };
 }
 

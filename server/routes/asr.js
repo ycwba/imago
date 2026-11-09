@@ -172,7 +172,11 @@ function createAsrRoutes(ctx) {
     const decl = (p && p.asr) || { style: 'openai', path: '/audio/transcriptions', responseFormat: 'verbose_json', language: 'form' };
     const key = s.service.key || (p ? channelKey(ctx, p.id) : '') || '';
     const base = s.service.baseUrl || (p ? (channelBase(ctx, p.id) || p.base || '') : '') || '';
-    const model = s.service.model || decl.model || 'whisper-1';
+    const serviceModels = (p && p.modelKind === 'asr' && Array.isArray(p.models))
+      ? p.models : ((p && p.serviceModels && p.serviceModels.asr) || []);
+    const model = s.service.model
+      || (serviceModels[0] ? String(serviceModels[0].id || serviceModels[0]) : '')
+      || decl.model || 'whisper-1';
     const hitModel = (decl.models || []).find(m => m && m.id === model) || {};
     const responseFormat = hitModel.responseFormat != null ? hitModel.responseFormat : (decl.responseFormat || '');
     return {

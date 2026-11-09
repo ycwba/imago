@@ -726,6 +726,11 @@
   .strip-item .sn { position: absolute; left: var(--sp-4); top: var(--sp-4); font-size: var(--fs-11); padding: 0 var(--sp-4); border-radius: var(--radius-4);
     background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); }
   .strip-item .st { display: block; font-size: var(--fs-11); color: var(--sub); text-align: center; padding: var(--sp-4) 0; background: var(--panel); }
+  /* 接续镜：右上角一枚链扣（还在等上一镜）/ 对勾（等到了）；悬停看「在等哪一镜」 */
+  .strip-item .dep { position: absolute; right: var(--sp-4); top: var(--sp-4); width: var(--sp-16); height: var(--sp-16);
+    border-radius: var(--radius-999); display: flex; align-items: center; justify-content: center;
+    background: color-mix(in srgb, var(--media-bg) var(--a-60), transparent); color: var(--on-acc); }
+  .strip-item .dep.ok { color: var(--mark-ready); }
 
   /* 右栏 */
   .ed-head { display: flex; align-items: center; justify-content: space-between; padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); }
@@ -755,51 +760,6 @@
   .ed-label .mini { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-4); }
   #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
   #edPrompt:focus { border-color: var(--acc); }
-  /* 提示词框里的 @素材高亮：镜像层铺在 textarea 底下，只给 @片段 画底。
-     字号 / 行高 / 内边距 / 边框宽度必须与 #edPrompt **逐项一致**，否则高亮会错位。 */
-  .ta-wrap { position: relative; }
-  .ta-back { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none;
-    white-space: pre-wrap; word-wrap: break-word; color: transparent;
-    font-family: inherit; font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); border: var(--hair) solid transparent; }
-  /* 灰底就够了 —— 底下那条 `inset 0 -2px` 的深色描边在正文里像一条下划线，
-     和「@ 是引用」这件事没关系，看着只是脏。底色跟着主题走（见 :root 的 --atbg）。 */
-  .ta-back .ta-at { background: var(--atbg); border-radius: var(--radius-4); }
-  /* 鼠标滑过 @片段 时那张小卡（挂在 body 上、position:fixed，见 hoverAt） */
-  #atPeek { position: fixed; z-index: 61; display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8);
-    background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); pointer-events: none; }
-  #atPeek .pk-t { width: 40px; height: 40px; flex: 0 0 40px; border-radius: var(--radius-4); overflow: hidden;
-    background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
-  #atPeek .pk-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #atPeek .pk-n { font-size: var(--fs-13); color: var(--txt); font-weight: 600; }
-  #atPeek .pk-k { font-size: var(--fs-11); color: var(--sub); }
-  /* 提示词里 @ 引用的候选浮层。挂在 body 上、position:fixed —— 右栏编辑器每次重画都换节点，
-     挂在编辑器里面会跟着丢；位置按光标（或 `@素材` 那颗按钮）现算，见 mentionPlace / caretXY。 */
-  #mentionBox { position: fixed; z-index: 60; width: 328px; max-height: 268px; overflow-y: auto;
-    background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); padding: var(--sp-4); }
-  /* 一行 = 缩略图 · @名字 · 右边一列「类型 · 来源」 */
-  #mentionBox .mt-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-8) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
-  #mentionBox .mt-i.on { background: var(--panel2); }
-  #mentionBox .mt-i.off { opacity: .55; }          /* 没有预览图：引用不了，压暗并写明原因 */
-  #mentionBox .mt-t { width: 30px; height: 30px; flex: 0 0 30px; border-radius: var(--radius-4); overflow: hidden;
-    background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
-  #mentionBox .mt-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #mentionBox .mt-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #mentionBox .mt-k { flex: 0 0 auto; max-width: 52%; font-size: var(--fs-11); color: var(--sub); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  /* 行尾那个 › 是「这一条还有别的图可挑」的提示（悬停会滑出二级菜单） */
-  #mentionBox .mt-i.has-sub::after { content: '›'; margin-left: var(--sp-2); font-size: var(--fs-14); line-height: 1; color: var(--sub); }
-  #mentionBox .mt-empty { padding: var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
-  /* @ 浮层的二级菜单：鼠标停在某个角色上时，从右边滑出一列「这一位有哪些图」。
-     挂在 body 上、position:fixed —— 浮层自己是 overflow-y:auto，放里面会被裁掉。 */
-  #mentionSub { position: fixed; z-index: 62; width: 272px; max-height: 300px; overflow-y: auto;
-    background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); box-shadow: var(--shadow-2); padding: var(--sp-4); }
-  #mentionSub .ms-h { padding: var(--sp-4) var(--sp-8) var(--sp-4); font-size: var(--fs-11); color: var(--sub); }
-  #mentionSub .ms-i { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-4); cursor: pointer; }
-  #mentionSub .ms-i:hover { background: var(--panel2); }
-  #mentionSub .ms-t { width: 34px; height: 34px; flex: 0 0 34px; border-radius: var(--radius-4); overflow: hidden;
-    background: var(--thumbbg); display: flex; align-items: center; justify-content: center; color: var(--sub); }
-  #mentionSub .ms-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #mentionSub .ms-n { flex: 1; min-width: 0; font-size: var(--fs-13); color: var(--txt); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  #mentionSub .ms-k { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); }
 
   /* 输入框右上角那颗 `@素材`：底色加深，一眼看得出是个入口 */
   .ed-label .at-btn { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); margin-right: var(--sp-8); border-radius: var(--radius-10); cursor: pointer;
@@ -936,7 +896,7 @@
   .tl-board .tl-tb:focus-visible { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
   .tl-board .tl-tb.is-on { color: var(--acc); background: var(--sel-bg); }
   .tl-board .tl-tb[disabled] { opacity: .35; cursor: not-allowed; }
-  .tl-board .tl-zoom { min-width: 52px; padding: 0 var(--sp-4); text-align: center;
+  .tl-board .tl-zoom, .tl-board .tl-undocount { min-width: 52px; padding: 0 var(--sp-4); text-align: center;
     font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; white-space: nowrap; }
   .tl-board .tl-sep { flex: 0 0 auto; width: var(--hair); align-self: stretch;
     margin: var(--sp-8) var(--sp-4); background: var(--line); }

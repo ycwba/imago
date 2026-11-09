@@ -1135,7 +1135,10 @@ window.copyText = async function copyText(txt) {
        `audio` 在这里叫「语音」（设置页那一排档名、助手报告里的类型），在素材那一族叫「音频」。
        合成一张表会让设置页的档名变成「音频类」、资产库的筛选项变成「语音」—— 差的就是这两句话。
      `PROV_KINDS` 以前页面写一份、助手再抄一份：注册表加了第五类时那一排 tab 不会跟着长。 */
-  const PROV_KIND_ZH = { image: '图片', video: '视频', audio: '语音', text: '文字' };
+  /* 四档 = **供应商提供哪一类服务**（不是模型能吃什么：文字型号能收图片 / 声音 / 视频
+     是那个型号的输入能力，设置放在那个账号卡的型号面板里）。
+     名字写全，免得「语音」被当成「声音输入」、「文字」与「多模态输入」混成一件事。 */
+  const PROV_KIND_ZH = { image: '图片生成', video: '视频生成', audio: '语音合成', text: '文字 AI' };
   function provKindZh(k) { return PROV_KIND_ZH[k] || String(k || ''); }
   /* 四档的顺序 = 设置页那一排 tab 的顺序 = 助手报告里分档的顺序 */
   function provKinds() { return Object.keys(PROV_KIND_ZH); }
@@ -1374,7 +1377,7 @@ window.UI_PREFS = {
   rows: [
     { key: 'dir_palette', group: 'look', name: '主题配色', kind: 'seg', def: 'ocean', keep: 1,
       opts: [['ocean', '海洋'], ['violet', '紫罗兰'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']] },
-    { key: 'dir_theme', group: 'look', name: '日间 / 夜间', kind: 'seg', def: 'light', keep: 1,
+    { key: 'dir_theme', group: 'look', name: '日间 / 夜间', kind: 'seg', def: 'system', keep: 1,
       opts: [['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']] },
     { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool', keep: 1 },
     { key: 'sk_quiet_ok', group: 'look', name: '操作成功也给一声提示', kind: 'bool' },
@@ -1585,6 +1588,9 @@ const LEGACY_KEYS = [
   /* 提示词归档曾经单独存一格目录（`prompt_dir`）：现在归档固定是库根下的「提示词\」，
      跟着设置页「本机资产库」那一个位置走，不再有第二个位置可存。 */
   'prompt_dir',
+  /* 建模台「AI 可调用的白模库」多选撤掉（2026-11-09）：AI 自己按用户那句话在全部白模库里检索，
+     「勾了哪几个库」这个状态没有了。`sk_model_ai_libs` 留着只会在镜像里恢复回来。 */
+  'sk_model_ai_libs',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

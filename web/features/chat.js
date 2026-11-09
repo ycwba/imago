@@ -531,7 +531,9 @@
       + '它们要么花钱、要么覆盖本机数据 —— 一律先填好内容，再告诉用户「内容填好了，点这颗就行」。'
       + '他明确说「替我点」时才用 click，并在卡片上写清那是一颗花钱的动作。',
     '4. 查不到就照实说「本机没有这条记录」「代理没响应」，不要补一段看起来像答案的猜测。',
-    '5. 涉及附带的文件：先用 files 看有哪些、是什么类型；要看内容就 read_file 真去看（图片要当前型号支持识图才看得见；视频和音频读不出内容，就明说不知道，别替它编）。',
+    '5. 涉及附带的文件：先用 files 看有哪些、是什么类型；要看内容就 read_file 真去看。'
+      + '图片 / 视频 / 音频能不能真的交给模型，取决于当前文字型号的能力（设置页型号行上的 图 / 音 / 视 小标）：'
+      + '带上了就直接看 / 听；没带上时附件栏会给「没带」的原因，那种就明说不知道，别替它编。',
     '6. 要提交生成任务就把型号、参数、素材来源写全 —— 本机会在卡片上按能力声明校验并显示「哪一家/哪个型号/什么参数/哪些素材从哪来」，用户点「执行」才真发请求。',
     '7. 你提交出去的任务，本机跟到出结果为止：一到终态就在这一层说一声（抽屉收着时球上会点个数字），并写进【这台机器上刚发生过的动作】。'
       + '所以用户问「那条怎么样了」就查 tasks 拿当场状态，别照「提交过了」猜一个结果，也别承诺「我继续盯着」——盯不盯着不由你决定。',
@@ -775,8 +777,8 @@
       }
       const rec = { name: f.name || '未命名', size: f.size || 0, mime: f.type || '', kind: kindOf(f), file: f, src: '', objUrl: '', la: '', txt: '', note: '' };
       try { rec.objUrl = URL.createObjectURL(f); rec.src = rec.objUrl; } catch (e) {}
-      /* 附件**不落本机资产库**：模型读图用的是内存里的 File（`attachImages` 的 `f.file` 优先），
-         视频/音频模型根本不读（只列在附件栏）；文本早就有「只存快照不进资产库」的先例。
+      /* 附件**不落本机资产库**：模型读图用的是内存里的 File（`attachMedia` 的 `f.file` 优先），
+         视频/音频按型号能力随消息附上（不支持时在附件回执里说明）；文本早就有「只存快照不进资产库」的先例。
          落盘只会多占磁盘、在资产库里多出几条「AI 助手附件」—— 刻意不落。
          代价：刷新后字节不在了 → 卡片走「字节已不在，要让人重新拖」那条降级路（照实说，不假装还在）。 */
       if (rec.kind === '图片' || rec.kind === '视频' || rec.kind === '音频') {
@@ -915,13 +917,23 @@
       i + ' = ' + f.name + '｜' + f.kind + '｜' + window.fmtBytes(f.size) + '｜'
       + (f.file ? '本次拖进来的 File' : LOCAL_SRC.test(f.src || '') ? f.src : f.txt ? '本机存的文本快照' : '字节已不在，要让人重新拖')).join('\n') + '\n\n';
   }
-  /* 附带的图片只在「当前型号支持识图」时真发给文字 AI（按识图判定，不按名字猜） */
-  async function attachImages(prov, model) {
+  /* 随消息附上的素材：图片 / 视频 / 音频**都按当前文字型号的能力声明**决定带不带
+     （与工作台润色同一条链路 TextAI.prepareMedia；型号行上的 图 / 音 / 视 小标说了算）。
+     带不了的逐条给出原因，别让用户以为拖进去就一定被模型看到了。 */
+  async function attachMedia(prov, model) {
     const list = roundFiles || [];
-    const imgs = list.filter(f => f.kind === '图片' && (f.file || f.src));
-    if (!imgs.length || !window.TextAI) return { images: [], note: '' };
-    try { return await TextAI.polishImages(REG, imgs.map((f, i) => ({ label: f.name || ('附件' + i), src: f.file || f.src })), { prov, model }); }
-    catch (e) { return { images: [], note: '附图这一步没成：' + cap(errText(e), 120) }; }
+    const items = [];
+    list.forEach((f, i) => {
+      const kind = f.kind === '图片' ? 'image' : f.kind === '视频' ? 'video' : f.kind === '音频' ? 'audio' : '';
+      if (!kind || !(f.file || f.src)) return;
+      const label = f.name || (kind === 'image' ? '附件' + i : (kind === 'video' ? '视频' : '音频') + i);
+      items.push({ kind, label, src: f.file || f.src });
+    });
+    if (!items.length || !window.TextAI) return { media: [], note: '' };
+    try {
+      const r = await TextAI.prepareMedia(REG, items, { prov, model });
+      return { media: r.media || [], note: r.note || '' };
+    } catch (e) { return { media: [], note: '随附素材这一步没成：' + cap(errText(e), 120) }; }
   }
   function paintFiles() {
     if (!el.files) return;
@@ -2658,11 +2670,11 @@
         const st = addStream();
         live = st;
         let out = '';
-        /* 附图只在第一轮带（查询那一轮不需要看图的就不带，省 tokens 也省一次压缩） */
-        const att = round === 0 ? await attachImages(prov, model) : { images: [], note: '' };
+        /* 随附素材只在第一轮带（查询轮不需要看图 / 听音，省 tokens 也省一次编码） */
+        const att = round === 0 ? await attachMedia(prov, model) : { media: [], note: '' };
         try {
           out = await TextAI.chatStream(r, sysNow(ctx.scope), compose(q, ctx, mayCall),
-            { signal: aborter.signal, model, images: att.images, noTools: true }, (p, k) => st.push(p, k), prov);
+            { signal: aborter.signal, model, media: att.media, noTools: true }, (p, k) => st.push(p, k), prov);
         } catch (e) {
           const m = errText(e);
           const got = st.text();
@@ -2811,6 +2823,13 @@
           stale++;
           addCtx(ctx, '> 查询 ' + ins.name + '：这一轮里已经查过同一份，没有重查 —— 结果就在上面那几条里，别再问同一件事。\n');
           push('step', ins.name + ' 刚才查过同一份，没重查');
+          /* 兜底要把「问不通」这件事告诉模型本身：只闷在代码里的话，它下一轮还会照原样重问，
+             用户看到的就是「这个问题没人回答」。 */
+          if (stale >= STALE_MAX) {
+            addCtx(ctx, '> 兜底：' + ins.name + ' 连着 ' + stale + ' 次没有拿到新结果，可能问不通了 —— '
+              + '换一个问法，或用更具体的查询（例如 task_detail 查那一条）。不要原样重问。\n');
+            push('step', ins.name + ' 连续 ' + stale + ' 次没新结果：让它换个问法');
+          }
           continue;
         }
         const ti = {
@@ -2824,13 +2843,17 @@
         try { raw = typeof res === 'string' ? res : JSON.stringify(res, null, 1); }
         catch (e) { raw = String(res); }
         let txt = '', resultId = '';
-        if (raw.length > RESULT_MAX) {
+        /* 裁剪档位按工具声明来（chat-tools 的 TOOL_CAP）：大列表短、单文件 / 逐行明细长。
+           落盘存全文的阈值也跟着抬到这一档，否则「20000 字」的档位会被 8KB 的存储线先截掉。 */
+        const maxOut = toolCap(ins.name) || TOOL_OUT;
+        const storeMax = Math.max(RESULT_MAX, maxOut);
+        if (raw.length > storeMax) {
           resultId = (await toolResultStore(turn, ins.name, raw)) || '';
           txt = resultId
             ? raw.slice(0, 1500) + '\n…（全文 ' + raw.length + ' 字，已存成 ' + resultId
               + '；要更多就 CALL: tool_result_read {"resultId":"' + resultId + '","offset":0}）'
-            : cap(raw, TOOL_OUT);
-        } else txt = cap(raw, TOOL_OUT);
+            : cap(raw, maxOut);
+        } else txt = cap(raw, maxOut);
         ti.state = res && res.错误 ? 'error' : 'ok';
         ti.endedAt = Date.now();
         ti.resultId = resultId;
@@ -3720,7 +3743,7 @@
     getREG: () => REG,
   });
   const { TOOLS, ACTS, ACTION_META, visibleActs, visibleTools,
-    TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite } = CHAT_TOOLS;
+    TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolCap } = CHAT_TOOLS;
   function boot() { if (document.body) mount(); else document.addEventListener('DOMContentLoaded', mount, { once: true }); }
   boot();
 

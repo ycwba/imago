@@ -24,7 +24,10 @@
             <div class="st-sub" data-r="stSub"></div>
 
             <div class="prompt-box" data-r="promptBox">
-              <textarea data-r="prompt" spellcheck="false"></textarea>
+              <div class="ta-wrap">
+                <div class="ta-back" data-r="promptBack" aria-hidden="true"></div>
+                <textarea data-r="prompt" spellcheck="false"></textarea>
+              </div>
               <div class="prompt-hint" data-r="promptHint" hidden></div>
               <div class="btn-row">
                 <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：

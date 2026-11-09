@@ -19,7 +19,7 @@ import { resolveRefs } from '../model3d/dsl.js';
 import { entityFromModel, modelFromEntity, subtreeIds } from '../model3d/entities.js';
 import { clipNamesOf, clipOf } from '../model3d/clip.js';
 import { BODY_PRESETS, POSE_PRESETS } from '../model3d/mannequin.js';
-import { CLAY } from '../model3d/palette.js';
+import { CLAY, LIGHT_PRESETS, SKETCH } from '../model3d/palette.js';
 import { createDock } from './model/dock.js';
 
 const PAGE_FILE = 'model.html';
@@ -49,12 +49,15 @@ export default {
       savedDigest: '',        // 用来判「有没有改动」
       selectedId: '',
       selectedCam: '',
+      selectedLight: '',      // 选中的灯（与实体 / 机位三选一）
       selIds: [],             // 场景树多选（编组 / 批量删除）
       dragId: '',             // 正在拖的树行
       renameId: '',           // 正在行内改名的节点 / 场景
       railTab: 'scene',       // scene | lib
-      sideTab: 'ai',          // ai | props | cam
-      refImages: [],          // 交接口袋带来的参考图（只给 AI 看）
+      sideTab: 'ai',          // ai | props | cam | light
+      refImages: [],          // 交给 AI 的参考素材（图片 / 视频 / 声音；只给 AI 看）
+      sketch: { on: false, mode: 'camera', tool: 'select', color: 'blue', text: '' },
+      sketchMarks: [],        // 涂鸦标注（不进 doc；画给 AI 看的运镜）
       origin: null,           // { page:'studio'|'director', type?, shot? }
       prevDoc: null,          // AI 修改前的快照（「撤销这次修改」）
       library: '',            // 当前白模库 id
@@ -79,8 +82,9 @@ export default {
       aiSay: '',              // 正在流式输出的那一句（边收边显示）
       aiRaw: '',              // AI 的原始输出（JSON 流，面板里回显尾巴）
       aiCount: 0,             // 流式过程中已收全的零件数
-      aiLibs: [],             // AI 可调用的白模库（多选）
-      aiModels: new Map(),    // 非当前库的模型清单缓存（库 id → rows）
+      aiProblems: '',         // 上一轮的问题（丢件明细 / 被跳过的修改 / 体检结论），下一轮提示词原样交回
+      aiRows: [],             // 上一轮按这句话检索到的白模库条目（reuse 按它认回库）
+      promptOf: new Map(),    // 实体 id → 建模那次的提示词（存回库时带进 src.prompt）
       previewDoc: null,       // 流式过程中的临时树（不写进 doc，取消就回到原样）
       outOpen: true,          // 出片条展开 / 收起
       assets: new Map(),      // 3D 文件 → 已解析原型（loader.js 填；scene 只 clone）
@@ -121,7 +125,12 @@ export default {
           selectCam(sel.id);
           return;
         }
+        if (sel && typeof sel === 'object' && sel.kind === 'light') {
+          selectLight(sel.id);
+          return;
+        }
         st.selectedCam = '';
+        st.selectedLight = '';
         st.selectedId = sel || '';
         st.selIds = sel ? [sel] : [];
         paintTree();
@@ -156,29 +165,34 @@ export default {
         paintCam();
         paintCams();
       };
+      view.onLightTransform = (id, t) => {
+        const light = lightOf(id);
+        if (!light) return;
+        if (t.at) light.at = t.at;
+        if (t.target && light.shape !== 'point') light.target = t.target;
+        const tr = lightTrackOf(id);
+        if (tr) {
+          const time = Math.round((view ? view.time : 0) * 100) / 100;
+          tr.keys = tr.keys.filter(k => Math.abs(k.t - time) > 0.001);
+          tr.keys.push({ t: time, at: light.at.slice(), target: light.target ? light.target.slice() : null, energy: light.energy, color: light.color });
+          tr.keys.sort((a, b) => a.t - b.t);
+        }
+        refreshPhead();
+        if (view) view.applyCamera(view.time);
+        paintLight();
+        paintLights();
+      };
       view.onCameraChange = () => { /* 导演视角的机位不写回模型：那是「看」的位置，不是作品的一部分 */ };
       /* 建场景时记下的话（没这条动画 / 摆件没加载）落到状态行；同一份 doc 只报一次。
          条数不截断：状态行自己换行 / 滚动，不替用户丢信息。 */
       view.onNotes = notes => { if (notes && notes.length) note(notes.join('；'), 'err'); };
+      view.onSketchChange = marks => {
+        st.sketchMarks = Array.isArray(marks) ? marks : [];
+        paintSketchBar();
+      };
     }
 
     /* ---------------- 白模库 / 场景列表 ---------------- */
-    function syncAiLibs() {
-      const ids = new Set((st.libraries || []).map(x => x.id));
-      const raw = window.LS.get('sk_model_ai_libs', '');
-      if (!raw) {
-        st.aiLibs = st.library && ids.has(st.library) ? [st.library] : [];
-        return;
-      }
-      let saved = [];
-      try {
-        const rawList = JSON.parse(raw);
-        saved = Array.isArray(rawList) ? rawList.map(String) : [];
-      } catch (e) { saved = []; }
-      st.aiLibs = saved.filter(id => ids.has(id));
-      if (st.aiLibs.length !== saved.length) window.LS.set('sk_model_ai_libs', JSON.stringify(st.aiLibs));
-    }
-
     async function loadLibraries() {
       try {
         const d = await Vault.list('');
@@ -188,7 +202,6 @@ export default {
         const pick = hasLib(want) ? want : hasLib(st.library) ? st.library : (st.libraries[0] && st.libraries[0].id) || '';
         if (pick) await loadLibrary(pick);
         else { st.library = ''; st.models = []; st.scenes = []; st.groups = []; st.sceneGroups = []; paintLib(); paintScenes(); }
-        syncAiLibs();
       } catch (e) {
         st.libraries = [];
         note('白模库读不出来：' + window.errText(e), 'err');
@@ -206,9 +219,7 @@ export default {
         st.groups = d.groups || [];
         st.sceneGroups = d.sceneGroups || [];
         if (st.libGroup && st.libGroup !== '__none' && !(st.groups || []).some(g => g.name === st.libGroup)) st.libGroup = '';
-        st.aiModels.clear();
         if (st.library) window.LS.set('sk_model_library', st.library);
-        syncAiLibs();
         paintLib();
         paintScenes();
         refreshPhead();
@@ -584,13 +595,14 @@ export default {
       st.savedDigest = '';
       st.selectedId = '';
       st.selectedCam = '';
+      st.selectedLight = '';
       st.selIds = [];
       st.sceneEdit = '';
       st.sceneMove = '';
       st.sceneGroupEdit = '';
       st.sceneGroupDraft = false;
       st.prevDoc = null;
-      st.refImages = [];
+      dropRefs();
       view.setDoc(st.doc, { refit: true, resetTime: true });
       view.setSelection('');
       paintAll();
@@ -625,9 +637,10 @@ export default {
         st.savedDigest = S.digest(out.doc);
         st.selectedId = '';
         st.selectedCam = '';
+        st.selectedLight = '';
         st.selIds = [];
         st.prevDoc = null;
-        st.refImages = [];
+        dropRefs();
         await applyRefs(st.doc);
         await syncAssets();
         view.setDoc(st.doc, { refit: true, resetTime: true });
@@ -887,9 +900,11 @@ export default {
         st.doc.anim.tracks = (st.doc.anim.tracks || []).concat(made.tracks);
         addCamsToScene(made, false);
         if (made.duration > st.doc.anim.duration) st.doc.anim.duration = made.duration;
+        st.promptOf.set(made.entity.id, (raw.src && raw.src.prompt) || '');
         st.selectedId = made.entity.id;
         st.selIds = [made.entity.id];
         st.selectedCam = '';
+        st.selectedLight = '';
         view.setDoc(st.doc, {});
         view.setSelection(made.entity.id);
         refreshPhead();
@@ -1042,7 +1057,10 @@ export default {
             group = Vault.cleanGroup(v.group);
             if (!name) return;
           }
-          const siblings = saveLib === st.library ? st.models : (st.aiModels.get(saveLib) || []);
+          let siblings = st.models;
+          if (saveLib !== st.library) {
+            try { siblings = (await Vault.list(saveLib)).models || []; } catch (e) { siblings = []; }
+          }
           let base = name;
           let n = 2;
           while ((siblings || []).some(m => m.name === name && m.group === group)) { name = base + '-' + n; n += 1; }
@@ -1054,8 +1072,10 @@ export default {
           fps: st.doc.anim.fps,
           loop: st.doc.anim.loop !== false,
         });
+        const prompt = st.promptOf.get(entity.id) || '';
         const thumb = await thumbB64();
-        await Vault.saveModel({ library: saveLib, id, name, group, model: doc, thumb });
+        await Vault.saveModel({ library: saveLib, id, name, group, model: doc, thumb, prompt });
+        st.promptOf.set(entity.id, prompt);
         if (!entity.fromModel && !overwrite) {
           entity.fromModel = (saveLib === st.library ? '' : saveLib + ' :: ') + (group ? group + '/' : '') + name;
         }
@@ -1076,6 +1096,7 @@ export default {
       st.selectedId = node.id;
       st.selIds = [node.id];
       st.selectedCam = '';
+      st.selectedLight = '';
       view.setDoc(st.doc, {});
       view.setSelection(node.id);
       refreshPhead();
@@ -1085,27 +1106,17 @@ export default {
     /* ---------------- 右栏：AI ---------------- */
     const modelRowId = m => (m.group ? m.group + '/' : '') + m.name;
 
-    /* AI 可调用的白模库范围：勾了哪几个库，清单就只列哪几个库的模型。
-       多库时每条带 `库名 :: 模型id`，AI 原样回填 reuse.id。 */
-    async function aiCatalogText() {
-      const ids = (st.aiLibs || []).filter(id => (st.libraries || []).some(x => x.id === id));
-      if (!ids.length) return '（这次没有可调用的白模库）';
-      const rows = [];
-      for (const id of ids) {
-        let list = id === st.library ? st.models : st.aiModels.get(id);
-        if (!list) {
-          try { list = (await Vault.list(id)).models || []; }
-          catch (e) { note('白模库读不出来（' + id + '）：' + window.errText(e), 'err'); continue; }
-          st.aiModels.set(id, list);
-        }
-        for (const m of list) rows.push({
-          id: modelRowId(m),
-          library: id,
-          nodes: 0,
-          note: m.group ? '组：' + m.group : '',
-        });
+    /* AI 能看到的白模库范围：按用户这句话在**全部**白模库里检索（匹配的在前，其余按新到旧跟上）。
+       每条带 `库名 :: 模型id`，AI 原样回填 reuse.id。 */
+    async function aiCatalogText(prompt) {
+      try {
+        const d = await Vault.catalog(prompt);
+        st.aiRows = Array.isArray(d.rows) ? d.rows : [];
+      } catch (e) {
+        st.aiRows = [];
+        note('白模库检索失败（这一轮按库里没有模型继续）：' + window.errText(e), 'err');
       }
-      return AI.catalogText(rows);
+      return AI.catalogText(st.aiRows);
     }
 
     function resolveReuseId(raw) {
@@ -1117,13 +1128,10 @@ export default {
         const known = (st.libraries || []).some(x => x.id === library);
         return { library: known ? library : st.library, id };
       }
-      /* AI 偶尔会只回模型 id：先在当前库找，再在勾选的库里找。 */
+      /* AI 偶尔会只回模型 id：先在当前库找，再在上一轮检索到的清单里找。 */
       if ((st.models || []).some(m => modelRowId(m) === text)) return { library: st.library, id: text };
-      for (const lib of (st.aiLibs || [])) {
-        if (lib === st.library) continue;
-        const list = st.aiModels.get(lib) || [];
-        if (list.some(m => modelRowId(m) === text)) return { library: lib, id: text };
-      }
+      const hit = (st.aiRows || []).find(r => String(r.model || '') === text || String(r.id || '') === text);
+      if (hit && hit.library) return { library: hit.library, id: hit.model || text };
       return { library: st.library, id: text };
     }
 
@@ -1157,7 +1165,7 @@ export default {
       if (activate && cams[0]) st.doc.scene.active = cams[0].id;
     }
 
-    function appendEntity(doc, anim, name) {
+    function appendEntity(doc, anim, name, prompt) {
       /* AI 生成的是场景里的新实体，不是从白模库复用的那一份：不写 fromModel。 */
       const made = entityFromModel(doc, '', { includeCams: true });
       if (name) made.entity.name = String(name).replace(/\s+/g, ' ').trim().slice(0, 24);
@@ -1165,6 +1173,7 @@ export default {
       st.doc.anim.tracks = (st.doc.anim.tracks || []).concat(made.tracks);
       addCamsToScene(made, true);
       if (made.duration > st.doc.anim.duration) st.doc.anim.duration = made.duration;
+      st.promptOf.set(made.entity.id, String(prompt || ''));
       if (anim) {
         if (Number(anim.duration) > 0) st.doc.anim.duration = Math.max(st.doc.anim.duration, Number(anim.duration));
         if (Number(anim.fps) > 0) st.doc.anim.fps = Math.round(Number(anim.fps));
@@ -1173,16 +1182,72 @@ export default {
       st.selectedId = made.entity.id;
       st.selIds = [made.entity.id];
       st.selectedCam = '';
+      st.selectedLight = '';
       return made.entity;
     }
 
-    async function generate() {
-      const prompt = ($('mmPrompt') && $('mmPrompt').value || '').trim();
+    /* AI 自查工具要的视口缩略图：拍一张活动机位的画面（与出图同一条渲染路），
+       转成 dataURL 交给文字 AI —— 支持识图的型号能直接看图核构图。 */
+    async function aiThumbnail() {
+      if (!view) return '';
+      try {
+        const { w, h } = view.sizeOf(720);
+        const blob = await view.shot(w, h, 'image/jpeg', 0.8, { time: view.time });
+        if (!blob) return '';
+        return await new Promise(resolve => {
+          const fr = new FileReader();
+          fr.onload = () => resolve(String(fr.result || ''));
+          fr.onerror = () => resolve('');
+          fr.readAsDataURL(blob);
+        });
+      } catch (e) { return ''; }
+    }
+
+    /* 文字型号看不了视频（或视频太大带不过去）时，本机解码取几帧画面当成参考图：
+       视频转白模至少还能按画面里的主体、比例、姿势建；全程不经过服务端。
+       `count` 来自设置页「建模台 · 一次取几帧」，沿着时长均匀取。 */
+    async function videoFramesFor(videos, count) {
+      const list = (videos || []).filter(x => x && x.src);
+      if (!list.length) return [];
+      const want = Math.max(1, Math.min(12, Math.round(Number(count) || 4)));
+      if (!window.MediaBackend) {
+        try {
+          if (window.__spaLoadScript) await window.__spaLoadScript('/web/media-backend.js', () => !!window.MediaBackend);
+        } catch (e) { /* 加载失败就退成「没有画面可看」 */ }
+      }
+      const mb = window.MediaBackend;
+      if (!mb) return [];
+      const out = [];
+      for (const v of list) {
+        let times = [0.1, 0.8, 1.6, 2.6, 4, 6, 8, 10].slice(0, want);
+        try {
+          const info = await mb.info(v.src);
+          const dur = Number(info && info.duration) || 0;
+          if (dur > 0.3) {
+            const a = Math.min(0.08, dur * 0.05), b = Math.max(a, dur - 0.12);
+            times = want === 1 ? [b] : Array.from({ length: want }, (_, i) => a + (b - a) * i / (want - 1));
+          }
+        } catch (e) { /* 读不出时长就按固定几秒取，取不到自然跳过 */ }
+        const uniq = [...new Set(times.map(t => Math.max(0, Math.round(t * 100) / 100)))];
+        for (let i = 0; i < uniq.length; i += 1) {
+          try {
+            const url = await mb.frame(v.src, { at: uniq[i], w: 768, quality: 0.82 });
+            if (url) out.push({ kind: 'image', label: '视频帧 ' + (i + 1) + ' · ' + (v.label || '视频'), url });
+          } catch (e) { /* 这一帧取不到不影响其余几帧 */ }
+        }
+      }
+      return out;
+    }
+
+    async function generate(over) {
+      const opt = over || {};
+      const prompt = String(opt.prompt != null ? opt.prompt : (($('mmPrompt') && $('mmPrompt').value) || '')).trim();
       if (!prompt) { note('先写一句要建什么', 'err'); return; }
       if (!st.doc && !await createScene()) { note('先在「白模库」里选一个库', 'err'); return; }
       if (!st.doc || !st.library) { note('先在「白模库」里选一个库', 'err'); return; }
       if (st.busy) return;
-      const selected = st.selectedId ? S.findNode(st.doc.scene.nodes, st.selectedId) : null;
+      const effectiveSelected = opt.noSelection ? '' : st.selectedId;
+      const selected = effectiveSelected ? S.findNode(st.doc.scene.nodes, effectiveSelected) : null;
       st.busy = 'ai';
       st.aiText = '';
       st.aiSay = '';
@@ -1195,31 +1260,56 @@ export default {
       const base = S.cloneDoc(st.doc);
       const scope = selected ? Array.from(subtreeIds(selected)) : null;
       try {
-        const catalog = await aiCatalogText();
-        let images = [];
-        if (st.refImages.length && window.TextAI) {
+        const catalog = await aiCatalogText(prompt);
+        let media = [];
+        const refItems = st.refImages.map(x => ({ kind: x.kind || 'image', label: x.label, src: x.src }));
+        if (refItems.length && window.TextAI) {
           try {
             const REG = await window.Api.registry();
-            const prep = await window.TextAI.polishImages(REG, st.refImages.map(x => ({ label: x.label, src: x.src })));
-            images = prep.images || [];
+            const prep = await window.TextAI.prepareMedia(REG, refItems);
+            media = prep.media || [];
             if (prep.note) note(prep.note, '');
-          } catch (e) { note('参考图没能交给 AI：' + window.errText(e), 'err'); }
+            const caps = prep.caps || {};
+            const sentVideo = new Set(media.filter(x => x.kind === 'video').map(x => x.label));
+            const unreadVideo = refItems.filter(x => x.kind === 'video' && !sentVideo.has(x.label));
+            const vf = frameOpt();
+            let frameVideos = [];
+            if (vf.mode === 'on') frameVideos = refItems.filter(x => x.kind === 'video');
+            else if (vf.mode === 'auto') frameVideos = unreadVideo;
+            if (vf.mode === 'off') {
+              if (unreadVideo.length) note('视频没能随消息附上；设置里关掉了「视频取帧」', '');
+            } else if (frameVideos.length) {
+              const frames = (caps.image && caps.image.ok) ? await videoFramesFor(frameVideos, vf.n) : [];
+              if (frames.length) {
+                media = media.concat(frames);
+                note('已在本机取 ' + frames.length + ' 帧视频画面交给文字 AI'
+                  + (vf.mode === 'on' ? '（设置里选了总是取帧）' : ''), 'ok');
+              } else if (unreadVideo.length) {
+                note('视频没能随消息附上，取帧也没取到（当前型号不支持图片，或视频读不出来）', '');
+              }
+            }
+          } catch (e) { note('参考素材没能交给 AI：' + window.errText(e), 'err'); }
         }
         const r = await AI.run({
           prompt,
           mode: 'auto',
           doc: base,
-          selectedId: st.selectedId,
+          selectedId: effectiveSelected,
           scope,
-          images,
+          media,
           catalog,
           animations: aiAnimations(),
+          sketch: opt.sketch || null,
           aspect: view ? view.aspect : ((st.doc && st.doc.scene.view.aspect) || '16:9'),
+          problems: st.aiProblems,
+          thumbnail: aiThumbnail,
           signal: ctl.signal,
           onNodes: () => { /* 场景模式不边收边替换，避免误删其他实体 */ },
           onSay: t => { st.aiSay = t; paintStreamSoon(); },
           onText: (text, count) => { st.aiRaw = text; st.aiCount = count; paintStreamSoon(); },
         });
+        /* 这一轮的明细留到下一轮：丢掉的零件 / 被跳过的修改不该让 AI 在下一轮接着引用 */
+        st.aiProblems = r.problems || '';
         if (r.reuse && r.reuse.mode === 'as-is') {
           const reuse = resolveReuseId(r.reuse.id);
           await insertModel(reuse.id, reuse.library);
@@ -1235,7 +1325,7 @@ export default {
         } else {
           /* 没要求改选中实体：AI 交回来的是一整件新实体，只追加，不替换场景。 */
           const aiName = r.name && !/^未命名/.test(r.name) ? r.name : entityNameFromPrompt(prompt);
-          appendEntity(r.doc, r.anim, aiName);
+          appendEntity(r.doc, r.anim, aiName, prompt);
         }
         st.savedDigest = '';
         await syncAssets();
@@ -1250,6 +1340,10 @@ export default {
         if (r.skipped) parts.push('跳过 ' + r.skipped + ' 条坏 op');
         const dropped = r.dropped ? (r.dropped.bad + r.dropped.extra + r.dropped.anim + r.dropped.cam + r.dropped.out) : 0;
         if (dropped) parts.push('丢了 ' + dropped + ' 个条目');
+        const lintFixes = r.lint && Array.isArray(r.lint.fixes) ? r.lint.fixes.length : 0;
+        const lintWarns = r.lint && Array.isArray(r.lint.warnings) ? r.lint.warnings.length : 0;
+        if (lintFixes) parts.push('自动修正 ' + lintFixes + ' 处');
+        if (lintWarns) parts.push('体检提醒 ' + lintWarns + ' 条');
         st.aiText = r.say || '';
         note(parts.join(' · '), (r.skipped || dropped) ? 'err' : 'ok');
         archivePrompt(prompt);
@@ -1271,6 +1365,7 @@ export default {
       st.prevDoc = null;
       st.selectedId = '';
       st.selectedCam = '';
+      st.selectedLight = '';
       st.selIds = [];
       st.savedDigest = '';
       view.setDoc(st.doc, { refit: true });
@@ -1308,6 +1403,7 @@ export default {
       const cam = st.doc && S.camOf(st.doc, id);
       if (!cam) return;
       st.selectedCam = id;
+      st.selectedLight = '';
       st.selectedId = '';
       st.selIds = [];
       view.setActiveCam(id);
@@ -1317,8 +1413,22 @@ export default {
       else { paintCams(); paintCam(); }
     }
 
+    function selectLight(id) {
+      const light = lightOf(id);
+      if (!light) return;
+      st.selectedLight = id;
+      st.selectedCam = '';
+      st.selectedId = '';
+      st.selIds = [];
+      view.setSelection({ kind: 'light', id });
+      paintTools();
+      if (st.sideTab !== 'light') { st.sideTab = 'light'; window.LS.set('sk_model_side', 'light'); paintSide(); }
+      else { paintLights(); paintLight(); }
+    }
+
     function selectNode(id, additive) {
       st.selectedCam = '';
+      st.selectedLight = '';
       if (additive) {
         const set = new Set(st.selIds);
         if (set.has(id)) set.delete(id); else set.add(id);
@@ -1878,7 +1988,7 @@ export default {
       const body = $('mmSideBody');
       if (!tabs || !body) return;
       tabs.innerHTML = '<div class="ui-seg" role="tablist">'
-        + [['ai', 'AI'], ['props', '属性'], ['cam', '机位']].map(([t, label]) =>
+        + [['ai', 'AI'], ['props', '属性'], ['cam', '机位'], ['light', '灯光']].map(([t, label]) =>
           '<button type="button" role="tab" aria-selected="' + (st.sideTab === t ? 'true' : 'false') + '" class="' + (st.sideTab === t ? 'on' : '') + '" data-tab="' + t + '">' + label + '</button>').join('') + '</div>';
       tabs.onclick = e => {
         const b = e.target.closest('[data-tab]');
@@ -1889,19 +1999,21 @@ export default {
       };
 
       if (st.sideTab === 'ai') {
-        const refs = st.refImages.map((x, i) => '<span class="chip on">' + esc(x.label || ('图片 ' + (i + 1)))
+        const REF_MARK = { image: '图', video: '视频', audio: '声音' };
+        const refs = st.refImages.map((x, i) => '<span class="chip on" title="' + esc(REF_KIND_ZH[x.kind] || '素材') + '">'
+          + esc((REF_MARK[x.kind] || '图') + ' · ' + (x.label || ('素材 ' + (i + 1))))
           + '<button class="ui-linkbtn" type="button" data-ref-remove="' + i + '" title="移除">×</button></span>').join('');
-        const libChips = (st.libraries || []).map(x => '<button class="chip' + (st.aiLibs.includes(x.id) ? ' on' : '')
-          + '" type="button" data-ai-lib="' + esc(x.id) + '">' + esc(x.name) + '</button>').join('');
         body.innerHTML =
           '<div class="mm-field"><label>要生成什么 / 改什么（一句话就行）</label>'
           + '<textarea class="ui-inp mm-prompt" data-r="mmPrompt" placeholder="例：一个穿长外套的少女；或者把选中的小人改成坐姿">' + esc(st.prompt || '') + '</textarea></div>'
           + '<div class="mm-line">' + (st.selectedId ? '选中实体：' + esc(st.selectedId) + '（AI 会按你说的改它）' : '未选中实体（AI 会新增一件）') + '</div>'
-          + '<div class="mm-row"><label>图片</label><button class="ghost mini" type="button" data-act="addImage">' + ic('image', 12) + ' 加图片</button>'
-          + '<span class="mm-empty" style="flex:1">给 AI 看参考图</span></div>'
+          + '<div class="mm-row"><label>素材</label>'
+          + '<button class="ghost mini" type="button" data-act="addMedia">' + ic('image', 12) + ' 选素材</button>'
+          + '<span class="mm-empty" style="flex:1">图片 / 视频 / 声音</span></div>'
+          + '<div class="mm-row"><span class="sp"></span>'
+          + '<button class="ui-linkbtn" type="button" data-act="videoToModel"'
+          + ' title="选一段视频，AI 按它建白模；文字型号看不了视频就在本机取几帧画面交给它">视频转白模</button></div>'
           + (refs ? '<div class="mm-groups">' + refs + '</div>' : '')
-          + '<div class="mm-field"><label>AI 可调用的白模库（可多选）</label><div class="mm-groups">'
-          + (libChips || '<span class="mm-line">还没有白模库</span>') + '</div></div>'
           + '<div class="mm-row"><span class="sp"></span>'
           + (st.prevDoc ? '<button class="ghost mini" type="button" data-act="undoAi">' + ic('undo', 12) + ' 撤销这次修改</button>' : '')
           + (st.busy === 'ai'
@@ -1916,26 +2028,25 @@ export default {
               + '</div>'
             : '')
           + (st.aiText ? '<div class="mm-note">上一轮：' + esc(st.aiText) + '</div>' : '')
-          + '<div class="mm-empty">不用先选模式：没选中实体时 AI 新增一件；选中后它会按你说的话改选中的实体。</div>';
+          + '<div class="mm-empty">不用先选模式：没选中实体时 AI 新增一件；选中后它会按你说的话改选中的实体。'
+          + '这一句同时用来在白模库里找现成的：说清要什么，AI 会自己认回「库名 :: 模型id」。'
+          + '素材可以放图片 / 视频 / 声音，文字型号支持哪一类就随消息附上哪一类（看不了视频时「视频转白模」会在本机取几帧画面）。</div>';
         body.onclick = e => {
           const stop = e.target.closest('[data-act="stop"]');
           if (stop) { if (st.aiCtl) st.aiCtl.abort(); return; }
           const gen = e.target.closest('[data-act="gen"]');
           if (gen) { generate(); return; }
           if (e.target.closest('[data-act="undoAi"]')) { undoAi(); return; }
-          if (e.target.closest('[data-act="addImage"]')) { const f = $('mmImgInput'); if (f) f.click(); return; }
-          const lib = e.target.closest('[data-ai-lib]');
-          if (lib) {
-            const id = lib.dataset.aiLib;
-            const set = new Set(st.aiLibs);
-            if (set.has(id)) set.delete(id); else set.add(id);
-            st.aiLibs = Array.from(set);
-            window.LS.set('sk_model_ai_libs', JSON.stringify(st.aiLibs));
-            paintSide();
-            return;
-          }
+          if (e.target.closest('[data-act="addMedia"]')) { pickRefMedia(); return; }
+          if (e.target.closest('[data-act="videoToModel"]')) { videoToModel(); return; }
           const rm = e.target.closest('[data-ref-remove]');
-          if (rm) { st.refImages.splice(Number(rm.dataset.refRemove), 1); paintSide(); }
+          if (rm) {
+            const i = Number(rm.dataset.refRemove);
+            const gone = st.refImages[i];
+            if (refIsBlob(gone)) { try { URL.revokeObjectURL(gone.src); } catch (err) { /* 已释放过就算了 */ } }
+            st.refImages.splice(i, 1);
+            paintSide();
+          }
         };
         body.oninput = e => {
           const ta = e.target.closest('[data-r="mmPrompt"]');
@@ -1948,6 +2059,13 @@ export default {
         body.innerHTML = '<div data-r="mmCams"></div><div class="mm-field"><label>机位值</label><div data-r="mmCam"></div></div>';
         paintCams();
         paintCam();
+        return;
+      }
+
+      if (st.sideTab === 'light') {
+        body.innerHTML = '<div data-r="mmLights"></div><div class="mm-field"><label>灯值</label><div data-r="mmLight"></div></div>';
+        paintLights();
+        paintLight();
         return;
       }
 
@@ -2155,8 +2273,315 @@ export default {
       paintCam();
     }
 
+    /* ---------------- 右栏：灯光 ---------------- */
+
+    function lightShapeZh(shape) {
+      return shape === 'point' ? '点光' : shape === 'spot' ? '聚光' : '太阳';
+    }
+
+    function lightOf(id) {
+      const list = (st.doc && st.doc.scene && st.doc.scene.lights) || [];
+      return list.find(l => l.id === id) || null;
+    }
+
+    function currentLight() {
+      const list = (st.doc && st.doc.scene && st.doc.scene.lights) || [];
+      return lightOf(st.selectedLight) || list[0] || null;
+    }
+
+    function lightTrackOf(id) {
+      return st.doc.anim.tracks.find(t => t.of && t.of.kind === 'light' && t.of.id === id) || null;
+    }
+
+    function ensureLightTrack(id) {
+      let tr = lightTrackOf(id);
+      if (!tr) {
+        tr = {
+          id: S.newId('t'), of: { kind: 'light', id }, enabled: true, color: 0,
+          interp: 'smooth', motion: '', joint: '', path: null, keys: [],
+        };
+        st.doc.anim.tracks.push(tr);
+      }
+      return tr;
+    }
+
+    /* 当前灯已有轨道时，任何值改动 = 在播放头自动打一个关键帧（与机位同一副规矩）。 */
+    function autoKeyLight(light) {
+      if (!light || !lightTrackOf(light.id)) return;
+      const tr = ensureLightTrack(light.id);
+      const t = Math.round((view ? view.time : 0) * 100) / 100;
+      const key = { t, at: light.at.slice(), energy: light.energy, color: light.color };
+      if (light.shape !== 'point') key.target = light.target.slice();
+      tr.keys = tr.keys.filter(k => Math.abs(k.t - t) > 0.001);
+      tr.keys.push(key);
+      tr.keys.sort((a, b) => a.t - b.t);
+      paintDock();
+    }
+
+    function keyLight(id) {
+      const light = lightOf(id);
+      if (!light) return;
+      const tr = ensureLightTrack(id);
+      const t = Math.round((view ? view.time : 0) * 100) / 100;
+      tr.keys = tr.keys.filter(k => Math.abs(k.t - t) > 0.001);
+      const key = { t, at: light.at.slice(), energy: light.energy, color: light.color };
+      if (light.shape !== 'point') key.target = light.target.slice();
+      tr.keys.push(key);
+      tr.keys.sort((a, b) => a.t - b.t);
+      refreshPhead();
+      view.applyCamera(view.time);
+      paintDock();
+      paintLight();
+      note('在 ' + t.toFixed(1) + ' 秒给「' + light.name + '」打了灯光关键帧', 'ok');
+    }
+
+    function paintLights() {
+      const host = $('mmLights');
+      if (!host || !st.doc) return;
+      const lights = st.doc.scene.lights || [];
+      const rows = lights.map(l => {
+        const cur = l.id === st.selectedLight;
+        const renaming = st.renameId === l.id;
+        return '<div class="mm-cam-row' + (cur ? ' on' : '') + '" data-light-id="' + esc(l.id) + '">'
+          + '<button class="mm-cam-pick" type="button" data-light-act="use" data-light-id="' + esc(l.id) + '" title="选中这盏灯">' + ic('sun', 12) + '</button>'
+          + (renaming
+            ? '<input class="ui-inp mm-cam-rename" data-light-rename="' + esc(l.id) + '" value="' + esc(l.name) + '">'
+            : '<button class="mm-cam-name" type="button" data-light-act="use" data-light-id="' + esc(l.id) + '">' + esc(l.name) + '</button>')
+          + '<span class="mini">' + esc(lightShapeZh(l.shape)) + '</span>'
+          + '<button class="mm-tree-mini" type="button" data-light-act="rename" data-light-id="' + esc(l.id) + '" title="改名">' + ic('pencil', 11) + '</button>'
+          + '<button class="mm-tree-mini" type="button" data-light-act="del" data-light-id="' + esc(l.id) + '" title="删除">' + ic('trash', 11) + '</button>'
+          + '</div>';
+      }).join('');
+      host.innerHTML = '<div class="mm-cams-head"><span>灯 ' + lights.length + '</span>'
+        + '<button class="ghost mini" type="button" data-light-act="add">' + ic('plus', 12) + ' 灯</button></div>'
+        + (rows || '<div class="mm-empty">还没有实体灯（只有半球环境光）</div>');
+      host.onclick = e => {
+        const b = e.target.closest('[data-light-act]');
+        if (!b) return;
+        const id = b.dataset.lightId;
+        if (b.dataset.lightAct === 'use') { selectLight(id); return; }
+        if (b.dataset.lightAct === 'rename') {
+          st.renameId = id;
+          paintLights();
+          const input = host.querySelector('[data-light-rename]');
+          if (input) { window.focusQuiet && window.focusQuiet(input); input.select(); }
+          return;
+        }
+        if (b.dataset.lightAct === 'del') { deleteLight(id); return; }
+        if (b.dataset.lightAct === 'add') { addLight(); return; }
+        if (b.dataset.lightAct === 'key') { keyLight(st.selectedLight); return; }
+      };
+      host.onkeydown = e => {
+        const input = e.target.closest('[data-light-rename]');
+        if (!input) return;
+        if (e.key === 'Enter') { e.preventDefault(); commitLightRename(input.dataset.lightRename, input.value); }
+        else if (e.key === 'Escape') { e.preventDefault(); st.renameId = ''; paintLights(); }
+      };
+      host.onchange = e => {
+        const input = e.target.closest('[data-light-rename]');
+        if (input) commitLightRename(input.dataset.lightRename, input.value);
+      };
+    }
+
+    function commitLightRename(id, value) {
+      const light = lightOf(id);
+      if (light) light.name = String(value || '').trim() || light.name;
+      st.renameId = '';
+      refreshPhead();
+      paintLights();
+      paintLight();
+    }
+
+    async function deleteLight(id) {
+      const light = lightOf(id);
+      if (!light) return;
+      const ok = await window.Confirm.ask({
+        title: '删除灯「' + light.name + '」？', body: '这盏灯上的关键帧轨道会一起删掉。', danger: true, okLabel: '删除',
+      });
+      if (!ok) return;
+      st.doc.scene.lights = st.doc.scene.lights.filter(l => l.id !== id);
+      st.doc.anim.tracks = st.doc.anim.tracks.filter(t => !(t.of && t.of.kind === 'light' && t.of.id === id));
+      if (st.selectedLight === id) st.selectedLight = (st.doc.scene.lights[0] && st.doc.scene.lights[0].id) || '';
+      view.setDoc(st.doc, {});
+      refreshPhead();
+      paintAll();
+      note('已删除灯「' + light.name + '」', 'ok');
+    }
+
+    function addLight() {
+      const src = currentLight();
+      const light = src ? JSON.parse(JSON.stringify(src)) : {
+        shape: 'sun', at: [3, 4, 3], target: [0, 0, 0], energy: 2, color: '#ffffff',
+        shadow: { on: false, mapSize: 2048, bias: -0.0005, normalBias: 0.02 },
+      };
+      light.id = S.newId('l');
+      light.name = '灯 ' + (st.doc.scene.lights.length + 1);
+      st.doc.scene.lights.push(light);
+      st.selectedLight = light.id;
+      view.setDoc(st.doc, {});
+      refreshPhead();
+      paintAll();
+      note('已加灯「' + light.name + '」', 'ok');
+    }
+
+    async function applyLightPreset(pid) {
+      const preset = LIGHT_PRESETS.find(p => p.id === pid);
+      if (!preset) return;
+      const ok = await window.Confirm.ask({
+        title: '换成「' + preset.name + '」？',
+        body: '当前的灯与装置参数会被整套替换；换掉的灯上的关键帧轨道会清掉。',
+        okLabel: '替换',
+      });
+      if (!ok) return;
+      const clone = v => (v == null ? null : JSON.parse(JSON.stringify(v)));
+      st.doc.scene.lights = preset.lights == null ? S.defaultLights() : clone(preset.lights);
+      st.doc.scene.light = preset.light == null ? S.defaultLightDev() : clone(preset.light);
+      const ids = new Set(st.doc.scene.lights.map(l => l.id));
+      st.doc.anim.tracks = st.doc.anim.tracks.filter(t => !(t.of && t.of.kind === 'light') || ids.has(t.of.id));
+      if (!ids.has(st.selectedLight)) st.selectedLight = (st.doc.scene.lights[0] && st.doc.scene.lights[0].id) || '';
+      view.setDoc(st.doc, {});
+      refreshPhead();
+      paintAll();
+      note('已换成「' + preset.name + '」', 'ok');
+    }
+
+    function paintLight() {
+      const host = $('mmLight');
+      if (!host || !st.doc) return;
+      const l = currentLight();
+      if (!l) {
+        host.innerHTML = '<div class="mm-empty">没有实体灯：只有半球环境光。点上面「灯」加一盏。</div>';
+        return;
+      }
+      const nodes = [];
+      S.walkNodes(st.doc.scene.nodes, n => nodes.push(n));
+      const followOpts = '<option value="">不跟随</option>'
+        + nodes.map(n => '<option value="' + esc(n.id) + '"' + (l.follow === n.id ? ' selected' : '') + '>' + esc(nodeLabel(n)) + '</option>').join('');
+      const lightOpts = st.doc.scene.lights.map(x => '<option value="' + esc(x.id) + '"' + (x.id === l.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('');
+      const tr = lightTrackOf(l.id);
+      const shadow = l.shadow || { on: false, mapSize: 2048, bias: -0.0005, normalBias: 0.02 };
+      host.innerHTML =
+        '<div class="mm-field"><label>当前灯</label><select class="ui-inp" data-light-pick>' + lightOpts + '</select></div>'
+        + '<div class="mm-row"><label>形状</label><select class="ui-inp" data-light-shape>'
+        + S.LIGHT_SHAPES.map(sh => '<option value="' + sh + '"' + (l.shape === sh ? ' selected' : '') + '>' + lightShapeZh(sh) + '</option>').join('')
+        + '</select><label>能量</label>' + numInput('light.energy', l.energy, 0.1) + '</div>'
+        + '<div class="mm-field"><label>位置（x / y / z，米）</label><div class="mm-num3">' + numInput('light.at.0', l.at[0]) + numInput('light.at.1', l.at[1]) + numInput('light.at.2', l.at[2]) + '</div></div>'
+        + (l.shape !== 'point'
+          ? '<div class="mm-field"><label>看向（x / y / z，米）</label><div class="mm-num3">' + numInput('light.target.0', l.target[0]) + numInput('light.target.1', l.target[1]) + numInput('light.target.2', l.target[2]) + '</div></div>'
+          : '')
+        + '<div class="mm-row"><label>颜色</label><input class="mm-color" type="color" data-light="color" value="' + esc(l.color) + '" aria-label="灯光颜色">'
+        + (l.shape === 'sun'
+          ? '<label>阴影</label><select class="ui-inp" data-light-shadow><option value="on"' + (shadow.on ? ' selected' : '') + '>开</option><option value="off"' + (!shadow.on ? ' selected' : '') + '>关</option></select>'
+            + numInput('light.mapSize', shadow.mapSize, 1) + numInput('light.bias', shadow.bias, 0.0001) + numInput('light.normalBias', shadow.normalBias, 0.001)
+          : '')
+        + '</div>'
+        + (l.shape === 'spot'
+          ? '<div class="mm-row"><label>锥角 / 柔边 / 距离</label>' + numInput('light.angle', l.angle, 0.01) + numInput('light.penumbra', l.penumbra, 0.05) + numInput('light.distance', l.distance, 0.1) + '</div>'
+          : (l.shape === 'point' ? '<div class="mm-row"><label>距离</label>' + numInput('light.distance', l.distance, 0.1) + '</div>' : ''))
+        + '<div class="mm-row"><label>跟随</label><select class="ui-inp" data-light-follow>' + followOpts + '</select></div>'
+        + '<div class="mm-row"><span class="sp"></span>'
+        + '<button class="ghost mini" type="button" data-light-act="key">' + ic('key', 12) + ' 在播放头打灯光关键帧</button>'
+        + (tr ? '<span class="mm-empty">这盏灯已有动画轨道（' + tr.keys.length + ' 帧）</span>' : '')
+        + '</div>'
+        + '<div class="mm-row"><label>布光预设</label>'
+        + LIGHT_PRESETS.map(p => '<button class="ghost mini" type="button" data-light-preset="' + esc(p.id) + '">' + esc(p.name) + '</button>').join('')
+        + '</div>';
+
+      host.onchange = e => {
+        const pick = e.target.closest('[data-light-pick]');
+        if (pick) { selectLight(pick.value); return; }
+        const shape = e.target.closest('[data-light-shape]');
+        if (shape) { setLightShape(l, shape.value); return; }
+        const shadowSel = e.target.closest('[data-light-shadow]');
+        if (shadowSel) {
+          l.shadow = l.shadow || { on: false, mapSize: 2048, bias: -0.0005, normalBias: 0.02 };
+          l.shadow.on = shadowSel.value === 'on';
+          view.setDoc(st.doc, {});
+          refreshPhead();
+          paintLight();
+          return;
+        }
+        const follow = e.target.closest('[data-light-follow]');
+        if (follow) {
+          l.follow = follow.value;
+          refreshPhead();
+          view.applyCamera(view.time);
+          paintLight();
+          return;
+        }
+        const color = e.target.closest('[data-light]');
+        if (color) {
+          if (/^#[0-9a-f]{6}$/i.test(color.value)) l.color = color.value.toLowerCase();
+          autoKeyLight(l);
+          refreshPhead();
+          view.applyCamera(view.time);
+          paintLight();
+          return;
+        }
+        const f = e.target.closest('[data-prop]');
+        if (!f) return;
+        const key = f.dataset.prop;
+        const v = Number(f.value);
+        if (!Number.isFinite(v)) return;
+        if (key === 'light.energy') l.energy = Math.max(0, v);
+        else if (key === 'light.mapSize') { l.shadow = l.shadow || {}; l.shadow.mapSize = Math.max(32, Math.round(v)); }
+        else if (key === 'light.bias') { l.shadow = l.shadow || {}; l.shadow.bias = v; }
+        else if (key === 'light.normalBias') { l.shadow = l.shadow || {}; l.shadow.normalBias = v; }
+        else if (key === 'light.angle') l.angle = Math.min(Math.PI / 2, Math.max(0.01, v));
+        else if (key === 'light.penumbra') l.penumbra = Math.min(1, Math.max(0, v));
+        else if (key === 'light.distance') l.distance = Math.max(0, v);
+        else if (/^light\.(at|target)\.\d$/.test(key)) {
+          const [, k, i] = key.split('.');
+          if (Array.isArray(l[k])) l[k][Number(i)] = v;
+        }
+        /* 阴影贴图 / 形状之外的值只影响灯光本身，不必整场重建 */
+        autoKeyLight(l);
+        refreshPhead();
+        view.applyCamera(view.time);
+        if (key === 'light.mapSize' || key === 'light.bias' || key === 'light.normalBias') view.setDoc(st.doc, {});
+        paintLight();
+      };
+      host.onclick = e => {
+        const keyBtn = e.target.closest('[data-light-act="key"]');
+        if (keyBtn) { keyLight(l.id); return; }
+        const b = e.target.closest('[data-light-preset]');
+        if (b) applyLightPreset(b.dataset.lightPreset);
+      };
+    }
+
+    /* 换形状时补齐这类灯该有的字段、去掉不该有的（点光没有 target；只有太阳有阴影）。 */
+    function setLightShape(light, shape) {
+      if (S.LIGHT_SHAPES.indexOf(shape) < 0 || light.shape === shape) return;
+      light.shape = shape;
+      if (shape === 'point') {
+        delete light.target;
+        light.distance = light.distance || 0;
+        delete light.angle;
+        delete light.penumbra;
+        delete light.shadow;
+      } else if (shape === 'spot') {
+        light.target = light.target || [0, 0, 0];
+        light.angle = light.angle || Math.PI / 6;
+        light.penumbra = light.penumbra == null ? 0.35 : light.penumbra;
+        light.distance = light.distance || 0;
+        delete light.shadow;
+      } else {
+        light.target = light.target || [0, 0, 0];
+        light.shadow = light.shadow || { on: false, mapSize: 2048, bias: -0.0005, normalBias: 0.02 };
+        delete light.angle;
+        delete light.penumbra;
+        delete light.distance;
+      }
+      autoKeyLight(light);
+      view.setDoc(st.doc, {});
+      refreshPhead();
+      paintLight();
+      paintLights();
+    }
+
     async function pickPanorama() {
       try {
+        if (!await ensureAssetPicker()) { note('素材选择器没加载起来，刷新一次再试', 'err'); return; }
         const got = await window.AssetPicker.open({ types: ['图片'], multiple: false, limit: 1, title: '选一张全景图（等距柱状）' });
         if (!got || !got.length) return;
         const it = got[0];
@@ -2170,6 +2595,103 @@ export default {
       } catch (e) {
         note('选全景图失败：' + window.errText(e), 'err');
       }
+    }
+
+    /* ---------------- 涂鸦标注（画给 AI 看的运镜；不进 doc） ---------------- */
+    const SKETCH_COLORS = [
+      ['blue', '蓝 · 相机路径'], ['yellow', '黄 · 主体运动'], ['red', '红 · 避开'],
+      ['green', '绿 · 保留 / 重点'], ['white', '白 · 中性说明'], ['gray', '灰 · 背景参考'], ['black', '黑 · 背景参考'],
+    ];
+    const SKETCH_TOOLS = [
+      ['select', '选择（纯导航）'], ['brush', '画笔'], ['arrow', '箭头'], ['circle', '圆'],
+      ['rect', '矩形'], ['text', '文字'], ['eraser', '橡皮'],
+    ];
+    function hexOf(color) {
+      return '#' + ((SKETCH[color] != null ? SKETCH[color] : SKETCH.blue)).toString(16).padStart(6, '0');
+    }
+    function toggleSketch(on) {
+      const next = on == null ? !st.sketch.on : !!on;
+      st.sketch.on = next;
+      st.sketch.tool = next ? (st.sketch.tool === 'select' ? 'brush' : st.sketch.tool) : 'select';
+      if (view) view.setSketch({ ...st.sketch });
+      paintSketchBar();
+      paintTools();
+      if (next) note('在视口里画标注：蓝线 = 相机路径，黄线 = 主体运动；转视角用中 / 右键');
+    }
+    function paintSketchBar() {
+      const host = $('mmViewport');
+      if (!host) return;
+      let bar = host.querySelector('[data-r="mmSketch"]');
+      if (!st.sketch.on) { if (bar) bar.remove(); return; }
+      if (!bar) {
+        bar = document.createElement('div');
+        bar.className = 'mm-sketch';
+        bar.setAttribute('data-r', 'mmSketch');
+        host.appendChild(bar);
+      }
+      bar.innerHTML = '<div class="mm-sketch-colors">'
+        + SKETCH_COLORS.map(([id, title]) => '<button class="mm-sketch-swatch' + (st.sketch.color === id ? ' on' : '')
+          + '" type="button" data-sketch-color="' + id + '" title="' + title + '"></button>').join('')
+        + '</div>'
+        + '<div class="mm-sketch-tools">'
+        + SKETCH_TOOLS.map(([id, title]) => '<button class="ghost mini' + (st.sketch.tool === id ? ' on' : '')
+          + '" type="button" data-sketch-tool="' + id + '" title="' + title + '">' + title.split('（')[0] + '</button>').join('')
+        + '</div>'
+        + '<div class="mm-sketch-foot">'
+        + (st.sketch.tool === 'text'
+          ? '<input class="ui-inp" data-sketch-text placeholder="文字" value="' + esc(st.sketch.text) + '">'
+          : '')
+        + '<select class="ui-inp" data-sketch-mode>'
+        + '<option value="camera"' + (st.sketch.mode === 'camera' ? ' selected' : '') + '>镜头这么动</option>'
+        + '<option value="subject"' + (st.sketch.mode === 'subject' ? ' selected' : '') + '>主体这么走</option>'
+        + '</select>'
+        + '<span class="mm-sketch-count">' + st.sketchMarks.length + ' 条</span>'
+        + '<button class="ghost mini" type="button" data-act="sketchClear">清空</button>'
+        + '<button class="ghost mini" type="button" data-act="sketchAi">按标注生成运镜</button>'
+        + '<button class="pri" type="button" data-act="sketchDone">✓ 完成</button>'
+        + '</div>';
+      for (const b of bar.querySelectorAll('[data-sketch-color]')) {
+        b.style.background = hexOf(b.dataset.sketchColor);
+      }
+      bar.onclick = e => {
+        const col = e.target.closest('[data-sketch-color]');
+        if (col) { st.sketch.color = col.dataset.sketchColor; view.setSketch({ color: st.sketch.color }); paintSketchBar(); return; }
+        const tool = e.target.closest('[data-sketch-tool]');
+        if (tool) { st.sketch.tool = tool.dataset.sketchTool; view.setSketch({ tool: st.sketch.tool }); paintSketchBar(); return; }
+        if (e.target.closest('[data-act="sketchClear"]')) { view.clearSketch(); st.sketchMarks = []; paintSketchBar(); return; }
+        if (e.target.closest('[data-act="sketchAi"]')) { generateSketch(); return; }
+        if (e.target.closest('[data-act="sketchDone"]')) { toggleSketch(false); return; }
+      };
+      bar.oninput = e => {
+        const inp = e.target.closest('[data-sketch-text]');
+        if (!inp) return;
+        st.sketch.text = inp.value;
+        view.setSketch({ text: inp.value });
+      };
+      bar.onchange = e => {
+        const mode = e.target.closest('[data-sketch-mode]');
+        if (mode) st.sketch.mode = mode.value === 'subject' ? 'subject' : 'camera';
+      };
+    }
+    async function generateSketch() {
+      if (!view || st.busy) return;
+      const marks = view.getSketch();
+      if (!marks.length) { note('先在视口里画几笔：蓝线 = 相机路径，黄线 = 主体运动', 'err'); return; }
+      const typed = (($('mmPrompt') && $('mmPrompt').value) || '').trim();
+      const camPath = st.sketch.mode === 'camera' ? view.getSketchCamPath() : [];
+      note('按标注生成运镜…');
+      await generate({
+        prompt: typed || ((st.sketch.mode === 'subject' ? '按黄色标注让主体这样运动，镜头跟住' : '按蓝色标注生成一条运镜')),
+        noSelection: true,
+        sketch: {
+          mode: st.sketch.mode,
+          marks,
+          camPath,
+          aspect: view ? view.aspect : '16:9',
+          duration: st.doc ? st.doc.anim.duration : 4,
+          fps: st.doc ? st.doc.anim.fps : 24,
+        },
+      });
     }
 
     /* ---------------- 工具条 ---------------- */
@@ -2192,6 +2714,7 @@ export default {
         + ['near', 'mid', 'wide'].map(k => '<button type="button" data-frame="' + k + '" title="导演视角取景：' + ({ near: '近景（看上半身）', mid: '中景（整体）', wide: '全景（再退一档）' }[k]) + '">' + ({ near: '近景', mid: '中景', wide: '全景' }[k]) + '</button>').join('')
         + '</div></span>'
         + '<span class="sp"></span>'
+        + '<button class="tool" type="button" data-sketch="1" title="涂鸦标注（画给 AI 看的运镜）" aria-pressed="' + (st.sketch.on ? 'true' : 'false') + '">' + ic('pencil', 14) + '</button>'
         + '<button class="ghost" type="button" data-act="shot">' + ic('image', 13) + ' 出图</button>'
         + '<button class="ghost" type="button" data-act="record">' + ic('video', 13) + ' 出片</button>';
       host.onclick = e => {
@@ -2228,6 +2751,7 @@ export default {
         }
         if (e.target.closest('[data-act="shot"]')) { doShot(); return; }
         if (e.target.closest('[data-act="record"]')) { doRecord(); return; }
+        if (e.target.closest('[data-sketch]')) { toggleSketch(); return; }
       };
     }
 
@@ -2715,8 +3239,9 @@ export default {
       try {
         if (!window.Api || !window.AssetLocal) throw new Error('公共模块没就绪');
         mountView();
+        installModelBridge();
         st.railTab = window.LS.get('sk_model_rail', 'scene') === 'lib' ? 'lib' : 'scene';
-        st.sideTab = ['ai', 'props', 'cam'].includes(window.LS.get('sk_model_side', 'ai')) ? window.LS.get('sk_model_side', 'ai') : 'ai';
+        st.sideTab = ['ai', 'props', 'cam', 'light'].includes(window.LS.get('sk_model_side', 'ai')) ? window.LS.get('sk_model_side', 'ai') : 'ai';
         st.outOpen = window.LS.get('sk_model_out_open', '1') !== '0';
         initDock();
         st.doc = blankScene('未命名场景');
@@ -2724,6 +3249,7 @@ export default {
         st.savedDigest = '';
         st.selectedId = '';
         st.selectedCam = '';
+        st.selectedLight = '';
         view.setDoc(st.doc, { refit: true, resetTime: true });
         if (window.Dropdowns) window.Dropdowns.build(pageEl.value);
         if (window.fillIcons) window.fillIcons(pageEl.value);
@@ -2739,6 +3265,15 @@ export default {
       }
     }
 
+    /* 参考素材的类别：图片 / 视频 / 声音。MIME 优先，没给 MIME（拖放来的某些文件）就看扩展名。 */
+    function refKindOf(file) {
+      const type = String((file && file.type) || '').toLowerCase();
+      const name = String((file && file.name) || '');
+      if (/^image\//.test(type) || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(name)) return 'image';
+      if (/^video\//.test(type) || /\.(mp4|mov|webm|mkv|avi|m4v)$/i.test(name)) return 'video';
+      if (/^audio\//.test(type) || /\.(mp3|wav|m4a|aac|ogg|flac|opus)$/i.test(name)) return 'audio';
+      return '';
+    }
     function refImageOf(file) {
       return new Promise(resolve => {
         const reader = new FileReader();
@@ -2750,13 +3285,117 @@ export default {
         reader.readAsDataURL(file);
       });
     }
+    /* 视频 / 声音不读成 dataURL：字节留在磁盘上，给 AI 时由 TextAI 现读；
+       本机预览与抽帧直接吃 blob: 地址（MediaBackend 与 fetch 都认）。 */
+    function refMediaOf(file, forceKind) {
+      const kind = forceKind || refKindOf(file);
+      if (!kind) return Promise.resolve(null);
+      if (kind === 'image') {
+        return refImageOf(file).then(x => (x ? Object.assign({ kind: 'image' }, x) : null));
+      }
+      const label = file.name || (kind === 'video' ? '视频' : '声音');
+      return Promise.resolve({ kind, label, src: URL.createObjectURL(file), file, size: file.size || 0 });
+    }
+    function refIsBlob(x) { return !!(x && x.kind !== 'image' && /^blob:/i.test(String(x.src || ''))); }
+    function dropRefs() {
+      (st.refImages || []).forEach(x => { if (refIsBlob(x)) { try { URL.revokeObjectURL(x.src); } catch (e) { /* 已释放过就算了 */ } } });
+      st.refImages = [];
+    }
 
-    async function addRefImages(files) {
-      const list = Array.from(files || []).filter(f => /^image\//i.test(String(f.type || '')) || /\.(png|jpe?g|webp|gif|bmp)$/i.test(String(f.name || '')));
-      if (!list.length) { note('只收图片文件', 'err'); return; }
-      const made = (await Promise.all(list.map(refImageOf))).filter(Boolean);
+    const REF_KIND_ZH = { image: '图片', video: '视频', audio: '声音' };
+    async function addRefMedia(files, forceKind) {
+      const list = Array.from(files || []).filter(f => !!refKindOf(f));
+      if (!list.length) { note('只收图片 / 视频 / 声音文件', 'err'); return []; }
+      const made = (await Promise.all(list.map(f => refMediaOf(f, forceKind)))).filter(Boolean);
       st.refImages = st.refImages.concat(made);
-      if (made.length) { paintSide(); note('已加入 ' + made.length + ' 张图片', 'ok'); }
+      if (made.length) {
+        const kinds = new Set(made.map(x => x.kind));
+        paintSide();
+        note('已加入 ' + made.length + ' 个素材（' + [...kinds].map(k => REF_KIND_ZH[k]).join(' / ') + '）', 'ok');
+      }
+      return made;
+    }
+    /* 统一素材选择器：建模台只留一颗「选素材」，点开的是全站那一份 AssetPicker
+       （资产库 / 我的收藏 / 素材库 / 本地上传），不再摆三颗各自只收一类的按钮。
+       这一页不常驻 workbench / asset-picker / chars，第一次点的时候补一次。 */
+    let pickerLoading = null;
+    function loadPickerScript(src, test) {
+      if (typeof window.__spaLoadScript !== 'function') return Promise.reject(new Error('页面加载器没就绪'));
+      return window.__spaLoadScript(src, test);
+    }
+    function ensureAssetPicker() {
+      if (window.AssetPicker && window.Wb) return Promise.resolve(true);
+      if (!pickerLoading) {
+        pickerLoading = Promise.all([
+          loadPickerScript('web/ui/workbench.js', () => window.Wb),
+          loadPickerScript('web/domain/asset-picker.js', () => window.AssetPicker),
+          window.Chars ? Promise.resolve(true) : loadPickerScript('web/domain/chars.js', () => window.Chars),
+        ]).then(() => !!(window.AssetPicker && window.Wb)).catch(() => false);
+      }
+      return pickerLoading.then(ok => { if (!ok) pickerLoading = null; return ok; });
+    }
+    async function refsFromPicker(list) {
+      const made = [];
+      const seen = new Set((st.refImages || []).map(x => (x.kind || 'image') + '|' + String(x.src || '')));
+      const collectRef = one => {
+        if (!one) return;
+        const key = one.kind + '|' + String(one.src || '');
+        if (seen.has(key)) return;
+        seen.add(key);
+        made.push(one);
+      };
+      for (const en of (list || [])) {
+        if (!en || en.dead) continue;
+        if (en.file) { collectRef(await refMediaOf(en.file)); continue; }
+        const kind = en.type === '视频' ? 'video' : en.type === '音频' ? 'audio' : 'image';
+        const raw = en.dl || en.src || en.url || '';
+        if (!raw) continue;
+        const src = (window.Api && Api.mediaSrc) ? Api.mediaSrc(raw) : raw;
+        const label = String(en.label || en.name || en.prompt || REF_KIND_ZH[kind]).slice(0, 40);
+        collectRef({ kind: kind, label: label, src: src });
+      }
+      return made;
+    }
+    async function openAssetPicker(opts) {
+      if (!await ensureAssetPicker()) {
+        note('素材选择器没加载起来，刷新一次再试', 'err');
+        return [];
+      }
+      try {
+        return await window.AssetPicker.open(Object.assign({
+          types: ['图片', '视频', '音频'], multiple: true, title: '选参考素材',
+          upload: { accept: 'image/*,video/*,audio/*' },
+        }, opts || {}));
+      } catch (e) {
+        note('打开素材选择器失败：' + window.errText(e), 'err');
+        return [];
+      }
+    }
+    async function pickRefMedia() {
+      const got = await openAssetPicker();
+      const made = await refsFromPicker(got);
+      if (!made.length) return;
+      st.refImages = st.refImages.concat(made);
+      paintSide();
+      note('已加入 ' + made.length + ' 个素材', 'ok');
+    }
+    /* 视频转白模：选一段视频，交给 AI 按它建白模。
+       文字型号能看视频就把视频本体发过去；只能看图时按设置退成几帧画面（本机解码，不经过服务端）。
+       提示词空着时先填一句，用户还能改；接着直接开跑 —— 这一个入口的语义就是「选完就建」。 */
+    async function videoToModel() {
+      const got = await openAssetPicker({ types: ['视频'], multiple: false, limit: 1, title: '选一段视频转白模', upload: { accept: 'video/*' } });
+      const made = (await refsFromPicker(got)).filter(x => x.kind === 'video');
+      if (!made.length) return;
+      st.refImages = st.refImages.concat(made);
+      if (!String(st.prompt || '').trim()) st.prompt = '按这段视频里的角色与动作建一个白模人物：主体、比例、姿势都要对得上';
+      paintSide();
+      await generate();
+    }
+    /* 「视频看不明白时要不要取帧 / 取几帧」在设置页「建模台」卡里（sk_model_vframes / vframe_n）。 */
+    function frameOpt() {
+      const mode = String((window.LS && window.LS.get('sk_model_vframes')) || 'auto');
+      const n = Math.round(Number(window.LS && window.LS.get('sk_model_vframe_n')) || 4);
+      return { mode: ['auto', 'on', 'off'].includes(mode) ? mode : 'auto', n: Math.max(1, Math.min(12, n)) };
     }
 
     function bindChrome() {
@@ -2790,12 +3429,6 @@ export default {
         fjson.value = '';
         await importAnyJson(file);
       };
-      const fimg = $('mmImgInput');
-      fimg.onchange = async () => {
-        const files = fimg.files;
-        fimg.value = '';
-        await addRefImages(files);
-      };
       const side = $('mmSideBody');
       side.ondragover = e => {
         if (!Array.from((e.dataTransfer && e.dataTransfer.types) || []).includes('Files')) return;
@@ -2806,13 +3439,13 @@ export default {
         const files = e.dataTransfer && e.dataTransfer.files;
         if (!files || !files.length) return;
         e.preventDefault();
-        await addRefImages(files);
+        await addRefMedia(files);
       };
       side.onpaste = e => {
         const files = e.clipboardData && e.clipboardData.files;
         if (!files || !files.length) return;
         e.preventDefault();
-        addRefImages(files);
+        addRefMedia(files);
       };
     }
 
@@ -2829,8 +3462,10 @@ export default {
         shot: box.shot || '',
       } : null);
       st.prompt = box.prompt || '';
+      dropRefs();
       st.refImages = (Array.isArray(box.images) ? box.images : []).map((x, i) => ({
-        label: x.label || x.name || ('参考图 ' + (i + 1)),
+        kind: x.kind === 'video' || x.kind === 'audio' ? x.kind : 'image',
+        label: x.label || x.name || ('素材 ' + (i + 1)),
         src: window.Api.mediaSrc ? window.Api.mediaSrc(x.url || x.src || '') : (x.url || x.src || ''),
       })).filter(x => x.src);
       if (!st.library) {
@@ -2841,8 +3476,156 @@ export default {
       if (!st.doc || st.docLibrary !== st.library) await createScene();
       paintSide();
       const from = box.from === 'director' ? '导演台' : box.from === 'studio' ? '工作台' : '别的页面';
-      note('已从' + from + '带入这一句' + (st.refImages.length ? '和 ' + st.refImages.length + ' 张参考图' : '') + '，正在生成实体…');
+      note('已从' + from + '带入这一句' + (st.refImages.length ? '和 ' + st.refImages.length + ' 个参考素材' : '') + '，正在生成实体…');
       await generate();
+    }
+
+    /* ---------------- 助手写入桥（WBBridge.model3d） ----------------
+       与导演台同一副契约：check 纯读、run 写入 + 撤销快照。动作本体就是 applyDocOps 与
+       页面现成的 insertModel，不另开一套白膜操作；只在建模台可见时可用。 */
+    const MODEL_BRIDGE_MAX = 20;
+    let bridgeUndo = [];
+    let bridgeOff = null;
+
+    function bridgeReady() {
+      return !!active.value && !!(st.doc && st.doc.scene) && !!st.library;
+    }
+    function bridgeEntities() {
+      return (st.doc.scene.nodes || []).map(n => ({
+        id: n.id, name: n.name || '', kind: n.kind, shape: n.shape || '', parts: S.countNodes({ scene: { nodes: [n] } }),
+      }));
+    }
+    function bridgeSnapshot(label) {
+      try { bridgeUndo.push({ label, doc: S.cloneDoc(st.doc) }); } catch (e) { /* 快照失败不该打断写入 */ }
+      if (bridgeUndo.length > MODEL_BRIDGE_MAX) bridgeUndo.shift();
+    }
+    function bridgeScopeOf(arg) {
+      if (!arg || arg.scope !== 'selection') return null;
+      if (!st.selectedId) return undefined;
+      const node = S.findNode(st.doc.scene.nodes, st.selectedId);
+      return node ? new Set(subtreeIds(node)) : undefined;
+    }
+    function bridgeCheckEdit(arg) {
+      const ops = Array.isArray(arg && arg.ops) ? arg.ops : [];
+      if (!ops.length) return { ok: false, err: 'ops 是空的：至少要有一条要改的东西' };
+      const scope = bridgeScopeOf(arg);
+      if (scope === undefined) {
+        return { ok: false, err: 'scope 是 selection，但现在没有选中实体：先选中一件，或者不给 scope（场景级改动）' };
+      }
+      const r = S.applyDocOps(st.doc, ops, { scope });
+      if (!r.applied) return { ok: false, err: '这几条 op 一条也没生效：' + ((r.errors[0] && r.errors[0].why) || '格式不对') };
+      const lines = ['应用 ' + r.applied + ' 条修改'];
+      if (r.skipped) lines.push('跳过 ' + r.skipped + ' 条：' + r.errors.slice(0, 3).map(e => e.why).join('；'));
+      return { ok: true, text: '改白膜（' + lines.join(' · ') + '）', lines, applied: r.applied, skipped: r.skipped };
+    }
+    function bridgeCheck(op, a) {
+      const arg = a || {};
+      if (!bridgeReady()) return { ok: false, err: '建模台没就绪（先切到建模台、选一个白模库并打开场景）' };
+      if (op === 'edit') return bridgeCheckEdit(arg);
+      if (op === 'new') {
+        const name = String(arg.name || '').trim();
+        if (!name) return { ok: false, err: '新建白膜要给一个名字' };
+        return { ok: true, text: '新建白膜「' + name + '」', lines: ['在「' + st.library + '」的当前场景里新建一个空实体「' + name + '」'] };
+      }
+      if (op === 'add') {
+        const id = String(arg.id || '').trim();
+        if (!id) return { ok: false, err: '要给白模库里的模型 id（先用 model_list 看有哪些）' };
+        const hit = (st.models || []).find(m => String(m.id) === id);
+        if (!hit) {
+          const near = (st.models || []).slice(0, 8).map(m => m.id).join(' / ');
+          return { ok: false, err: '「' + st.library + '」里没有模型「' + id + '」。现有的：' + (near || '（没有模型）') };
+        }
+        return {
+          ok: true,
+          text: '把「' + (hit.name || id) + '」放进场景',
+          lines: ['从白模库「' + st.library + '」深拷贝「' + (hit.name || id) + '」成一个可编辑实体'],
+        };
+      }
+      if (op === 'undo') {
+        if (!bridgeUndo.length) return { ok: false, err: '没有可以撤销的助手改动' };
+        const top = bridgeUndo[bridgeUndo.length - 1];
+        return { ok: true, text: '撤销「' + top.label + '」', lines: ['把白膜退回到「' + top.label + '」之前那一版'] };
+      }
+      return { ok: false, err: '不认识的建模操作：' + op };
+    }
+    async function bridgeRun(op, a) {
+      const arg = a || {};
+      if (!bridgeReady()) return { ok: false, err: '建模台没就绪（先切到建模台、选一个白模库并打开场景）' };
+      if (op === 'edit') {
+        const chk = bridgeCheckEdit(arg);
+        if (!chk.ok) return chk;
+        const r = S.applyDocOps(st.doc, arg.ops, { scope: bridgeScopeOf(arg) });
+        if (!r.applied) return { ok: false, err: '这几条 op 一条也没生效' };
+        bridgeSnapshot('改白膜');
+        st.doc = r.doc;
+        st.savedDigest = '';
+        if (view) view.setDoc(st.doc, { refit: false });
+        paintAll();
+        return { ok: true, text: chk.text };
+      }
+      if (op === 'new') {
+        const name = String(arg.name || '').trim();
+        if (!name) return { ok: false, err: '新建白膜要给一个名字' };
+        bridgeSnapshot('新建白膜「' + name + '」');
+        const node = { kind: 'group', id: S.newId('e'), name, at: [0, 0, 0], rot: [0, 0, 0], scale: [1, 1, 1] };
+        st.doc.scene.nodes.push(node);
+        st.selectedId = node.id;
+        st.selIds = [node.id];
+        st.selectedCam = '';
+        st.selectedLight = '';
+        st.savedDigest = '';
+        if (view) view.setDoc(st.doc, { refit: false });
+        paintAll();
+        note('助手新建了白膜「' + name + '」', 'ok');
+        return { ok: true, text: '新建白膜「' + name + '」' };
+      }
+      if (op === 'add') {
+        const chk = bridgeCheck('add', arg);
+        if (!chk.ok) return chk;
+        bridgeSnapshot('放入模型「' + arg.id + '」');
+        await insertModel(String(arg.id), st.library);
+        return { ok: true, text: chk.text };
+      }
+      if (op === 'undo') {
+        const top = bridgeUndo.pop();
+        if (!top) return { ok: false, err: '没有可以撤销的助手改动' };
+        st.doc = top.doc;
+        st.savedDigest = '';
+        if (view) view.setDoc(st.doc, { refit: false });
+        paintAll();
+        return { ok: true, text: '已撤销「' + top.label + '」' };
+      }
+      return { ok: false, err: '不认识的建模操作：' + op };
+    }
+    function installModelBridge() {
+      if (!window.WBBridge || typeof window.WBBridge.install !== 'function') return;
+      bridgeOff = window.WBBridge.install('model3d', {
+        ready: bridgeReady,
+        list: () => ({
+          白模库: st.library,
+          库列表: (st.libraries || []).map(x => x.id),
+          当前场景: st.savedId || '（未保存）',
+          实体: bridgeEntities(),
+          库里模型: (st.models || []).map(m => ({ id: m.id, name: m.name || '', group: m.group || '', nodes: m.nodes })),
+          场景列表: (st.scenes || []).map(s => s.id),
+          灯: (st.doc.scene.lights || []).map(l => ({ id: l.id, name: l.name, shape: l.shape })),
+        }),
+        read: a => {
+          const id = String((a && a.id) || '').trim();
+          const node = id ? S.findNode(st.doc.scene.nodes, id) : null;
+          if (!node) return { 错误: '当前场景里没有实体「' + (id || '空') + '」', 实体: bridgeEntities() };
+          const ids = subtreeIds(node);
+          const tracks = (st.doc.anim.tracks || []).filter(t => t.of && t.of.kind === 'node' && ids.has(t.of.id));
+          return {
+            实体: AI.compactNode(node),
+            轨道: tracks.map(S.sparseTrack),
+            大纲: S.outlineOf({ scene: { nodes: [node] } }),
+          };
+        },
+        thumbnail: () => aiThumbnail(),
+        check: bridgeCheck,
+        run: bridgeRun,
+      });
     }
 
     onMounted(async () => { await nextTick(); await boot(); });
@@ -2862,6 +3645,7 @@ export default {
     onBeforeUnmount(() => {
       disposed = true;
       stopStreamSoon();
+      if (bridgeOff) { bridgeOff(); bridgeOff = null; }
       if (dock) { dock.destroy(); dock = null; }
       Loader.clearAssetCache();
       if (view) { view.dispose(); view = null; }

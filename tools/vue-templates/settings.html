@@ -167,18 +167,15 @@
                 </div>
               </div>
 
-              <!-- 「自定义供应商」那一张表：卡片流末尾那张「添加供应商」卡**自己变成**这张卡，
-                   字段就在这张卡里填（与账号卡同一副壳，没有第二套添加界面）。卡片尺寸不变 ——
-                   这一格也只是卡内那段可滚区里的一列行。
-                   顺序按填一家的顺序走：接口形状 → 名字 → 地址 → 密钥 → **能力档位**（密钥之后，
-                   与卡顶那排能力格同一副图标；可多选）→ 型号。 -->
+              <!-- 「自定义供应商」表单：卡片流末尾那张「添加供应商」卡展开成这一张浮层。
+                   一个条目 = 一张账号卡 + 多档能力；六档（图片 / 视频 / 语音 / 文字 / 识别 / 搜索）
+                   同一层级，每一档各自选接口形状与型号。
+                   顺序：**能力**（可多选）→ 名字 / 地址 / 密钥 → 每一档的配置。 -->
+              <div class="cus-scrim" v-show="cusShown" @click="hideCus"></div>
               <div class="cus-form" ref="cusCardEl" :hidden="!cusShown">
-                <div class="krow thin" :hidden="!cusShapeShown">
-                  <span class="kn">接口形状</span>
-                  <select ref="cusShapeEl" v-model="cusShapeSel" @change="onCusShapeChange" style="flex:1 1 auto">
-                    <option v-for="f in cusShapeOpts" :key="f.id || 'none'" :value="f.id">{{ f.label }}</option>
-                  </select>
-                </div>
+                <!-- 浮层自己的标题与「返回预设」：表单盖住了卡片头，关掉要有一扇看得见的门。 -->
+                <div class="cus-form-head"><span class="t">添加 / 编辑供应商</span><span class="sp"></span>
+                  <button class="ghost mini" type="button" data-cus-close="1">返回预设</button></div>
                 <div class="krow thin">
                   <span class="kn">显示名</span>
                   <input ref="cusNameEl" v-model="cusName" :placeholder="cusNamePh">
@@ -192,31 +189,13 @@
                   <input ref="cusKeyEl" :type="cusKeyShown ? 'text' : 'password'" v-model="cusKey" placeholder="这一家的密钥">
                   <span class="acts"><button class="ghost eye" type="button" :title="cusKeyShown ? '隐藏密钥' : '显示密钥'" @click="cusKeyShown = !cusKeyShown"><span v-html="cusKeyShown ? icEyeOff : icEye"></span></button></span>
                 </div>
-                <!-- 能力档位：与卡顶那排能力格同一副图标（.capcell），可多选；第一个选中的是主档，
-                     其余按「手动声明」记在这一家上（见 settings.js 的 pickCusCap / addCus）。 -->
+                <!-- 能力：与卡顶那排能力格同一副图标（.capcell），六档同一层级、可多选。 -->
                 <div class="krow thin" style="align-items:flex-start">
-                  <span class="kn">能力档位</span>
+                  <span class="kn">能力</span>
                   <div class="cappick" ref="cusCapEl"></div>
                 </div>
-                <div class="krow thin" style="align-items:flex-start">
-                  <span class="kn">型号</span>
-                  <div class="cus-models mlist" :class="{ empty: !cusModelRows.length }">
-                    <div v-if="!cusModelRows.length" class="mlist-empty">{{ cusModelsEmpty }}</div>
-                    <template v-else>
-                      <label class="mlist-row" v-for="x in cusModelRows" :key="x.id">
-                        <input type="checkbox" :checked="!cusOff.has(x.id)" @change="onCusModelToggle(x.id, $event)">
-                        <span>{{ x.name }} <code>{{ x.id }}</code></span>
-                        <span class="mlist-src">{{ x.tagZh }}</span>
-                      </label>
-                    </template>
-                  </div>
-                </div>
-                <div class="krow thin">
-                  <span class="kn">自己填 id</span>
-                  <input ref="cusExtraEl" v-model="cusExtra" @input="rebuildCusModels" placeholder="逗号分隔">
-                  <span class="acts"><button class="ghost mini" :disabled="cusFetchBusy" @click="fetchCusModels"
-                    title="只读，不花钱">{{ cusFetchBusy ? '获取中…' : '获取型号列表' }}</button></span>
-                </div>
+                <!-- 每一档的配置块由 paintCusCapBlocks 画（接口形状 / 型号清单 / 文字档输入能力）。 -->
+                <div class="cus-caps" ref="cusCapsBoxEl"></div>
                 <div class="cus-acts">
                   <button class="tool acc" @click="addCus">{{ cusAddText }}</button>
                   <button class="ghost" v-show="cusCancelShown" @click="cancelCus">取消编辑</button>
@@ -230,7 +209,7 @@
                       <span class="hint sm">{{ g.zh }}</span>
                       <span class="cus-mine-i" v-for="e in g.items" :key="e.id" :class="{ on: e.id === cusEditing }">
                         <span class="t">{{ e.name }}</span>
-                        <span class="hint sm">{{ e.modelsN }} 个型号</span>
+                        <span class="hint sm">{{ e.capsZh }} · {{ e.modelsN }} 个型号</span>
                         <button class="ghost mini" @click="editCus(e.id)">编辑</button>
                         <button class="ghost mini danger" @click="removeCus(e.id)">删除</button>
                       </span>
@@ -273,6 +252,11 @@
               <div class="card card-surface" data-nav="chars">
                 <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
                 <div class="kcols" ref="charsBoxEl"></div>
+              </div>
+
+              <div class="card card-surface" data-nav="model">
+                <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>建模台</h2>
+                <div class="kcols" ref="modelBoxEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="assistant">

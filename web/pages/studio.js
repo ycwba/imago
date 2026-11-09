@@ -15,7 +15,7 @@
      · 按类型各存的提示词在切回来时真的恢复（旧页面只存不读，与它自己那句「切回来不该丢」对不上）；
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
 import { ref, inject, watch, nextTick, onMounted, onActivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
-import { createBand } from '../ui/index.js';
+import { createBand, createAssetMention, libraryPicChoices, libraryTokenOf } from '../ui/index.js';
 import { createCrossCol } from './studio/cross-col.js';
 import { createSplit } from './studio/split.js';
 import { createVideoFill } from './studio/videofill.js';
@@ -192,6 +192,7 @@ const StudioView = {
         s.prompt = shot.prompt; s.style = shot.style;
         s.topBools = Object.assign({}, shot.topBools);
         if ($('prompt')) $('prompt').value = shot.prompt || '';
+        syncPromptBack();
         if ($('style')) $('style').value = shot.style || '';
         renderInputArea(); renderParams(); updateMode(); refreshEst(); updateGoState();
         Toast.receipt('已撤销清空', 'ok');
@@ -238,6 +239,7 @@ const StudioView = {
            之后只在输入时写盘 —— 切换时不再回读，免得「清空过又切回来」把旧稿捞出来。 */
         const s = cur();
         if ($('prompt')) $('prompt').value = s.prompt || '';
+        syncPromptBack();
         if ($('style')) $('style').value = s.style || '';
         if (fromUser) paintLeft();
       }
@@ -259,7 +261,14 @@ const StudioView = {
         return await AssetTransfer.toDataURL(await r.blob());
       };
       const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
-      function setStatus(html) { const el = $('status'); if (el) el.innerHTML = window.sanitizeHTML(html || ''); }
+      /* 状态行是钉底栏里的一行：被长文案撑高就把生成按钮与估价顶开。
+         所以它只排一行、超出截断，全文挂在 title 上（悬停能看全）。 */
+      function setStatus(html) {
+        const el = $('status');
+        if (!el) return;
+        el.innerHTML = window.sanitizeHTML(html || '');
+        el.title = el.textContent || '';
+      }
       function syncDropdowns() {
         if (window.Dropdowns && pageEl.value) { Dropdowns.build(pageEl.value); Dropdowns.sync(pageEl.value); }
       }
@@ -326,7 +335,10 @@ const StudioView = {
         const declared = new Map((base.concat((p && p.modelDocs) || [])).map(m => [m.id, m]));
         const live = ((cur().liveModels || {})[p && p.id] || null);
         const off = m => !!(window.ModelPrefs && window.ModelPrefs.isOff(p, (m && m.id) || m));
-        const list = (live && live.length) ? live.filter(m => !off(m)) : base;
+        /* 能力接口给的是**这一家上游的原始清单**（MiMo 的 /v1/models 同时列 TTS 与对话模型）。
+           语音台只列这一条声明收的型号：modelsFilter / modelsExclude 与设置页、代理同一套判据。 */
+        const allow = m => !(window.TextAI && TextAI.modelAllowed) || TextAI.modelAllowed(p, (m && m.id) || m);
+        const list = (live && live.length) ? live.filter(m => !off(m) && allow(m)) : base;
         return list.map(m => {
           const d = declared.get(m.id) || {};
           const out = Object.assign({}, d, m);
@@ -449,6 +461,7 @@ const StudioView = {
       const ROLE_KIND = { reference_image: 'image', reference_video: 'video', reference_audio: 'audio',
         first_frame: 'frame_first', last_frame: 'frame_last' };
       let slots = [];
+      let slotLastErr = '';
       let overSlot = null;
       const inputs = () => cur().inputs;
       function slotItems(kind) { const m = inputs(); if (!m[kind]) m[kind] = []; return m[kind]; }
@@ -602,6 +615,7 @@ const StudioView = {
       async function addSlotFiles(kind, fileList) {
         const files = [...fileList];
         const def = SLOT_DEF[kind] || SLOT_DEF.image;
+        slotLastErr = '';
         const sl = slots.find(x => x.kind === kind);
         if (!sl) { setStatus('<span class="err">当前型号不支持「' + def.label + '」这类素材</span>'); return 0; }
         const max = sl.max;
@@ -614,9 +628,16 @@ const StudioView = {
           if (isAud && !def.accept.includes('audio')) { setStatus('<span class="err">' + def.label + '不支持音频文件</span>'); continue; }
           if (isVid) {
             if (def.videoFrame) {
-              setStatus('正在从视频《' + (f.name || '') + '》取' + (def.videoFrame === 'last' ? '尾' : '首') + '帧…');
-              try { arr.push(await Wb.vframe.fromFile(f, def.videoFrame)); arr[arr.length - 1].kind = kind; added++; setStatus('<span class="ok">✓ 已取最后一帧作为' + def.label + '</span>'); }
-              catch (err) { setStatus('<span class="err">取帧失败：' + err.message + '</span>'); }
+              const which = def.videoFrame === 'last' ? '尾' : '首';
+              setStatus('正在从视频《' + (f.name || '') + '》取' + which + '帧…');
+              try {
+                arr.push(await Wb.vframe.fromFile(f, def.videoFrame));
+                arr[arr.length - 1].kind = kind; added++;
+                setStatus('<span class="ok">✓ 已取' + which + '帧作为' + def.label + '</span>');
+              } catch (err) {
+                slotLastErr = '取帧失败：' + err.message;
+                setStatus('<span class="err">' + slotLastErr + '</span>');
+              }
               continue;
             }
             if (!def.accept.includes('video')) { setStatus('<span class="err">' + def.label + '不支持视频文件</span>'); continue; }
@@ -672,19 +693,20 @@ const StudioView = {
           if (en.type === '图片' && !def.accept.includes('image')) { skipped.push('这一格不收图片'); continue; }
           if (en.assetId && arr.some(x => x.assetId === en.assetId)) { skipped.push('已经在槽里了'); continue; }
           if (en.type === '视频' && def.videoFrame) {
-            setStatus('正在从资产库视频里取' + (def.videoFrame === 'last' ? '尾' : '首') + '帧…');
+            const which = def.videoFrame === 'last' ? '尾' : '首';
+            setStatus('正在从资产库视频里取' + which + '帧…');
             try {
-              const blob = await AssetTransfer.blobOf(en.dl || en.src);
-              const name = ((en.prompt || 'video').replace(/\s+/g, ' ').trim().slice(0, 14) || 'video') + '.mp4';
-              const vf = new File([blob], name, { type: blob.type || 'video/mp4' });
-              const it = await Wb.vframe.fromFile(vf, def.videoFrame); it.kind = sl.kind;
+              /* 直接按地址取帧：不把整段视频下载成本地文件（大视频那一趟要几分钟）。 */
+              const src = window.Api && Api.mediaSrc ? Api.mediaSrc(en.src || en.dl) : (en.src || en.dl);
+              const it = await Wb.vframe.fromSrc(src, def.videoFrame, en.prompt || 'video');
+              it.kind = sl.kind;
               arr.push(it); added++;
-              setStatus('<span class="ok">✓ 已取最后一帧作为' + def.label + '</span>');
+              setStatus('<span class="ok">✓ 已取' + which + '帧作为' + def.label + '</span>');
             } catch (err) { skipped.push('取帧失败：' + err.message); }
             continue;
           }
           const item = { assetId: en.assetId, url: Api.mediaSrc(en.src), name: (en.prompt || '').slice(0, 14) || '资产',
-            type: en.type, kind: sl.kind, fromLib: true, src: en.src };
+            type: en.type, kind: sl.kind, fromLib: true, src: en.src, dl: en.dl || '' };
           const usableId = window.AssetTransfer && AssetTransfer.isPlatformId(en.assetId);
           if (en.type === '图片' && (!usableId || !/^\/asset\//.test(String(en.src || '')))) {
             try {
@@ -775,8 +797,8 @@ const StudioView = {
         ta.placeholder = TYPE === 'audio'
           ? '要合成的文本' + (window.CharLimits.has(b) ? '（' + window.CharLimits.range(b) + ' 字）' : '')
             + '（数字、英文缩写建议写成读法）'
-          : TYPE === 'image' ? '描述人物、动作、场景或感觉…'
-            : '描述这一段视频的画面、镜头运动与氛围…';
+          : TYPE === 'image' ? '描述人物、动作、场景或感觉…（打 @ 可引用素材库）'
+            : '描述这一段视频的画面、镜头运动与氛围…（打 @ 可引用素材库）';
         if (!hint) return;
         if (TYPE !== 'audio' || !window.CharLimits.has(b)) { hint.hidden = true; hint.textContent = ''; return; }
         const bits = [window.CharLimits.cntLine(ta.value, b)];
@@ -1374,6 +1396,7 @@ const StudioView = {
         cur().inputs = { image: [], video: [], audio: [], frame_first: [], frame_last: [] };
         cur().prompt = ''; cur().style = ''; cur().topBools = {};
         $('prompt').value = ''; $('style').value = '';
+        syncPromptBack();
         InlinePolish.clear($('polishInline'));
         renderInputArea(); renderParams(); updateMode(); refreshEst(); refreshPreview(); setStatus('');
         paintPromptHint(); updateGoState();
@@ -1384,6 +1407,7 @@ const StudioView = {
       };
 
       /* ============================ ⑧ AI 润色 ============================ */
+      const MEDIA_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
       function polishImageList() {
         const srcOf = it => it.file || it.src || it.url;
         const out = [];
@@ -1402,21 +1426,192 @@ const StudioView = {
         (m.frame_last || []).forEach(it => add(it, 'last_frame', '尾帧'));
         return out;
       }
-      function polishMaterials() {
+      /* 这一轮要交给文字 AI 的素材：图片之外还有视频 / 音频 —— 编号与提交体一致
+         （参考图 → 参考视频 → 参考音频），能力判定与字节读取都交给 TextAI.prepareMedia。 */
+      function polishMediaAll() {
+        const srcOf = it => it.file || it.src || it.url;
         const m = inputs();
-        if (TYPE === 'audio') {
-          const n = (m.audio || []).length;
-          const items = [];
-          for (let i = 0; i < n; i++) items.push({ label: '参考音频' + (n > 1 ? ' ' + (i + 1) : ''), token: '@音频' + (i + 1), role: 'reference_audio', kind: '音频', sent: false, hint: '按这个音色来念' });
-          return items;
-        }
-        const items = polishImageList().map(x => ({ label: x.label, token: x.token, role: x.role, kind: '图片', sent: true }));
-        const nVid = (m.video || []).length, nAud = (m.audio || []).length;
-        for (let i = 0; i < nVid; i++) items.push({ label: '参考视频' + (nVid > 1 ? ' ' + (i + 1) : ''), token: '@视频' + (i + 1), role: 'reference_video', kind: '视频', sent: false, hint: '沿用它的运镜和节奏' });
-        for (let i = 0; i < nAud; i++) items.push({ label: '参考音频' + (nAud > 1 ? ' ' + (i + 1) : ''), token: '@音频' + (i + 1), role: 'reference_audio', kind: '音频', sent: false, hint: '沿用它的节奏' });
+        const out = [];
+        const image = TYPE === 'audio' ? [] : polishImageList();
+        image.forEach(x => out.push({ kind: 'image', label: x.label, src: x.src, token: x.token, role: x.role }));
+        (m.video || []).forEach((it, i) => {
+          const s = srcOf(it);
+          if (s) out.push({ kind: 'video', label: '参考视频' + (m.video.length > 1 ? ' ' + (i + 1) : ''), src: s, token: '@视频' + (i + 1), role: 'reference_video' });
+        });
+        (m.audio || []).forEach((it, i) => {
+          const s = srcOf(it);
+          if (s) out.push({ kind: 'audio', label: '参考音频' + (m.audio.length > 1 ? ' ' + (i + 1) : ''), src: s, token: '@音频' + (i + 1), role: 'reference_audio' });
+        });
+        return out;
+      }
+      function polishMaterials() {
+        const items = polishMediaAll().map(x => ({
+          label: x.label, token: x.token, role: x.role, kind: MEDIA_KIND_ZH[x.kind], mk: x.kind,
+          sent: false,
+          hint: x.kind === 'video' ? '沿用它的运镜和节奏'
+            : x.kind === 'audio' ? (TYPE === 'audio' ? '按这个音色来念' : '沿用它的节奏')
+              : '',
+        }));
         return items;
       }
       const POLISH_SYS = { video: 'video', image: 'img', audio: 'audio' };
+
+      /* ============================ @素材（与导演台共用一份浮层） ============================
+         候选 = 这一栏已有的参考素材 + 素材库（角色 / 场景 / 道具）。选中之后把 `@名字`
+         写进提示词，素材库那一条顺手把它的图加进「参考图」槽位。 */
+      function mentionNames() {
+        const s = new Set();
+        const D = window.Chars;
+        const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
+        lib.forEach(c => {
+          const nm = String((c && c.name) || '').trim();
+          if (!nm) return;
+          s.add(nm);
+          if (!D.Cast || !D.Cast.assetsOf) return;
+          (D.Cast.assetsOf(c) || []).forEach(a => {
+            if (!a || !a.src) return;
+            const an = String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim();
+            if (an) s.add(nm + '·' + an);
+          });
+        });
+        const m = inputs();
+        let n = 0;
+        if (TYPE !== 'audio') {
+          (m.image || []).forEach(() => { n += 1; s.add('参考图' + n); s.add('图片' + n); });
+          if ((m.frame_first || []).length) { n += 1; s.add('参考图' + n); s.add('图片' + n); s.add('首帧'); s.add('开头画面'); }
+          if ((m.frame_last || []).length) { n += 1; s.add('参考图' + n); s.add('图片' + n); s.add('尾帧'); s.add('结尾画面'); }
+        }
+        (m.video || []).forEach((_, i) => { s.add('视频' + (i + 1)); s.add('参考视频'); s.add('参考视频' + (i + 1)); });
+        (m.audio || []).forEach((_, i) => { s.add('音频' + (i + 1)); s.add('参考音频'); s.add('参考音频' + (i + 1)); });
+        return s;
+      }
+      function studioMentionCands(q) {
+        const D = window.Chars;
+        const kw = String(q || '').toLowerCase();
+        const out = [];
+        const add = (name, meta, pic, extra) => {
+          if (kw && name.toLowerCase().indexOf(kw) < 0 && meta.toLowerCase().indexOf(kw) < 0) return;
+          out.push(Object.assign({ kind: 'ref', name, pic, meta }, extra));
+        };
+        const m = inputs();
+        if (TYPE !== 'audio') {
+          let n = 0;
+          (m.image || []).forEach(it => {
+            n += 1;
+            add('参考图' + n, '本栏素材 · @参考图' + n + (it.name ? ' · ' + it.name : ''), mediaOf(it));
+          });
+          if ((m.frame_first || []).length) {
+            n += 1;
+            add('首帧', '本栏素材 · @参考图' + n, mediaOf(m.frame_first[0]));
+          }
+          if ((m.frame_last || []).length) {
+            n += 1;
+            add('尾帧', '本栏素材 · @参考图' + n, mediaOf(m.frame_last[0]));
+          }
+        }
+        (m.video || []).forEach((it, i) => add('视频' + (i + 1), '本栏素材 · 参考视频' + (it.name ? ' · ' + it.name : ''), '', { ic: 'film' }));
+        (m.audio || []).forEach((it, i) => add('音频' + (i + 1), '本栏素材 · 参考音频' + (it.name ? ' · ' + it.name : ''), '', { ic: 'mic' }));
+        const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
+        lib.forEach(c => {
+          const nm = String((c && c.name) || '');
+          if (!nm) return;
+          if (kw && nm.toLowerCase().indexOf(kw) < 0) return;
+          const pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
+          const kindZh = (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(c)]) || '素材';
+          const na = Math.max(0, (D.Cast.assetsOf(c) || []).length);
+          out.push({ kind: 'lib', name: nm, entry: c, pic: pic, sub: libraryPicChoices(c).length > 1,
+            meta: [kindZh, String(c.group || '').trim()].filter(Boolean).join(' · ')
+              + (pic ? '' : ' · 还没有预览图') + (na ? ' · ' + na + ' 张资产' : ''),
+            off: !pic && !na });
+        });
+        return out.slice(0, 30);
+      }
+      function studioMentionMeta(nm) {
+        const D = window.Chars;
+        const m = inputs();
+        let n = 0;
+        if (TYPE !== 'audio') {
+          const imgs = (m.image || []).slice();
+          for (let i = 0; i < imgs.length; i += 1) {
+            n += 1;
+            if (nm === '参考图' + n || nm === '图片' + n) {
+              return { pic: mediaOf(imgs[i]), meta: '本栏素材 · 第 ' + n + ' 张图' + (imgs[i].name ? ' · ' + imgs[i].name : '') };
+            }
+          }
+          if ((m.frame_first || []).length) { n += 1; if (nm === '首帧' || nm === '开头画面' || nm === '参考图' + n) return { pic: mediaOf(m.frame_first[0]), meta: '本栏素材 · 第 ' + n + ' 张图（首帧）' }; }
+          if ((m.frame_last || []).length) { n += 1; if (nm === '尾帧' || nm === '结尾画面' || nm === '参考图' + n) return { pic: mediaOf(m.frame_last[0]), meta: '本栏素材 · 第 ' + n + ' 张图（尾帧）' }; }
+        }
+        const vi = /^视频(\d+)$/.exec(nm);
+        if (vi && m.video && m.video[Number(vi[1]) - 1]) return { pic: '', ico: 'film', meta: '本栏素材 · 参考视频' + (m.video[Number(vi[1]) - 1].name ? ' · ' + m.video[Number(vi[1]) - 1].name : '') };
+        if (nm === '参考视频' && m.video && m.video[0]) return { pic: '', ico: 'film', meta: '本栏素材 · 参考视频' + (m.video[0].name ? ' · ' + m.video[0].name : '') };
+        const ai = /^音频(\d+)$/.exec(nm);
+        if (ai && m.audio && m.audio[Number(ai[1]) - 1]) return { pic: '', ico: 'mic', meta: '本栏素材 · 参考音频' + (m.audio[Number(ai[1]) - 1].name ? ' · ' + m.audio[Number(ai[1]) - 1].name : '') };
+        if (nm === '参考音频' && m.audio && m.audio[0]) return { pic: '', ico: 'mic', meta: '本栏素材 · 参考音频' + (m.audio[0].name ? ' · ' + m.audio[0].name : '') };
+        const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
+        const mentionKindZh = x => (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(x)]) || '素材';
+        const sepAt = nm.indexOf('·');
+        const host = sepAt > 0 ? lib.find(x => x && x.name === nm.slice(0, sepAt)) : null;
+        const assetHit = host ? (D.Cast.assetsOf(host) || []).find(a => a && a.src
+          && ((String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim()) === nm.slice(sepAt + 1))) : null;
+        if (assetHit) return { pic: assetHit.src, meta: mentionKindZh(host) + ' · ' + nm.slice(sepAt + 1) + '（' + (host.name || '') + ' 的资产）' };
+        const c = lib.find(x => x && x.name === nm);
+        if (!c) return null;
+        const pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
+        let meta = mentionKindZh(c);
+        if (String(c.group || '').trim()) meta += ' · ' + String(c.group).trim();
+        if (!pic) meta += ' · 还没有预览图';
+        return { pic, meta };
+      }
+      /* 素材库那一条的一张图 → 这一栏的「参考图」槽位。
+         判据与「点槽位选一张」那条链同一套：能力声明 / 互斥 / 上限 / 去重。 */
+      function addLibPicToInputs(entry, pick) {
+        const nm = (entry && entry.name) || '这一条';
+        const note = String((pick && pick.note) || '').trim();
+        const label = libraryTokenOf(nm, note);
+        const pic = (pick && pick.src) || (window.Chars ? ((Chars.refPicOf ? Chars.refPicOf(entry) : Chars.picOf(entry))) : '');
+        if (!pic) {
+          return { ok: false, why: note
+            ? '《' + nm + '》的' + note + '还没有图'
+            : '《' + nm + '》还没有预览图，先到素材库给它出一张（或自己传一张）' };
+        }
+        const sl = slots.find(x => x.kind === 'image');
+        if (!sl) {
+          return { ok: false, why: TYPE === 'audio'
+            ? '音频栏没有「参考图」这个入口，token 已写进提示词'
+            : '当前型号没有「参考图」这个入口，token 已写进提示词' };
+        }
+        if (blockedSlotKinds().has('image')) return { ok: false, why: '参考图与已选素材互斥，先清空已选素材再加' };
+        const arr = slotItems('image');
+        if (arr.some(x => x.src === pic || x.url === mediaOf({ src: pic }))) return { ok: true, dup: true, label: label };
+        if (arr.length >= sl.max) return { ok: false, why: '参考图最多 ' + sl.max + ' 张，先删掉一张再加' };
+        arr.push({ src: pic, url: mediaOf({ src: pic }), name: label, type: '图片', kind: 'image', fromLib: true });
+        renderInputArea(); updateMode();
+        return { ok: true, label: label };
+      }
+      function studioMentionPicked(c, pick, info) {
+        if (!c || c.kind !== 'lib') return;
+        const r = addLibPicToInputs(c.entry, pick);
+        const token = (info && info.token) || ('@' + libraryTokenOf(c.name, pick && pick.note));
+        if (r.ok && !r.dup) setStatus('<span class="ok">✓ 已把《' + window.esc(token) + '》加进参考图</span>');
+        else if (r.dup) setStatus('《' + window.esc(token) + '》已经在参考图里了');
+        else setStatus('<span class="warn">提示词里的 ' + window.esc(token) + ' 已经写上；' + window.esc(r.why) + '</span>');
+      }
+      const mention = createAssetMention({
+        idPrefix: 'studioMention',
+        ta: () => $('prompt'),
+        back: () => $('promptBack'),
+        names: mentionNames,
+        cands: studioMentionCands,
+        metaOf: studioMentionMeta,
+        subChoices: entry => libraryPicChoices(entry),
+        tokenOf: (c, pick) => (c.kind === 'lib' ? libraryTokenOf(c.name, pick && pick.note) : c.name),
+        onPick: studioMentionPicked,
+        emptyHTML: () => (window.Chars && Chars.Lib
+          ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具。'
+          : '读不到素材库模块，刷新一次；还不行就到「素材库」页看看能否打开。'),
+      });
+      const syncPromptBack = () => { try { mention.syncBack(); } catch (e) { /* 高亮失败不影响输入 */ } };
+
       $('polishBtn').onclick = async () => {
         const ta = $('prompt');
         /* 忙标位同样在入口第一行同步置上（与「拆分片段」同一条判据）：
@@ -1435,19 +1630,18 @@ const StudioView = {
         if (!(await TextAI.canRun(REG))) { refused('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
         const host = $('polishInline');
         $('splitInline').hidden = true;
-        const imgList = () => polishImageList();
-        let images = [];
+        const mediaList = () => polishMediaAll();
+        let media = [];
         const materials = () => {
           const list = polishMaterials();
-          if (TYPE === 'audio') return list;
-          /* 只有真的随消息附上的那几张才算 sent（识图没开或某张读不出来时不写「已附上」）。 */
-          const sent = new Set(images.map(x => x.label));
-          return list.map(x => (x.kind === '图片' ? Object.assign({}, x, { sent: sent.has(x.label) }) : x));
+          /* 只有真的随消息附上的那几条才算 sent（能力没开或某一条读不出来时不写「已附上」）。 */
+          const sent = new Set(media.map(x => x.kind + '|' + x.label));
+          return list.map(x => Object.assign({}, x, { sent: sent.has(x.mk + '|' + x.label) }));
         };
         const call = (sys, user, ctl) => ctl
-          ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
-          : TextAI.chat(REG, sys, user, { images });
-        const prep = async () => { const p = await TextAI.polishImages(REG, imgList()); images = p.images; return p; };
+          ? TextAI.chatStream(REG, sys, user, { media, signal: ctl.signal }, ctl.push)
+          : TextAI.chat(REG, sys, user, { media });
+        const prep = async () => { const p = await TextAI.prepareMedia(REG, mediaList()); media = p.media; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
         /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
            工作台知道这一次选的型号、时长、画幅与手上的素材，按当前控件值填进正文。 */
@@ -1477,17 +1671,19 @@ const StudioView = {
         const extraMaterials = () => (TYPE === 'audio' ? materials() : undefined);
         const run = async (answers, ctl) => {
           const picked = await prep();
-          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ images, materials: extraMaterials(), answers, text: original }));
+          if (ctl && ctl.note && picked.note) ctl.note(picked.note);
+          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ media, materials: extraMaterials(), answers, text: original }));
           return { after: await call(sys, TextAI.polishUser(taskWord, original), ctl), note: picked.note };
         };
         const ask = async () => {
           const picked = await prep();
-          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ images, materials: extraMaterials(), stage: 'ask' }));
-          return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }), { images });
+          const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ media, materials: extraMaterials(), stage: 'ask' }));
+          return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }), { media });
         };
         const follow = async (askText, current, ctl, ctx) => {
           const picked = await prep();
-          const extra = TextAI.polishExtra({ images, materials: materials(), answers: (ctx && ctx.answers) || '' });
+          if (ctl && ctl.note && picked.note) ctl.note(picked.note);
+          const extra = TextAI.polishExtra({ media, materials: materials(), answers: (ctx && ctx.answers) || '' });
           const p = TextAI.followPrompt({ what: taskWord, ask: askText, current, extra });
           return { after: await call(p.sys, p.user, ctl), note: picked.note };
         };
@@ -1729,7 +1925,7 @@ const StudioView = {
             if (tpl && tpl.needsUpload) {
               const label = SLOT_DEF[k].label;
               const onStage = (st, info) => { const t = uploadStageText(st, info, label); if (t) setStatus(t); };
-              const blob = await AssetTransfer.blobOf(x.file || x.src || x.url, onStage);
+              const blob = await AssetTransfer.blobOf(x.file || x.dl || x.src || x.url, onStage);
               const mime = (x.file && x.file.type) || blob.type
                 || (({ video: 'video/mp4', audio: 'audio/mpeg' })[window.mediaKindOf(x.type)] || 'image/png');
               const aid = await uploadToPlatform(prov, blob, x.name || (label + (mime.includes('video') ? '.mp4' : '')), mime, onStage, role);
@@ -1996,7 +2192,14 @@ const StudioView = {
             }
           }
           setStatus('处理输入素材…');
-          entries = await buildInputEntries(prov, model);
+          /* 上传失败必须写回状态行：以前这里直接往外抛，外层 `submit()` 的 catch 只负责
+             把按钮恢复，底栏就永远停在「正在申请参考视频上传地址…」那一句上 ——
+             看起来像卡死，其实请求早失败了。 */
+          try { entries = await buildInputEntries(prov, model); }
+          catch (e) {
+            setStatus('<span class="err">参考素材没能上传：' + window.esc(errText(e)) + '</span>');
+            throw e;
+          }
         }
         const created = [];
         let failed = 0;
@@ -2037,7 +2240,12 @@ const StudioView = {
         const prompt = $('prompt').value.trim();
         const lim = modelLimits(model);
         const total = Math.max(1, Number(val('count')) || 1);
-        const assetIds = await uploadImageRefs(prov);
+        let assetIds = [];
+        try { assetIds = await uploadImageRefs(prov); }
+        catch (e) {
+          setStatus('<span class="err">参考图没能上传：' + window.esc(errText(e)) + '</span>');
+          throw e;
+        }
         const perReq = Math.max(1, lim.maxOut);
         const created = [];
         const synced = [];
@@ -2583,14 +2791,18 @@ const StudioView = {
            的底色、结构与进度条长一个样，两页不再各画一套。 */
         const plate = Wb.plateHTML({ kind: 'task', status: it.status, failMsg: it.error, progress: it.progress });
         if (plate) return plate;
+        /* 卡里的图 / 视频 / 音频一律 draggable="false"：卡本身才是拖动源（拖到左栏槽位 /
+           助手球 = 引用这一条）。不关掉原生媒体拖动的话，从缩略图起手会被浏览器当成
+           「拖一份媒体文件」——图片还能靠自带的地址兜底，视频 / 音频则整次拖动没有
+           我们的载荷，落点是空的（与资产库卡片同一条口径）。 */
         if (it.mtype === '视频' && it.media) {
-          return window.Wb.playableMediaHTML(it.media);
+          return window.Wb.playableMediaHTML(it.media, { mediaAttrs: 'draggable="false"' });
         }
         if (window.isAudioType(it.mtype) && it.media) {
-          return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
+          return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" draggable="false" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
             + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
         }
-        if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" title="点一下看大图"' }) + '</div>';
+        if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" draggable="false" title="点一下看大图"' }) + '</div>';
         if (it.mtype) return '<div class="timg">' + icon(KIND_TAG[it.mtype] || 'image', 24) + '</div>';
         return '<div class="timg">…</div>';
       }
@@ -2662,6 +2874,9 @@ const StudioView = {
         if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
         d.draggable = true;
         d.addEventListener('dragstart', e => {
+          /* 按钮 / 输入框上起手不算引用（与资产库同一道闸）：卡里还有「播放 / 展开 / 收藏」这些
+             可点件，从它们身上拖出去只该是一次误触，不该把这一条塞进参考素材。 */
+          if (e.target.closest && e.target.closest('button, a, input, textarea, select, [contenteditable]')) { e.preventDefault(); return; }
           /* 载荷的唯一出口在 web/domain/asset-ref.cjs：工作台槽位与助手认的是同一份字段。
              提示词带完整的（以前只塞了前 40 字在 name 里），任务号 / 状态 / 平台 / 时间/
              在不在本机这些条目上现成就有 —— 助手要凭它们回答「这条后来怎么样了」。 */
@@ -2763,6 +2978,7 @@ const StudioView = {
           }
           setType('audio', true);
           $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
+          syncPromptBack();
           $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
           rec.status = 'creating'; rec.error = ''; rec.noResend = false; saveAudioTasks(); renderAll();
           setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
@@ -2782,6 +2998,7 @@ const StudioView = {
         $('model').value = prov.id + '::' + hit.id;
         $('model').dispatchEvent(new Event('change'));
         $('prompt').value = it.prompt || '';
+        syncPromptBack();
         $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
         setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
         updateGoState();
@@ -3015,8 +3232,32 @@ const StudioView = {
         if (arr.some(x => (idn ? String(x.assetId) === idn : (!!src && (x.src === src || x.url === src)))))
           return { ok: false, code: 'dup', why: '这条素材已经在「' + def.label + '」里了' };
         const name = String(p.name || '').replace(/\s+/g, ' ').trim().slice(0, 14) || mtype;
-        if (idn && /^\/asset\//.test(src) && !(mtype === '视频' && def.videoFrame)) {
-          arr.push({ assetId: idn, url: src, src, name, type: mtype, kind, fromLib: true });
+        /* 平台产物 / 本机地址直接落槽：这一步只画磁贴，字节等真正提交时再取。
+           以前只有 `/asset/<id>` 走这一条，右栏卡片拖过来时 `src` 常是签名外链或
+           `/getv?url=…`，于是要先下载成功才画 —— 下载一失败就“拖了没反应”。
+           视频转首帧那一档仍必须先取字节，不能走这条。 */
+        const directSrc = String(src || (idn && window.Api && Api.assetSrc ? Api.assetSrc(idn) : '') || '');
+        /* 视频落「首帧 / 尾帧」槽：直接从地址取那一帧，**不下载整段视频**。
+           地址取不了（blob: / 没有地址）才走下面「取回字节 → 本地文件」那条。 */
+        if (mtype === '视频' && def.videoFrame && directSrc && !/^blob:/i.test(directSrc)) {
+          const which = def.videoFrame === 'last' ? '尾' : '首';
+          setStatus('正在从视频《' + name + '》取' + which + '帧…');
+          try {
+            const it = await Wb.vframe.fromSrc(directSrc, def.videoFrame, name);
+            it.kind = kind;
+            arr.push(it);
+            renderInputArea(); updateMode(); updateGoState();
+            setStatus('<span class="ok">✓ 已取' + which + '帧作为' + def.label + '</span>');
+            return { ok: true, kind, name };
+          } catch (err) {
+            return { ok: false, code: 'noframe', why: '取帧失败：' + err.message };
+              }
+        }
+        const direct = !(mtype === '视频' && def.videoFrame)
+          && !!directSrc && !/^blob:/i.test(directSrc);
+        if (direct) {
+          arr.push({ assetId: idn, url: directSrc, src: directSrc, dl: String(p.dl || ''),
+            name, type: mtype, kind, fromLib: true });
           renderInputArea(); updateMode(); updateGoState();
           return { ok: true, kind, name };
         }
@@ -3029,13 +3270,13 @@ const StudioView = {
               : await AssetTransfer.blobOf(p.dl || (window.Api && Api.mediaSrc ? Api.mediaSrc(src) : src));
           } catch (err) {
             return { ok: false, code: 'nobytes', why: '取回素材失败：' + errText(err) };
-          }
+              }
         }
         if (!blob || !blob.size) return { ok: false, code: 'nobytes', why: '这条素材的字节取不到了（本机文件可能已经不在了）' };
         const f = new File([blob], name + (mtype === '视频' ? '.mp4' : window.isAudioType(mtype) ? '.mp3' : '.png'),
           { type: blob.type || 'application/octet-stream' });
         const n = await addSlotFiles(kind, [f]);
-        if (!n) return { ok: false, code: 'rejected', why: def.label + '没收这条素材（类型或体积不在这一栏的声明里）' };
+        if (!n) return { ok: false, code: 'rejected', why: slotLastErr || (def.label + '没收这条素材（类型或体积不在这一栏的声明里）') };
         return { ok: true, kind, name };
       }
       /* ---------- 两栏联动：视频栏的提示词 → 图像栏 · 图像栏的产物 → 视频栏参考素材 ----------
@@ -3403,50 +3644,44 @@ const StudioView = {
         const raw = dt.getData('application/x-studio-ref');
         if (raw) {
           let p = null; try { p = JSON.parse(raw); } catch (err) {}
-          if (p && (p.src || p.assetId)) { await dropRefMediaInto(kind, p); return; }
+          if (p && (p.src || p.assetId)) {
+            /* 落在「不收这一型」的格子上不算错：照素材自己的类型找对的那一格。
+               视频丢在参考图 / 音频丢在参考视频上都是这样 —— 用户想的是「放进来成参考」，
+               不是先分清哪个格子叫什么。 */
+            if (!slotTakesType(kind, p.mtype || '图片')) { await dropRefAuto(dt); return; }
+            await dropRefMediaInto(kind, p); return;
+          }
         }
         const aid = dt.getData('application/x-asset-id');
-        if (aid) { await dropRefMediaInto(kind, { mtype: '图片', assetId: aid, src: Api.assetSrc(aid), dl: Api.assetDl(aid) }); return; }
+        if (aid) {
+          const p = { mtype: '图片', assetId: aid, src: Api.assetSrc(aid), dl: Api.assetDl(aid) };
+          if (!slotTakesType(kind, '图片')) { await dropRefAuto(dt); return; }
+          await dropRefMediaInto(kind, p); return;
+        }
         const files = [...(dt.files || [])];
         if (!files.length) return;
+        /* 文件也一样：只要有一份不是这一格收的类型，就整批交给「按类型自动找格」。 */
+        if (files.some(f => !fileFitsSlot(kind, f))) { await dropRefAuto(dt); return; }
         const n = await addSlotFiles(kind, files);
         if (n) setStatus('<span class="ok">✓ 已把 ' + n + ' 个文件加入' + def.label + '</span>');
       }
-      const areaEl = $('inputArea');
-      ['dragover', 'dragenter'].forEach(ev => areaEl.addEventListener(ev, e => {
-        const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
-        if (!el || !dragHasPayload(e)) return;
-        e.preventDefault();
-        e.stopPropagation();
-        slotRowOver(false);
-        markSlotOver(el);
-      }));
-      areaEl.addEventListener('dragleave', e => {
-        if (overSlot && (!e.relatedTarget || !overSlot.contains(e.relatedTarget))) clearSlotOver();
-      });
-      areaEl.addEventListener('drop', async e => {
-        const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
-        if (!el) return;
-        e.preventDefault();
-        e.stopPropagation();
-        clearSlotOver();
-        slotRowOver(false);
-        await dropOntoSlot(el.dataset.slot, e.dataTransfer);
-      });
-      window.addEventListener('drop', clearSlotOver);
-      disposers.push(() => window.removeEventListener('drop', clearSlotOver));
-      window.addEventListener('dragend', clearSlotOver);
-      disposers.push(() => window.removeEventListener('dragend', clearSlotOver));
-      const boxEl = $('promptBox');
-      ['dragover', 'dragenter'].forEach(ev => boxEl.addEventListener(ev, e => {
-        if (!dragHasPayload(e)) return;
-        e.preventDefault(); slotRowOver(true);
-      }));
-      boxEl.addEventListener('dragleave', e => { if (!boxEl.contains(e.relatedTarget)) slotRowOver(false); });
-      boxEl.addEventListener('drop', async e => {
-        e.preventDefault(); slotRowOver(false);
-        const dt = e.dataTransfer;
-        if (!dt) return;
+      function fileFitsSlot(kind, f) {
+        const def = SLOT_DEF[kind] || {};
+        const acc = String(def.accept || '');
+        if (f.type.startsWith('video/')) return !!def.videoFrame || acc.includes('video');
+        if (f.type.startsWith('audio/')) return acc.includes('audio');
+        return acc.includes('image');
+      }
+      /* 这一份文件该落进哪一格：视频优先参考视频、其次首帧；声音只有参考音频；图片进参考图。 */
+      function slotKindForFile(f) {
+        const has = k => slots.some(x => x.kind === k);
+        return f.type.startsWith('video/')
+          ? (has('video') ? 'video' : (has('frame_first') ? 'frame_first' : null))
+          : f.type.startsWith('audio/') ? (has('audio') ? 'audio' : null)
+            : (has('image') ? 'image' : has('frame_first') ? 'frame_first' : (has('frame_last') ? 'frame_last' : null));
+      }
+      /* 没落在具体哪一格上（落在参考素材区空白处 / 提示词框）：按载荷自己的类型自动找一格。 */
+      async function dropRefAuto(dt) {
         const raw = dt.getData('application/x-studio-ref');
         if (raw) {
           let p = null;
@@ -3460,15 +3695,47 @@ const StudioView = {
         }
         const files = [...(dt.files || [])];
         if (!files.length) return;
-        const has = k => slots.some(x => x.kind === k);
         for (const f of files) {
-          const want = f.type.startsWith('video/')
-            ? (has('video') ? 'video' : (has('frame_first') ? 'frame_first' : null))
-            : f.type.startsWith('audio/') ? (has('audio') ? 'audio' : null)
-              : (has('image') ? 'image' : has('frame_first') ? 'frame_first' : (has('frame_last') ? 'frame_last' : null));
+          const want = slotKindForFile(f);
           if (!want) { setStatus('<span class="err">当前型号没有可接收该文件的入口</span>'); return; }
           await addSlotFiles(want, [f]);
         }
+      }
+      const areaEl = $('inputArea');
+      ['dragover', 'dragenter'].forEach(ev => areaEl.addEventListener(ev, e => {
+        if (!dragHasPayload(e)) return;
+        const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
+        e.preventDefault();
+        e.stopPropagation();
+        if (!el) { clearSlotOver(); slotRowOver(true); return; }
+        slotRowOver(false);
+        markSlotOver(el);
+      }));
+      areaEl.addEventListener('dragleave', e => {
+        if (!e.relatedTarget || !areaEl.contains(e.relatedTarget)) { clearSlotOver(); slotRowOver(false); }
+      });
+      areaEl.addEventListener('drop', async e => {
+        const el = e.target && e.target.closest ? e.target.closest('[data-slot]') : null;
+        e.preventDefault();
+        e.stopPropagation();
+        clearSlotOver();
+        slotRowOver(false);
+        if (el) await dropOntoSlot(el.dataset.slot, e.dataTransfer);
+        else await dropRefAuto(e.dataTransfer);
+      });
+      window.addEventListener('drop', clearSlotOver);
+      disposers.push(() => window.removeEventListener('drop', clearSlotOver));
+      window.addEventListener('dragend', clearSlotOver);
+      disposers.push(() => window.removeEventListener('dragend', clearSlotOver));
+      const boxEl = $('promptBox');
+      ['dragover', 'dragenter'].forEach(ev => boxEl.addEventListener(ev, e => {
+        if (!dragHasPayload(e)) return;
+        e.preventDefault(); slotRowOver(true);
+      }));
+      boxEl.addEventListener('dragleave', e => { if (!boxEl.contains(e.relatedTarget)) slotRowOver(false); });
+      boxEl.addEventListener('drop', async e => {
+        e.preventDefault(); slotRowOver(false);
+        if (e.dataTransfer) await dropRefAuto(e.dataTransfer);
       });
       async function dropRefMedia(p) {
         const mtype = p.mtype || '图片';
@@ -3513,6 +3780,7 @@ const StudioView = {
         TYPE_LIST.forEach(t => { ST[t].prompt = readLS('studio_prompt_' + t, ''); });
         ST[TYPE].model = picks[TYPE] || '';
         $('prompt').value = ST[TYPE].prompt;
+        syncPromptBack();
         $('splitDimCustom').value = readLS('studio_split_dim_custom', '');
         setType(TYPE, false);
         try { REG = await Api.registry(); } catch (e) { REG = { providers: [] }; }
@@ -3565,8 +3833,12 @@ const StudioView = {
 
       /* 提示词按类型各存一份（落盘 250 ms 防抖；pagehide 同步补写保证不丢） */
       let promptLsTimer = 0;
+      mention.bind($('prompt'));
+      disposers.push(() => mention.destroy());
       $('prompt').addEventListener('input', () => {
         cur().prompt = $('prompt').value;
+        mention.sync();
+        syncPromptBack();
         clearTimeout(promptLsTimer);
         promptLsTimer = setTimeout(() => { promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); }, 250);
       });

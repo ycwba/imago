@@ -3,6 +3,7 @@
 import assert from 'node:assert/strict';
 import { sampleKeys, samplePath, sampleTrack, sampleAnim, sampleCams, advanceTime } from '../web/model3d/anim.js';
 import { normalizeDoc } from '../web/model3d/schema.js';
+import { gaitControls, controlsOf } from '../web/model3d/mannequin.js';
 
 let n = 0;
 const ok = (c, m) => { n += 1; assert.ok(c, m); };
@@ -194,6 +195,159 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   near(m.m1.joints[1].rot[0], -40, 1e-6, '第二条各算各的');
   ok(m.m1.motion === 'run' && Math.abs(m.m1.at[0] - 1) < 1e-6, '节点自身的 motion / 位移不受关节轨道影响');
   ok(!('joint' in m.m1), '关节不进节点自身那一层');
+}
+
+/* ---------- 轨道自己的时钟：offset / speed / duration ---------- */
+{
+  const path = { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] };
+  const base = { of: { kind: 'node', id: 'n1' }, path };
+  ok(sampleTrack({ ...base, offset: 2 }, 1, 2) === null, 'offset 之前这条轨道不动');
+  near(sampleTrack({ ...base, offset: 2 }, 3, 2).at[0], 1, 1e-6, 'offset 之后按局部时间走');
+  near(sampleTrack({ ...base, speed: 2 }, 1, 2).at[0], 2, 1e-6, 'speed=2 时一秒走完全程');
+  near(sampleTrack({ ...base, duration: 1 }, 0.5, 2).at[0], 1, 1e-6, 'duration 用自己的长度');
+  near(sampleTrack({ ...base, duration: 1 }, 2, 2).at[0], 2, 1e-6, '走完停在终点');
+  near(sampleTrack({ ...base, offset: 1, speed: 2, duration: 2 }, 2, 9).at[0], 2, 1e-6,
+    '局部时间 = (t − offset) × speed');
+}
+
+/* ---------- keysMode=offset：路径形状保留，关键帧只当偏移 ---------- */
+{
+  const tr = {
+    of: { kind: 'node', id: 'n1' },
+    path: { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] },
+    keysMode: 'offset',
+    keys: [{ t: 0, at: [0, 0.5, 0] }, { t: 2, at: [0, 1, 0] }],
+  };
+  const s = sampleTrack(tr, 1, 2);
+  near(s.at[0], 1, 1e-6, '路径的位移还在');
+  near(s.at[1], 0.75, 1e-6, '关键帧在它上面加偏移');
+  const over = sampleTrack({ ...tr, keysMode: 'override' }, 1, 2);
+  near(over.at[0], 0, 1e-6, 'override 模式下关键帧接管（旧行为不变）');
+}
+
+/* ---------- 运镜：path / 轨道的 ease 与 framing ---------- */
+{
+  const path = { kind: 'line', from: [0, 0, 0], to: [2, 0, 0] };
+  near(samplePath(path, 0.5, 2).at[0], 0.5, 1e-6, '默认线性：半程走一半');
+  near(samplePath({ ...path, ease: 'inout' }, 0.5, 2).at[0], 0.3125, 1e-6, 'inout 起停缓');
+  near(samplePath({ ...path, ease: 'in' }, 0.5, 2).at[0], 0.125, 1e-6, 'in：起步慢');
+  near(samplePath({ ...path, ease: 'out' }, 0.5, 2).at[0], 0.875, 1e-6, 'out：收尾慢');
+  const tr = { of: { kind: 'node', id: 'n1' }, path };
+  near(sampleTrack({ ...tr, ease: 'inout' }, 0.5, 2).at[0], 0.3125, 1e-6, '轨道级 ease 也生效');
+}
+
+/* framing：rule3 把主体挪到三分之一（目标点横向偏移） */
+{
+  const doc = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'prim', id: 'n1', shape: 'box', at: [0, 2, 0] }],
+      cams: [{ id: 'cam-1', pos: [5, 0, 0], target: [0, 0, 0] }],
+      view: { aspect: '16:9' },
+    },
+    anim: { duration: 4, tracks: [
+      { id: 't1', of: { kind: 'cam', id: 'cam-1' }, path: { kind: 'line', from: [5, 2, 0], to: [5, 2, 0], look: 'target', lookAt: 'n1' } },
+    ] },
+  }).doc;
+  const c1 = sampleCams(doc.anim, doc, 0, {})['cam-1'];
+  ok(c1.target.join(',') === '0,2,0', 'center：目标就是主体');
+  const doc2 = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'prim', id: 'n1', shape: 'box', at: [0, 2, 0] }],
+      cams: [{ id: 'cam-1', pos: [5, 0, 0], target: [0, 0, 0] }],
+      view: { aspect: '16:9' },
+    },
+    anim: { duration: 4, tracks: [
+      { id: 't1', of: { kind: 'cam', id: 'cam-1' }, path: { kind: 'line', from: [5, 2, 0], to: [5, 2, 0], look: 'target', lookAt: 'n1', framing: 'rule3' } },
+    ] },
+  }).doc;
+  const c2 = sampleCams(doc2.anim, doc2, 0, {})['cam-1'];
+  ok(Math.abs(c2.target[2]) > 0.3, 'rule3：目标点横向让出位置（主体偏到三分之一）：' + c2.target.join(','));
+  ok(Math.abs(c2.target[1] - 2) < 1e-6, 'rule3 只动横向，不改高度');
+}
+
+/* ---------- 机位沿路径走的朝向：heading / target ---------- */
+{
+  const doc = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'prim', id: 'n1', shape: 'box', at: [0, 2, 0] }],
+      cams: [{ id: 'cam-1', pos: [0, 0, 5], target: [0, 0, 0] }],
+    },
+    anim: { duration: 4, tracks: [
+      { id: 't1', of: { kind: 'cam', id: 'cam-1' }, path: { kind: 'circle', from: [0, 0, 0], radius: 2, look: 'heading' } },
+    ] },
+  }).doc;
+  const cams = sampleCams(doc.anim, doc, 0, {});
+  const c = cams['cam-1'];
+  ok(c.at[0] > 1.5 && Math.abs(c.at[2]) < 1e-6, '机位在圆上：' + c.at.join(','));
+  ok(c.target[0] > c.at[0] && Math.abs(c.target[2] - c.at[2]) < 1e-6,
+    'heading：镜头沿切线看（不再死盯原来的 target）：' + c.target.join(','));
+
+  const doc2 = normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'prim', id: 'n1', shape: 'box', at: [0, 2, 0] }],
+      cams: [{ id: 'cam-1', pos: [0, 0, 5], target: [0, 0, 0] }],
+    },
+    anim: { duration: 4, tracks: [
+      { id: 't1', of: { kind: 'cam', id: 'cam-1' }, path: { kind: 'circle', from: [0, 0, 0], radius: 2, look: 'target', lookAt: 'n1' } },
+    ] },
+  }).doc;
+  const c2 = sampleCams(doc2.anim, doc2, 0, {})['cam-1'];
+  ok(c2.target.join(',') === '0,2,0', 'look:target 一直看着那个节点：' + c2.target.join(','));
+}
+
+/* ---------- solo / follow ---------- */
+{
+  const anim = {
+    duration: 4,
+    tracks: [
+      { of: { kind: 'node', id: 'n1' }, keys: [{ t: 0, at: [1, 0, 0] }] },
+      { of: { kind: 'node', id: 'n1' }, keys: [{ t: 0, at: [9, 0, 0] }], solo: true },
+    ],
+  };
+  const m = sampleAnim(anim, 0);
+  near(m.n1.at[0], 9, 1e-6, 'solo 之后只采样被 solo 的轨道');
+  const m2 = sampleAnim({ tracks: anim.tracks.map(t => ({ ...t, solo: false })) }, 0);
+  near(m2.n1.at[0], 9, 1e-6, '同节点的后一条轨道照旧覆盖前一条（旧行为）');
+
+  const doc = normalizeDoc({ scene: { nodes: [
+    { kind: 'group', id: 'a', children: [{ kind: 'prim', id: 'p', shape: 'box' }] },
+    { kind: 'group', id: 'b', at: [5, 0, 0], children: [{ kind: 'prim', id: 'q', shape: 'box' }] },
+  ] } }).doc;
+  const fam = { duration: 4, tracks: [
+    { of: { kind: 'node', id: 'a' }, follow: 'b', keys: [{ t: 0, at: [1, 0, 0] }] },
+  ] };
+  const fm = sampleAnim(fam, 0, doc);
+  near(fm.a.at[0], 6, 1e-6, 'follow：位移叠在被跟随节点身上');
+}
+
+/* ---------- 键上的 scale / visible / ease ---------- */
+{
+  const keys = [{ t: 0, scale: [1, 1, 1], visible: true }, { t: 2, scale: [2, 2, 2], visible: false }];
+  const mid = sampleKeys(keys, 1, 'smooth');
+  near(mid.scale[0], 1.5, 1e-6, '缩放插值');
+  ok(mid.visible === true, '显隐是 STEP：到下一帧才切');
+  ok(sampleKeys(keys, 2, 'smooth').visible === false, '到最后一帧切过去');
+  const slow = [{ t: 0, at: [0, 0, 0] }, { t: 2, at: [1, 0, 0], ease: 'linear' }];
+  near(sampleKeys(slow, 0.5, 'smooth').at[0], 0.25, 1e-6, '键上的 ease 覆盖轨道级 interp');
+  near(sampleKeys(slow.map(k => ({ ...k, ease: undefined })), 0.5, 'smooth').at[0], 0.15625, 1e-6,
+    '不写 ease 时仍是轨道级的平滑');
+}
+
+/* ---------- motion 参数化与三层叠加顺序 ---------- */
+{
+  const base = gaitControls('walk', 0.13);
+  const slow = gaitControls({ kind: 'walk', speed: 0.5 }, 0.13);
+  ok(base['leftShoulder.pitch'] !== slow['leftShoulder.pitch'], 'speed 0.5 时相位不同（步频减半）');
+  const arms = gaitControls({ kind: 'walk', arm: 0.5 }, 0.13);
+  near(arms['leftShoulder.pitch'], base['leftShoulder.pitch'] / 2, 1e-6, 'arm 调臂摆');
+  const legs = gaitControls({ kind: 'walk', stride: 2 }, 0.13);
+  near(legs['leftHip.pitch'], base['leftHip.pitch'] * 2, 1e-6, 'stride 调腿摆');
+  ok(gaitControls({ kind: 'walk' }, 0.13)['leftShoulder.pitch'] === base['leftShoulder.pitch'], '对象形态与字符串同值');
+
+  /* 顺序：姿势表 → node.controls → 步态（覆盖同一关节）；关节轨道在 rig.applyPose 里最后叠加 */
+  const merged = controlsOf({ pose: 't-pose', motion: 'walk', t: 0.13, controls: { 'head.yaw': 20, 'leftShoulder.pitch': 3 } });
+  ok(merged['head.yaw'] === 20, 'node.controls 盖过姿势表');
+  ok(merged['leftShoulder.pitch'] === base['leftShoulder.pitch'], '步态最后盖过 controls');
 }
 
 console.log('✓ model3d-anim：' + n + ' 项通过');

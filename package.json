@@ -4,9 +4,9 @@
   "version": "0.4.0",
   "description": "本地优先的 AI 创作工作台（运行时零构建；开发期用 tools/precompile-vue.cjs 预编译模板）",
   "scripts": {
-    "build": "node tools/precompile-vue.cjs",
-    "build:check": "node tools/precompile-vue.cjs --check",
-    "check": "node tools/precompile-vue.cjs --check && node tests/syntax.cjs",
+    "build": "node tools/sync-skill-contracts.cjs && node tools/precompile-vue.cjs",
+    "build:check": "node tools/precompile-vue.cjs --check && node tools/sync-skill-contracts.cjs --check",
+    "check": "node tools/precompile-vue.cjs --check && node tools/sync-skill-contracts.cjs --check && node tests/syntax.cjs",
     "static": "node tools/tokenize-css.cjs && node tools/check-vars.cjs && node tests/static-guards.cjs && node tests/doc-contract.cjs",
     "test": "node tests/all.cjs",
     "test:fast": "npm run check && node tests/map.cjs --changed --run",

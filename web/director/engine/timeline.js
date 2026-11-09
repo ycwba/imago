@@ -41,6 +41,7 @@ export function createTimeline(E, document, window) {
     transitionSet,
     toolAction,
     toolState,
+    undoStateOf,
     strip,
     onBoardRender,
     dblClickEmpty,
@@ -208,11 +209,22 @@ export function createTimeline(E, document, window) {
   ];
   const modeOf = id => SEL_MODES.find(m => m.id === id) || SEL_MODES[0];
 
+  /* 撤销读数：可撤销几步 / 上限几步常驻工具条（撤销 / 重做两颗旁边）；
+     「为什么存不下」（单份快照太大、顶到步数或内存上限）只在真发生过时带进 title ——
+     按了没反应的那一下，答案已经在按钮上。真值由 engine 经 undoStateOf 给。 */
+  function undoStateNow() { return typeof undoStateOf === 'function' ? undoStateOf() : null; }
+  function undoCountText() { const u = undoStateNow(); return u ? u.n + '/' + u.max : ''; }
+  function undoTitle() {
+    const u = undoStateNow();
+    if (!u) return '撤销（Ctrl/⌘+Z）';
+    return '撤销（Ctrl/⌘+Z）· 可撤销 ' + u.n + ' / ' + u.max + ' 步' + (u.why ? ' · ' + u.why : '');
+  }
+
   /* 工具条分三组（与参考项目同一条排法）：
      ① 标记 / 历史 / 剪法（删、复制、切刀、融合、吸附、波纹、选择工具、关联）
      ② 播放与段落（播放、新增一段、摘掉一段、缩短、加长）
      ③ 视图（回到播放头 —— 只在针离开视野时出现、缩小 / 读数 / 自适应 / 放大）。
-     状态（is-on / disabled / 计数徽标）由 paintTimelineTools 就地刷，不整条重画。 */
+     状态（is-on / disabled / 计数徽标 / 撤销读数）由 paintTimelineTools 就地刷，不整条重画。 */
   function toolsHTML() {
     const tb = (act, iconName, title, on) => `<button type="button" class="tl-tb${on ? ' is-on' : ''}" data-tl="${act}" title="${esc(title)}">${icon(iconName, 15)}</button>`;
     const film = filmNow();
@@ -226,8 +238,9 @@ export function createTimeline(E, document, window) {
       </div>
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
-        ${tb('undo', 'undo', '撤销（Ctrl/⌘+Z）')}
+        ${tb('undo', 'undo', undoTitle())}
         ${tb('redo', 'redo', '重做（Ctrl/⌘+Shift+Z）')}
+        <span class="tl-undocount" id="tlUndoVal" title="${esc(undoTitle())}">${esc(undoCountText())}</span>
       </div>
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
@@ -295,6 +308,9 @@ export function createTimeline(E, document, window) {
     setOn('link', st.linkOn);
     const badge = qs('#tlMarkerCount');
     if (badge) { badge.textContent = String(film.markers.length); badge.hidden = !film.markers.length; }
+    /* 撤销读数与 title 就地换（只是一段文本，不重画按钮结构）。 */
+    const uc = qs('#tlUndoVal');
+    if (uc) { uc.textContent = undoCountText(); uc.title = undoTitle(); }
     // 播放/暂停那颗跟着播放态换面（playbackStart / playbackStop 各刷一次，重画模板也按真值画）
     const pbtn = qs('[data-tl="play"]');
     if (pbtn) pbtn.innerHTML = icon(playStateOf && playStateOf() ? 'pause' : 'play', 15);

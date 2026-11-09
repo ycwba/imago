@@ -294,11 +294,14 @@
       }
       return aid;
     },
-    /* 缓存键：优先用内容 md5（同名不同内容不会撞车），取不到再退回「名字+大小」 */
+    /* 缓存键：优先用内容 md5（同名不同内容不会撞车），取不到再退回「名字+大小」。
+       大文件不跑全量 sha256：几百 MB 的视频光哈希就要几十秒（还要再 copy 一份字节），
+       这段时间界面停在「处理输入素材…」上，看着像卡死 —— 长视频按「名字 + 大小」认。 */
     async _keyOf(provId, source) {
       try {
         if (typeof source === 'string' && !source.startsWith('data:')) return provId + '|url|' + source;
         const blob = await this.blobOf(source);
+        if (blob.size > 8 * 1024 * 1024) return provId + '|big|' + ((source && source.name) || '') + '|' + blob.size;
         const buf = await blob.arrayBuffer();
         const h = await crypto.subtle.digest('SHA-256', buf);
         const hex = [...new Uint8Array(h)].slice(0, 12).map(b => b.toString(16).padStart(2, '0')).join('');

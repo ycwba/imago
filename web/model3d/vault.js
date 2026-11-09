@@ -27,6 +27,13 @@ export async function list(library = '') {
   return d || { dir: '', library: '', libraries: [], groups: [], models: [], sceneGroups: [], scenes: [] };
 }
 
+/* 全部白模库的检索：`q` 就是用户对 AI 说的那一句，服务端在名字 / 组 / 零件 / 大纲 /
+   建模提示词上匹配。返回 `{ total, matched, rows }`，rows 按匹配度再按新到旧排好。 */
+export async function catalog(q = '') {
+  const d = await net().json('/model3d/catalog?q=' + encodeURIComponent(String(q || '')), { cache: 'no-store', timeout: 0 });
+  return d || { ok: false, q: '', total: 0, matched: 0, rows: [] };
+}
+
 export async function readModel(library, id) {
   return await net().json('/model3d/file?library=' + encodeURIComponent(library)
     + '&kind=model&id=' + encodeURIComponent(id), { cache: 'no-store', timeout: 0 });
@@ -36,11 +43,11 @@ export async function readScene(library, id) {
     + '&kind=scene&id=' + encodeURIComponent(id), { cache: 'no-store', timeout: 0 });
 }
 
-export async function saveModel({ library, id, name, group, model, thumb }) {
+export async function saveModel({ library, id, name, group, model, thumb, prompt }) {
   return await net().json('/model3d/save', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ library, kind: 'model', id: id || '', name, group: group || '', model, thumb: thumb || '' }),
+    body: JSON.stringify({ library, kind: 'model', id: id || '', name, group: group || '', model, thumb: thumb || '', prompt: prompt || '' }),
     timeout: 0,
   });
 }

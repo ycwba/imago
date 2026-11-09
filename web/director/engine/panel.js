@@ -7,6 +7,7 @@ import { speakerOf, lineTimeOf, lineRowHTML, deriveTimeline, estimateSpeechSecon
 import { num } from '../util.js';
 import { createBoardPreview } from '../board-preview.js';
 import { shotRefPlanOf } from '../ref-plan.js';
+import { createAssetMention, insertToken, libraryPicChoices as libPicChoices, libraryTokenOf as libTokenOf } from '../../ui/index.js';
 
 export function createPanel(E, document, window) {
   const {
@@ -85,6 +86,23 @@ export function createPanel(E, document, window) {
     GenOf,
     wsLoadedOf,
   } = E;
+
+  /* 提示词里的 @素材浮层：浮层 DOM / 键盘 / 高亮 / 悬停都来自公共件，
+     这一页只给「候选从哪来、选中之后做什么」。 */
+  const mention = createAssetMention({
+    doc: document, win: window, idPrefix: 'mention',
+    ta: () => $('edPrompt'),
+    back: () => $('edPromptBack'),
+    names: () => { const s = curShot(); return s ? atNames(s) : new Set(); },
+    cands: q => { const s = curShot(); return s ? mentionCands(s, q) : []; },
+    metaOf: nm => { const s = curShot(); return s ? mentionMeta(s, nm) : null; },
+    subChoices: entry => libPicChoices(entry),
+    tokenOf: (c, pick) => (c.kind === 'lib' ? libTokenOf(c.name, pick && pick.note) : c.name),
+    onPick: (c, pick, info) => mentionPicked(c, pick, info),
+    emptyHTML: () => (window.Chars && Chars.Lib
+      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具。'
+      : '读不到素材库模块，刷新一次；还不行就到「素材库」页看看能否打开。'),
+  });
 
 function shotModels(sh) {
   /* 按这一镜**已经用上的输入 role** 筛模型（不再按 mode 名匹配）：
@@ -820,39 +838,10 @@ function removeRefImage(sh, i) {
    写进提示词，还会把这一条的**预览图自动加进这一镜的参考图** —— 这就是「导演台引用素材库」。
    顺带把这一镜**已有的参考图**也列进候选：`@参考图N` 本来就是提交时会被转换的语法
    （见 applyRefSyntax），这样「第几张是哪条素材」在提示词里能写清楚。
-
-   候选浮层挂在 body 上、position:fixed：右栏编辑器每次重画都换节点，挂在编辑器里会跟着丢；
-   位置按光标现算（textarea 自己给不出光标坐标，用一个同款镜像层量）。
+   候选浮层、镜像高亮、悬停小卡与插入都在 `web/ui/asset-mention.js`（与工作台共用一份）；
+   这一份只提供「候选从哪来、选中之后做什么」。
    -------------------------------------------------------------------------- */
 const MENTION_MAX = 30;
-let mentionBox = null, mentionState = null;
-
-function mentionEl() {
-  if (mentionBox && mentionBox.isConnected) return mentionBox;
-  mentionBox = document.createElement('div');
-  mentionBox.id = 'mentionBox';
-  mentionBox.hidden = true;
-  document.body.appendChild(mentionBox);
-  return mentionBox;
-}
-function hideMention() { mentionState = null; if (mentionBox) mentionBox.hidden = true; hideMentionSub(); }
-
-/* 光标前面那一段是不是「正在打一个 @」：是就返回 {start, end, q}，不是返回 null。
-   判据只有一条：`@` 前面**不能是字母 / 数字**（那是邮箱 a@b.com 那种），中间不能有空白。
-   ⚠ 别把「前面必须是空白或标点」写进来 —— 中文句子本来就不打空格，
-   「一个女孩站在@小雅旁边」里 @ 前面是「在」，那样写会让中文环境下**永远弹不出来**。 */
-function mentionAt(ta) {
-  if (!ta || ta.selectionStart !== ta.selectionEnd) return null;
-  const pos = ta.selectionStart;
-  const before = ta.value.slice(0, pos);
-  const at = before.lastIndexOf('@');
-  if (at < 0) return null;
-  const q = before.slice(at + 1);
-  if (q.length > 24 || /[\s\u3000]/.test(q)) return null;
-  const prev = at > 0 ? before[at - 1] : '';
-  if (prev && /[A-Za-z0-9._%+-]/.test(prev)) return null;
-  return { start: at, end: pos, q: q };
-}
 /* 候选 = 这一镜已有的参考图（本镜素材）+ 素材库（角色 / 场景 / 道具）。按 `@` 后面那串过滤。
    每一行与挑选浮层一致：缩略图 · `@名字` · 右边一列「类型 · 来源」；
    没有预览图的素材压暗并写明原因（引用不了 —— 加不进参考图）。 */
@@ -886,7 +875,7 @@ function mentionCands(sh, q) {
     if (kw && nm.toLowerCase().indexOf(kw) < 0) return;
     const pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
     const kindZh = (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(c)]) || '素材';
-    /* 有角色资产的那几条悬停时会滑出二级菜单（见 showMentionSub）。这里把「有几张可选」
+    /* 有角色资产的那几条悬停时会滑出二级菜单（见 web/ui/asset-mention.js）。这里把「有几张可选」
        写进右边那一列，并在行尾加一个 › 作提示 —— 没有它，用户不会知道还能挑别的图。 */
     const na = Math.max(0, (D.Cast.assetsOf(c) || []).length);
     out.push({ kind: 'lib', name: nm, entry: c, pic: pic, sub: libPicChoices(c).length > 1,
@@ -980,54 +969,8 @@ function atNames(sh) {
   });
   return s;
 }
-/* 提示词 → 「只给 @片段 画底」的镜像 HTML。不是素材名的 @（邮箱、@某人）不画。 */
-function atBackHTML(sh, text) {
-  const names = atNames(sh);
-  const src = String(text == null ? '' : text);
-  const re = /(^|[^A-Za-z0-9._%+-])@([^\s\u3000@，。；、,.!?！？：:（）()【\[\]「」『』"']{1,24})/g;
-  let out = '', last = 0, m;
-  re.lastIndex = 0;
-  while ((m = re.exec(src))) {
-    const at = m.index + m[1].length, nm = m[2];
-    if (!names.has(nm)) continue;
-    out += esc(src.slice(last, at)) + '<span class="ta-at" data-nm="' + esc(nm) + '">@' + esc(nm) + '</span>';
-    last = at + 1 + nm.length;
-    re.lastIndex = last;
-  }
-  /* 末尾补一个换行：textarea 最后一行是空行时镜像层的高度才对得上（经典做法）。 */
-  return out + esc(src.slice(last)) + '\n';
-}
-function syncAtBack(sh) {
-  const ta = $('edPrompt'), back = $('edPromptBack');
-  if (!ta || !back) return;
-  back.innerHTML = atBackHTML(sh, ta.value);
-  /* 滚动位置读的是 onscroll 记在节点上的那一份（与胶片条的 `__stripSig` 同一做法），
-     不回读 `ta.scrollTop`：刚重建完整栏的那一下，读它会把整份布局同步催起来，
-     而能力是一家一家到货、每到货一遍就重画一次（实测这一行在开机里摊到近一百毫秒）。
-     没滚过就一个字都不写：新建的镜像层本来就在 0。 */
-  const top = ta.__atScroll || 0;
-  if (top) back.scrollTop = top;
-}
-/* 鼠标滑过提示词框：落在哪个 @片段 上就弹一张小卡（名字 + 类型 + 图） */
-let atPeek = null;
-function atPeekEl() {
-  if (atPeek && atPeek.isConnected) return atPeek;
-  atPeek = document.createElement('div');
-  atPeek.id = 'atPeek';
-  atPeek.hidden = true;
-  document.body.appendChild(atPeek);
-  return atPeek;
-}
-function hideAtPeek() { if (atPeek) atPeek.hidden = true; }
-function hoverAt(sh, e) {
-  const back = $('edPromptBack');
-  if (!back) return hideAtPeek();
-  const hit = [...back.querySelectorAll('.ta-at')].find(el => {
-    const r = el.getBoundingClientRect();
-    return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
-  });
-  if (!hit) return hideAtPeek();
-  const nm = hit.dataset.nm || '';
+/* 鼠标滑过 @片段 时那张小卡的内容：先认这一镜真实会发出去的素材，再认库里的名字 / 角色资产。 */
+function mentionMeta(sh, nm) {
   const D = window.Chars;
   const lib = ((D && D.Lib) ? (D.Lib.list() || []) : []);
   const kindZhOf = x => (D.LIB_KINDS && D.LIB_KINDS[D.libKindOf(x)]) || '素材';
@@ -1046,251 +989,25 @@ function hoverAt(sh, e) {
     pic = mat.src || '';
     ico = mat.media === 'video' ? 'film' : mat.media === 'audio' ? 'mic' : 'image';
     meta = mat.pending ? '本镜素材 · 接上一镜尾帧（提交时取）' : '本镜素材 · ' + mat.note;
-  } else {
-    const sepAt = nm.indexOf('·');
-    const host = sepAt > 0 ? lib.find(x => x && x.name === nm.slice(0, sepAt)) : null;
-    const assetHit = host ? (D.Cast.assetsOf(host) || []).find(a => a && a.src
-      && ((String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim()) === nm.slice(sepAt + 1))) : null;
-    if (assetHit) {
-      pic = assetHit.src;
-      meta = kindZhOf(host) + ' · ' + nm.slice(sepAt + 1) + '（' + (host.name || '') + ' 的角色资产）';
-    } else {
-      const c = lib.find(x => x && x.name === nm);
-      if (c) {
-        pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
-        meta = kindZhOf(c);
-        if (String(c.group || '').trim()) meta += ' · ' + String(c.group).trim();
-        if (!pic) meta += ' · 还没有预览图';
-      }
-    }
+    return { pic, meta, ico };
   }
-  const box = atPeekEl();
-  box.hidden = false;
-  box.innerHTML = '<span class="pk-t">' + (pic ? '<img src="' + esc(Api.mediaSrc(pic)) + '" alt="">' : icon(ico, 15)) + '</span>'
-    + '<span><span class="pk-n">@' + esc(nm) + '</span><br><span class="pk-k">' + esc(meta) + '</span></span>';
-  const r = hit.getBoundingClientRect();
-  const w = box.offsetWidth || 200, h = box.offsetHeight || 52;
-  box.style.left = Math.max(8, Math.min(r.left, window.innerWidth - w - 10)) + 'px';
-  box.style.top = Math.max(8, (r.top - h - 6 < 8 ? r.bottom + 6 : r.top - h - 6)) + 'px';
+  const sepAt = nm.indexOf('·');
+  const host = sepAt > 0 ? lib.find(x => x && x.name === nm.slice(0, sepAt)) : null;
+  const assetHit = host ? (D.Cast.assetsOf(host) || []).find(a => a && a.src
+    && ((String((D.Cast.assetName && D.Cast.assetName(a)) || '').trim()) === nm.slice(sepAt + 1))) : null;
+  if (assetHit) {
+    return { pic: assetHit.src, ico: 'image',
+      meta: kindZhOf(host) + ' · ' + nm.slice(sepAt + 1) + '（' + (host.name || '') + ' 的角色资产）' };
+  }
+  const c = lib.find(x => x && x.name === nm);
+  if (!c) return null;
+  pic = (D.refPicOf ? D.refPicOf(c) : D.picOf(c)) || '';
+  meta = kindZhOf(c);
+  if (String(c.group || '').trim()) meta += ' · ' + String(c.group).trim();
+  if (!pic) meta += ' · 还没有预览图';
+  return { pic, meta, ico };
 }
-/* 光标在 textarea 里的像素位置：用一个同款镜像层量（字体 / 内边距 / 行高 / 宽度必须与它一致）。 */
-function caretXY(ta) {
-  const cs = getComputedStyle(ta);
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;left:-9999px;top:0;visibility:hidden;white-space:pre-wrap;word-wrap:break-word;overflow:hidden;'
-    + 'border:0;font:' + cs.font + ';padding:' + cs.padding + ';line-height:' + cs.lineHeight
-    + ';letter-spacing:' + cs.letterSpacing + ';width:' + ta.clientWidth + 'px;';
-  d.textContent = ta.value.slice(0, ta.selectionStart);
-  const mark = document.createElement('span');
-  mark.textContent = '\u200b';
-  d.appendChild(mark);
-  document.body.appendChild(d);
-  const r = ta.getBoundingClientRect();
-  const out = { x: r.left + mark.offsetLeft - ta.scrollLeft, y: r.top + mark.offsetTop - ta.scrollTop, h: mark.offsetHeight || 18 };
-  d.remove();
-  return out;
-}
-/* rect = 浮层贴着谁的下边缘放（光标那一格，或 `@素材` 那颗按钮） */
-function mentionPlace(rect) {
-  const box = mentionEl();
-  const w = box.offsetWidth || 320;
-  const left = Math.max(8, Math.min(rect.left, window.innerWidth - w - 10));
-  let top = rect.bottom + 4;
-  const h = box.offsetHeight || 240;
-  if (top + h > window.innerHeight - 8) top = Math.max(8, rect.top - h - 4);   // 底下放不下就翻到上面
-  box.style.left = left + 'px';
-  box.style.top = top + 'px';
-}
-/* range = 要替换掉的那一段（打字触发时是 `@` 到光标；点 `@素材` 打开时是 null = 插到光标处）。
-   cands 为空时**照样画**（画一句空状态），不像以前那样静默收起来 —— 点了按钮什么都不出现最像坏了。 */
-/* 这一条素材身上**有哪几张图**：预览图在前，然后是每一张角色资产。
-   二级菜单与「选中之后加哪一张」都读它这一份 —— 两处各列一遍迟早对不上。 */
-function libPicChoices(entry) {
-  const D = window.Chars;
-  if (!D || !entry) return [];
-  const out = [];
-  const pic = (D.refPicOf ? D.refPicOf(entry) : D.picOf(entry)) || '';
-  const shown = D.picOf(entry) || '';
-  if (pic) out.push({ src: pic, note: '', kind: 'preview', tag: entry.anchor ? '身份锚点' : '预览图' });
-  if (shown && shown !== pic) out.push({ src: shown, note: '', kind: 'preview', tag: '预览图' });
-  (D.Cast.assetsOf(entry) || []).forEach(a => {
-    if (!a || !a.src) return;
-    if (out.some(x => x.src === a.src)) return;      // 锚点就是这张资产时不重复列
-    const nm = (D.Cast.assetName(a) || '资产');
-    out.push({ src: a.src, note: nm, kind: 'asset', tag: '资产' });
-  });
-  return out;
-}
-/* 二级菜单（悬停某个角色时从右边滑出的那一列）。挂在 body 上、position:fixed：
-   浮层自己是 overflow-y:auto，放里面会被裁掉。 */
-let mentionSub = null, mentionSubTimer = null, mentionSubRow = null;
-function mentionSubEl() {
-  if (mentionSub && mentionSub.isConnected) return mentionSub;
-  mentionSub = document.createElement('div');
-  mentionSub.id = 'mentionSub';
-  mentionSub.hidden = true;
-  document.body.appendChild(mentionSub);
-  return mentionSub;
-}
-function hideMentionSub() {
-  clearTimeout(mentionSubTimer); mentionSubTimer = null;
-  mentionSubRow = null;
-  if (mentionSub) mentionSub.hidden = true;
-}
-/* 什么时候真的收掉二级菜单：**到点了再看一眼鼠标在哪儿**。
-   只写「进入时 clearTimeout」是不够的 —— 鼠标从那一行挪到右边那一列，途中必然先离开那一行，
-   那个 mouseleave 一定先于 mouseenter 触发；只要两者之间有任何一次顺序意外（或者鼠标
-   在 180ms 里没走到），定时器就没人清，菜单当场收掉（用户看到的就是「一进去就自动关了」）。
-   现在把判据落在「鼠标还在不在这一行 / 这一列里」，与事件顺序无关。 */
-function scheduleHideSub(ms) {
-  clearTimeout(mentionSubTimer);
-  mentionSubTimer = setTimeout(() => {
-    mentionSubTimer = null;
-    if (mentionSub && !mentionSub.hidden && mentionSub.matches(':hover')) return;
-    if (mentionSubRow && mentionSubRow.matches(':hover')) return;
-    hideMentionSub();
-  }, ms || 260);
-}
-/* 悬停在某一行的角色上 → 右边滑出「挑一张当参考图」。
-   **只有真的有的挑（预览图之外还有资产）才弹** —— 只有一张图时弹一个只有一项的菜单是噪音。 */
-function showMentionSub(sh, cand, rowEl) {
-  const choices = libPicChoices(cand.entry);
-  if (choices.length < 2) return hideMentionSub();
-  const box = mentionSubEl();
-  mentionSubRow = rowEl;
-  box.hidden = false;
-  box.innerHTML = '<div class="ms-h">@' + esc(cand.name) + ' · 挑一张当参考图</div>'
-    + choices.map((ch, i) => '<div class="ms-i" data-msi="' + i + '">'
-      + '<span class="ms-t">' + (ch.src ? '<img src="' + esc(Api.mediaSrc(ch.src)) + '" alt="" loading="lazy">' : icon('image', 15)) + '</span>'
-      + '<span class="ms-n">' + esc(ch.note || ch.tag) + '</span>'
-      + '<span class="ms-k">' + esc(ch.tag) + '</span></div>').join('');
-  box.querySelectorAll('[data-msi]').forEach(el => {
-    el.onmousedown = e => {
-      e.preventDefault();
-      const st = mentionState;
-      if (st) pickMention(st.sh, cand, choices[Number(el.dataset.msi)]);
-    };
-  });
-  /* 贴着那一行的右边放，**与行重叠 6px**：中间留缝的话鼠标要跨过去，跨的那一瞬
-     既不在行里也不在列里，定时器就有机会先烧掉。重叠一点，鼠标一动就已经在列里了。
-     右边放不下就翻到左边（同样重叠 6px）。 */
-  const r = rowEl.getBoundingClientRect();
-  const w = box.offsetWidth || 272, h = box.offsetHeight || 200;
-  let left = r.right - 6;
-  if (left + w > window.innerWidth - 8) left = Math.max(8, r.left - w + 6);
-  box.style.left = left + 'px';
-  box.style.top = Math.max(8, Math.min(r.top, window.innerHeight - h - 8)) + 'px';
-  box.onmouseenter = () => clearTimeout(mentionSubTimer);
-  box.onmouseleave = () => scheduleHideSub();
-}
-function showMention(sh, cands, range, rect) {
-  const box = mentionEl();
-  mentionState = { sh: sh, cands: cands, i: 0, range: range || null };
-  box.hidden = false;
-  box.innerHTML = cands.length
-    ? cands.map((c, i) => {
-      const pic = c.pic ? Api.mediaSrc(c.pic) : '';
-      const t = pic ? '<img src="' + esc(pic) + '" alt="" loading="lazy">' : icon(c.ic || 'image', 15);
-      return '<div class="mt-i' + (i === 0 ? ' on' : '') + (c.off ? ' off' : '') + (c.sub ? ' has-sub' : '') + '" data-mi="' + i + '">'
-        + '<span class="mt-t">' + t + '</span>'
-        + '<span class="mt-n">@' + esc(c.name) + '</span>'
-        + '<span class="mt-k">' + esc(c.meta || '') + '</span></div>';
-    }).join('')
-    : '<div class="mt-empty">' + (window.Chars && Chars.Lib
-      ? '素材库还是空的。到「素材库」页建几条角色 / 场景 / 道具。'
-      /* 读不到模块和「库里没东西」是两件事，不能都说成「空的」—— 前者要说清是哪儿断了 */
-      : '读不到素材库模块，刷新一次；还不行就到「素材库」页看看能否打开。')
-      + '</div>';
-  /* 用 mousedown + preventDefault 而不是 click：click 之前 textarea 会先 blur，
-     浮层一收这一下就落空了（经典坑）。 */
-  box.querySelectorAll('[data-mi]').forEach(el => {
-    const cand = cands[Number(el.dataset.mi)];
-    el.onmousedown = e => {
-      e.preventDefault();
-      const st = mentionState;
-      if (st) pickMention(st.sh, cand);
-    };
-    /* 二级菜单：鼠标停在这一行上就滑出来。**收的判据不靠「离开就定时收」**
-       （那样会被事件顺序坑，见 scheduleHideSub），而是到点后再看一眼鼠标在哪儿。
-       没有第二项可选（这一条只有一张预览图）时不弹，免得出现一个只有一项的菜单。 */
-    if (cand && cand.kind === 'lib' && libPicChoices(cand.entry).length > 1) {
-      el.onmouseenter = () => { clearTimeout(mentionSubTimer); showMentionSub(sh, cand, el); };
-      el.onmouseleave = () => scheduleHideSub();
-    } else {
-      el.onmouseenter = hideMentionSub;
-    }
-  });
-  /* 鼠标还在浮层里就别收二级菜单 */
-  box.onmouseenter = () => clearTimeout(mentionSubTimer);
-  box.onmouseleave = () => scheduleHideSub();
-  mentionPlace(rect);
-}
-function mentionMove(d) {
-  const st = mentionState;
-  if (!st || !mentionBox || !st.cands.length) return;
-  st.i = (st.i + d + st.cands.length) % st.cands.length;
-  mentionBox.querySelectorAll('[data-mi]').forEach((el, i) => el.classList.toggle('on', i === st.i));
-  const on = mentionBox.querySelector('.mt-i.on');
-  if (on && on.scrollIntoView) on.scrollIntoView({ block: 'nearest' });
-}
-function mentionKey(sh, e) {
-  if (!mentionState || !mentionBox || mentionBox.hidden) return;
-  if (e.key === 'ArrowDown') { e.preventDefault(); mentionMove(1); return; }
-  if (e.key === 'ArrowUp') { e.preventDefault(); mentionMove(-1); return; }
-  if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); pickMention(sh, mentionState.cands[mentionState.i]); return; }
-  if (e.key === 'Escape') { e.preventDefault(); hideMention(); }
-}
-/* 每次输入 / 点一下 / 左右移动光标都重算一次：该弹就弹、不该弹就收。 */
-function syncMention(sh) {
-  const ta = $('edPrompt');
-  if (!ta || document.activeElement !== ta) return hideMention();
-  const m = mentionAt(ta);
-  if (!m) return hideMention();
-  const c = caretXY(ta);
-  showMention(sh, mentionCands(sh, m.q), { start: m.start, end: m.end },
-    { left: c.x, top: c.y, bottom: c.y + c.h });
-}
-/* 输入框右上角那颗 `@素材`：不打字也能打开同一份候选。
-   插到光标处（框里还留着上次的光标位置）；框从来没聚焦过就追加到末尾。 */
-function openMentionMenu(sh, anchor) {
-  if (!sh) return;
-  const ta = $('edPrompt');
-  const rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect()
-    : (ta ? ta.getBoundingClientRect() : null);
-  if (!rect) return;
-  const m = ta ? mentionAt(ta) : null;
-  showMention(sh, mentionCands(sh, ''), m ? { start: m.start, end: m.end } : null, rect);
-  if (mentionState) mentionState.anchor = anchor || null;   // 再点一次那颗按钮就收起来（见绑定处）
-}
-/* 把 `@名字` 写进提示词：range 给了就替换掉那一段（打字触发时是 `@` 到光标），
-   没给就插在当前光标处；前面挨着非空白字符时补一个空格，免得粘成一坨。
-   返回插入后的光标位置（重画编辑器之后要还回去）。 */
-function insertToken(ta, token, range) {
-  const v = ta.value;
-  let s, e;
-  if (range) { s = range.start; e = range.end; }
-  else if (ta.selectionStart === 0 && ta.selectionEnd === 0 && v && document.activeElement !== ta) {
-    /* 框**从来没聚焦过**（一进页面就点了 `@ 素材`）：浏览器给的是 0/0，插到开头很怪，
-       这种情况接在末尾。已经聚焦过再失焦时 selectionStart 是**上一次的光标位置**，照用。 */
-    s = e = v.length;
-  } else { s = ta.selectionStart; e = ta.selectionEnd; }
-  const before = v.slice(0, s);
-  const sep = (before && !/[\s\u3000]$/.test(before)) ? ' ' : '';
-  const head = before + sep + token + ' ';
-  ta.value = head + v.slice(e);
-  return head.length;
-}
-/* 素材库那一条的预览图 → 这一镜的参考图。
-   判据与「点参考图格子选一张」那条链**同一套**（能力声明 + 互斥 + 上限 + 去重），
-   只是这里不弹选择器 —— 图片就是素材库里那一条的主图。 */
-/* 这一张图在提示词里的写法 —— 它同时也是 refMeta.label、芯片上显示的那串。
-   只有一份实现：`addLibPicToShot` 存的是它、`pickMention` 插进输入栏的也是它，
-   两处各拼一遍迟早写成两种（那就成了「插进去的 token 与 refTokenize 认的对不上」）。 */
-const libTokenOf = (name, note) => {
-  const n = String(name == null ? '' : name);
-  const t = String(note == null ? '' : note).trim();
-  return t ? (n + '·' + t) : n;
-};
+
 /* 素材库那一条的一张图 → 这一镜的参考图。
    `pick` 不给就用它的**预览图**（token 就是素材名）；给了 `{note}` 就用二级菜单里挑中的那一张
    （token 是 `素材名·资产名`，与输入栏里写出来的、芯片上显示的完全一致）。
@@ -1354,48 +1071,20 @@ window.addEventListener('wb:char-pic', e => {
     + '（' + touched + ' 镜引用了它）</span>');
   if (why) Toast.warn('那张图没挂进参考图：' + why);
 });
-/* 选中一条候选：① 把 token 写进提示词 ② 素材库那一条顺手把图加进参考图
-   （`pick` 给了就是二级菜单里挑中的那一张，没给就是预览图）。
+/* 选中一条素材之后：素材库那一条顺手把图加进参考图（token 由共用浮层写进提示词）。
    **token 就是 `refMeta.label`、也就是芯片上显示的那串**：挑角色资产时写 `@小雅·三视图`，
-   不是光写 `@小雅` —— 光有角色名的话，输入栏里看不出引的是哪一张。
-   ① 走 `dispatchEvent(new Event('input'))` —— 与手打完全同一条链（数据层 / 字数 / 按钮状态），
-   不在这里另写一遍赋值。② 之后重画一次编辑器（参考图格子要出现），并把光标放回原处。 */
-async function pickMention(sh, c, pick) {
-  const ta = $('edPrompt');
-  const st = mentionState;
-  if (!c || !sh || !ta) return hideMention();
-  const note = String((pick && pick.note) || '').trim();
-  const token = '@' + libTokenOf(c.name, note);
-  const caret = insertToken(ta, token, st && st.range);
-  hideMention();
-  ta.dispatchEvent(new Event('input'));
-  if (c.kind !== 'lib') { window.focusQuiet(ta); try { ta.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } return; }
-  const r = addLibPicToShot(sh, c.entry, pick);
+   不是光写 `@小雅` —— 光有角色名的话，输入栏里看不出引的是哪一张。 */
+function mentionPicked(c, pick, info) {
+  if (!c || c.kind !== 'lib') return;
+  const sh = curShot();
+  if (!sh) return;
+  const token = (info && info.token) || ('@' + libTokenOf(c.name, pick && pick.note));
+  const res = addLibPicToShot(sh, c.entry, pick);
   renderEditor(); scheduleSave();
-  const ta2 = $('edPrompt');
-  if (ta2) { window.focusQuiet(ta2); try { ta2.setSelectionRange(caret, caret); } catch (e) { /* 光标位置恢复不了（不是可选文本域）不影响这次输入 */ } }
-  if (r.ok && !r.dup) setStatus('<span class="ok">✓ 已把《' + esc(token) + '》加进参考图</span>');
-  else if (r.dup) setStatus('《' + esc(token) + '》已经在参考图里了');
-  else setStatus('<span class="warn">提示词里的 ' + esc(token) + ' 已经写上；' + esc(r.why) + '</span>');
+  if (res.ok && !res.dup) setStatus('<span class="ok">✓ 已把《' + esc(token) + '》加进参考图</span>');
+  else if (res.dup) setStatus('《' + esc(token) + '》已经在参考图里了');
+  else setStatus('<span class="warn">提示词里的 ' + esc(token) + ' 已经写上；' + esc(res.why) + '</span>');
 }
-/* 浮层跟着编辑器走：任何一层滚动 / 窗口变化 / 重画都先收起来，免得停在一个对不上的位置上。
-   例外：**浮层与二级菜单自己内部的滚动不算** —— 它们都是 overflow-y:auto，内容长一点就会滚；
-   把它一起收掉的话，鼠标在二级菜单里滚一下（或它重画时滚动位置归零）整个浮层就没了。 */
-window.addEventListener('scroll', e => {
-  const t = e.target;
-  if (t && t.nodeType === 1
-    && ((mentionBox && mentionBox.contains(t)) || (mentionSub && mentionSub.contains(t)))) return;
-  hideMention();
-}, true);
-window.addEventListener('resize', hideMention);
-document.addEventListener('mousedown', e => {
-  if (!mentionBox || mentionBox.hidden) return;
-  /* `@ 素材` 那颗按钮不算「外面」：它自己就是开合开关，交给它的 onclick 处理。
-     二级菜单那一列也算「里面」—— 它就是浮层的一部分，点它等于点浮层。 */
-  if (mentionBox.contains(e.target) || (mentionSub && mentionSub.contains(e.target)) || e.target === $('edPrompt')
-    || (e.target && e.target.closest && e.target.closest('#atBtn'))) return;
-  hideMention();
-}, true);
 
 /* 画「输入模式」那一排（与工作台同一份判据、同一套画法，样式在 ui.css 的 .mode-row / .ui-pill）：
    · 没有模式声明的家整块不出现 —— 与「这一排存在但一个芯片都没有」是两件事，后者让人以为功能坏了；
@@ -1609,8 +1298,8 @@ function paintLineCnts(sh) {
 
 function renderEditor() {
   const col = $('edCol');
-  hideMention();                                  // 这一块要整片重画，@ 浮层先收掉（它挂在 body 上，不跟着换）
-  hideAtPeek();                                   // 悬停小卡同理
+  mention.hide();                                 // 这一块要整片重画，@ 浮层先收掉（它挂在 body 上，不跟着换）
+  mention.hidePeek();                             // 悬停小卡同理
   const sh = curShot();
   if (!sh) {
     /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起（拆一份新的），
@@ -1723,11 +1412,11 @@ function renderEditor() {
   const edHtml = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
-      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
+      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" data-at-btn title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
       <div class="ta-wrap">
         <!-- 镜像层：textarea 没法给某几个字上色，所以在它下面铺一层同字号同内边距的副本，
              只给 @片段 画底（文字本身透明，看得见的还是 textarea 里那行字 ——
-             中文输入法正在拼的那几个字照旧看得见）。见 atBackHTML / syncAtBack。 -->
+             中文输入法正在拼的那几个字照旧看得见）。见 web/ui/asset-mention.js。 -->
         <div class="ta-back" id="edPromptBack" aria-hidden="true"></div>
         <textarea id="edPrompt" placeholder="描述这一镜的画面、镜头运动、氛围…">${esc(promptTextOf(sh))}</textarea>
       </div>
@@ -2009,26 +1698,14 @@ function renderEditor() {
     // 左栏卡片只在「有/无描述」翻转时才需要重画，不必每敲一个字重建整列
     if (!d0 && hadText !== !!ta.value.trim()) renderScenes();
     scheduleSave('改描述');
-    syncMention(sh);                            // @ 引用素材库的候选浮层（见上面那一段）
-    syncAtBack(sh);                             // @片段 的高亮镜像层（见 atBackHTML）
+    mention.sync();                             // @ 引用素材库的候选浮层
+    mention.syncBack();                         // @片段 的高亮镜像层
     /* 「将要发出的请求」跟着改：提示词是请求体里最重要的一项，
        用户改一个字就该看见要发出去的正文也变了（去抖在 RawRequest.schedule 里）。 */
     refreshShotPreview(sh);
   };
-  /* @ 候选浮层：方向键 / 回车 / Esc 都在它里面消化；左右移动光标也要重算一次（可能刚好走进/走出 @ 片段） */
-  ta.onkeydown = e => mentionKey(sh, e);
-  ta.onkeyup = e => { if (e.key === 'ArrowLeft' || e.key === 'ArrowRight' || e.key === 'Home' || e.key === 'End') syncMention(sh); };
-  ta.onclick = () => syncMention(sh);
-  /* 镜像层与悬停小卡：框内滚动时要跟着走，否则高亮会停在错位的行上。
-     滚动位置顺手记在节点上给 syncAtBack 用（那边不回读，见那一段注释）。 */
-  ta.onscroll = () => {
-    ta.__atScroll = ta.scrollTop;
-    const b = $('edPromptBack');
-    if (b) b.scrollTop = ta.scrollTop;
-  };
-  ta.onmousemove = e => hoverAt(sh, e);
-  ta.onmouseleave = hideAtPeek;
-  syncAtBack(sh);
+  /* @ 候选浮层：方向键 / 回车 / Esc、左右移动光标、悬停小卡与镜像层滚动都在公共件里。 */
+  mention.bind(ta);
   $('pClear').onclick = () => {
     /* 显示读的是「当前候选的 prompt 优先」（promptTextOf），只清草稿或只清 sh.prompt
        都清不掉一条已提交候选的描述 —— 三处同口径一起清。 */
@@ -2041,8 +1718,8 @@ function renderEditor() {
   /* 输入框右上角的 `@ 素材`：打开同一份候选浮层（不打字也能挑）；再点一次收起来 */
   const atBtn = $('atBtn');
   if (atBtn) atBtn.onclick = () => {
-    if (mentionState && mentionState.anchor === atBtn) hideMention();
-    else openMentionMenu(sh, atBtn);
+    if (mention.state && mention.state.anchor === atBtn) mention.hide();
+    else mention.open(atBtn);
   };
   /* 「提到素材」那排芯片：点一下把 @名字 写进提示词（插在光标处），走与手打同一条 input 链 */
   col.querySelectorAll('[data-mat]').forEach(b => b.onclick = e => {
@@ -2329,7 +2006,7 @@ function installCapRepaint() {
     needProv,
     addRefImage,
     backfillRefMetaIds,
-    syncAtBack,
+    syncAtBack: () => mention.syncBack(),
     libPicChoices,
     addLibPicToShot,
     linePanelRows,

@@ -11,13 +11,13 @@
   const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
   /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建） */
   const SYNCABLE = [
-    'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_caps_', 'sk_text_vision', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
+    'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_vision', 'sk_text_audio', 'sk_text_video', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
     /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走。
        `sk_text_models_` 在 v13 起已经改成一份 `sk_model_prefs`（见 gen-forms.js 的 ModelPrefs），
        这一条**先留着**：迁移是把旧键删掉的，键不在名单里就轮不到 `syncable()`，那次删除
        就不会镜像到 `.data/` —— 旧文件留在服务器上，下次对账又把它拉回来。 */
     'sk_text_prov', 'sk_text_models_',
-    /* 设置页「添加自定义供应商」登记的接口（图片 / 视频 / 语音 / 文字 AI 四类都能加）：一份 JSON 数组，
+    /* 设置页「添加自定义供应商」登记的接口（图片 / 视频 / 语音 / 文字 / 识别 / 搜索六档都能加）：一份 JSON 数组，
        代理读它的镜像 `.data/sk_custom.json` 合并进 /registry —— 跟着数据文件走才能换机器还在。
        清单里只有「照哪一家的形状 + 地址 + 型号 id」，密钥仍按 keyId 存 `sk_key_<id>`，
        所以同步这一份不会把凭据带出去。 */

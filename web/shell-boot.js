@@ -17,13 +17,19 @@
     try { return localStorage.getItem(k) || ''; } catch (e) { return ''; }
   }
 
+  /* 偏好里的档位：没设过 / 坏值都按缺省档算 —— 缺省是「跟随系统」（三档早已存在，只改默认值），
+     所以空串也要跟着系统档走；matchMedia 变化那一处用的是同一份判定。 */
+  function prefMode() {
+    var mode = readPref('dir_theme');
+    return MODES.indexOf(mode) < 0 ? 'system' : mode;
+  }
+
   /* 把两根轴的偏好解析成 DOM 上的两个属性 —— 全站唯一一处。
      别处（侧栏那颗日 / 夜按钮、设置页改动、助手改设置）都只调 window.__themeApply，
      不再自己写 dataset.theme：那会绕过「system 要先解析」这一步。 */
   function resolveTheme() {
     var root = document.documentElement;
-    var mode = readPref('dir_theme');
-    if (MODES.indexOf(mode) < 0) mode = 'light';
+    var mode = prefMode();
     root.dataset.theme = mode === 'system' ? (mq && mq.matches ? 'dark' : 'light') : mode;
     var pal = readPref('dir_palette');
     root.dataset.palette = PALETTES.indexOf(pal) >= 0 ? pal : 'ocean';
@@ -40,7 +46,7 @@
      偏好已经钉成 light / dark 的不受系统影响。 */
   if (mq && mq.addEventListener) {
     mq.addEventListener('change', function () {
-      if (readPref('dir_theme') === 'system') resolveTheme();
+      if (prefMode() === 'system') resolveTheme();
     });
   }
 

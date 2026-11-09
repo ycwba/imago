@@ -581,6 +581,42 @@
 .mm-tree-mini.on { opacity: 1; color: var(--acc); }
 .mm-empty { color: var(--sub); font-size: var(--fs-12); line-height: 1.7; }
 
+/* 涂鸦标注：浮在视口上的两排工具（容器不吃指针，只有控件吃） */
+.mm-sketch {
+  position: absolute;
+  left: var(--sp-12);
+  top: var(--sp-12);
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  max-width: calc(100% - var(--sp-24));
+  pointer-events: none;
+}
+.mm-sketch-colors, .mm-sketch-tools, .mm-sketch-foot {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--panel);
+  border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10);
+  box-shadow: var(--shadow-2);
+  pointer-events: auto;
+}
+.mm-sketch-swatch {
+  width: var(--sz-chip);
+  height: var(--sz-chip);
+  border-radius: var(--radius-999);
+  border: var(--hair) solid var(--line);
+  cursor: pointer;
+}
+.mm-sketch-swatch.on { outline: var(--hair-2) solid var(--acc); outline-offset: var(--hair); }
+.mm-sketch-tools .ghost.on { background: var(--sel-bg); color: var(--acc); }
+.mm-sketch-foot .ui-inp { width: var(--sz-card-sm); }
+.mm-sketch-count { color: var(--sub); font-size: var(--fs-12); padding: 0 var(--sp-4); }
+
 /* 窄窗：两栏都收窄，侧栏压到视口下方会变成纵向堆叠（1100 是全站登记过的断点） */
 @media (max-width: 1100px) {
   .model-page { --mmrail-w: 208px; --mmside-w: 256px; --mmdock-h: 200px; }

@@ -52,20 +52,17 @@ set "CG="
 set "CY="
 set "CR="
 set "CB="
+set "THEME=system"
 set "USE_COLOR=1"
 if defined WB_NOCOLOR set "USE_COLOR="
 rem 只起一个 cmd 子进程读 ver，比 ver | findstr 少一个外部进程；10.x 认 ANSI，老系统自动降级。
 for /f "tokens=2 delims=[]" %%v in ('ver') do for /f "tokens=2" %%w in ("%%v") do set "WINVER=%%w"
 if not "%WINVER:~0,3%"=="10." set "USE_COLOR="
-if not defined USE_COLOR goto :color_ready
-set "C0=%ESC%[0m"
-set "CDIM=%ESC%[90m"
-set "CT=%ESC%[1;97m"
-set "CA=%ESC%[1;36m"
-set "CG=%ESC%[1;32m"
-set "CY=%ESC%[1;33m"
-set "CR=%ESC%[1;91m"
-set "CB=%ESC%[1;94m"
+if not defined USE_COLOR (
+  title 成像 · AI 创作工作台
+  goto :color_ready
+)
+call :theme_apply
 :color_ready
 
 rem ---------- 命令分发 ----------
@@ -82,6 +79,8 @@ if /i "%~1"=="clean"    set "MODE=clean"
 if /i "%~1"=="help"     set "MODE=help"
 if /i "%~1"=="/?"       set "MODE=help"
 if /i "%~1"=="-h"       set "MODE=help"
+if /i "%~1"=="update"   goto :do_update
+if /i "%~1"=="theme"    goto :do_theme
 if not "%~1"=="" if "%MODE%"=="auto" goto :bad_arg
 
 if not "%MODE%"=="menu" call :banner
@@ -115,6 +114,40 @@ exit /b 0
 echo(
 echo(%CG%   ✓%C0%  自检通过；WB_LAUNCHER_DRYRUN 已设置，未启动界面。
 echo(
+exit /b 0
+
+rem ============================================================================
+rem  更新 / 主题（薄转发，逻辑在 更新.bat / update.ps1 与 .env 里）
+rem ============================================================================
+:do_update
+if not exist "%~dp0更新.bat" (
+  echo(%CR%   x%CDIM%  找不到 更新.bat%C0%
+  exit /b 1
+)
+call "%~dp0更新.bat" %2 %3 %4
+exit /b %ERRORLEVEL%
+
+:do_theme
+set "NEWTHEME=%~2"
+if /i "%NEWTHEME%"=="system" goto :theme_write
+if /i "%NEWTHEME%"=="day" goto :theme_write
+if /i "%NEWTHEME%"=="night" goto :theme_write
+echo(
+echo(%CT%  用法：启动.bat theme day^|night^|system%C0%
+echo(%CDIM%  写进 .env 的 WB_THEME，下次启动生效。当前：%THEME%%C0%
+echo(
+exit /b 1
+:theme_write
+if not exist "%ENVFILE%" (
+  echo(%CY%   !%C0%  没有 .env：先照 .env.example 新建一份，再执行这条命令%C0%
+  exit /b 1
+)
+powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$p='%ENVFILE%'; $v='WB_THEME=%NEWTHEME%'; $t=[IO.File]::ReadAllText($p); $crlf=$t.Contains([string][char]13+[string][char]10); $t=$t.Replace([string][char]13+[string][char]10,[string][char]10); $arr=$t.Split([char]10); $hit=$false; $out=@(); foreach($l in $arr){ if($l -match '^\s*WB_THEME\s*='){ $out+=$v; $hit=$true } else { $out+=$l } }; if(-not $hit){ if($out.Count -gt 0 -and $out[$out.Count-1] -eq ''){ $out[$out.Count-1]=$v } else { $out+=$v } }; $nl=if($crlf){[string][char]13+[string][char]10}else{[string][char]10}; $text=($out -join $nl); if(-not $text.EndsWith($nl)){$text+=$nl}; [IO.File]::WriteAllText($p,$text,(New-Object System.Text.UTF8Encoding($false)))"
+if errorlevel 1 (
+  echo(%CR%   x%CDIM%  写 .env 失败：检查文件是否只读%C0%
+  exit /b 1
+)
+echo(%CG%   OK%CDIM%  已写入 WB_THEME=%NEWTHEME%（下次启动生效）%C0%
 exit /b 0
 
 rem ============================================================================
@@ -411,9 +444,12 @@ echo(%CA%    启动.bat dir%C0%    %CDIM%打开项目目录%C0%
 echo(%CA%    启动.bat page%C0%   %CDIM%打开工作台页面%C0%
 echo(%CA%    启动.bat selftest%C0% %CDIM%跑启动器自检%C0%
 echo(%CA%    启动.bat clean%C0%  %CDIM%清 launcher.ps1 解析缓存%C0%
+echo(%CA%    启动.bat update%C0%  %CDIM%检测并拉取仓库更新（更新.bat）%C0%
+echo(%CA%    启动.bat theme%C0%   %CDIM%控制台主题：theme day^|night^|system%C0%
 echo(
 echo(%CDIM%    开关  WB_LAUNCHER_DRYRUN=1  只检查不启动%C0%
 echo(%CDIM%          WB_NOCOLOR=1          关掉彩色输出%C0%
+echo(%CDIM%          WB_THEME=system       控制台主题：system（跟随系统）/ day / night%C0%
 echo(
 echo(%CDIM%    起停、端口、日志、关窗停服务都在图形启动器窗口里；%C0%
 echo(%CDIM%    临时办法：本目录直接运行 node proxy.js%C0%
@@ -454,4 +490,44 @@ exit /b 1
 echo(
 echo(%CDIM%  已退出，没有改动任何东西。%C0%
 echo(
+exit /b 0
+
+rem ============================================================================
+rem  主题：WB_THEME=system|day|night（与网页端同名档位；WB_NOCOLOR 优先级最高）
+rem  system 读 HKCU 的 AppsUseLightTheme（0x0 = 深色）；读不到按浅色，不崩。
+rem ============================================================================
+:theme_apply
+set "THEME=system"
+if exist "%ENVFILE%" for /f "usebackq eol=# tokens=1,* delims==" %%a in ("%ENVFILE%") do if /i "%%a"=="WB_THEME" set "THEME=%%b"
+set "THEME=%THEME: =%"
+set "THEME_ON="
+if /i "%THEME%"=="night" set "THEME_ON=night"
+if /i "%THEME%"=="system" (
+  for /f "tokens=2,*" %%a in ('reg query "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v AppsUseLightTheme 2^>nul ^| findstr /i AppsUseLightTheme') do if /i "%%b"=="0x0" set "THEME_ON=night"
+)
+if defined THEME_ON goto :theme_night
+rem 日间：浅底深字
+set "C0=%ESC%[0m"
+set "CDIM=%ESC%[90m"
+set "CT=%ESC%[1;30m"
+set "CA=%ESC%[1;34m"
+set "CG=%ESC%[32m"
+set "CY=%ESC%[33m"
+set "CR=%ESC%[31m"
+set "CB=%ESC%[34m"
+color F0
+title 成像 · AI 创作工作台 · 日间
+exit /b 0
+:theme_night
+rem 夜间：深底亮字（强调色提亮一档，警告色避开刺眼的纯红）
+set "C0=%ESC%[0m"
+set "CDIM=%ESC%[90m"
+set "CT=%ESC%[1;97m"
+set "CA=%ESC%[1;36m"
+set "CG=%ESC%[1;32m"
+set "CY=%ESC%[1;33m"
+set "CR=%ESC%[1;91m"
+set "CB=%ESC%[1;94m"
+color 0F
+title 成像 · AI 创作工作台 · 夜间
 exit /b 0

@@ -56,11 +56,15 @@
   box-shadow: var(--shadow-1); transition: border-color var(--dur-180), box-shadow var(--dur-180); }
 .studio-page .prompt-box:focus-within { border-color: var(--acc); box-shadow: var(--focus-shadow); }
 .studio-page .prompt-box.over { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-3) var(--acc-tint-10); }
-/* 只命中提示词宿主的直接子级，公共润色框保留自己的皮肤与高度。 */
-.studio-page .prompt-box > textarea { width: 100%; min-height: 132px; padding: var(--sp-12); background: transparent; color: var(--txt);
+/* 只命中提示词宿主的输入框，公共润色框保留自己的皮肤与高度。
+   textarea 现在包在 .ta-wrap 里（@素材高亮要一层镜像层），所以按后代选。 */
+.studio-page .prompt-box textarea { width: 100%; min-height: 132px; padding: var(--sp-12); background: transparent; color: var(--txt);
   border: 0; border-radius: var(--radius-6); font-size: var(--fs-14); font-family: inherit; resize: vertical; }
 .studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-12); line-height: 1.5; color: var(--sub); }
 .studio-page .prompt-hint.bad { color: var(--err); }
+/* 钉底栏的状态行只排一行：素材取帧那种长文案以前会把生成区撑高、把按钮顶开。
+   超出截断，全文挂在 title 上（setStatus 会把纯文本写进去）。 */
+.studio-page .wb-dock [data-r="status"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-page .style-row { padding: 0 var(--sp-8) var(--sp-8); }
 .studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-4); }
 .studio-page .style-row input { width: 100%; }
@@ -83,11 +87,11 @@
 .studio-page .hint { font-size: var(--fs-12); color: var(--sub); }
 
 /* ---------- 左栏：素材槽磁贴的排布（磁贴长什么样仍只有 ui.css 那一份） ---------- */
-.studio-page #inputArea .assets-grid { grid-template-columns: repeat(auto-fill, minmax(var(--sz-tile), 1fr)); }
-.studio-page #inputArea .asset-slot { min-width: 0; }
-.studio-page #inputArea .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
-.studio-page #inputArea > .slot-wide { margin-top: var(--sp-8); }
-.studio-page #inputArea .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: var(--acc-tint-10);
+.studio-page [data-r="inputArea"] .assets-grid { grid-template-columns: repeat(auto-fill, minmax(var(--sz-tile), 1fr)); }
+.studio-page [data-r="inputArea"] .asset-slot { min-width: 0; }
+.studio-page [data-r="inputArea"] .asset-slot > .sub { max-width: 100%; overflow-wrap: anywhere; }
+.studio-page [data-r="inputArea"] > .slot-wide { margin-top: var(--sp-8); }
+.studio-page [data-r="inputArea"] .asset-slot.drop-on { border-color: var(--acc); border-style: solid; background: var(--acc-tint-10);
   box-shadow: 0 0 0 var(--hair-3) var(--acc-tint-18); }
 
 /* ---------- 右栏：历史资产库 ---------- */
@@ -126,7 +130,7 @@
 .studio-page.wb .col-right #result > .empty { grid-column: 1 / -1; }
 
 @media (max-width: 760px) {
-  .studio-page .prompt-box > textarea { min-height: 112px; font-size: var(--fs-13); }
+  .studio-page .prompt-box textarea { min-height: 112px; font-size: var(--fs-13); }
   .studio-page .st-top { flex-wrap: wrap; }
   .studio-page .st-top .st-model { flex: 1 1 100%; justify-content: flex-start; }
   .studio-page .st-top .st-model .dd { max-width: none; }
@@ -134,7 +138,7 @@
 
 /* 拆分生成的占位卡：还没生成出来的那一格画成虚线（点了 × 可移除）；
    「生成后填入视频栏」的勾选行与导演台拆分面板同一套。 */
-.studio-page #inputArea .asset-slot.is-pending { border-style: dashed; opacity: .8; }
-.studio-page #inputArea .asset-slot.is-pending > .sub { color: var(--acc); }
+.studio-page [data-r="inputArea"] .asset-slot.is-pending { border-style: dashed; opacity: .8; }
+.studio-page [data-r="inputArea"] .asset-slot.is-pending > .sub { color: var(--acc); }
 .studio-page .fill-video-row { display: flex; align-items: center; gap: var(--sp-8);
   margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--sub); cursor: pointer; }

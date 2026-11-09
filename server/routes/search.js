@@ -107,7 +107,10 @@ function createSearchRoutes(ctx) {
     if (!key) {
       throw httpError('not-configured', '「' + (p.name || p.id) + '」还没有密钥：先给这家配一把，或在下面单独填一把搜索密钥');
     }
-    return { id: p.id, style: p.search.style, decl: p.search, base: s.baseUrl || p.base || '', key, name: p.name || p.id };
+    const serviceModels = (p.modelKind === 'search' && Array.isArray(p.models))
+      ? p.models : ((p.serviceModels && p.serviceModels.search) || []);
+    return { id: p.id, style: p.search.style, decl: p.search, base: s.baseUrl || p.base || '', key, name: p.name || p.id,
+      models: serviceModels.map(m => (m && m.id) || m).filter(Boolean) };
   }
   function cacheGet(k) {
     const hit = cache.get(k);
@@ -196,7 +199,7 @@ function createSearchRoutes(ctx) {
      解析不到引用就是这次没联网 —— 报失败，不拿正文冒充搜索。 */
   async function chatSearch(eng, q, limit, model, site) {
     const d = eng.decl;
-    const m = String(model || d.model || '').trim();
+    const m = String(model || (eng.models && eng.models[0]) || d.model || '').trim();
     if (!m) throw httpError('bad-request', '这家联网搜索要一个对话型号：在「联网搜索」里填一个能联网的型号');
     const body = {
       model: m, stream: false, temperature: 0.2,

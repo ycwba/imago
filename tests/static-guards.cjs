@@ -88,16 +88,24 @@ const G3_EMPTY_CATCH = [
   { file: 'web/ui/toast.js', max: 1, why: '存量：提示条吞错的一批' },
 ];
 
-/* G4 裸色值：现状 3 处 / 3 个文件（走令牌的 `var(--x,#hex)` 回退写法不算违例）。
+/* G4 裸色值：现状 30 处 / 8 个文件（走令牌的 `var(--x,#hex)` 回退写法不算违例）。
    图表调色板已搬进 `tokens.css` 的 `--chart-*`（页面现读 CSS 变量），不再有例外；
-   剩下的两类各有各的客观理由：ASS 字幕色是字幕文件格式的字段（不是 CSS）；
-   canvas 2D 的 fillStyle 读不到 CSS 变量。内联 SVG 走 `stroke="currentColor"`
+   剩下的三类各有各的客观理由：ASS 字幕色是字幕文件格式的字段（不是 CSS）；
+   canvas 2D 的 fillStyle 读不到 CSS 变量；白膜的取色表 / 布光预设 / 灯的默认色是
+   **写进模型文档的画面常量**（three 的材质与灯光读不到 var()，且同一份模型在浅色与深色
+   主题下必须渲出同一张参考图 —— 与导出成片同一条理由）。内联 SVG 走 `stroke="currentColor"`
    + CSS 上 `color: var(--…)`（箭头已经这么改了），所以那一类不再有例外。
    只许减：把它们换成令牌 / 传色函数之后逐条删表。 */
 const G4_BARE_HEX = [
   { file: 'web/domain/asset-transfer.js', max: 1, why: 'canvas 导出前置底色 fillStyle="#fff"（asset-transfer.js:21）：2D 上下文拿不到 var()，要的是「导出必须白底」这个事实' },
-  { file: 'web/ui/workbench.js', max: 1, why: '缩略图铺底 fillStyle="#000"（workbench.js:1055）：同上，canvas 不认 CSS 变量' },
+  { file: 'web/domain/text-ai.js', max: 1, why: '契约正文里的颜色示例 `"#8fb8ff"`（提示词里给 AI 看的写法，不是界面色值）' },
   { file: 'web/media-export.js', max: 2, why: '离线导出的 canvas 2D：闪白转场的 fillStyle 与字幕描边的 fillStyle（canvas 拿不到 var()，导出的画面字节必须与主题无关）' },
+  { file: 'web/model3d/palette.js', max: 14, why: '白膜的取色表与布光预设（CLAY / GROUND / SKY / 网格 / 轨道色 / 四套灯色）：three 材质读不到 var()，画面必须不跟主题走' },
+  { file: 'web/model3d/scene.js', max: 4, why: '建 three 灯 / 半球光 / 地面阴影时文档色值的回退（`#ffffff`、`#d9d4cc`、`#1a1a1a`）：灯读不到 var()，缺字段时回内置默认' },
+  { file: 'web/model3d/schema.js', max: 6, why: '默认灯装置与灯归一化的颜色回退：这些是写进模型文档的画面常量（与 palette 同一条理由）' },
+  { file: 'web/model3d/ai.js', max: 1, why: '提示词里比较「灯色是不是默认白」（`#ffffff` 是文档字段值，不是界面样式）' },
+  { file: 'web/pages/model.js', max: 1, why: '新建灯的兜底对象里那个 `#ffffff`（写进模型文档的灯色，不是界面样式）' },
+  { file: 'web/ui/workbench.js', max: 1, why: '缩略图铺底 fillStyle="#000"（workbench.js:1055）：同上，canvas 不认 CSS 变量' },
 ];
 
 /* G5 `_ddRebuild`：Dropdowns 的私有物，页面侧一次都不该用。现状 0 处 —— 表必须是空的，

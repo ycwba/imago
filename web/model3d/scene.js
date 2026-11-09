@@ -9,13 +9,14 @@
 
 import * as THREE from '../vendor/three/three.module.js';
 import { mergeGeometries } from '../vendor/three/BufferGeometryUtils.js';
-import { CLAY, CLAY_DETAIL, GROUND, SKY, FOG, GRID, GRID_BOLD, SELECT, toneOf, trackColorOf, nodeColorOf } from './palette.js';
+import { CLAY, CLAY_DETAIL, GROUND, SKY, FOG, GRID, GRID_BOLD, SELECT, SKETCH, toneOf, trackColorOf, nodeColorOf } from './palette.js';
 import { mannequinTree, poseLimitOf } from './mannequin.js';
 import { crowdLayout } from './crowd.js';
 import { variantsOf, cloneNodeForVariant } from './dsl.js';
 import { quatOfDegrees, registerJoint } from './rig.js';
 import { clipOf, mixerFor, bindClip, applyClip } from './clip.js';
 import { cloneAsset, assetLookupKey } from './loader.js';
+import { samplePath } from './anim.js';
 
 const D2R = Math.PI / 180;
 const v3 = a => new THREE.Vector3(a[0] || 0, a[1] || 0, a[2] || 0);
@@ -75,16 +76,28 @@ function shapeGeometry(node) {
       return new THREE.ExtrudeGeometry(shape, { depth: node.depth, bevelEnabled: false, curveSegments: node.seg || 8 });
     });
   }
-  if (s === 'loft') return cached('loft:' + JSON.stringify(node.rings) + ':' + node.seg, () => loftGeometry(node));
+  if (s === 'loft') {
+    return cached('loft:' + JSON.stringify([node.rings, node.path, node.profile, node.subdiv, node.seg]), () => loftGeometry(node));
+  }
   return cached('box:1,1,1', () => new THREE.BoxGeometry(1, 1, 1));
 }
 
 /* 放样：一串截面环（rx/rz/cx/cz/y）之间插值成一张筒，端头封口。
-   用它做有机形体（躯干、尾巴、瓶子）比拿一堆球去拼干净得多 —— AI 也更容易写对。 */
+   用它做有机形体（躯干、尾巴、瓶子）比拿一堆球去拼干净得多 —— AI 也更容易写对。
+   两条增强：`subdiv` 用 Catmull-Rom 在环间补段（不写时保持旧的 4 段平滑，像素不变）；
+   `path` + `profile` 沿路径扫掠（截面半径按进度变化）。 */
 function loftGeometry(node) {
-  const rings = node.rings;
   const seg = node.seg || 20;
-  const SUB = 4;                        // 每两环之间插 4 段，环少时也够顺
+  if (node.path && Array.isArray(node.profile) && node.profile.length >= 2) return sweepGeometry(node, seg);
+  const steps = node.subdiv != null ? loftSplineRings(node.rings, node.subdiv) : loftSteps(node.rings);
+  return stepsGeometry(steps, seg,
+    (rr, a) => [rr.cx + Math.cos(a) * rr.rx, rr.y, rr.cz + Math.sin(a) * rr.rz],
+    rr => [rr.cx, rr.y, rr.cz]);
+}
+
+/* 环间平滑：每两环插 4 段（smoothstep），环少时也够顺。 */
+function loftSteps(rings) {
+  const SUB = 4;
   const steps = [];
   for (let i = 0; i < rings.length - 1; i++) {
     const a = rings[i], b = rings[i + 1];
@@ -101,12 +114,44 @@ function loftGeometry(node) {
     }
   }
   steps.push(rings[rings.length - 1]);
+  return steps;
+}
+
+/* 显式细分：每个环值当成一条参数曲线，用 Catmull-Rom 在环间采样。
+   首尾各复制一个端点（开放曲线），每两环之间补 subdiv 段。 */
+function loftSplineRings(rings, subdiv) {
+  const n = Math.max(1, Math.round(subdiv));
+  if (rings.length < 2 || n <= 1) return rings.slice();
+  const ringAt = i => rings[Math.max(0, Math.min(rings.length - 1, i))];
+  const cr = (p0, p1, p2, p3, k) => 0.5 * (
+    2 * p1 + (-p0 + p2) * k + (2 * p0 - 5 * p1 + 4 * p2 - p3) * k * k
+    + (-p0 + 3 * p1 - 3 * p2 + p3) * k * k * k
+  );
+  const keys = ['y', 'rx', 'rz', 'cx', 'cz'];
+  const out = [];
+  for (let i = 0; i < rings.length - 1; i++) {
+    const p0 = ringAt(i - 1), p1 = ringAt(i), p2 = ringAt(i + 1), p3 = ringAt(i + 2);
+    for (let k = 0; k < n; k++) {
+      const u = k / n;
+      const row = {};
+      for (const key of keys) row[key] = cr(p0[key], p1[key], p2[key], p3[key], u);
+      out.push(row);
+    }
+  }
+  const last = rings[rings.length - 1];
+  out.push({ y: last.y, rx: last.rx, rz: last.rz, cx: last.cx, cz: last.cz });
+  return out;
+}
+
+/* 环序列 → 筒。`pointAt(step, 角度)` 给顶点，`centerOf(step)` 给端头封口的中心。
+   两种放样（等高环 / 沿路径）共用这一段建面与封口。 */
+function stepsGeometry(steps, seg, pointAt, centerOf) {
   const cols = seg + 1;
   const pos = [], idx = [];
   for (const r of steps) {
     for (let j = 0; j <= seg; j++) {
-      const a = (j / seg) * Math.PI * 2;
-      pos.push(r.cx + Math.cos(a) * r.rx, r.y, r.cz + Math.sin(a) * r.rz);
+      const p = pointAt(r, (j / seg) * Math.PI * 2);
+      pos.push(p[0], p[1], p[2]);
     }
   }
   for (let i = 0; i < steps.length - 1; i++) {
@@ -116,22 +161,84 @@ function loftGeometry(node) {
     }
   }
   /* 端头：以中心点做扇形封口（不封的话从下往上看能看到内部） */
-  const capAt = (ring, flip) => {
+  const capAt = (step, index, flip) => {
     const center = pos.length / 3;
-    pos.push(ring.cx, ring.y, ring.cz);
-    const base = flip ? (steps.length - 1) * cols : 0;
+    const c = centerOf(step);
+    pos.push(c[0], c[1], c[2]);
+    const base = index * cols;
     for (let j = 0; j < seg; j++) {
       const a = base + j, b = base + j + 1;
       if (flip) idx.push(center, a, b); else idx.push(center, b, a);
     }
   };
-  capAt(rings[0], false);
-  capAt(rings[rings.length - 1], true);
+  capAt(steps[0], 0, false);
+  capAt(steps[steps.length - 1], steps.length - 1, true);
   const g = new THREE.BufferGeometry();
   g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
   g.setIndex(idx);
   g.computeVertexNormals();
   return g;
+}
+
+/* 沿路径扫掠：截面圆的半径按 `profile` 的进度取，截面在每一处都垂直于路径切线。
+   帧用「平行传输」推进（把上一帧的 side/up 按两段切线之间的最小旋转转过去），
+   路径拐弯时截面不会自己拧一下。 */
+function sweepGeometry(node, seg) {
+  const prof = node.profile.slice().sort((a, b) => a[1] - b[1]);
+  const lo = prof[0][1];
+  const hi = prof[prof.length - 1][1];
+  const span = hi - lo || 1;
+  const radiusAt = u => {
+    const t = lo + Math.max(0, Math.min(1, u)) * span;
+    for (let i = 1; i < prof.length; i++) {
+      const a = prof[i - 1], b = prof[i];
+      if (t <= b[1]) {
+        const k = b[1] - a[1] <= 1e-9 ? 1 : (t - a[1]) / (b[1] - a[1]);
+        return Math.max(0.001, a[0] + (b[0] - a[0]) * k);
+      }
+    }
+    return Math.max(0.001, prof[prof.length - 1][0]);
+  };
+  const N = 32;
+  const pts = [];
+  for (let i = 0; i <= N; i++) {
+    const sp = samplePath(node.path, i / N, 1);
+    pts.push(new THREE.Vector3().fromArray((sp && sp.at) ? sp.at : [0, 0, 0]));
+  }
+  const tans = [];
+  for (let i = 0; i <= N; i++) {
+    const a = pts[Math.max(0, i - 1)];
+    const b = pts[Math.min(N, i + 1)];
+    const t = b.clone().sub(a);
+    tans.push(t.lengthSq() < 1e-12 ? new THREE.Vector3(0, 0, 1) : t.normalize());
+  }
+  const first = tans[0];
+  const ref = Math.abs(first.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  const side = new THREE.Vector3().crossVectors(first, ref);
+  if (side.lengthSq() < 1e-12) side.set(1, 0, 0);
+  side.normalize();
+  const up = new THREE.Vector3().crossVectors(side, first).normalize();
+  const steps = [];
+  for (let i = 0; i <= N; i++) {
+    if (i > 0) {
+      const q = new THREE.Quaternion().setFromUnitVectors(tans[i - 1], tans[i]);
+      side.applyQuaternion(q);
+      up.applyQuaternion(q);
+    }
+    steps.push({
+      r: radiusAt(i / N),
+      center: pts[i],
+      side: side.clone(),
+      up: up.clone(),
+    });
+  }
+  return stepsGeometry(steps, seg,
+    (st, a) => [
+      st.center.x + st.side.x * Math.cos(a) * st.r + st.up.x * Math.sin(a) * st.r,
+      st.center.y + st.side.y * Math.cos(a) * st.r + st.up.y * Math.sin(a) * st.r,
+      st.center.z + st.side.z * Math.cos(a) * st.r + st.up.z * Math.sin(a) * st.r,
+    ],
+    st => [st.center.x, st.center.y, st.center.z]);
 }
 
 function partGeometry(g) {
@@ -180,20 +287,13 @@ export function createStage() {
 
   const hemi = new THREE.HemisphereLight(0xffffff, 0xd9d4cc, 1.35);
   scene.add(hemi);
-  const key = new THREE.DirectionalLight(0xffffff, 2.1);
-  key.position.set(4.2, 7.5, 5.2);
-  key.castShadow = true;
-  key.shadow.mapSize.set(2048, 2048);
-  /* bias 压阴影条纹：白膜是一整片浅色，自阴影的血丝最刺眼（见实施要点） */
-  key.shadow.bias = -0.0005;
-  key.shadow.normalBias = 0.02;
-  const cam = key.shadow.camera;
-  cam.left = -9; cam.right = 9; cam.top = 9; cam.bottom = -9; cam.near = 0.5; cam.far = 40;
-  scene.add(key);
 
-  const fill = new THREE.DirectionalLight(0xffffff, 0.45);
-  fill.position.set(-5, 3.5, -4);
-  scene.add(fill);
+  /* 灯光实体（太阳 / 点光 / 聚光）由 `setStageLights` 按文档现建；这里只留容器。
+     没有 `lights` 段的存量文档读进来仍是以前那两盏平行光（schema 的默认灯装置）。 */
+  const lights = new THREE.Group();
+  lights.name = 'stage-lights';
+  scene.add(lights);
+  const lightMap = new Map();
 
   const ground = new THREE.Mesh(
     new THREE.PlaneGeometry(120, 120),
@@ -238,12 +338,27 @@ export function createStage() {
   scene.add(rigs);
   const rigMap = new Map();
 
+  /* 灯的标识（一枚小方块 + 一支指向 target 的箭头）与拾取球。与机位那套同规则：
+     只在导演视角里画、出图时整组摘掉。 */
+  const lightRigs = new THREE.Group();
+  lightRigs.name = 'stage-light-rigs';
+  scene.add(lightRigs);
+  const lightRigMap = new Map();
+
   /* 轨道路径线。放在 content 之外：取景包围盒只量模型，不把辅助线算进去。 */
   const paths = new THREE.Group();
   paths.name = 'stage-paths';
   scene.add(paths);
 
-  return { scene, key, hemi, fill, ground, floor, grid, pano, camC, rigs, rigMap, paths };
+  /* 涂鸦标注层：画在 3D 里的线与文字（编辑辅助，出图 / 出片时整组摘掉）。 */
+  const sketch = new THREE.Group();
+  sketch.name = 'stage-sketch';
+  scene.add(sketch);
+
+  return {
+    scene, hemi, lights, lightMap, lightRigs, lightRigMap,
+    ground, floor, grid, pano, camC, rigs, rigMap, paths, sketch,
+  };
 }
 
 function rigOf(stage, id) {
@@ -315,6 +430,174 @@ export function setCameraRigs(stage, cams, activeId, aspect) {
   for (const cam of (cams || [])) updateCameraRig(stage, cam, aspect, cam.id === activeId);
 }
 
+/* ---------------- 灯光实体 ---------------- */
+
+/* 建一盏 three 灯：太阳 / 点光 / 聚光。强度乘上装置级曝光倍率 —— 曝光不是调色，
+   是「所有灯一起亮一点 / 暗一点」，默认 1 时与旧画面逐字节一致。 */
+function makeStageLight(cfg, exposure) {
+  const energy = Math.max(0, Number(cfg.energy) || 0) * exposure;
+  const color = cfg.color || '#ffffff';
+  const group = new THREE.Group();
+  group.name = 'stage-light-' + cfg.id;
+  let light;
+  if (cfg.shape === 'spot') {
+    light = new THREE.SpotLight(color, energy, Math.max(0, Number(cfg.distance) || 0),
+      Number(cfg.angle) || Math.PI / 6, Number(cfg.penumbra) || 0, 2);
+  } else if (cfg.shape === 'point') {
+    light = new THREE.PointLight(color, energy, Math.max(0, Number(cfg.distance) || 0), 2);
+  } else {
+    light = new THREE.DirectionalLight(color, energy);
+  }
+  light.position.set(cfg.at[0], cfg.at[1], cfg.at[2]);
+  let target = null;
+  if (cfg.shape !== 'point') {
+    target = new THREE.Object3D();
+    target.name = 'stage-light-target';
+    target.position.set(cfg.target[0], cfg.target[1], cfg.target[2]);
+    group.add(target);
+    light.target = target;
+  }
+  if (cfg.shape === 'sun' && cfg.shadow && cfg.shadow.on) {
+    light.castShadow = true;
+    light.shadow.mapSize.set(cfg.shadow.mapSize, cfg.shadow.mapSize);
+    /* bias 压阴影条纹：白膜是一整片浅色，自阴影的血丝最刺眼 */
+    light.shadow.bias = cfg.shadow.bias;
+    light.shadow.normalBias = cfg.shadow.normalBias;
+    const cam = light.shadow.camera;
+    cam.left = -9; cam.right = 9; cam.top = 9; cam.bottom = -9; cam.near = 0.5; cam.far = 60;
+    cam.updateProjectionMatrix();
+  }
+  group.add(light);
+  return { group, light, target, exposure };
+}
+
+/* 按文档重建灯实体（灯数 / 形状 / 投影变了才需要重建；逐帧只调 applyLightSample）。 */
+export function setStageLights(stage, lights, dev) {
+  if (!stage) return;
+  const d = dev || {};
+  const hemi = d.hemi || {};
+  stage.hemi.color.set(hemi.sky || '#ffffff');
+  stage.hemi.groundColor.set(hemi.ground || '#d9d4cc');
+  stage.hemi.intensity = Math.max(0, Number.isFinite(Number(hemi.energy)) ? Number(hemi.energy) : 1.35);
+  const g = d.ground || {};
+  stage.ground.material.color.set(g.color || '#1a1a1a');
+  stage.ground.material.opacity = Math.min(1, Math.max(0,
+    Number.isFinite(Number(g.opacity)) ? Number(g.opacity) : 0.16));
+  const exposure = Number(d.exposure) > 0 ? Number(d.exposure) : 1;
+  for (const rec of stage.lightMap.values()) {
+    stage.lights.remove(rec.group);
+    try { rec.light.dispose(); } catch (e) { /* 释放失败不影响重建 */ }
+  }
+  stage.lightMap.clear();
+  for (const cfg of (lights || [])) {
+    const rec = makeStageLight(cfg, exposure);
+    stage.lights.add(rec.group);
+    stage.lightMap.set(cfg.id, rec);
+  }
+}
+
+/* 逐帧把采样写进灯：位置 / 朝向目标 / 能量 / 颜色。 */
+export function applyLightSample(rec, sample) {
+  if (!rec || !sample) return;
+  const energy = Number.isFinite(Number(sample.energy)) ? Number(sample.energy) : 0;
+  rec.light.intensity = Math.max(0, energy * (rec.exposure || 1));
+  if (sample.color) rec.light.color.set(sample.color);
+  if (sample.at) rec.light.position.set(sample.at[0], sample.at[1], sample.at[2]);
+  if (rec.target && sample.target) rec.target.position.set(sample.target[0], sample.target[1], sample.target[2]);
+}
+
+/* 阴影相机按内容收紧：白膜的自阴影条纹主要来自阴影贴图铺得太开。
+   所有开着投影的太阳一起收。 */
+export function tightenStageShadows(stage, span) {
+  if (!stage) return;
+  const half = Math.max(2.5, span * 0.85);
+  for (const rec of stage.lightMap.values()) {
+    if (!rec.light.castShadow) continue;
+    const cam = rec.light.shadow.camera;
+    cam.left = -half; cam.right = half; cam.top = half; cam.bottom = -half;
+    cam.near = 0.5; cam.far = 60;
+    cam.updateProjectionMatrix();
+  }
+}
+
+/* 灯的标识：一枚小方块 + 一支指向 target 的箭头。几何与材质各建各的
+   （灯少，换来的是删灯时能干净释放）。 */
+function makeLightRig() {
+  const group = new THREE.Group();
+  group.name = 'stage-light-rig';
+  const core = new THREE.Mesh(
+    new THREE.OctahedronGeometry(0.09),
+    new THREE.MeshBasicMaterial({ color: SELECT, transparent: true, opacity: 0.9, depthTest: false })
+  );
+  core.renderOrder = 998;
+  group.add(core);
+  const arrow = new THREE.ArrowHelper(
+    new THREE.Vector3(0, 0, -1), new THREE.Vector3(0, 0, 0), 1, SELECT, 0.16, 0.08
+  );
+  arrow.line.material.transparent = true;
+  arrow.line.material.opacity = 0.55;
+  arrow.cone.material.transparent = true;
+  arrow.cone.material.opacity = 0.55;
+  group.add(arrow);
+  const pick = new THREE.Mesh(
+    new THREE.SphereGeometry(0.17, 16, 12),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  );
+  pick.name = 'stage-light-pick';
+  group.add(pick);
+  return { group, core, arrow, pick };
+}
+
+export function updateLightRig(stage, light, sample, selected = false) {
+  if (!stage) return;
+  let rig = stage.lightRigMap.get(light.id);
+  if (!rig) {
+    rig = makeLightRig();
+    rig.pick.userData.lightId = light.id;
+    stage.lightRigs.add(rig.group);
+    stage.lightRigMap.set(light.id, rig);
+  }
+  const at = (sample && sample.at) || light.at;
+  const target = (sample && sample.target) || light.target;
+  rig.core.position.set(at[0], at[1], at[2]);
+  rig.pick.position.set(at[0], at[1], at[2]);
+  rig.pick.visible = true;
+  const dir = target
+    ? new THREE.Vector3(target[0] - at[0], target[1] - at[1], target[2] - at[2])
+    : new THREE.Vector3(0, -1, 0);
+  const len = dir.length();
+  if (len > 1e-4) {
+    rig.arrow.visible = true;
+    rig.arrow.position.set(at[0], at[1], at[2]);
+    rig.arrow.setDirection(dir.normalize());
+    rig.arrow.setLength(Math.max(0.6, Math.min(1.6, len)), 0.16, 0.08);
+  } else {
+    rig.arrow.visible = false;
+  }
+  const tint = selected ? SELECT : 0x8f8a83;
+  rig.core.material.color.set(tint);
+  rig.core.material.opacity = selected ? 0.95 : 0.65;
+  rig.arrow.line.material.color.set(tint);
+  rig.arrow.cone.material.color.set(tint);
+}
+
+/* 按当前灯表重建标识；逐帧只调 updateLightRig。 */
+export function setLightRigs(stage, lights, selectedId) {
+  if (!stage) return;
+  const keep = new Set((lights || []).map(l => l.id));
+  for (const [id, rig] of stage.lightRigMap) {
+    if (keep.has(id)) continue;
+    stage.lightRigs.remove(rig.group);
+    try {
+      rig.core.geometry.dispose(); rig.core.material.dispose();
+      if (rig.arrow.dispose) rig.arrow.dispose();
+      rig.pick.geometry.dispose(); rig.pick.material.dispose();
+    } catch (e) { /* 释放失败不影响重建 */ }
+    stage.lightRigMap.delete(id);
+  }
+  for (const light of (lights || [])) updateLightRig(stage, light, null, light.id === selectedId);
+}
+
 /* 轨道路径线：节点与机位共用。几何不进 content，取景与包围盒不受影响。 */
 function pathPoints(path) {
   if (!path) return [];
@@ -370,6 +653,107 @@ export function setTrackPaths(stage, doc) {
   }
 }
 
+/* ---------------- 涂鸦标注（不进文档，出图时整组摘掉） ---------------- */
+
+const r3 = v => Math.round((Number(v) || 0) * 1000) / 1000;
+
+function sketchColorOf(name) {
+  return SKETCH[name] != null ? SKETCH[name] : SKETCH.blue;
+}
+
+/* 文字标注：Sprite + canvas 贴图（不引字体依赖）。 */
+function sketchTextSprite(text, color) {
+  const txt = String(text || '').slice(0, 60);
+  const cv = document.createElement('canvas');
+  const fs = 28;
+  const ctx0 = cv.getContext('2d');
+  ctx0.font = '600 ' + fs + 'px system-ui, sans-serif';
+  const w = Math.max(24, Math.ceil(ctx0.measureText(txt).width) + 20);
+  cv.width = w;
+  cv.height = fs + 18;
+  const ctx = cv.getContext('2d');
+  ctx.font = '600 ' + fs + 'px system-ui, sans-serif';
+  ctx.fillStyle = 'rgba(20,20,24,.55)';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.fillStyle = '#' + color.toString(16).padStart(6, '0');
+  ctx.textBaseline = 'middle';
+  ctx.fillText(txt, 10, cv.height / 2);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, transparent: true, depthTest: false }));
+  sprite.renderOrder = 901;
+  sprite.scale.set(cv.width / cv.height * 0.35, 0.35, 1);
+  return sprite;
+}
+
+/* 标注 → 场景里的线与字。`marks` 是页面手里那一份（不进 doc）：
+   { type:'path'|'circle'|'rect'|'arrow'|'text', color, pts? / from?/to? / at?/text? } */
+export function setSketchMarks(stage, marks) {
+  const g = stage && stage.sketch;
+  if (!g) return;
+  for (const child of [...g.children]) {
+    g.remove(child);
+    try {
+      child.geometry && child.geometry.dispose();
+      if (child.material) {
+        if (child.material.map) child.material.map.dispose();
+        child.material.dispose();
+      }
+    } catch (e) { /* 释放失败不影响下一次 */ }
+  }
+  for (const m of (Array.isArray(marks) ? marks : [])) {
+    if (!m || typeof m !== 'object') continue;
+    const color = sketchColorOf(m.color);
+    if (m.type === 'text' && Array.isArray(m.at) && m.text) {
+      const sp = sketchTextSprite(m.text, color);
+      sp.position.set(m.at[0], m.at[1], m.at[2]);
+      g.add(sp);
+      continue;
+    }
+    if (m.type === 'arrow' && Array.isArray(m.from) && Array.isArray(m.to)) {
+      const from = new THREE.Vector3().fromArray(m.from);
+      const to = new THREE.Vector3().fromArray(m.to);
+      const dir = to.clone().sub(from);
+      if (dir.lengthSq() < 1e-8) continue;
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
+      const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([from, to]), mat);
+      line.renderOrder = 900;
+      g.add(line);
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry(Math.min(0.12, Math.max(0.03, dir.length() * 0.08)), Math.min(0.32, Math.max(0.08, dir.length() * 0.2)), 12),
+        new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false }));
+      cone.position.copy(to);
+      cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.clone().normalize());
+      cone.renderOrder = 900;
+      g.add(cone);
+      continue;
+    }
+    const pts = Array.isArray(m.pts) ? m.pts.filter(p => Array.isArray(p) && p.length >= 3) : [];
+    if (pts.length < 2) continue;
+    const closed = m.type === 'circle' || m.type === 'rect';
+    const vecs = pts.map(p => new THREE.Vector3(r3(p[0]), r3(p[1]), r3(p[2])));
+    if (closed) vecs.push(vecs[0].clone());
+    const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
+    const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(vecs), mat);
+    line.renderOrder = 900;
+    g.add(line);
+  }
+}
+
+/* 蓝线 → 机位位移（程序算，AI 照抄）：以蓝线第一点为原点，
+   每个点相对它的偏移加到当前机位位置上。没有蓝线就回空表。 */
+export function screenToCamPath(marks, cam) {
+  const blue = (Array.isArray(marks) ? marks : [])
+    .find(m => m && m.type === 'path' && m.color === 'blue' && Array.isArray(m.pts) && m.pts.length >= 2);
+  if (!blue || !cam || !Array.isArray(cam.pos)) return [];
+  const p0 = blue.pts[0];
+  return blue.pts.map(p => [
+    r3(cam.pos[0] + p[0] - p0[0]),
+    r3(cam.pos[1] + p[1] - p0[1]),
+    r3(cam.pos[2] + p[2] - p0[2]),
+  ]);
+}
+
 export function disposeStage(stage) {
   if (!stage) return;
   try {
@@ -378,8 +762,26 @@ export function disposeStage(stage) {
       if (rig.pick) { try { rig.pick.geometry.dispose(); rig.pick.material.dispose(); } catch (e) { /* 释放失败不影响重建 */ } }
     }
     stage.rigMap && stage.rigMap.clear();
+    for (const rig of stage.lightRigMap ? stage.lightRigMap.values() : []) {
+      try {
+        rig.core.geometry.dispose(); rig.core.material.dispose();
+        if (rig.arrow.dispose) rig.arrow.dispose();
+        rig.pick.geometry.dispose(); rig.pick.material.dispose();
+      } catch (e) { /* 释放失败不影响重建 */ }
+    }
+    stage.lightRigMap && stage.lightRigMap.clear();
+    for (const rec of stage.lightMap ? stage.lightMap.values() : []) {
+      try { rec.light.dispose(); } catch (e) { /* 释放失败不影响重建 */ }
+    }
+    stage.lightMap && stage.lightMap.clear();
     for (const child of stage.paths ? [...stage.paths.children] : []) {
       try { child.geometry.dispose(); child.material.dispose(); } catch (e) { /* 释放失败不影响重建 */ }
+    }
+    for (const child of stage.sketch ? [...stage.sketch.children] : []) {
+      try {
+        child.geometry && child.geometry.dispose();
+        if (child.material) { if (child.material.map) child.material.map.dispose(); child.material.dispose(); }
+      } catch (e) { /* 释放失败不影响重建 */ }
     }
     stage.scene.clear();
   } catch (e) { /* 清场失败不影响下一次挂载 */ }

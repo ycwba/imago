@@ -295,6 +295,9 @@ function historySync() {
     const box = document.getElementById('editLeft');
     if (box && !box.hidden) renderEditLeft(box);
   } catch (e) { /* 面板画不出来不挡历史本身 */ }
+  /* 工具条上那枚「撤销 N/30」就地跟着换：编辑落账不必等下一次整块重画。
+     开机早期 Timeline 还没装配（板还没建出来）就跳过，下一次重画自然补上。 */
+  try { Timeline.paintTimelineTools(); } catch (e) { /* 同上，不挡历史本身 */ }
 }
 /* 追一条记录（**只追加**，永不插队、永不删中间） */
 function historyAppend(label, json, kind, target) {
@@ -632,6 +635,8 @@ const Timeline = createTimeline({
   /* 板上的手势在 Edit 域：重画之后把选中态与浮层接回去；工具条那排的状态也从 Edit 现读。 */
   onBoardRender: () => Edit.onBoardRender(),
   toolState: () => Edit.toolState(),
+  /* 工具条那枚撤销读数的真值：可撤销几步 / 上限几步 / 为什么存不下（单份太大或顶到上限）。 */
+  undoStateOf: () => ({ n: undoStack.length, max: UNDO_MAX_COUNT, why: undoSkipWhy }),
   dblClickEmpty: t => Edit.addSegmentAt(t),
   /* 缩放落定 = 用户明确的重试信号：取帧退避放行一次（frames.js 的表）。 */
   sliceForgetFail: () => Frames.sliceForgetFail(),
@@ -2971,8 +2976,9 @@ async function pickRefMedia(sh, kind, preset) {
 }
 
 /* ---------- 润色指令（文字AI）---------- */
-/* 润色要附带的素材图：编号、顺序与真正发出去的 content[] 完全同源（见 shotRefPlanOf）。
-   合成一张「参考图N」的标签，是为了让文字 AI 在正文里写的 @参考图N 与平台收到的第 N 项对得上。 */
+/* 润色要附带的素材：编号、顺序与真正发出去的 content[] 完全同源（见 shotRefPlanOf）。
+   图片合成「参考图N」的标签，是为了让文字 AI 在正文里写的 @参考图N 与平台收到的第 N 项对得上；
+   参考视频 / 参考音频同样带自己的 @视频N / @音频N（能力判定与字节由 TextAI.prepareMedia 管）。 */
 function polishImageList(sh) {
   const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
   return plan.pictures
@@ -2983,6 +2989,19 @@ function polishImageList(sh) {
       token: p.token,
       role: p.role,
     }));
+}
+function polishMediaList(sh) {
+  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
+  const out = polishImageList(sh).map(x => ({ kind: 'image', ...x }));
+  plan.videos.forEach(v => {
+    const src = v.src || (v.assetId ? Api.assetSrc(v.assetId) : '');
+    if (src) out.push({ kind: 'video', label: v.label, src, token: v.token, role: v.role });
+  });
+  plan.audios.forEach(a => {
+    const src = a.src || (a.assetId ? Api.assetSrc(a.assetId) : '');
+    if (src) out.push({ kind: 'audio', label: a.label, src, token: a.token, role: a.role });
+  });
+  return out;
 }
 /* 润色结果的就地状态：编辑器会被反复重渲染，面板内容存这里才不会丢
    { shotId, text, note, loading, run, follow, answersText, talk }
@@ -3080,33 +3099,39 @@ async function polishPrompt() {
   if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
   if (!TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
   if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
-  let images = [];
+  let media = [];
   /* 流式有两个落点，取决于这一轮是谁发起的：
      · 带着 ctl（「重新润色」与「按这句再改」—— 结果面板此刻就在屏幕上）→ 片段灌进 ctl.push，
        边写边显示在结果框里。这时**不能**再往 `#polishInline` 摆流式面板：那块宿主就是结果面板本身。
      · 不带 ctl（第一次点「AI 润色」，宿主里只有一句转圈）→ 用 AiStream 的面板，这一轮动辄十几秒，
        看得见它写到哪里比只挂一句「正在润色…」有用得多。 */
   const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(REG, sys, user, { images, signal: ctl.signal }, ctl.push)
+    ? TextAI.chatStream(REG, sys, user, { media, signal: ctl.signal }, ctl.push)
     : AiStream.text(REG, sys, user, {
-        images: images, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
+        media: media, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
       });
-  /* 素材清单：参考图 / 首帧 / 尾帧 / 时间切片会随消息附上；**参考视频与参考音频附不了**，
-     但必须写清「有几条、拿来干什么」—— 只说一句「还挂了参考视频」的话，模型既不知道数量
-     也不知道内容，只能靠猜（`TextAI.materialNote` 是公共实现，三个工作台共用一份措辞）。 */
+  /* 素材清单：图片之外还有参考视频 / 参考音频 —— 文字型号支持哪一类就附哪一类
+     （能力判定与读字节在 TextAI.prepareMedia，附不上的那一类照实说清数量与用途）。 */
   const materials = () => {
-    /* 只有真的随消息发出去的那几张才写 sent：识图没开或某张读不出来时，
-       文字 AI 看不到那一张，不能让它以为看见了。 */
-    const sentLabels = new Set(images.map(x => x.label));
-    const items = polishImageList(sh).map(x => ({
-      label: x.label, token: x.token, role: x.role, kind: '图片', sent: sentLabels.has(x.label),
+    /* 只有真的随消息发出去的那几条才写 sent：能力没开或某一条读不出来时，
+       文字 AI 看不到它，不能让它以为看见了。 */
+    const sent = new Set(media.map(x => x.kind + '|' + x.label));
+    const items = polishMediaList(sh).map(x => ({
+      label: x.label, token: x.token, role: x.role, mk: x.kind, kind: TextAI.MEDIA_ZH[x.kind] || '素材',
+      sent: sent.has(x.kind + '|' + x.label),
+      hint: x.kind === 'video' ? '这一镜沿用它的运镜和节奏'
+        : x.kind === 'audio' ? '这一镜沿用它的节奏' : '',
     }));
     /* 接续镜的首帧提交时才取得到，润色这一轮附不上；把它的编号与来源说给文字 AI，
        它才知道这一镜的第 1 张图是上一镜的落幅、正文该从哪里起笔。 */
     const ic = shotInputCaps(sh);
     if (chainSlotOf(sh)) items.unshift({ label: '接上一镜尾帧', token: '@参考图1', role: 'first_frame', kind: '图片', sent: false, hint: '提交时自动取上一镜结尾当首帧' });
-    if (ic.refVideo && sh.refVideo) items.push({ label: '参考视频', token: '@视频1', role: 'reference_video', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
-    if (ic.refAudio && sh.refAudio) items.push({ label: '参考音频', token: '@音频1', role: 'reference_audio', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
+    if (ic.refVideo && sh.refVideo && !items.some(x => x.mk === 'video')) {
+      items.push({ label: '参考视频', token: '@视频1', role: 'reference_video', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
+    }
+    if (ic.refAudio && sh.refAudio && !items.some(x => x.mk === 'audio')) {
+      items.push({ label: '参考音频', token: '@音频1', role: 'reference_audio', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
+    }
     return items;
   };
   /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
@@ -3128,31 +3153,35 @@ async function polishPrompt() {
      所以系统提示词在 prep 之后现拼。 */
   const shotSysNow = () => TextAI.prompt('video', undefined, shotVarsNow());
   const prep = async () => {
-    // 「随附图片」编号与 @参考图N 一致：参考图 → 首帧 / 尾帧 → 时间切片画面
-    const picked = await TextAI.polishImages(REG, polishImageList(sh));
-    images = picked.images;
+    // 「随附素材」编号与 @参考图N / @视频N / @音频N 一致
+    const picked = await TextAI.prepareMedia(REG, polishMediaList(sh));
+    media = picked.media;
     return picked;
   };
-  /* 一次润色 = 准备素材图（识图模型才带）→ 组装提示词 → 调用文字 AI；返回 { after, note }。
+  /* 一次润色 = 准备素材（能力支持的那几类才带）→ 组装提示词 → 调用文字 AI；返回 { after, note }。
      answers 是用户对「AI 先前的追问」的回答（没有追问时是空串）。
      素材清单与时长已经由 `shotVarsNow` 填进 Skill 正文的 `{}` 变量；`TextAI.polishExtra` 只补
-     随附图怎么用、@标记要保留、用户的回答 —— 这几句与工作台同一套。 */
+     随附素材怎么用、@标记要保留、用户的回答 —— 这几句与工作台同一套。 */
   const run = async (answers, ctl) => {
     const picked = await prep();
+    if (ctl && ctl.note && picked.note) ctl.note(picked.note);
+    else if (picked.note) setStatus('<span class="meta">' + window.esc(picked.note) + '</span>');
     const sys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
-      images: images, text: original, answers: answers,
+      media: media, text: original, answers: answers,
     }));
     return { after: await call(sys, TextAI.polishUser(POLISH_SHOT_WORD, original), ctl), note: picked.note };
   };
   /* 结果出来之后接着对话：改的是**屏幕上这一版**（用户可能刚在面板里手改过），
-     素材图与素材清单照旧重算 —— 换的只是用户那一句要求。
+     素材与素材清单照旧重算 —— 换的只是用户那一句要求。
      `text: current` 让「@参考图1 这类标记要原样保留」那一句跟着新版走（第一版里可能没有、改完又有了）。 */
   const follow = async (askText, current, ctl, ctx) => {
     const picked = await prep();
+    if (ctl && ctl.note && picked.note) ctl.note(picked.note);
+    else if (picked.note) setStatus('<span class="meta">' + window.esc(picked.note) + '</span>');
     const p = TextAI.followPrompt({
       what: POLISH_SHOT_WORD, ask: askText, current: current,
       extra: TextAI.polishExtra({
-        images: images, text: current, materials: materials(), answers: (ctx && ctx.answers) || '',
+        media: media, text: current, materials: materials(), answers: (ctx && ctx.answers) || '',
       }),
     });
     return { after: await call(p.sys, p.user, ctl), note: picked.note };
@@ -3171,10 +3200,10 @@ async function polishPrompt() {
     try {
       const picked = await prep();
       const askSys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
-        images: picked.images, stage: 'ask',
+        media: picked.media, stage: 'ask',
       }));
       r = await TextAI.askPolish(REG, askSys,
-        TextAI.askUser(POLISH_SHOT_WORD, original, { count: '2–4', tail: '这一镜挂了哪些素材见系统提示' }), { images });
+        TextAI.askUser(POLISH_SHOT_WORD, original, { count: '2–4', tail: '这一镜挂了哪些素材见系统提示' }), { media });
     }
     catch (e) { r = { need: false, questions: [] }; }
     questions = (r && r.need) ? (r.questions || []) : [];

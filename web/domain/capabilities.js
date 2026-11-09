@@ -1038,7 +1038,7 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     /* 问哪几家：看**有没有能力端点**（声明了 endpoints.models），或本地还留着型号声明。
        以前是「有兜底 models 才问」—— 那一改把两件事绑死了：删掉兜底声明 = 这一家永远不会被问。
        现在能力端点是主路径，声明只是「还没拉到时的样子」。 */
-    const all = (REG.providers || []).filter(p => (p.endpoints && p.endpoints.models) || (p.models || []).length);
+    const all = (REG.providers || []).filter(p => !p.serviceOnly && ((p.endpoints && p.endpoints.models) || (p.models || []).length));
     const usable = p => !window.Api || !Api.provUsable ? true : Api.provUsable(p, env);
     /* 知道「哪几家有环境密钥」才敢筛；`/env-status` 没取到时退回全量 ——
        那时是**不知道**哪几家在用，不是「一家都没有」，拿「不知道」当「没有」
