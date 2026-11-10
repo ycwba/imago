@@ -429,5 +429,50 @@ function logFaults(log) {
   return text.split(/\r?\n/).filter(l => re.test(l)).map(l => l.slice(0, 220));
 }
 
+/* 视觉指纹：整张图缩成 24×14 的平均色格。两种画面共用这一份 —— 整页截图（ui-visual）
+   与建模台活动机位出图（model-render）都缩成同一张网格，差异判据也一起住在这里。
+   pngjs 是开发依赖，按需取：不起 Chrome 的判据不该被它拖住。 */
+function fingerprint(buf, grid) {
+  const g = grid || { w: 24, h: 14 };
+  let PNG;
+  try { PNG = require('pngjs').PNG; }
+  catch (e) { throw new Error('缺少开发依赖 pngjs：先运行 npm install'); }
+  const png = PNG.sync.read(buf);
+  const cellW = png.width / g.w, cellH = png.height / g.h;
+  const out = [];
+  for (let gy = 0; gy < g.h; gy++) {
+    for (let gx = 0; gx < g.w; gx++) {
+      let r = 0, gg = 0, b = 0, n = 0;
+      const x0 = Math.floor(gx * cellW), x1 = Math.max(x0 + 1, Math.floor((gx + 1) * cellW));
+      const y0 = Math.floor(gy * cellH), y1 = Math.max(y0 + 1, Math.floor((gy + 1) * cellH));
+      for (let y = y0; y < Math.min(y1, png.height); y++) {
+        for (let x = x0; x < Math.min(x1, png.width); x++) {
+          const i = (y * png.width + x) * 4;
+          r += png.data[i]; gg += png.data[i + 1]; b += png.data[i + 2]; n++;
+        }
+      }
+      out.push([Math.round(r / n), Math.round(gg / n), Math.round(b / n)]);
+    }
+  }
+  return out;
+}
+/* 两张指纹的差异：`cells` 是任一分量差 > `over` 的格子数，`mean` 是全部格子的最大分量差均值。
+   数组形状不对（旧基线缺这一档）按最坏情况算，调用方照常判红。 */
+function fpDiff(a, b, over = 24) {
+  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return { bad: true, cells: 999, mean: 255, max: 255 };
+  let cells = 0, sum = 0, max = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = Math.max(
+      Math.abs((a[i] && a[i][0] || 0) - (b[i] && b[i][0] || 0)),
+      Math.abs((a[i] && a[i][1] || 0) - (b[i] && b[i][1] || 0)),
+      Math.abs((a[i] && a[i][2] || 0) - (b[i] && b[i][2] || 0))
+    );
+    sum += d;
+    if (d > over) cells++;
+    if (d > max) max = d;
+  }
+  return { bad: false, cells, mean: sum / a.length, max };
+}
+
 module.exports = { startProxy, tempDir, launchBrowser: Browser.launch, Browser, Page, CDP, sleep, root, findBrowser,
-  startFakeSearch, useFakeSearch, clipFixture, logFaults };
+  startFakeSearch, useFakeSearch, clipFixture, logFaults, fingerprint, fpDiff };

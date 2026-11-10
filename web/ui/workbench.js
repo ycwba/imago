@@ -1667,9 +1667,13 @@
         return g;
       },
       _promptHTML(prompt) {
-        return '<div class="det-prompt-hd">完整提示词' + (prompt ? '<button class="ghost mini" data-copyprompt>复制</button>' : '') + '</div>'
+        return '<div class="det-prompt-hd">完整提示词'
+          + (prompt ? '<button class="ghost mini" data-copyprompt>复制</button>' : '')
+          + '</div>'
           + '<div class="det-prompt"' + (prompt ? '' : ' style="color:var(--sub)"') + '>' + esc(prompt || '（无提示词）') + '</div>';
       },
+      /* 提示词那一格固定高度、框内滚动（卡片里还要摆参数与参考图）：**不做展开**，
+         超出靠滚动看。 */
       _shell(prompt) {
         return this._promptHTML(prompt)
           + '<div class="det-sep"></div><div class="det-body">加载中…</div><div class="det-extra"></div>';
@@ -1684,18 +1688,12 @@
         full = String(full || '');
         /* 等回来的这一份要确认「这块面板还是在问这一条」：面板可能已经被别的条目重画过了
            （host.isConnected 一直是 true，挡不住这种覆盖 —— 表现是新那条的提示词被旧的顶掉）。 */
-        if (!full || full === shown || !host.isConnected || (seq != null && host._detSeq !== seq)) return;
+        if (!full || full.length <= String(shown || '').length || !host.isConnected || (seq != null && host._detSeq !== seq)) return;
         const hd = host.querySelector('.det-prompt-hd'), el = host.querySelector('.det-prompt');
         if (!hd || !el) return;
         hd.outerHTML = this._promptHTML(full);
         el.remove();
-        const cp = host.querySelector('[data-copyprompt]');
-        if (cp) cp.onclick = async e => {
-          e.stopPropagation(); e.preventDefault();
-          const ok = window.copyText ? await window.copyText(full) : false;
-          cp.textContent = ok ? '已复制 ✓' : '复制失败';
-          setTimeout(() => { cp.textContent = '复制'; }, 1300);
-        };
+        this._bindPrompt(host);
       },
       _defaultRefs(g) {
         return ((g && g.inputs) || []).filter(i => i && (i.role === 'reference_image' || i.role === 'first_frame'
@@ -1825,17 +1823,23 @@
         }
         return html;
       },
-      _bind(host, item, g) {
-        const c = this.cfg;
+      /* 提示词的「复制」**画完就要能点**：以前它挂在 _bind 里，而 _bind 要等平台详情回来才跑
+         （慢的家十几秒）—— 那段时间面板停在「加载中…」，提示词看得见、复制却是死的。 */
+      _bindPrompt(host) {
         const cp = host.querySelector('[data-copyprompt]');
         if (cp) cp.onclick = async e => {
           e.stopPropagation(); e.preventDefault();
-          const txt = (host.querySelector('.det-prompt') || {}).textContent || '';
+          const el = host.querySelector('.det-prompt');
+          const txt = el ? el.textContent || '' : '';
           if (!txt || txt === '（无提示词）') return;
           const ok = window.copyText ? await window.copyText(txt) : false;
           cp.textContent = ok ? '已复制 ✓' : '复制失败';
           setTimeout(() => { cp.textContent = '复制'; }, 1300);
         };
+      },
+      _bind(host, item, g) {
+        const c = this.cfg;
+        this._bindPrompt(host);
         host.querySelectorAll('.did').forEach(el => {
           el.onclick = async e => {
             e.stopPropagation();
@@ -1916,10 +1920,13 @@
         const c = this.cfg;
         const prompt = String((c.prompt ? c.prompt(item) : item.prompt) || '');
         host.innerHTML = this._shell(prompt);
-        /* 提示词来自本机归档（平台接口不返回它）→ 索引里那份只有 300 字，回源补全文 */
-        if (item.promptLocal || !prompt) {
+        /* 提示词的按钮不等平台详情：画出来这一刻就接线（详情那一段到了再补参数行）。 */
+        this._bindPrompt(host);
+        /* 卡上那份可能来自本机归档的 300 字索引（平台接口不返回提示词的家尤其如此）：
+           详情要的是全文，所以只要拿得到任务号就回源问一次 —— 归档那份更长才替换。 */
+        {
           const id = c.taskId ? c.taskId(item) : (item.genId || item.id || '');
-          this._upgradePrompt(host, item.provider, id, prompt, seq);
+          if (id) this._upgradePrompt(host, item.provider, id, prompt, seq);
         }
         const body = host.querySelector('.det-body');
         const extra = host.querySelector('.det-extra');
@@ -3047,7 +3054,7 @@
         const clamp = (h, w) => Math.round(Math.min(h.max || 1200, Math.max(h.min || 160, w)));
         /* 落盘加 trailing debounce：拖拽期间 `move` 按屏幕刷新率触发（60~120 Hz），
            以前每一个 pointermove 都同步写一次 localStorage（还连带 Storage 钩子的 queue）。
-           wb_split 在 SYNCABLE 名单里，queue 的 800 ms 合并窗口只压得住 PUT，压不住 setItem 本身。
+           wb_split 在同步名单里，queue 的 800 ms 合并窗口只压得住 PUT，压不住 setItem 本身。
            拖拽中最多每 250 ms 写一次，松手时 flush 一次落定 —— 观感与「实时保存」无异。 */
         let saveT = 0;
         const flush = () => { if (saveT) { clearTimeout(saveT); saveT = 0; } try { localStorage.setItem(key, JSON.stringify(st)); } catch (e) {} };

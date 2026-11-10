@@ -265,6 +265,87 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   ok(Math.abs(c2.target[1] - 2) < 1e-6, 'rule3 只动横向，不改高度');
 }
 
+/* framing：keep 把主体钉在轨道起点那一刻的画幅位置（基线纯函数重算，不存上一帧） */
+{
+  const D2R = Math.PI / 180;
+  /* 与采样同一把尺子：主体在画幅里的 NDC（正中 0、右缘 +1） */
+  const ndcOf = (cam, subj, aspect) => {
+    const fx = cam.target[0] - cam.at[0], fy = cam.target[1] - cam.at[1], fz = cam.target[2] - cam.at[2];
+    const fl = Math.hypot(fx, fy, fz);
+    const f = [fx / fl, fy / fl, fz / fl];
+    let rx = -f[2], rz = f[0];
+    const rl = Math.hypot(rx, rz); rx /= rl; rz /= rl;
+    const u = [-rz * f[1], rz * f[0] - rx * f[2], rx * f[1]];
+    const v = [subj[0] - cam.at[0], subj[1] - cam.at[1], subj[2] - cam.at[2]];
+    const d = v[0] * f[0] + v[1] * f[1] + v[2] * f[2];
+    const tanH = Math.tan(Math.min(179, Math.max(1, cam.fov || 35)) * D2R / 2);
+    return [(v[0] * rx + v[2] * rz) / (d * tanH * aspect),
+      (v[0] * u[0] + v[1] * u[1] + v[2] * u[2]) / (d * tanH)];
+  };
+  const mkDoc = (track, nodeAt) => normalizeDoc({
+    scene: {
+      nodes: [{ kind: 'prim', id: 'n1', shape: 'box', at: nodeAt || [1, 0.5, 0] }],
+      cams: [{ id: 'cam-1', pos: [0, 0, 5], target: [0, 0, 0] }],
+      view: { aspect: '16:9' },
+    },
+    anim: { duration: 4, tracks: [{ id: 't1', of: { kind: 'cam', id: 'cam-1' }, ...track }] },
+  }).doc;
+
+  /* 横移机位 + 偏右上的主体：look:target 本来就把主体顶在正中，keep 与它同效；
+     真正能分辨的是「不写 framing 时主体跟着路径漂」—— 用 center 档对照 */
+  const path = { kind: 'line', from: [0, 0, 5], to: [3, 0, 5], look: 'target', lookAt: 'n1', framing: 'keep' };
+  const doc = mkDoc({ path });
+  const subj = [1, 0.5, 0];
+  const c0 = sampleCams(doc.anim, doc, 0, {})['cam-1'];
+  const base = ndcOf(c0, subj, 16 / 9);
+  near(base[0], 0, 1e-6, '基线：起点主体在正中');
+  near(base[1], 0, 1e-6, '基线：纵向也在正中');
+  for (const t of [1, 2, 3.5, 4]) {
+    const c = sampleCams(doc.anim, doc, t, {})['cam-1'];
+    const ndc = ndcOf(c, subj, 16 / 9);
+    near(ndc[0], base[0], 1e-3, 'keep：t=' + t + ' 横向回到基线');
+    near(ndc[1], base[1], 1e-3, 'keep：t=' + t + ' 纵向回到基线');
+  }
+  /* 对照：同一条路径不写 look（target 留在原地），主体真的会漂 —— keep 把它拉回来 */
+  const docDrift = mkDoc({ path: { kind: 'line', from: [0, 0, 5], to: [3, 0, 5] } });
+  const drift = ndcOf(sampleCams(docDrift.anim, docDrift, 4, {})['cam-1'], subj, 16 / 9);
+  ok(Math.abs(drift[0] - base[0]) > 0.05, '不 keep 主体真的会漂（判据没 vacuous）');
+  const docKeepFixed = mkDoc({ path: { kind: 'line', from: [0, 0, 5], to: [3, 0, 5], framing: 'keep' } });
+  for (const t of [1, 4]) {
+    const c = sampleCams(docKeepFixed.anim, docKeepFixed, t, {})['cam-1'];
+    const ndc = ndcOf(c, [0, 0, 0], 16 / 9);
+    near(ndc[0], 0, 1e-3, 'keep（fixed）：原瞄准点横向钉在正中 t=' + t);
+    near(ndc[1], 0, 1e-3, 'keep（fixed）：原瞄准点纵向钉在正中 t=' + t);
+  }
+
+  /* heading + lookAt：起点主体偏上，横移全程钉住那个偏上的位置 */
+  const docHead = mkDoc({ path: { kind: 'line', from: [0, 0, 5], to: [1, 0, 5], look: 'heading', lookAt: 'n1', framing: 'keep' } }, [2, 0.3, 5]);
+  const h0 = sampleCams(docHead.anim, docHead, 0, {})['cam-1'];
+  const hBase = ndcOf(h0, [2, 0.3, 5], 16 / 9);
+  ok(Math.abs(hBase[1]) > 0.1, 'heading 基线主体偏上：' + hBase.join(','));
+  for (const t of [1, 2, 4]) {
+    const c = sampleCams(docHead.anim, docHead, t, {})['cam-1'];
+    const ndc = ndcOf(c, [2, 0.3, 5], 16 / 9);
+    near(ndc[0], hBase[0], 2e-3, 'keep+heading：t=' + t + ' 横向钉住');
+    near(ndc[1], hBase[1], 2e-3, 'keep+heading：t=' + t + ' 纵向钉住');
+  }
+
+  /* offset：基线取轨道自己开始那一刻，不是时间轴 0 秒 */
+  const docOff = mkDoc({ offset: 2, path });
+  const oStart = sampleCams(docOff.anim, docOff, 2, {})['cam-1'];
+  const oBase = ndcOf(oStart, subj, 16 / 9);
+  near(oBase[0], base[0], 1e-6, 'offset 轨道的基线 = 起点那一刻（与无 offset 同）');
+  const oMid = ndcOf(sampleCams(docOff.anim, docOff, 3.5, {})['cam-1'], subj, 16 / 9);
+  near(oMid[0], oBase[0], 1e-3, 'offset 轨道中途也钉住');
+  const before = sampleCams(docOff.anim, docOff, 1, {})['cam-1'];
+  ok(before.at.join(',') === '0,0,5', 'offset 之前轨道还没开始（机位静态）');
+
+  /* 主体在机位初始位置身后：采样不炸、target 仍是有限数 */
+  const docBehind = mkDoc({ path: { ...path, lookAt: 'n1' } }, [-1, 0.5, 9]);
+  const cb = sampleCams(docBehind.anim, docBehind, 2, {})['cam-1'];
+  ok(cb.target.every(Number.isFinite), '主体在身后：target 仍是有限数');
+}
+
 /* ---------- 机位沿路径走的朝向：heading / target ---------- */
 {
   const doc = normalizeDoc({

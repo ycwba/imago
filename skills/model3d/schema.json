@@ -567,9 +567,9 @@
         },
         "closed": { "type": "boolean", "x-help": "free 是否闭合。" },
         "look": { "enum": ["fixed", "heading", "target"], "x-help": "机位沿路径走时的朝向：fixed 保持自己的 target（默认）/ heading 沿切线 / target 看向 lookAt 那个节点。" },
-        "lookAt": { "type": "string", "x-help": "look=target 时要看的节点 id。" },
+        "lookAt": { "type": "string", "x-help": "look=target 时要看的节点 id；heading 也可带，给 framing=keep 当主体。" },
         "ease": { "enum": ["in", "out", "inout", "linear", "hold"], "x-help": "沿路径的速度曲线（起停缓）；省略为 linear（旧行为）。" },
-        "framing": { "enum": ["center", "keep", "rule3"], "x-help": "有 look 时的构图：center 主体居中 / rule3 主体偏到三分之一 / keep 保持原位（暂按 center）。" }
+        "framing": { "enum": ["center", "keep", "rule3"], "x-help": "有 look 时的构图：center 主体居中 / rule3 主体偏到三分之一 / keep 主体保持在轨道起点那一刻的画幅位置。" }
       },
       "allOf": [
         {

@@ -1,7 +1,7 @@
 /* 拆分片段批量生成：文字 AI 拆条 → 人工确认 → 按图像栏的设置快照逐条提交。
    设置只读一处（advPlan / val / advExtras / topBoolCtx），提交仍走 createImageOnce ——
    一条拆分不等于一次请求：一条要出 N 张时按平台单请求上限切开，与普通「生成图像」同一套算法。 */
-export function createSplit(d) {
+export function createImageSplit(d) {
   const {
     $, setStatus, reg, polishImageList, polishMaterials, userLines, inputs,
     uploadImageRefs, createImageOnce, withCreateRetry, saveSyncImages,

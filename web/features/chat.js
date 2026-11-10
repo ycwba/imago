@@ -33,7 +33,7 @@
   /* 设置页把 AI 助手关掉了就不装：球不画、抽屉不挂、Ctrl+/ 也不注册，对话记录一条都不碰。
      和「执行前不用我点确认」同一套「默认开 = 不存键」的写法 —— 只有明确存了 '1' 才算关，
      所以老用户升级后不用做任何事，助手照旧在。
-     这一项是本机窗口的事，不跟着云同步（见 ui.js 的 NOT_SYNC）：
+     这一项是本机窗口的事，不跟着云同步（`UI_PREFS` 的同步名单判它 false）：
      在一台机器上关掉它，不该顺手把另一台也关了。 */
   const K_OFF = 'ai_chat_off';
   if (window.LS.get(K_OFF) === '1') return;
@@ -915,7 +915,8 @@
     if (!list.length) return '';
     return '【这次附带的文件】\n' + list.map((f, i) =>
       i + ' = ' + f.name + '｜' + f.kind + '｜' + window.fmtBytes(f.size) + '｜'
-      + (f.file ? '本次拖进来的 File' : LOCAL_SRC.test(f.src || '') ? f.src : f.txt ? '本机存的文本快照' : '字节已不在，要让人重新拖')).join('\n') + '\n\n';
+      + (f.file ? '本次拖进来的 File' : LOCAL_SRC.test(f.src || '') ? f.src : f.txt ? '本机存的文本快照' : '字节已不在，要让人重新拖')
+      + (f.mask ? '｜附白色掩码（紧随其后那张图：白 = 要重点看 / 局部编辑的区域）' : '')).join('\n') + '\n\n';
   }
   /* 随消息附上的素材：图片 / 视频 / 音频**都按当前文字型号的能力声明**决定带不带
      （与工作台润色同一条链路 TextAI.prepareMedia；型号行上的 图 / 音 / 视 小标说了算）。
@@ -927,7 +928,7 @@
       const kind = f.kind === '图片' ? 'image' : f.kind === '视频' ? 'video' : f.kind === '音频' ? 'audio' : '';
       if (!kind || !(f.file || f.src)) return;
       const label = f.name || (kind === 'image' ? '附件' + i : (kind === 'video' ? '视频' : '音频') + i);
-      items.push({ kind, label, src: f.file || f.src });
+      items.push({ kind, label, src: f.file || f.src, mask: kind === 'image' ? (f.mask || '') : '' });
     });
     if (!items.length || !window.TextAI) return { media: [], note: '' };
     try {
@@ -935,14 +936,37 @@
       return { media: r.media || [], note: r.note || '' };
     } catch (e) { return { media: [], note: '随附素材这一步没成：' + cap(errText(e), 120) }; }
   }
+  /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画白笔掩码（随图发给文字 AI 当「重点看的区域」）。
+     掩码只留在内存（saveFiles 的落盘清单不含它），同一轮对话里一直有效。 */
+  async function openFileView(f) {
+    if (!f || f.kind === '文本' || !(f.file || f.src)) return;
+    if (!window.RefView) {
+      const ok = window.__spaLoadScript
+        ? await window.__spaLoadScript('web/ui/ref-view.js', () => window.RefView)
+          .then(() => !!window.RefView).catch(() => false)
+        : false;
+      if (!ok) { Toast.err('查看组件没加载起来，刷新一次再试'); return; }
+    }
+    const kind = f.kind === '图片' ? 'image' : f.kind === '视频' ? 'video' : 'audio';
+    window.RefView.open({ kind, label: f.name || '', src: f.file || f.src, mask: f.mask || '' }, {
+      onSaveMask: url => { f.mask = url || ''; paintFiles(); },
+    });
+  }
   function paintFiles() {
     if (!el.files) return;
     const readable = f => !!f.file || (f.src || '').startsWith('blob:') || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt);
     el.files.innerHTML = files.map((f, i) =>
-      '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '' : ' · 字节已不在，要重新拖')) + '">'
-      + esc(f.kind) + '·' + esc(cap(f.name, 18))
+      '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" data-fi="' + i + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '（点开查看' + (f.kind === '图片' ? ' / 画掩码' : '') + '）' : ' · 字节已不在，要重新拖')) + '">'
+      + esc(f.kind) + '·' + esc(cap(f.name, 18)) + (f.mask ? ' · 已标记' : '')
       + '<button data-i="' + i + '" title="从这一轮移开">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
+    el.files.querySelectorAll('.ac-fi').forEach(c => {
+      c.onclick = e => {
+        if (e.target.closest('button')) return;
+        const f = files[Number(c.dataset.fi)];
+        if (f && f.kind !== '文本' && readable(f)) openFileView(f);
+      };
+    });
     el.files.hidden = !files.length;
   }
 
@@ -1444,7 +1468,7 @@
      页面那份轮询就没了 —— 用户的原始诉求就是「他提交的任务完成后提醒我」。
      所以这里只跟**助手自己提交的那几条**，按平台分组走 Api.pollMany（声明了 pollVia:'list'
      的一家一次列表请求解出整批），不认领别人建的任务，也不重新提交（重提交就是重复扣费）。
-     进度落在 ai_chat_watch：本机的事，不出网（见 ui.js 的 NOT_SYNC）。 */
+     进度落在 ai_chat_watch：本机的事，不出网（同步名单判它 false）。 */
   const WATCH_EVERY = 12000;              // 12 秒一轮：图片/视频动辄几分钟，问太密只是在抢列表接口
   const WATCH_TTL = 60 * 60 * 1000;       // 最多等 1 小时，到点照实说「还没等到」，不假装失败也不无限挂着
   const WATCH_CAP = 12;

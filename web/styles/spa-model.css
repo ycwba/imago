@@ -339,7 +339,10 @@
   transform: translateY(-50%) rotate(45deg);
   border-radius: var(--radius-4);
   background: var(--acc);
+  cursor: grab;
 }
+.mm-key:hover, .mm-key.on { background: var(--txt); }
+.mm-key.dragging { background: var(--err); cursor: grabbing; }
 .mm-clip-band {
   position: absolute;
   top: var(--sp-2); bottom: var(--sp-2);
@@ -378,6 +381,19 @@
   font-size: var(--fs-11);
   font-variant-numeric: tabular-nums;
 }
+.mm-key-chip.on { background: var(--sel-bg); color: var(--acc); }
+.mm-key-chip .ui-linkbtn { color: inherit; font-size: inherit; }
+.mm-keyedit {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-8);
+  padding-top: var(--sp-8);
+  border-top: var(--hair) solid var(--line);
+}
+.mm-keyedit-head { flex-wrap: wrap; }
+.mm-keyedit-tip { flex: none; color: var(--sub); font-size: var(--fs-11); }
+.mm-key-clear { flex: none; }
+.mm-key-clear.is-hidden { visibility: hidden; }
 
 /* 固定出片条：视口下方、坞上方；有产物才占高度。 */
 .mm-out {

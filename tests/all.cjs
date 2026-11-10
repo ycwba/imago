@@ -262,6 +262,9 @@ run('tests/model3d-scene.mjs', process.execPath, ['tests/model3d-scene.mjs']);
 run('tests/model3d-loader.mjs', process.execPath, ['tests/model3d-loader.mjs']);
 run('tests/model3d-anim.mjs', process.execPath, ['tests/model3d-anim.mjs']);
 run('tests/model3d-rig.mjs', process.execPath, ['tests/model3d-rig.mjs']);
+/* 时间轴坞的关键帧编辑：改时间只经一份（夹非负 / 两位小数 / 排序 / 撞时刻只留正在挪的那帧 /
+   身份不变），逐帧颜色只认 #rgb 与 #rrggbb、写错当没写。 */
+run('tests/model3d-dock.mjs', process.execPath, ['tests/model3d-dock.mjs']);
 run('tests/model3d-clip.mjs', process.execPath, ['tests/model3d-clip.mjs']);
 /* 几何体检：悬空落地 / 身高夹取 / 出画幅缩放 / 单件离谱只提醒 / 入参不改 / 第二遍不再动；
    包围盒与 three 现造的渲染结果逐项对账（小人按零件树、群众按 at 叠两次）。 */
@@ -398,6 +401,12 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.arg
   run('tests/e2e/smoke.cjs', process.execPath, ['tests/e2e/smoke.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-visual.cjs', process.execPath, ['tests/e2e/ui-visual.cjs'], { tier: 'browser' });
   run('tests/e2e/proxy.cjs', process.execPath, ['tests/e2e/proxy.cjs'], { tier: 'browser' });
+  /* 建模台时间轴坞的关键帧编辑：选帧出表单 / 写缩放·显隐·缓入 / 清字段 ≠ 删帧、清空即删帧 /
+     拖菱形改时间 / 输入框改时间 / 删帧后帧数读数跟着变。 */
+  run('tests/e2e/model-dock.cjs', process.execPath, ['tests/e2e/model-dock.cjs'], { tier: 'browser' });
+  /* 建模台出图的像素基线：不带 lights / light 段的存量白膜按内置主光 + 补光出图，与基线逐像素比；
+     另打一条灯轨道证明逐帧灯光真的进画面。真 WebGL（WARP）出图跨进程逐字节一致，所以阈值比整页截图紧。 */
+  run('tests/e2e/model-render.cjs', process.execPath, ['tests/e2e/model-render.cjs'], { tier: 'browser' });
 /* 静态预压缩的线上那一半（同一份判据文件，`--live` 才起隔离实例）：响应头与三档体积真的到了线上。 */
 run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs', '--live'], { tier: 'browser' });
   run('tests/e2e/cloud-sync.cjs', process.execPath, ['tests/e2e/cloud-sync.cjs'], { tier: 'browser' });

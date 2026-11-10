@@ -17,7 +17,7 @@
 import { ref, inject, watch, nextTick, onMounted, onActivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { createBand, createAssetMention, libraryPicChoices, libraryTokenOf } from '../ui/index.js';
 import { createCrossCol } from './studio/cross-col.js';
-import { createSplit } from './studio/split.js';
+import { createImageSplit } from './studio/split.js';
 import { createVideoFill } from './studio/videofill.js';
 import { render } from '../render/studio.js';
 
@@ -770,6 +770,24 @@ const StudioView = {
           + (sub.length ? '<span class="sub">' + window.esc(sub.join(' · ')) + '</span>' : '') + '</div>';
       }
       const GRID_KINDS = ['image', 'frame_first', 'frame_last'];
+      /* 已填的槽：本体点击 = 打开查看（图片可就地画掩码）；加 / 换走空槽那颗加号与 ×。
+         以前本体点击也开选择器 —— 槽没满时是「再加一个」，满了只会弹「已满」，
+         现在那些手势都在空槽加号上，本体留给「看」。 */
+      async function viewSlotItem(it) {
+        if (!it || !(it.file || it.src || it.url)) return;
+        if (!window.RefView) {
+          const ok = window.__spaLoadScript
+            ? await window.__spaLoadScript('web/ui/ref-view.js', () => window.RefView)
+              .then(() => !!window.RefView).catch(() => false)
+            : false;
+          if (!ok) { Toast.err('查看组件没加载起来，刷新一次再试'); return; }
+        }
+        const kind = window.isAudioType(it.type) ? 'audio'
+          : window.mediaKindOf(it.type) === 'video' ? 'video' : 'image';
+        window.RefView.open({ kind, label: it.name || it.label || '', src: mediaOf(it), mask: it.mask || '' }, {
+          onSaveMask: url => { it.mask = url || ''; },
+        });
+      }
       function bindSlotTile(t, sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];
         const x = t.querySelector('.x');
@@ -778,6 +796,7 @@ const StudioView = {
           if (e.target.closest('.x')) return;
           e.stopPropagation();
           if (blocked) { flashSlotHint(def.label + '与已选素材互斥，请先清空已选素材'); return; }
+          if (it && !it.pending) { viewSlotItem(it); return; }
           openSlotPicker(sl);
         };
         if (it) {
@@ -1413,13 +1432,15 @@ const StudioView = {
         const out = [];
         const m = inputs();
         if (TYPE === 'audio') return out;
-        /* 编号与真正发出去的顺序一致：参考图 → 首帧 → 尾帧（提交时 SLOT_DEF 就是这个顺序）。 */
+        /* 编号与真正发出去的顺序一致：参考图 → 首帧 → 尾帧（提交时 SLOT_DEF 就是这个顺序）。
+           图上画过掩码的把掩码带上（label 注明，prepareMedia 会把它排在紧随其后的那一发）。 */
         let n = 0;
         const add = (it, role, note) => {
           const s = srcOf(it);
           if (!s) return;
           n += 1;
-          out.push({ label: '参考图' + n + (note ? ' · ' + note : ''), src: s, token: '@参考图' + n, role });
+          out.push({ label: '参考图' + n + (note ? ' · ' + note : '') + (it.mask ? '（附白色掩码）' : ''),
+            src: s, mask: it.mask || '', token: '@参考图' + n, role });
         };
         (m.image || []).forEach(it => add(it, 'reference_image'));
         (m.frame_first || []).forEach(it => add(it, 'first_frame', '首帧'));
@@ -1433,7 +1454,7 @@ const StudioView = {
         const m = inputs();
         const out = [];
         const image = TYPE === 'audio' ? [] : polishImageList();
-        image.forEach(x => out.push({ kind: 'image', label: x.label, src: x.src, token: x.token, role: x.role }));
+        image.forEach(x => out.push({ kind: 'image', label: x.label, src: x.src, mask: x.mask || '', token: x.token, role: x.role }));
         (m.video || []).forEach((it, i) => {
           const s = srcOf(it);
           if (s) out.push({ kind: 'video', label: '参考视频' + (m.video.length > 1 ? ' ' + (i + 1) : ''), src: s, token: '@视频' + (i + 1), role: 'reference_video' });
@@ -1729,7 +1750,7 @@ const StudioView = {
       });
       $('splitFillVideo').checked = videoFill.pref();
       $('splitFillVideo').addEventListener('change', () => videoFill.setPref($('splitFillVideo').checked));
-      const split = createSplit({
+      const split = createImageSplit({
         $, setStatus, reg: () => REG,
         polishImageList, polishMaterials, userLines: () => window.SplitPlan.userLines(splitSel()),
         inputs,

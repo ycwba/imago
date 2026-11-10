@@ -12,10 +12,6 @@ const path = require('path');
 const vm = require('vm');
 const h = require('./harness.cjs');
 
-let PNG;
-try { PNG = require('pngjs').PNG; }
-catch (e) { console.error('缺少开发依赖 pngjs：先运行 npm install'); process.exit(2); }
-
 const ROOT = path.resolve(__dirname, '../..');
 const BASE_FILE = path.join(ROOT, 'tests/fixtures/visual/fingerprints.json');
 const ACTUAL_DIR = path.join(ROOT, 'tests/fixtures/visual/actual');
@@ -68,7 +64,6 @@ const uncovered = ROUTES.pages.filter(p => !PAGES.some(e => String(e[0]).split('
 if (uncovered.length) { console.error('这些页面在路由表里，却没有任何视觉档位：' + uncovered.join(', ')); process.exit(1); }
 const SIZES = [[1024, 768], [1440, 900]];
 const THEMES = ['light', 'dark'];
-const GW = 24, GH = 14;
 
 /* 状态喂出来才有画面可拍的两处：
    prep 只在**这一档**的画面里跑；喂完必须证明界面真画出来了，否则这一档只是把上一页重拍一遍。 */
@@ -221,43 +216,6 @@ async function prepChatSources(page, proxy) {
   const n = await page.eval(() => document.querySelectorAll('.ac-src-a').length);
   if (!(n >= 2)) throw new Error('抽屉里没有来源卡片（' + n + ' 条）——这一档拍不到东西');
   return '来源卡片 ' + n + ' 条';
-}
-
-function fingerprint(buf) {
-  const png = PNG.sync.read(buf);
-  const cellW = png.width / GW, cellH = png.height / GH;
-  const out = [];
-  for (let gy = 0; gy < GH; gy++) {
-    for (let gx = 0; gx < GW; gx++) {
-      let r = 0, g = 0, b = 0, n = 0;
-      const x0 = Math.floor(gx * cellW), x1 = Math.max(x0 + 1, Math.floor((gx + 1) * cellW));
-      const y0 = Math.floor(gy * cellH), y1 = Math.max(y0 + 1, Math.floor((gy + 1) * cellH));
-      for (let y = y0; y < Math.min(y1, png.height); y++) {
-        for (let x = x0; x < Math.min(x1, png.width); x++) {
-          const i = (y * png.width + x) * 4;
-          r += png.data[i]; g += png.data[i + 1]; b += png.data[i + 2]; n++;
-        }
-      }
-      out.push([Math.round(r / n), Math.round(g / n), Math.round(b / n)]);
-    }
-  }
-  return out;
-}
-
-function diff(a, b) {
-  if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) return { bad: true, cells: 999, mean: 255, max: 255 };
-  let cells = 0, sum = 0, max = 0;
-  for (let i = 0; i < a.length; i++) {
-    const d = Math.max(
-      Math.abs((a[i] && a[i][0] || 0) - (b[i] && b[i][0] || 0)),
-      Math.abs((a[i] && a[i][1] || 0) - (b[i] && b[i][1] || 0)),
-      Math.abs((a[i] && a[i][2] || 0) - (b[i] && b[i][2] || 0))
-    );
-    sum += d;
-    if (d > 24) cells++;
-    if (d > max) max = d;
-  }
-  return { bad: false, cells, mean: sum / a.length, max };
 }
 
 (async () => {
@@ -448,7 +406,7 @@ function diff(a, b) {
             fs.mkdirSync(ACTUAL_DIR, { recursive: true });
             fs.writeFileSync(path.join(ACTUAL_DIR, key.replace(/[|?]/g, '_') + '.png'), buf);
           }
-          const fp = fingerprint(buf);
+          const fp = h.fingerprint(buf);
           next.screens[key] = fp;
           const want = baseline.screens[key];
           if (!want) {
@@ -456,7 +414,7 @@ function diff(a, b) {
             else console.log('✓ ' + key + ' 写入基线' + (label ? '（' + label + '）' : ''));
             continue;
           }
-          const d = diff(want, fp);
+          const d = h.fpDiff(want, fp);
           checked++;
           const fail = d.bad || d.cells > 24 || d.mean > 8;
           if (fail) {

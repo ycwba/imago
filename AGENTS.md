@@ -135,7 +135,9 @@
   一次只让命中的那套手柄接管指针，不会边平移边旋转。缩放仍用右栏属性数值，不提供缩放手柄。
   出图 / 出片每条都自动落本机资产库，条上另有单条「存资产库 / 已存资产库」；
   出片条可单独选接收页面（工作台 / 导演台），没有 handoff 来源时也能回传。
-  时间轴坞 `web/pages/model/dock.js` 是播放时钟、轨道行与播放头的唯一所有者（`view` 只收 `setTime`）。
+  时间轴坞 `web/pages/model/dock.js` 是播放时钟、轨道行、播放头与关键帧编辑的唯一所有者（`view` 只收 `setTime`）。
+  关键帧是稀疏的：逐帧表单里留空 = 这一帧不改该字段；拖菱形改时间走 `retimeKey`（去重 + 排序），
+  整帧没有内容（`keyHasBody`）就自动删帧。
 - 建模台的数据 / 渲染 / AI / UI **不设人为数量上限**：节点、children、机位、轨道、关键帧、环、
   轮廓点、多边形点、群众人数、骨骼数、出片条目都照收；只保留有限数、正尺寸、`fov ∈ (0,180)`、
   引用防环、路径不越出库根与文件系统真实长度这类数学 / 物理约束。
@@ -594,6 +596,11 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
 - 视觉回归：八条路由（八页含设置；工作台按视频 / 图像 / 语音分三档 → 十档），再加两档「要喂状态才画得出来」的
   「字幕编辑区 / 助手来源卡片」，共 12 档 × 1024/1440 × 浅 / 深主题 = 48 个画面，24×14 RGB 指纹；
   字幕那一档的输入素材是入库的 `tests/fixtures/media/probe-clip.mp4`（2 秒样本），不依赖本机转码工具。
+  建模台出图另有一条自己的像素基线（`tests/e2e/model-render.cjs` + `tests/fixtures/visual/model-render.json`）：
+  用页面「出图」同一条 grab 渲染路（活动机位、RenderTarget、摘掉视口辅助物）渲固定三件白模与固定机位，
+  守「不带 `lights` / `light` 段的存量白膜按内置主光 + 补光出图，与基线逐像素一致」；
+  真 WebGL（WARP 软渲染）出图跨进程逐字节一致，阈值因此比整页截图紧。重打走
+  `UI_MODEL_RENDER_WRITE=1 node tests/e2e/model-render.cjs`（`UI_MODEL_RENDER_SAVE=1` 只留底）。
 
 ## 文案
 
@@ -1044,7 +1051,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 音色克隆（两种源） | `Chars.Pipe.cloneFromCands` / `Chars.Pipe.cloneFromLibEntry` —— 同一落点（`refAudio` + `voiceMode='clone'`） |
 | 格式化 | `Wb.fmtSec` / `fmtClock` / `fmtWhen` / `fmtWhenSec` / `fmtHM` / `fmtHMS`；`ui.js` 的 `dayKey` |
 | 文件名 | `fileSafe` / `fileStamp`（浏览器与 Node 各一份，是登记在案的例外） |
-| 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `groups` 一份派生导出、同步、恢复默认与助手白名单） |
+| 设置项清单 | `web/ui/ui.js` 的 `window.UI_PREFS`（`rows` / `setRows` / `families` 三节 + `sections` 节默认；`syncOf` / `exportOf` / `keepOf` / `secretOf` / `assistSpecs` / `assistDynamic` 派生同步、导出、恢复默认与助手白名单） |
 | 主题解析 | `web/shell-boot.js` 的 `window.__themeApply`（唯一一处把偏好解析成 `data-theme` + `data-palette`；「跟随系统」听 `matchMedia`；解析完广播 `sb:theme-applied`） |
 | 侧栏「换背景」的日 / 月图标 | `web/ui/sidebar.js` 的 `window.__sbThemeIcon`（每次解析完成后由 `shell-boot` 回调；按钮点击按解析后那一档取反并钉住） |
 | 账户余额取数 / 缓存 | `web/ui/sidebar.js` 的 `balRowOf` + `BAL_KEY`（`sb_bal_cache`）+ `window.SbBalance.rowOf` / `fetchRows` + `sb-balance-updated` 事件；侧栏余额卡与设置页账号卡同读这一份 |
@@ -1120,6 +1127,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   都看不见 —— 新增域模块时，engine 里那份 E 名单要与模块顶部解构逐名对着改，`tests/director-e-deps.cjs`
   当场数这两份名单）：
   - `gen.js`：分镜提交、平台任务轮询、自动镜像投递与「生成全部分镜」的依赖式批量调度
+  - `shots.js`：候选占位（草稿 / 导入）、新镜头默认形状、本镜时长与选用 / 取消选用的唯一入口
   - `frames.js`：取帧、帧缓存与退避重试（`sliceKey` 稳定键 / `SLICE_FAIL_TTL` / `sliceRetryIn` /
     `fillSlices` / `sliceForgetFail`）；数据层帧索引来自 `slice.js`，显示层格数来自 `tl-filmstrip.js`
   - `timeline.js`：时间轴板的渲染与比例尺 —— `#tlTools` 工具条就地刷、`#tlRuler*` 刻度、
@@ -1133,6 +1141,8 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   - `caption.js`：字幕域（右栏清单、SRT 入出、浏览器内识别入口、重切、`capSetText` / `capSetTime` /
     `capSetStyle` / `capDelete` / `capAddEntries` 这几个写口）
   - `voice.js`：配音的数据侧（时长、音色方式、位置、登记）与右栏配音列（`#vcTabs` 六档 + 入出点两框）
+  - `render.js`：候选卡片、左栏（镜头 / 场景 / 素材带）与中栏的渲染，以及轮询用的小件
+    （`provById` 的注册表兜底、`saveScheduleSoft` 的 300ms 合并保存）
   - `mid.js`：中间栏整列渲染（预览甲板 + 候选条 + 动作行 + 总长）与剪辑 / 生成两态的切换。
     候选条右侧的展开 / 翻条 / 「1 / 2」是浮在缩略图右缘的一枚小控件（绝对定位，不占排版宽度）；
     剪辑态预览与生成态同一副尺寸。中栏是 `#midCol > #midBody（整片重画）+ #shotStripHost（常驻的镜头顺序条）`：
@@ -1140,12 +1150,31 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   - `panel.js`：右栏镜头编辑器（型号清单、输入槽位与 role、组合与互斥、参数表单）；
     「按描述生成这一镜的画面」那一排张数 / 拆分维度选项由公共件 `SplitPlan`（`dir` 那一族）画，
     当前值存在 engine 的模块变量里并随高级参数同一枚键落盘 —— 这一栏每 3 秒整片重画，存 DOM 会被抹掉
+  - `script.js`：AI 分镜这一面的时长口径（可用型号声明区间的交集、给 AI 的那句约束、落盘后逐镜夹回）
+  - `split.js`：接续生成（上一镜尾帧当首帧）与拆分镜前「这次带哪些素材」的素材范围 / 两段式清单
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）；
     拆分镜 / 改稿前的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 + `renderSplitPanel`
     重画钩子，宿主与润色面板同为 `#polishInline`）
+  - `estimate.js`：费用预估与「画面生成（时间切片）」—— 六档高参 / 三排声明驱动控件 / 拆分选项、
+    关键帧的规划与出图、参考图补挂；`kfSplit*` 三枚选择值归模块自己并随高级参数同一枚键落盘
+  - `api.js`：平台调用小件（图片压缩、上传阶段文案、素材转存落点、资产空间判据、余额、任务详情、缩略图缓存键）
+  - `import.js`：素材进来的四条路（本机视频 / 第三方素材存本机 / 资产库与收藏导入 / 参考槽位）
+  - `ref.js`：镜头提示词的 AI 润色（反问 / 润色 / 按回答再改）、候选 blob 回收与重启恢复、选画面与参考图槽位
+  - `media.js`：签名地址过期刷新、成片尺寸（画幅唯一算法）、素材编号计划转发与成片下载
   - `export.js`：渲染计划唯一组表 `buildRenderPlan()`（段顺序与起点、进片闸后的配音与字幕、每句在哪一行、
     本机优先地址）、导出成片（浏览器内合成，`MediaExport`）、FCPXML 三档（`Export.fcp` 单文件 / 媒体包，
     `Export.project` 持久工程目录 + 打开文件夹）；三档与助手 `export_start` 共用 `fcpCtx()`；服务端没有渲染任务账
+  - `shell.js`：整屏重画的三个入口（`renderSoft` 让路打字中的栏 / `renderAll` 立刻 / `updateProjUI` 只刷页头）
+    与页头项目菜单（按项目组分树、就地改名 / 移组 / 新建组 / 删短片 / 展开折叠 / 项目文件那一组）
+  - `toolbar.js`：左栏「加场景」、剧本查看 / 改稿（按分镜现算、写回只落 `sh.prompt`）、
+    手动拆分弹窗与 AI 拆分入口这几颗按钮的接线
+  - `projectfile.js`：完整工程导出（当前 / 当前项目组 / 全部）与导入（格式闸门、重复内容与重名组两问、
+    追加为新短片、按旧 `la_` 号重绑本机素材、按组名认领项目组）
+  - `modelhandoff.js`：建模台回传的白膜挂进这一镜（图走参考图、视频走参考槽位，不新造第三条写入口）
+  - `exportwire.js`：页头导出拆分按钮（按格式表现画现绑）、导入媒体选择器、轨道坞把手与灯箱声明
+  - `sanitize.js`：整份工作区进内存前的消毒（项目 / 组 / 场景 / 镜头 / 候选 / 成片模型 / 画幅 / 接续字段）
+  - `boot.js`：三栏比例把手、注册表与本地工作区读回（IndexedDB + 关标签兜底 + 数据文件对账）、
+    首屏渲染与首屏之后的后台补齐（能力重画 / 本机视频 blob / 余额 / 轮询 / 白膜回传）
   - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，按身份对账）
 - 纯算法按域拆开，engine 只调用；每一份的落点、函数与判据在「公共层：唯一实现清单」的导演台各行
   （`film` / `slice` / `tl-*` / `srt` / `script` / `board*` / `groups` / `chain` / `naming` / `media` /
@@ -1313,7 +1342,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   内置 Skill 只读；要改就自己新建一份占同一个 contract（服务端会把同 contract 的
   原来那份自动停用）。
 - 查询结果按 `estimateTokens` 预算；发出前 `redactSecrets` 抹密钥形状。
-- 设置项只有白名单（`ADJUST` + `PAGE_TARGETS` + `sk_model_<kid>` + `Chars.SET`）；
+- 助手可改的设置只有白名单（`UI_PREFS.assistSpecs()` 的静态档 + `assistDynamic('page'|'chars'|'model')` 门控的三族动态清单；`sk_key_*` / `sk_base_*` 硬拒绝）；
   助手的供应方 / 型号只在设置页选（`sk_text_prov` + `sk_model_<kid>`），选择只有这一处。
 - 流式进行中保持已写出的气泡内容；切页 / 刷新前已写出的字要落盘并写明断了。
 
@@ -1462,7 +1491,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 5 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 55 项：53 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 5 条先独跑，其余 50 条 4 路并发，实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 57 项：55 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 5 条先独跑，其余 52 条 4 路并发，实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 
@@ -1500,7 +1529,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   4 路并发，每条自起隔离 proxy + 独立 Chrome）。
 - `npm run test:e2e` 全量分两道：读数型先独跑（`ui-visual` / `director-perf` / `director-playback` /
   `perf/boot` / `boot-heavy`：并发负载会让截图指纹、帧预算、播放对齐与「启动收尾让路」的计时窗口这类读数失真），
-  其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。`tests/e2e/` 共 55 个文件（54 条判据 + harness），同一档还跑
+  其余（含 7 条不起 Chrome 的服务端链路）走 4 路并发。`tests/e2e/` 共 57 个文件（56 条判据 + harness），同一档还跑
   `tests/perf/boot.cjs` 与 `tests/static-encoding.cjs --live`。
   16 核 / 17 GB 本机实测全量约 10 分钟；单条红先独立重跑再定性 —— 满载池子里的机器负载假红有先例。
 - `tests/map.cjs --run` 每条报耗时，超预算（默认 20s，`MAP_BUDGET_MS` 可改）先给最慢清单再谈切 `--e2e`。

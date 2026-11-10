@@ -65,7 +65,7 @@ const ok = () => { try { localStorage.setItem('__t', '1'); localStorage.removeIt
        以前 TextAI.clearMeta 与设置页「恢复默认」各抄一遍同样的循环，抄错的方向是正着扫 ——
        removeItem 会让后面的键整体往前挪一格，正着扫就跳过一半，「恢复默认」清完还剩一堆。
        判据（哪些键归我管）留在调用方：一张表是 `sk_model_meta_` 前缀，另一张是
-       EXPORTABLE 前缀减 RESET_KEEP，两边本来就不同，只有那趟扫描是同一件事。 */
+       设置导出名单减去「恢复默认不清」那一份，两边本来就不同，只有那趟扫描是同一件事。 */
     sweep(pred) {
       let n = 0;
       for (const k of window.LS.keys()) {

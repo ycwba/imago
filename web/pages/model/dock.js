@@ -6,6 +6,7 @@
    两处同时推进会让播放速度、出片取帧与播放头读数互相漂移。 */
 
 import * as S from '../../model3d/schema.js';
+import * as A from '../../model3d/anim.js';
 import { clipOf } from '../../model3d/clip.js';
 import { trackColorOf } from '../../model3d/palette.js';
 
@@ -44,6 +45,18 @@ function makeTrack(doc, of) {
   };
 }
 
+/* 关键帧时间 = 轨道局部秒，两位小数就够（0.01 秒 ≈ 一帧的四分之一）。
+   拖动与手填时间都只经这一份：把这一帧挪到 t，同一时刻的另一帧被它顶掉
+   （t 相同就是同一帧），返回排好序的新数组。key 的对象身份保持不变 ——
+   调用方手里攥着的「正在编辑的那一帧」不能因为重排就断线。 */
+export function retimeKey(keys, key, t) {
+  const nt = Math.max(0, Math.round(dNum(t, 0) * 100) / 100);
+  key.t = nt;
+  const kept = (keys || []).filter(k => k === key || Math.abs(k.t - nt) > 0.001);
+  kept.sort((a, b) => a.t - b.t);
+  return kept;
+}
+
 export function createDock(opts = {}) {
   const host = opts.host;
   const getDoc = opts.getDoc || (() => null);
@@ -58,6 +71,15 @@ export function createDock(opts = {}) {
   let playing = false;
   let startedAt = 0;
   let baseTime = 0;
+  /* 逐帧编辑：selKey 是「正在编辑的那一帧」，按对象身份认（重排 / 改名都不丢）；
+     drag 只在一只指针按住关键帧菱形到松手之间存在；swallowClickUntil 吃掉
+     「拖完松手」那一下的 click —— 否则条带把它当成一次定位点击。 */
+  let selKey = null;
+  let drag = null;
+  let swallowClickUntil = 0;
+  let revealKeyEdit = false;
+  /* 逐帧表单改完会整片重画；记住刚改的那一格，重画后把它滚回视野（最小滚动）。 */
+  let revealKeyField = '';
 
   const doc = () => getDoc();
   const view = () => getView();
@@ -148,6 +170,7 @@ export function createDock(opts = {}) {
     if (!d) return;
     d.anim.tracks = [];
     selectedTrack = '';
+    selKey = null;
     changed('已清空动画轨道');
   }
 
@@ -168,6 +191,7 @@ export function createDock(opts = {}) {
       d.anim.tracks.push(tr);
     }
     selectedTrack = tr.id;
+    selKey = null;
     changed('已加一条' + (of.kind === 'cam' ? '机位' : '节点') + '轨道');
   }
 
@@ -185,6 +209,18 @@ export function createDock(opts = {}) {
     return d.anim.tracks.find(t => t.id === selectedTrack) || null;
   }
 
+  /* 选中那一帧只在这一条轨道的 keys 里才算数：换轨道 / 换场景后旧对象自然失效。 */
+  function pickedKeyOf(tr) {
+    if (!tr || !selKey) return null;
+    return (tr.keys || []).indexOf(selKey) >= 0 ? selKey : null;
+  }
+
+  /* 一帧只剩时间就没有意义（读回时也会被丢掉）：清空最后一个字段就整帧删掉。 */
+  function keyHasBody(key) {
+    return ['at', 'rot', 'pose', 'target', 'fov', 'energy', 'color', 'scale', 'visible', 'ease']
+      .some(f => key[f] != null && key[f] !== '');
+  }
+
   function nodeOfTrack(tr) {
     const d = doc();
     return (tr && tr.of && tr.of.kind === 'node' && d) ? S.findNode(d.scene.nodes, tr.of.id) : null;
@@ -196,6 +232,17 @@ export function createDock(opts = {}) {
     if (tr.of.kind === 'cam') {
       const cam = S.camOf(d, tr.of.id);
       return cam ? { at: cam.pos.slice(), target: cam.target.slice(), fov: cam.fov } : null;
+    }
+    if (tr.of.kind === 'light') {
+      const light = ((d && d.scene && d.scene.lights) || []).find(l => l.id === tr.of.id);
+      if (!light) return null;
+      const s = A.sampleTrack(tr, view() ? view().time : 0, durationOf());
+      return {
+        at: (s && s.at) || light.at.slice(),
+        target: (s && s.target) || (Array.isArray(light.target) ? light.target.slice() : null),
+        energy: s && s.energy != null ? s.energy : light.energy,
+        color: (s && s.color) || light.color,
+      };
     }
     const node = nodeOfTrack(tr);
     if (!node) return null;
@@ -218,9 +265,14 @@ export function createDock(opts = {}) {
     const v = view();
     const t = Math.round(dNum(v && v.time, 0) * 100) / 100;
     tr.keys = (tr.keys || []).filter(k => Math.abs(k.t - t) > 0.001);
-    if (tr.of.kind === 'cam') tr.keys.push({ t, at: pose.at, target: pose.target, fov: pose.fov });
-    else tr.keys.push({ t, at: pose.at, rot: pose.rot, pose: pose.pose || '' });
+    let key;
+    if (tr.of.kind === 'cam') key = { t, at: pose.at, target: pose.target, fov: pose.fov };
+    else if (tr.of.kind === 'light') key = { t, at: pose.at, energy: pose.energy, color: pose.color };
+    else key = { t, at: pose.at, rot: pose.rot, pose: pose.pose || '' };
+    tr.keys.push(key);
     tr.keys.sort((a, b) => a.t - b.t);
+    selKey = key;
+    revealKeyEdit = true;
     changed('在 ' + t.toFixed(1) + ' 秒打了一个关键帧');
   }
 
@@ -228,14 +280,144 @@ export function createDock(opts = {}) {
     const tr = selectedTrackOf();
     if (!tr) return;
     tr.keys = [];
+    selKey = null;
     changed('已清空这条轨道的关键帧');
+  }
+
+  /* 这一帧还没写过的向量：按采样锚定当前实际值（叠加模式下关键帧是偏移，锚在零上）。
+      锚定之后用户改哪一格，另外两格就是「此刻看起来的样子」，不会把对象甩回原点。 */
+  function baseVecOf(tr, key, field) {
+    if (tr.keysMode !== 'offset') {
+      const s = A.sampleTrack(tr, key.t, durationOf());
+      const src = s && s[field];
+      if (Array.isArray(src)) return src.slice();
+      const d = doc();
+      if (d) {
+        if (tr.of.kind === 'cam') {
+          const cam = S.camOf(d, tr.of.id);
+          if (cam && field === 'at') return cam.pos.slice();
+          if (cam && field === 'target' && Array.isArray(cam.target)) return cam.target.slice();
+        } else if (tr.of.kind === 'light') {
+          const light = (d.scene.lights || []).find(l => l.id === tr.of.id);
+          if (light && field === 'at' && Array.isArray(light.at)) return light.at.slice();
+          if (light && field === 'target' && Array.isArray(light.target)) return light.target.slice();
+        } else {
+          const node = S.findNode(d.scene.nodes, tr.of.id);
+          if (node && field === 'at' && Array.isArray(node.at)) return node.at.slice();
+          if (node && field === 'rot' && Array.isArray(node.rot)) return node.rot.slice();
+        }
+      }
+    }
+    return field === 'scale' ? [1, 1, 1] : [0, 0, 0];
+  }
+
+  /* 「取当前姿态」：机位读视口此刻的采样姿态（活动机位），节点读视口里活的那一份
+     世界变换 —— 手调过视口之后，把看到的这一下直接钉成关键帧。 */
+  function keyFromView(tr) {
+    const key = pickedKeyOf(tr);
+    if (!key) return;
+    const v = view();
+    const d = doc();
+    let pose = null;
+    if (tr.of.kind === 'cam' && d && d.scene && d.scene.active === tr.of.id && v && v.cameraPose) {
+      const p = v.cameraPose();
+      pose = p ? { at: p.pos, target: p.target, fov: p.fov } : null;
+    } else if (tr.of.kind === 'cam') {
+      const cam = S.camOf(d, tr.of.id);
+      const s = A.sampleTrack(tr, v ? v.time : key.t, durationOf());
+      pose = (cam && s) ? {
+        at: s.at || cam.pos,
+        target: s.target || cam.target,
+        fov: s.fov != null ? s.fov : cam.fov,
+      } : null;
+    } else {
+      pose = currentPose(tr);
+    }
+    if (!pose) { note('这条轨道指向的对象已经不在了', 'err'); return; }
+    if (tr.of.kind === 'cam') {
+      key.at = pose.at.map(x => S.round3(x));
+      key.target = pose.target.map(x => S.round3(x));
+      key.fov = S.round3(pose.fov);
+    } else if (tr.of.kind === 'light') {
+      key.at = pose.at.map(x => S.round3(x));
+      if (Array.isArray(pose.target)) key.target = pose.target.map(x => S.round3(x));
+    } else {
+      key.at = pose.at.map(x => S.round3(x));
+      key.rot = pose.rot.map(x => S.round3(x));
+      if (pose.pose) key.pose = pose.pose;
+    }
+    revealKeyField = 'key.at.0';
+    changed('已把当前姿态写进这一帧');
+  }
+
+  const KEY_FIELD_ZH = {
+    at: '位置', rot: '旋转', scale: '缩放', target: '看向',
+    pose: '姿势', visible: '显隐', fov: '视场角', energy: '能量', color: '颜色', ease: '缓入',
+  };
+
+  /* 逐帧编辑表单的写入口：一个字段一条。坏值不落盘 —— 提示一句、控件回到盘上那一份。
+     向量字段留空 = 这一帧不改它；改其中一格时先用 baseVecOf 把另外两格锚住。 */
+  function editKeyField(tr, key, path, el) {
+    const empty = String(el.value == null ? '' : el.value).trim() === '';
+    const raw = Number(el.value);
+    const vecMatch = /^key\.(at|rot|scale|target)\.([0-2])$/.exec(path);
+    if (vecMatch) {
+      if (empty) { renderDock(); return; }
+      if (!Number.isFinite(raw)) { note('这里要填数字', 'err'); renderDock(); return; }
+      const field = vecMatch[1];
+      const i = Number(vecMatch[2]);
+      const vec = Array.isArray(key[field]) ? key[field].slice() : baseVecOf(tr, key, field);
+      vec[i] = field === 'scale' ? S.scaleOf(raw)[0] : S.round3(raw);
+      key[field] = vec;
+    } else if (path === 'key.t') {
+      if (empty || !Number.isFinite(raw)) { note('时间要填数字（秒）', 'err'); renderDock(); return; }
+      if (raw < 0) { note('时间不能是负数', 'err'); renderDock(); return; }
+      const before = tr.keys.length;
+      tr.keys = retimeKey(tr.keys, key, raw);
+      if (before > tr.keys.length) note('同一时刻的另一个关键帧被顶掉', 'err');
+    } else if (path === 'key.fov') {
+      if (empty) delete key.fov;
+      else if (!(raw > 0 && raw < 180)) { note('视场角要在 0 到 180 之间', 'err'); renderDock(); return; }
+      else key.fov = S.round3(raw);
+    } else if (path === 'key.energy') {
+      if (empty) delete key.energy;
+      else if (!(raw >= 0)) { note('能量不能是负数', 'err'); renderDock(); return; }
+      else key.energy = S.round3(raw);
+    } else if (path === 'key.color') {
+      if (empty) delete key.color;
+      else {
+        const c = S.cleanColor(el.value);
+        if (!c) { note('颜色要写成 #rrggbb 或 #rgb', 'err'); renderDock(); return; }
+        key.color = c;
+      }
+    } else if (path === 'key.pose') {
+      const s = String(el.value || '').trim();
+      if (s) key.pose = s; else delete key.pose;
+    } else if (path === 'key.visible') {
+      if (el.value === '1') key.visible = true;
+      else if (el.value === '0') key.visible = false;
+      else delete key.visible;
+    } else if (path === 'key.ease') {
+      if (['smooth', 'linear', 'hold'].indexOf(el.value) >= 0) key.ease = el.value;
+      else delete key.ease;
+    } else {
+      return;
+    }
+    if (!keyHasBody(key)) {
+      tr.keys = (tr.keys || []).filter(k => k !== key);
+      selKey = null;
+      changed('这一帧已经没有内容，已删掉');
+      return;
+    }
+    revealKeyField = path;
+    changed('');
   }
 
   function deleteTrack(id) {
     const d = doc();
     if (!d) return;
     d.anim.tracks = d.anim.tracks.filter(t => t.id !== id);
-    if (selectedTrack === id) selectedTrack = '';
+    if (selectedTrack === id) { selectedTrack = ''; selKey = null; }
     changed('已删除一条轨道');
   }
 
@@ -266,6 +448,53 @@ export function createDock(opts = {}) {
     changed('路线已改为' + pathKindZh(kind));
   }
 
+  /* 逐帧编辑：选中一帧之后才出现。没写过的字段留空显示「不变」——
+     这一帧不改它，采样时沿用路径 / 静态值 / 前后帧。 */
+  function keyVecRow(key, field, label) {
+    const v = Array.isArray(key[field]) ? key[field] : null;
+    return '<div class="mm-row"><label>' + label + '</label>'
+      + [0, 1, 2].map(i =>
+        '<input class="ui-inp" type="number" step="0.01" data-dock-field="key.' + field + '.' + i + '"'
+        + ' value="' + (v ? (Number(v[i]) || 0) : '') + '" placeholder="不变">').join('')
+      + '<button class="ui-linkbtn mm-key-clear' + (v ? '' : ' is-hidden') + '" type="button" data-dock-act="clrKeyField" data-key-field="' + field + '" title="这一帧不再改' + KEY_FIELD_ZH[field] + '">×</button></div>';
+  }
+
+  function paintKeyEditor(tr) {
+    const key = pickedKeyOf(tr);
+    if (!key) return '';
+    const kind = tr.of && tr.of.kind;
+    const numRow = (field, label, val, step) => '<div class="mm-row"><label>' + label + '</label>'
+      + '<input class="ui-inp" type="number" step="' + (step || '0.01') + '" data-dock-field="key.' + field + '"'
+      + ' value="' + (val == null ? '' : val) + '" placeholder="不变"></div>';
+    let fields = '';
+    if (kind === 'cam') {
+      fields = keyVecRow(key, 'at', '位置') + keyVecRow(key, 'target', '看向') + numRow('fov', '视场角', key.fov, '1');
+    } else if (kind === 'light') {
+      fields = keyVecRow(key, 'at', '位置') + keyVecRow(key, 'target', '看向')
+        + numRow('energy', '能量', key.energy)
+        + '<div class="mm-row"><label>颜色</label><input class="ui-inp" data-dock-field="key.color" value="' + dEsc(key.color || '') + '" placeholder="不变"></div>';
+    } else {
+      fields = keyVecRow(key, 'at', '位置') + keyVecRow(key, 'rot', '旋转') + keyVecRow(key, 'scale', '缩放')
+        + '<div class="mm-row"><label>姿势</label><input class="ui-inp" data-dock-field="key.pose" value="' + dEsc(key.pose || '') + '" placeholder="不变"></div>'
+        + '<div class="mm-row"><label>显隐</label><select class="ui-inp" data-dock-field="key.visible">'
+        + '<option value=""' + (key.visible == null ? ' selected' : '') + '>不变</option>'
+        + '<option value="1"' + (key.visible === true ? ' selected' : '') + '>显示</option>'
+        + '<option value="0"' + (key.visible === false ? ' selected' : '') + '>隐藏</option></select></div>';
+    }
+    return '<div class="mm-keyedit">'
+      + '<div class="mm-row mm-keyedit-head"><label>这一帧</label>'
+      + '<input class="ui-inp" type="number" min="0" step="0.01" data-dock-field="key.t" value="' + key.t.toFixed(2) + '">'
+      + '<button class="ghost mini" type="button" data-dock-act="keyFromView">取当前姿态</button>'
+      + '<button class="ghost mini" type="button" data-dock-act="delKeySel">删掉这一帧</button></div>'
+      + fields
+      + '<div class="mm-row"><label>缓入</label><select class="ui-inp" data-dock-field="key.ease">'
+      + '<option value=""' + (key.ease ? '' : ' selected') + '>跟轨道</option>'
+      + [['smooth', '平滑'], ['linear', '线性'], ['hold', '保持']].map(([v, t]) =>
+        '<option value="' + v + '"' + (key.ease === v ? ' selected' : '') + '>' + t + '</option>').join('')
+      + '</select><span class="mm-keyedit-tip">从前一帧走到这一帧</span></div>'
+      + '</div>';
+  }
+
   function paintPathEditor(tr) {
     if (!tr) return '';
     const p = tr.path;
@@ -279,7 +508,9 @@ export function createDock(opts = {}) {
         + [0, 1, 2].map(i => '<input class="ui-inp" type="number" step="0.01" data-dock-field="' + key + '.' + i + '" value="' + (Number(p[key][i]) || 0) + '">').join('') + '</div>';
       fields = '<div class="mm-num3">' + pathRow('起点', 'from') + pathRow('终点', 'to') + '</div>';
     }
-    const keys = (tr.keys || []).map((k, i) => '<span class="mm-key-chip">' + k.t.toFixed(2) + 's'
+    const sel = pickedKeyOf(tr);
+    const keys = (tr.keys || []).map((k, i) => '<span class="mm-key-chip' + (k === sel ? ' on' : '') + '">'
+      + '<button class="ui-linkbtn" type="button" data-dock-act="selKey" data-key-index="' + i + '" title="编辑这一帧">' + k.t.toFixed(2) + 's</button>'
       + '<button class="ui-linkbtn" type="button" data-dock-act="delKey" data-key-index="' + i + '" title="删掉这一帧">×</button></span>').join('');
     const numIn = (field, val, step) => '<input class="ui-inp" type="number" step="' + (step || '0.01') + '" data-dock-field="' + field + '" value="' + (Number(val) || 0) + '">';
     const look = p && p.look ? p.look : 'fixed';
@@ -313,6 +544,7 @@ export function createDock(opts = {}) {
       + '<button class="ghost mini" type="button" data-dock-act="key">' + dIcon('key', 12) + ' 在播放头打关键帧</button>'
       + '<button class="ghost mini" type="button" data-dock-act="clearKeys">清空关键帧</button></div>'
       + (keys ? '<div class="mm-keys">' + keys + '</div>' : '<div class="mm-empty">这条轨道还没有关键帧。</div>')
+      + paintKeyEditor(tr)
       + '</div>';
   }
 
@@ -324,6 +556,7 @@ export function createDock(opts = {}) {
     const status = getNote();
     const tracks = anim.tracks || [];
     const selected = selectedTrackOf();
+    const selKeyNow = pickedKeyOf(selected);
     const rows = tracks.map(tr => {
       const on = tr.id === selectedTrack;
       return '<div class="mm-track-row' + (on ? ' on' : '') + (tr.enabled === false ? ' off' : '') + (tr.solo ? ' solo' : '') + '" data-track-id="' + dEsc(tr.id) + '">'
@@ -341,7 +574,7 @@ export function createDock(opts = {}) {
         + '<button class="mm-tree-mini" type="button" data-dock-act="toggle" data-track-id="' + dEsc(tr.id) + '" title="' + (tr.enabled === false ? '启用' : '停用') + '">' + dIcon('eye', 11) + '</button>'
         + '<button class="mm-tree-mini" type="button" data-dock-act="delTrack" data-track-id="' + dEsc(tr.id) + '" title="删除轨道">' + dIcon('trash', 11) + '</button>'
         + '<span class="mm-track-bar" data-scrub="' + dEsc(tr.id) + '" title="点一下定位">'
-        + (tr.keys || []).map(k => '<span class="mm-key" style="left:' + Math.max(0, Math.min(100, (k.t / Math.max(0.001, anim.duration)) * 100)) + '%" title="' + k.t + 's"></span>').join('')
+        + (tr.keys || []).map((k, i) => '<span class="mm-key' + (k === selKeyNow ? ' on' : '') + '" data-dock-key="' + i + '" style="left:' + Math.max(0, Math.min(100, (k.t / Math.max(0.001, anim.duration)) * 100)) + '%" title="' + k.t.toFixed(2) + 's · 拖动改时间"></span>').join('')
         + '<span class="mm-playhead" data-dock="playhead"></span></span>'
         + '</div>';
     }).join('');
@@ -381,6 +614,7 @@ export function createDock(opts = {}) {
       + paintPathEditor(selected);
 
     host.onclick = e => {
+      if (performance.now() < swallowClickUntil) { swallowClickUntil = 0; return; }
       const act = e.target.closest('[data-dock-act]');
       if (act) {
         const a = act.dataset.dockAct;
@@ -399,10 +633,54 @@ export function createDock(opts = {}) {
         if (a === 'delTrack') { deleteTrack(act.dataset.trackId); return; }
         if (a === 'key') { addKey(); return; }
         if (a === 'clearKeys') { clearKeys(); return; }
+        if (a === 'selKey') {
+          const tr = selectedTrackOf();
+          const key = tr && tr.keys && tr.keys[Number(act.dataset.keyIndex)];
+          if (key) {
+            stopClock();
+            selKey = key;
+            revealKeyEdit = true;
+            setTime(key.t);
+            renderDock();
+          }
+          return;
+        }
+        if (a === 'keyFromView') { keyFromView(selectedTrackOf()); return; }
+        if (a === 'delKeySel') {
+          const tr = selectedTrackOf();
+          const key = pickedKeyOf(tr);
+          if (tr && key) {
+            tr.keys.splice(tr.keys.indexOf(key), 1);
+            selKey = null;
+            changed('已删掉这一帧');
+          }
+          return;
+        }
+        if (a === 'clrKeyField') {
+          const tr = selectedTrackOf();
+          const key = pickedKeyOf(tr);
+          const field = act.dataset.keyField;
+          if (tr && key && field) {
+            delete key[field];
+            if (!keyHasBody(key)) {
+              tr.keys = tr.keys.filter(k => k !== key);
+              selKey = null;
+              changed('这一帧已经没有内容，已删掉');
+            } else {
+              revealKeyField = 'key.' + field + '.0';
+              changed('这一帧不再改' + (KEY_FIELD_ZH[field] || field));
+            }
+          }
+          return;
+        }
         if (a === 'delKey') {
           const tr = selectedTrackOf();
           const i = Number(act.dataset.keyIndex);
-          if (tr && tr.keys) { tr.keys.splice(i, 1); changed('已删掉一个关键帧'); }
+          if (tr && tr.keys && tr.keys[i]) {
+            if (tr.keys[i] === selKey) selKey = null;
+            tr.keys.splice(i, 1);
+            changed('已删掉一个关键帧');
+          }
           return;
         }
       }
@@ -416,12 +694,23 @@ export function createDock(opts = {}) {
         return;
       }
       const trackRowEl = e.target.closest('[data-track-id]');
-      if (trackRowEl) { selectedTrack = trackRowEl.dataset.trackId; renderDock(); }
+      if (trackRowEl) {
+        if (selectedTrack !== trackRowEl.dataset.trackId) selKey = null;
+        selectedTrack = trackRowEl.dataset.trackId;
+        revealKeyEdit = false;
+        renderDock();
+      }
     };
     host.onchange = e => {
       const f = e.target.closest('[data-dock-field]');
       if (!f) return;
       const k = f.dataset.dockField;
+      if (k.indexOf('key.') === 0) {
+        const tr = selectedTrackOf();
+        const key = pickedKeyOf(tr);
+        if (tr && key) editKeyField(tr, key, k, f);
+        return;
+      }
       const d2 = doc();
       if (k === 'duration') {
         const v = dNum(f.value, 4);
@@ -465,16 +754,145 @@ export function createDock(opts = {}) {
       changed('');
     };
     updatePlayhead();
+    if (revealKeyField) {
+      const one = host.querySelector('[data-dock-field="' + revealKeyField + '"]');
+      revealKeyField = '';
+      if (one) one.scrollIntoView({ block: 'nearest' });
+    } else if (revealKeyEdit) {
+      revealKeyEdit = false;
+      const edit = host.querySelector('.mm-dock-edit');
+      if (edit) edit.scrollTop = edit.scrollHeight;
+    }
+  }
+
+  /* ---------- 关键帧拖动改时间 ---------- */
+
+  /* 重画之后按「轨道 + 序号」把那一枚菱形找回来：拖动期间只挪 key.t、
+     到松手才重排，所以序号在这一段里是稳定的。 */
+  function dragDot() {
+    if (!drag || !host) return null;
+    const i = (drag.tr.keys || []).indexOf(drag.key);
+    if (i < 0) return null;
+    for (const row of host.querySelectorAll('.mm-track-row[data-track-id]')) {
+      if (row.dataset.trackId === drag.tr.id) return row.querySelector('.mm-key[data-dock-key="' + i + '"]');
+    }
+    return null;
+  }
+
+  function dragTo(x) {
+    const d = durationOf();
+    const ratio = Math.max(0, Math.min(1, (x - drag.rect.left) / Math.max(1, drag.rect.width)));
+    const t = Math.round(ratio * d * 100) / 100;
+    drag.key.t = t;
+    const dot = dragDot();
+    if (dot) {
+      dot.style.left = (t / d) * 100 + '%';
+      dot.title = t.toFixed(2) + 's · 拖动改时间';
+      dot.classList.add('dragging');
+    }
+    const tin = host.querySelector('[data-dock-field="key.t"]');
+    if (tin) tin.value = t.toFixed(2);
+  }
+
+  function releaseCapture(pid) {
+    try { host.releasePointerCapture(pid); } catch (e) { /* 指针已经不在 */ }
+  }
+
+  function dragPointerDown(e) {
+    if (e.button !== 0 || !e.target.closest) return;
+    const dot = e.target.closest('.mm-key[data-dock-key]');
+    if (!dot) return;
+    const row = dot.closest('[data-track-id]');
+    const bar = dot.parentElement;
+    const d = doc();
+    const tr = d && row ? d.anim.tracks.find(t => t.id === row.dataset.trackId) : null;
+    const key = tr && tr.keys && tr.keys[Number(dot.dataset.dockKey)];
+    if (!tr || !key || !bar) return;
+    e.preventDefault();
+    stopClock();
+    selectedTrack = tr.id;
+    selKey = key;
+    revealKeyEdit = true;
+    swallowClickUntil = performance.now() + 400;
+    drag = { tr, key, rect: bar.getBoundingClientRect(), x0: e.clientX, t0: key.t, moved: false, pid: e.pointerId };
+    try { host.setPointerCapture(e.pointerId); } catch (err) { /* 捕获失败也照常拖，window 上还有监听 */ }
+    renderDock();
+  }
+
+  function dragPointerMove(e) {
+    if (!drag) return;
+    if (!drag.moved && Math.abs(e.clientX - drag.x0) < 3) return;
+    drag.moved = true;
+    dragTo(e.clientX);
+  }
+
+  function dragPointerUp() {
+    if (!drag) return;
+    const cur = drag;
+    drag = null;
+    releaseCapture(cur.pid);
+    swallowClickUntil = performance.now() + 400;
+    selKey = cur.key;
+    revealKeyEdit = true;
+    if (!cur.moved) {
+      setTime(cur.key.t);
+      renderDock();
+      return;
+    }
+    const before = cur.tr.keys.length;
+    cur.tr.keys = retimeKey(cur.tr.keys, cur.key, cur.key.t);
+    setTime(cur.key.t);
+    changed(before > cur.tr.keys.length
+      ? '关键帧已移到 ' + cur.key.t.toFixed(2) + ' 秒；同一时刻的另一帧被顶掉'
+      : '关键帧已移到 ' + cur.key.t.toFixed(2) + ' 秒');
+  }
+
+  function dragPointerCancel() {
+    if (!drag) return;
+    const cur = drag;
+    drag = null;
+    releaseCapture(cur.pid);
+    cur.key.t = cur.t0;
+    swallowClickUntil = performance.now() + 400;
+    renderDock();
+  }
+
+  if (host) {
+    host.addEventListener('pointerdown', dragPointerDown);
+    window.addEventListener('pointermove', dragPointerMove);
+    window.addEventListener('pointerup', dragPointerUp);
+    window.addEventListener('pointercancel', dragPointerCancel);
+  }
+
+  /* 外部点名一条轨道（比如按标注生成运镜之后把新轨送到眼前）：选中 + 行滚进视野。
+     轨道不存在时是空操作；这正是轨道行点选那一套（清关键帧选中、重画）。 */
+  function focusTrack(id) {
+    const d = doc();
+    if (!d || !id || !(d.anim.tracks || []).some(t => t.id === id)) return;
+    if (selectedTrack !== id) selKey = null;
+    selectedTrack = id;
+    revealKeyEdit = false;
+    renderDock();
+    const row = host ? host.querySelector('[data-track-id="' + id + '"]') : null;
+    if (row && row.scrollIntoView) row.scrollIntoView({ block: 'nearest' });
   }
 
   return {
     renderDock,
+    focusTrack,
     play: dockStart,
     pause: pauseClock,
     destroy() {
       stopClock();
-      if (host) host.innerHTML = '';
-      host && host.replaceChildren();
+      drag = null;
+      if (host) {
+        host.removeEventListener('pointerdown', dragPointerDown);
+        host.innerHTML = '';
+        host.replaceChildren();
+      }
+      window.removeEventListener('pointermove', dragPointerMove);
+      window.removeEventListener('pointerup', dragPointerUp);
+      window.removeEventListener('pointercancel', dragPointerCancel);
     },
     get playing() { return playing; },
   };

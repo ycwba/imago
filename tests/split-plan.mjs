@@ -118,25 +118,28 @@ for (const fam of ['wb', 'dir']) {
   assert.deepEqual([Number(m[1]), Number(m[2])], [Number(d[1]), Number(d[2])],
     fam + ' 的「自动」那句与 DEF.' + CONTRACT[fam] + ' 兜底那一档报的不是同一个范围');
 }
-const engine = read('web/director/engine.js');
-const cap = /function parseFrames[\s\S]*?list\.slice\(0,\s*(\d+)\)/.exec(engine);
-assert.ok(cap, 'engine.js 的 parseFrames 找不到那道张数夹');
+/* 关键帧那一路住在 estimate 域（engine.js 只留接线），尺子对着域模块量。 */
+const estimate = read('web/director/engine/estimate.js');
+const engineRoot = read('web/director/engine.js');
+const cap = /function parseFrames[\s\S]*?list\.slice\(0,\s*(\d+)\)/.exec(estimate);
+assert.ok(cap, 'estimate.js 的 parseFrames 找不到那道张数夹');
 assert.equal(maxOf('dir'), Number(cap[1]),
   '导演台张数档的上限与 parseFrames 的夹不是同一个数（多给的那一档永远点不满）');
-assert.ok(engine.includes('SplitPlan.userLines(kfSplitSel())'), '导演台那两行不是公共件拼的');
-assert.ok(!/请决定需要几张关键画面/.test(engine), 'engine.js 还写死了「请决定需要几张」');
+assert.ok(estimate.includes('SplitPlan.userLines(kfSplitSel())'), '导演台那两行不是公共件拼的');
+assert.ok(!/请决定需要几张关键画面/.test(estimate) && !/请决定需要几张关键画面/.test(engineRoot),
+  'estimate.js 或 engine.js 还写死了「请决定需要几张」');
 /* 导演台的选择存在模块变量里（右栏每 3 秒整片重画，DOM 里的值活不过下一次）并一起落盘。
-   落盘键名（sc/sd/sx）由 engine 自己定，判据只认「写进那一份 JSON」与「从那一枚读回来」两件事。 */
-const saveAt = engine.indexOf('function kfParamsSave');
-assert.ok(saveAt >= 0, 'engine.js 找不到 kfParamsSave');
-const saveBody = engine.slice(saveAt, engine.indexOf('\n}', saveAt));
+   落盘键名（sc/sd/sx）由 estimate 域自己定，判据只认「写进那一份 JSON」与「从那一枚读回来」两件事。 */
+const saveAt = estimate.indexOf('function kfParamsSave');
+assert.ok(saveAt >= 0, 'estimate.js 找不到 kfParamsSave');
+const saveBody = estimate.slice(saveAt, estimate.indexOf('\n}', saveAt));
 assert.ok(/\bsetJson\s*\(/.test(saveBody), 'kfParamsSave 没往本机写那一枚 JSON');
 /* 顶格写的 let 才是模块级（函数体里的那些都带缩进）—— 值存不进 DOM，只能存这一层。 */
 ['kfSplitCount', 'kfSplitDim', 'kfSplitCustom'].forEach(n => {
-  assert.ok(new RegExp('^let\\b[^\\n]*\\b' + n + '\\b', 'm').test(engine),
-    'engine.js 的 ' + n + ' 不是模块变量（右栏每 3 秒重画，存 DOM 会被抹掉）');
-  assert.ok(new RegExp(':[ \\t]*' + n + '\\b').test(saveBody), 'engine.js 没把 ' + n + ' 写进落盘那一份');
-  assert.ok(new RegExp(n + '[ \\t]*=[ \\t]*String\\(').test(engine), 'engine.js 没从落盘那一份读回 ' + n);
+  assert.ok(new RegExp('^let\\b[^\\n]*\\b' + n + '\\b', 'm').test(estimate),
+    'estimate.js 的 ' + n + ' 不是模块变量（右栏每 3 秒重画，存 DOM 会被抹掉）');
+  assert.ok(new RegExp(':[ \\t]*' + n + '\\b').test(saveBody), 'estimate.js 没把 ' + n + ' 写进落盘那一份');
+  assert.ok(new RegExp(n + '[ \\t]*=[ \\t]*String\\(').test(estimate), 'estimate.js 没从落盘那一份读回 ' + n);
 });
 
 /* ---- ④ story 两份正文逐字一致 ---- */

@@ -24,53 +24,13 @@ const SAVE_DEBOUNCE_MS = 400;
    五组导航：id、顺序、显示名**只写在模板那一节 DOM 上**（`<section data-group>` 里的
    `<h2 class="set-group-h">`，折叠那一组在 `.fold-title` 里）—— 新增一组 = 模板里加一节，
    这里没有第二份名单要抄。
-   普通设置行：kind 只有 num / check / sel 三种；渲染、自动保存写盘、导出名单
-   （EXPORTABLE 末尾的展开）都从这一份现取。**新增一项普通设置 = 这里加一行**，
-   模板里只留对应的容器 `<div class="kcols" ref="…BoxEl">`。
+   普通设置行的声明在 ui.js 的 UI_PREFS.setRows（kind 只有 num / check / sel 三种）：
+   渲染、自动保存写盘、设置导出、恢复默认、助手可改白名单都从那一份现取。
+   **新增一项普通设置 = 在 UI_PREFS.setRows 里加一行**，模板里只留对应的容器
+   `<div class="kcols" ref="…BoxEl">`。
    特殊控件（供应商卡 / ASR / 联网搜索 / Skill / 云同步 / 体检 / 用量 / 清理缓存）
-   不是「一行一个键」的形状，仍由各自的 renderXxx 画，只在分组里占一个栏位。
-   界面偏好那一批（主题 / 视图档位 / 产物三开关）的真相仍在 ui.js 的 UI_PREFS
-   （同步名单与助手白名单从那里派生，见 tests/settings-schema.cjs 判据①）。 */
-/* 组名单不在这里：id 与显示名都现读 DOM（`<section data-group>` + `<h2 class="set-group-h">`）。 */
-/* check 行的三态写盘规则：on/off 各存什么值，null = 删键；def = 键不存在时算不算勾上。 */
-const SET_ROWS = [
-  /* 网络与刷新（取值区间仍由 Net.NUMS 现取，这里只声明行本身） */
-  { card: 'net', kind: 'num', name: 'timeout', label: '请求超时', unit: '秒' },
-  { card: 'net', kind: 'num', name: 'retry', label: '失败重试', unit: '次' },
-  { card: 'net', kind: 'num', name: 'poll', label: '任务刷新间隔', unit: '秒' },
-  /* 产物存放：三行（自动存档位 + 左栏两块开关）。库根位置不在这里 —— 那是代理读的配置，
-     由「本机资产库」那一卡直接写 `sk_local_dir`。 */
-  /* 这两档只管「历史产物要不要补齐」：导演台刚生成的产物一律存（见 web/domain/local.js 的 mustSave）；
-     工作台产物不在此列，仍按这一档走。 */
-  { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '历史产物补存哪一档', def: 'all', keep: 1,
-    opts: [['all', '连历史一起补齐（推荐）'], ['new', '只补开启之后生成的']] },
-  { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
-  { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物', on: '1', off: '0', def: true, keep: 1 },
-  /* AI 助手：四颗开关（after: 'notice' 在通知那一行追加「现在授权」与授权状态说明） */
-  { card: 'assistant', kind: 'check', key: 'ai_chat_off', label: '启用 AI 助手', on: null, off: '1', def: true, keep: 1 },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不确认', on: '1', off: null, def: false },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到边上时吸住', on: null, off: '0', def: true },
-  { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '任务出结果时系统通知', on: '1', off: null, def: false, after: 'notice' },
-  /* 引用发给助手时带哪些字段（默认全带）。
-     ⚠ 它只裁**给助手看的那份清单**（refBlock）—— 工具侧（asset_open 按序号取）读的是这一轮
-        真正发出去的那份完整记录，所以裁了清单，助手照样能按序号把字节取回来。
-        你拖进来的东西、输入框里的高亮、消息下方那排记录，一样都不受影响。 */
-  { card: 'assistant', kind: 'sel', key: 'ai_chat_ref_send', label: '引用发给助手时带哪些', def: 'all',
-    opts: [['all', '全带（推荐）'],
-           ['image', '只带地址'],
-           ['task', '只带任务号'],
-           ['asset', '只带资产号'],
-           ['name', '只带名字与类型']] },
-  /* 润色行为（导演台的拆分镜 / 改分镜反问也读这一档） */
-  { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
-    opts: [['ai', 'AI 判断（推荐）'], ['on', '强制先问'], ['off', '从不问']] },
-  /* 建模台：视频转白模时「文字 AI 看不了视频要不要在本机取几帧」以及取几帧。
-     auto = 只在视频没能随消息附上时取帧；on = 不管支不支持都取；off = 不取。 */
-  { card: 'model', kind: 'sel', key: 'sk_model_vframes', label: '视频看不明白时取帧', def: 'auto',
-    opts: [['auto', '看不了视频时取帧（推荐）'], ['on', '总是取帧'], ['off', '不取帧']] },
-  { card: 'model', kind: 'sel', key: 'sk_model_vframe_n', label: '一次取几帧', def: '4',
-    opts: [['2', '2 帧'], ['4', '4 帧'], ['6', '6 帧'], ['8', '8 帧']] },
-];
+   不是「一行一个键」的形状，仍由各自的 renderXxx 画，只在分组里占一个栏位。 */
+const SET_ROWS = (window.UI_PREFS && window.UI_PREFS.setRows) || [];
 
 const SettingsView = {
   name: 'SettingsView',
@@ -1834,9 +1794,12 @@ const SettingsView = {
         const row = document.createElement('div');
         row.className = r.kind === 'check' ? 'krow tight' : 'krow thin';
         if (r.kind === 'num') {
+          /* data-mkey 用存储键（r.num），Net.NUMS 的名字（r.name）只管取值区间与回调 ——
+             写盘那头按存储键找回这一行，再交给 Net.setNum。 */
+          const nk = r.num || r.name;
           const sp = (window.Net && window.Net.NUMS && window.Net.NUMS[r.name]) || NET_SP[r.name] || {};
           row.innerHTML = '<span class="kn">' + window.esc(r.label) + '</span>'
-            + '<input type="number" data-mkey="' + window.esc(r.name) + '" min="' + (sp.min || 0)
+            + '<input type="number" data-mkey="' + window.esc(nk) + '" min="' + (sp.min || 0)
             + '" max="' + (sp.max || 999) + '" step="' + (sp.step || 1) + '" value="' + window.esc(String(net[r.name])) + '" style="width:84px">'
             + (r.unit ? '<span class="hint sm">' + window.esc(r.unit) + '</span>' : '');
           row.querySelector('input').addEventListener('change', ev => onNetChange(r.name, ev));
@@ -1865,11 +1828,15 @@ const SettingsView = {
       paintNoticeState();
     }
     /* 自动保存写盘的那一段：屏幕上每一项按声明的三态落盘。
-       新增行没进导出名单时当场说出来（isSettingKey 由 EXPORTABLE 现算），不静默丢。 */
+       新增行没进导出名单时当场说出来（isSettingKey 由 UI_PREFS.exportOf 现算），不静默丢。 */
     function saveManifestRows(W, Wdel) {
       qa('[data-mkey]').forEach(el => {
         const k = el.dataset.mkey;
-        if (el.type === 'number') { if (window.Net) Net.setNum(k, el.value); return; }
+        if (el.type === 'number') {
+          const r = SET_ROWS.find(x => x.kind === 'num' && (x.num || x.name) === k);
+          if (window.Net && r) Net.setNum(r.name, el.value);
+          return;
+        }
         const r = SET_ROWS.find(x => x.key === k);
         if (!r) return;
         if (r.kind === 'check') {
@@ -1985,35 +1952,16 @@ const SettingsView = {
     }
 
     /* ---------- 设置导入 / 导出 / 恢复默认 ---------- */
-    /* 界面偏好那一批（主题 / 侧栏开合 / 视图档位 / 产物开关）不在这里手抄：整批由 ui.js 的
-       UI_PREFS 带出来，「恢复默认不清」那一份同表（`keep` 那一列）。这一张表以前是第三份手抄的清单，
-       抄漏的是 sb_open 与 sk_media_badge 不进云同步、助手那几项不进导出。
-       普通设置行那一批改由 SET_ROWS 带出来，理由一样：新增一项设置只改声明那行。
-       只有助手那五颗开关**保留字面量**：tests/settings-schema.cjs 判据⑤点名要在这张数组里看到它们
-       （那几条同时是「进导出 / 不进云同步 / 关掉助手不清」三项口径的证据），少一处就判不过。 */
-    const EXPORTABLE = ['sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_', 'sk_polish_', 'sk_dir_',
-      'dir_', 'page_mode_', 'page_size_', 'sk_net_', 'sk_poll_sec', 'wb_split', 'sb_bal_show', 'char_',
-      'sk_custom', 'sk_local_dir',
-      /* AI 助手卡片上那四颗开关：设置页存得进去、导出文件里却没有 —— 换机器导一次设置就全回到默认档。
-         刻意不写 'ai_chat_' 前缀：ai_chat（对话记录）与 ai_chat_files / _xy / _watch 是数据与本机窗口的事。 */
-      'ai_chat_auto', 'ai_chat_off', 'ai_chat_snap', 'ai_chat_notice', 'ai_chat_dock', 'ai_chat_ref_send',
-      ...SET_ROWS.filter(r => r.key).map(r => r.key),
-      ...((window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [])
-    ];
-    const DATA_KEYS = ['char_lib', 'char_groups'];
-    const isSettingKey = k => !DATA_KEYS.includes(k) && EXPORTABLE.some(p => k === p || k.startsWith(p));
-    const RESET_KEEP = ['sk_local_dir',
-      /* 在这台机器上关掉助手是一次有意图的选择：「恢复默认」不该顺手把那颗悬浮球装回来。 */
-      'ai_chat_off',
-      ...SET_ROWS.filter(r => r.keep).map(r => r.key),
-      ...((window.UI_PREFS && window.UI_PREFS.keepKeys) ? window.UI_PREFS.keepKeys() : [])
-    ];
+    /* 「什么算设置」只问 ui.js 的 UI_PREFS：导出、导入过滤、恢复默认三处同一套判据。
+       认不出的键一律 false（不说「能动」）—— 设置声明没加载出来时宁可这次什么都不导。 */
+    const isSettingKey = k => !!(window.UI_PREFS && window.UI_PREFS.exportOf) && window.UI_PREFS.exportOf(k);
+    const RESET_KEEP = (window.UI_PREFS && window.UI_PREFS.keepKeys) ? window.UI_PREFS.keepKeys() : [];
     function exportSettings(includeKeys) {
       const out = {};
       for (const k of window.LS.keys()) {
         if (!k) continue;
         if (!isSettingKey(k)) continue;
-        if (!includeKeys && k.startsWith('sk_key_')) continue;
+        if (!includeKeys && window.UI_PREFS.secretOf(k)) continue;
         out[k] = window.LS.get(k);
       }
       return { type: 'ai-workbench-settings', version: 1, ts: new Date().toISOString(), includeKeys: !!includeKeys, data: out };
@@ -2089,6 +2037,12 @@ const SettingsView = {
       r.readAsText(f);
     }
     async function resetSetup() {
+      /* fail-safe：声明缺失时 isSettingKey 恒 false、RESET_KEEP 为空 —— 看起来「清了」其实什么都没清；
+         反过来要是哪天判反了就会把不该清的清掉。宁可当场拒绝这一次。 */
+      if (!window.UI_PREFS || !window.UI_PREFS.exportOf || !window.UI_PREFS.keepKeys) {
+        Toast.err('设置声明没加载出来，这次「恢复默认」没有执行');
+        return;
+      }
       const ok = await Confirm.ask({ title: '恢复默认设置？', danger: true, okLabel: '清空设置',
         body: '会清掉：密钥、接口地址与型号、自定义供应商、润色指令、分页、网络与分栏等全部设置。\n'
           + '不会清掉：主题、视图偏好、生成历史、资产、收藏与素材库。\n'

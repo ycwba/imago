@@ -66,10 +66,12 @@
   --acc-tint-10:color-mix(in srgb, var(--acc) 10%, transparent);
   --acc-tint-18:color-mix(in srgb, var(--acc) 18%, transparent);
   --acc-line-32:color-mix(in srgb, var(--acc) 32%, transparent);
-  /* 选中态那一格底色：唯一一份「被选中」的写法（浅 18% / 深 14%）。
+  /* 选中态那一格底色：唯一一份「被选中」的写法（浅 18% / 深 12%）。
      深浅两档的透明度不一样不是疏忽：深色档的底本身是深灰，强调色是亮色，
      同一档 18% 抬起来会把格子推到强调色文字的近邻亮度 —— 量出来 berry 深色只有 4.18:1，读不出字。
-     压到 14% 之后同一组合 4.53:1 起，抬升仍有 1.33（选中照样看得出来）。 */
+     深色压到 12%：最薄的一格（berry 的 panel2 / input）精确合成 4.69:1 起，
+     画布反解 alpha 的舍入（约 ±0.06）也吃得住；抬升仍有 1.23（选中照样看得出来）。
+     14% 那一档精确值 4.55 起，但浏览器实测被舍入拖到 4.49，贴着 4.5 门槛过不了。 */
   --sel-bg:color-mix(in srgb, var(--acc) var(--a-18), transparent);
   /* 语义色淡底：状态牌那一族（成功 / 失败 / 警告）与警告条。
      ⚠ 底要压在**不透明的面板**上，不是 transparent：状态牌（`.plate--*`）铺满整格，
@@ -244,7 +246,7 @@ html[data-theme="dark"] {
   --thumbbg: oklch(from var(--thumbbg-base) 0.370 c h);
   /* 文字底纹：深色档就是「深底上的浅字」按透明度铺一层 */
   --atbg: color-mix(in srgb, var(--txt) var(--a-14), transparent);
-  --sel-bg: color-mix(in srgb, var(--acc) var(--a-14), transparent);
+  --sel-bg: color-mix(in srgb, var(--acc) var(--a-12), transparent);
   --scroll: oklch(from var(--scroll-base) 0.580 c h);
   /* ③b 标记色：同一条推导（亮度换到深底上读得出来的那一档） */
   --mark-cut: oklch(from var(--mark-cut-base) 0.847 c h);

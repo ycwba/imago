@@ -1355,12 +1355,24 @@ window.pageSizeOf = k => {
   return sz.max ? Math.min(sz.max, v) : v;
 };
 
-/* 「界面偏好有哪几项」只这一份：设置页按它渲染那两张卡，AI 助手按它列可改白名单，
+/* 「界面偏好有哪几项」只这一份：设置页按它渲染那几张卡，AI 助手按它列可改白名单，
    侧栏 / 资产库 / 收藏页读写的是同一批键。取值也写在这里 —— 每一页的档位名不一样
    （资产库 card/compact，收藏 list/compact），让页面自己猜就会写进那一页根本不认的值。
    `group` 点名一项归哪张卡（以前全画进「外观与界面」，「产物自动存本机」也混在里面）；
-   `keep:1` = 「恢复默认」不清这一项。这张表同时是「跟着 .data 走」与「进设置导出」两份名单的出处
-   （见 datasync.js 与设置页），以前那两份各抄一遍，抄漏的是 sb_open 与 sk_media_badge 不同步。 */
+   `keep:1` = 「恢复默认」不清这一项。
+
+   一项设置的「待遇」也全在这一张表的三节里现取，不再各抄一份名单：设置页的渲染与写盘、
+   DataSync 的同步名单、设置导出与恢复默认、助手可改白名单都问下面那几个派生读法
+   （syncOf / exportOf / keepOf / assistOf）。三节是：
+     · rows     —— 界面偏好（上面这批），默认同步 / 进导出 / 助手可改；
+     · setRows  —— 设置页「一行一个控件」的普通设置（网络 / 产物存放 / 助手 / 润色 / 建模台），
+                   默认进设置导出、不进云同步、助手默认不能改；
+     · families —— 不是「一行一个控件」、但同步 / 导出 / 恢复默认 / 助手白名单要认得出的键族
+                   （数据本体、供应商与型号、分页、导演台与工作台的界面状态、缓存），
+                   三项默认都是「不动数据」，要动就逐条写。
+   一个键的待遇 = **先认它落在哪一节，再套那一节的默认值，最后才看条目上写着的显式标记** ——
+   顺序反过来的话，一条精确键会被后面宽前缀那一族的默认值截走（ai_chat_off 是界面开关要进导出，
+   而 ai_chat_ 那一族整体是「本机的事」不进）。 */
 /* 展示样式的档位名只在这里点一次名（2026-10 从 7 处收成 1 处）：这一对名字以前散在
    三页各自的 `views:`、这里三行 `opts:` 与 workbench.js 的兜底默认档里，漏改哪一处都不报错，
    而 `opts` 与页面认的取值不一致时，助手按设置页写进去的值那一页根本不认。
@@ -1393,15 +1405,230 @@ window.UI_PREFS = {
     { key: 'sk_media_prefer', group: 'store', name: '优先用本机文件', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '开'], ['off', '关']] },
     /* 第三档依附前两档：不存本机就永远没有本机副本，不优先读本机就谈不上「只看本机」，
-       所以它只在两者都开着时才画出来（`needs` 由 settings.html 的渲染处现判），
+       所以它只在两者都开着时才画出来（`needs` 由设置页渲染处现判），
        而**真生效**的判据在 assetlib.js 的 AssetLocal.localOnly —— 页面不许自己再拼一次「三个开关都开着」。
-       键名刻意不叫 sk_media_local_only：SYNCABLE / EXPORTABLE 里有 'sk_media_local' 这一条**前缀**，
-       那样起名会被它顺带命中（同一类的坑在下面的 NOT_SYNC 注释里点名过）。 */
+       键名刻意不叫 sk_media_local_only：这一族只认精确键（上面那一行与 setRows 里那两条），
+       形似的名字不会自动继承待遇 —— 想加一档就在这张表里写清楚。 */
     { key: 'sk_media_badge', group: 'store', name: '卡片显示「本机 / 云端」标识', kind: 'seg', def: 'on', keep: 1,
       opts: [['on', '显示'], ['off', '不显示']] },
     { key: 'sk_media_cloud_hide', group: 'store', name: '不显示云端任务', kind: 'bool', keep: 1,
       needs: ['sk_media_local', 'sk_media_prefer'] },
   ],
+  /* 设置页「一行一个控件」的那批：kind 只有 num / check / sel 三档。
+     num 行的存储键在 `num` 上（三个网络数字的键名与区间由 Net.NUMS 管），其余行在 `key` 上；
+     check 行的三态写盘规则：on / off 各存什么值，null = 删键，def = 键不存在时算不算勾上。
+     `keep:1` 与 rows 同义。 */
+  setRows: [
+    { card: 'net', kind: 'num', name: 'timeout', num: 'sk_net_timeout', label: '请求超时', unit: '秒', sync: 1 },
+    { card: 'net', kind: 'num', name: 'retry', num: 'sk_net_retry', label: '失败重试', unit: '次', sync: 1 },
+    { card: 'net', kind: 'num', name: 'poll', num: 'sk_poll_sec', label: '任务刷新间隔', unit: '秒', sync: 1 },
+    /* 产物存放：历史补齐的边界与左栏两块开关。库根位置不在这里 —— 那是代理读的配置，
+       由「本机资产库」那一卡直接写 `sk_local_dir`。补存边界跟着数据文件走：
+       它是「存哪」的一部分，换台机器还该照这个口径补。 */
+    { card: 'store', kind: 'sel', key: 'sk_media_local_scope', label: '历史产物补存哪一档', def: 'all', keep: 1, sync: 1,
+      opts: [['all', '连历史一起补齐（推荐）'], ['new', '只补开启之后生成的']] },
+    { card: 'store', kind: 'check', key: 'sb_bal_on', label: '左栏显示余额', on: '1', off: '0', def: true, keep: 1 },
+    { card: 'store', kind: 'check', key: 'sb_mirror_on', label: '左栏显示本机产物', on: '1', off: '0', def: true, keep: 1 },
+    /* AI 助手：四颗开关（after: 'notice' 在通知那一行追加「现在授权」与授权状态说明）。
+       这一批不同步：执行前不确认、边缘吸附、系统通知授权都是**这台机器**的事。 */
+    { card: 'assistant', kind: 'check', key: 'ai_chat_off', label: '启用 AI 助手', on: null, off: '1', def: true, keep: 1 },
+    { card: 'assistant', kind: 'check', key: 'ai_chat_auto', label: '执行前不确认', on: '1', off: null, def: false },
+    { card: 'assistant', kind: 'check', key: 'ai_chat_snap', label: '悬浮球拖到边上时吸住', on: null, off: '0', def: true },
+    { card: 'assistant', kind: 'check', key: 'ai_chat_notice', label: '任务出结果时系统通知', on: '1', off: null, def: false, after: 'notice' },
+    /* 引用发给助手时带哪些字段（默认全带）。
+       ⚠ 它只裁**给助手看的那份清单**（refBlock）—— 工具侧（asset_open 按序号取）读的是这一轮
+          真正发出去的那份完整记录，所以裁了清单，助手照样能按序号把字节取回来。
+          你拖进来的东西、输入框里的高亮、消息下方那排记录，一样都不受影响。 */
+    { card: 'assistant', kind: 'sel', key: 'ai_chat_ref_send', label: '引用发给助手时带哪些', def: 'all',
+      opts: [['all', '全带（推荐）'],
+             ['image', '只带地址'],
+             ['task', '只带任务号'],
+             ['asset', '只带资产号'],
+             ['name', '只带名字与类型']] },
+    /* 润色行为（导演台的拆分镜 / 改分镜反问也读这一档）：它是生成规矩，换台机器照旧。 */
+    { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
+      sync: 1, assist: 1, aName: 'AI 润色前是否反问', aSay: 'ai = 由文字 AI 自己判断要不要先问要点',
+      opts: [['ai', 'AI 判断（推荐）'], ['on', '强制先问'], ['off', '从不问']] },
+    /* 建模台：视频转白模时「文字 AI 看不了视频要不要在本机取几帧」以及取几帧。
+       auto = 只在视频没能随消息附上时取帧；on = 不管支不支持都取；off = 不取。 */
+    { card: 'model', kind: 'sel', key: 'sk_model_vframes', label: '视频看不明白时取帧', def: 'auto',
+      sync: 1, assist: 1, aName: '建模台 · 视频看不明白时取帧',
+      aSay: 'auto = 只在视频没能随消息附上时在本机取帧；on = 总是取；off = 不取',
+      opts: [['auto', '看不了视频时取帧（推荐）'], ['on', '总是取帧'], ['off', '不取帧']] },
+    { card: 'model', kind: 'sel', key: 'sk_model_vframe_n', label: '一次取几帧', def: '4',
+      sync: 1, assist: 1, aName: '建模台 · 视频一次取几帧', aSay: '均匀取这个张数',
+      opts: [['2', '2 帧'], ['4', '4 帧'], ['6', '6 帧'], ['8', '8 帧']] },
+  ],
+  /* 键族：一类键的待遇。`key` 是精确键，`suffix` / `prefix` 是两头认；
+     同一档里精确键优先，前缀取**最长**的那一条（sk_model_meta_ 因此压过 sk_model_）。
+     这一节点名的键不进设置页渲染 —— 它们不是「一行一个控件」的设置，
+     但同步 / 导出 / 恢复默认 / 助手白名单要认得出它们。要动的待遇都写在条目上。 */
+  families: [
+    /* —— 数据本体（跟着 .data 走，不进设置导出：换机器要接着用，但不是「设置」） ——
+       char_lib 的键名由 drama_chars 改来（拍短剧页删掉后旧前缀名不副实）。旧名**刻意不进声明**：
+       进了就意味着「服务器上有一份也要拉回来」，而键名迁移正是要把那份删掉的 —— 留着会让一次
+       失败的 DELETE（代理不在 / 超时）变成「下次 boot 又拉回来」，每次开页面重复一遍拉回 / 删掉。 */
+    { key: 'char_lib', sync: 1 },
+    { key: 'char_groups', sync: 1 },
+    /* 素材库那一页的设置（音色怎么定、候选张数…）跟着数据文件走，也进设置导出；
+       助手能改的那几项在 chars.js 的 Chars.SET（键都在这条前缀下），所以带上 chars 档，
+       由调用方拿 assistDynamic('chars') 判完再拼清单。 */
+    { prefix: 'char_', sync: 1, export: 1, assist: 'chars' },
+    { key: 'fav_items', sync: 1 },
+    { key: 'audio_tasks', sync: 1 },
+    { key: 'ai_usage', sync: 1 },
+    { key: 'sparkcine_gallery', sync: 1 },
+    /* 对话记录：换浏览器还想接着问，所以跟着 .data 走；它不是「设置」，不进导出。
+       固定右栏那一档是用户调出来的界面，进导出也认同步。
+       下面那一条前缀把助手自己那一族的**本机状态**整族挡在外面：
+       附件身份（files）、悬浮球坐标（xy）、抽屉宽高（w / h）、未看提醒（watch）、
+       素材引用清单（refs）都只对这台机器有意义 —— 同步过去只会指向另一台上不存在的本机号。 */
+    { key: 'ai_chat', sync: 1 },
+    { key: 'ai_chat_dock', sync: 1, export: 1 },
+    { prefix: 'ai_chat_', sync: 0, export: 0 },
+    /* 建模台与工作台 / 导演台之间递东西的一次性口袋（带 10 分钟有效期，同一台机器上的事） */
+    { key: 'model3d_handoff' },
+
+    /* —— 供应商与型号 —— */
+    /* 密钥只在本机与 .data 之间走：换机器同步得过去，设置导出默认不带（导出时另问一次） */
+    { prefix: 'sk_key_', sync: 1, export: 1, secret: 1 },
+    { prefix: 'sk_base_', sync: 1, export: 1 },
+    /* 型号面板的本机草稿（哪个型号被手动关掉 / 拉取过）：按机器重建，不跟着走.
+       （这一条是前缀，压过下面 sk_model_ 那一条：最长前缀先认。） */
+    { prefix: 'sk_model_meta_', sync: 0, export: 0 },
+    /* 每一家当前用哪个型号（含 sk_model_prefs 那份型号偏好）：换台机器要重选一遍，跟着走 */
+    { prefix: 'sk_model_', sync: 1, export: 1, assist: 'model' },
+    /* 建模台的生成规矩（复用历史白膜那一档） */
+    { prefix: 'sk_model3d_', sync: 1, export: 1 },
+    /* 停用的平台（sk_off_<家>）：换机器照样不想看见它们 */
+    { prefix: 'sk_off_', sync: 1, export: 1 },
+    { key: 'sk_text_prov', sync: 1, export: 1 },
+    /* 旧键：v13 起已并进 sk_model_prefs（型号偏好那一份）。这一条**先留着**——
+       迁移是把旧键删掉的，键不在这份声明里就轮不到同步，那次删除不会镜像到 .data/，
+       旧文件留在服务器上，下次对账又把它拉回来。 */
+    { prefix: 'sk_text_models_', sync: 1, export: 1 },
+    { key: 'sk_text_vision', sync: 1, export: 1, assist: 1,
+      aName: '文字 AI 识图', aVals: ['auto', 'on', 'off'],
+      aSay: 'auto = 先看接口字段再看平台声明；按型号名猜是禁止的' },
+    { key: 'sk_text_audio', sync: 1, export: 1, assist: 1,
+      aName: '文字 AI 听声音', aVals: ['auto', 'on', 'off'],
+      aSay: 'auto = 先看接口字段再看平台声明' },
+    { key: 'sk_text_video', sync: 1, export: 1, assist: 1,
+      aName: '文字 AI 看视频', aVals: ['auto', 'on', 'off'],
+      aSay: 'auto = 先看接口字段再看平台声明' },
+    { prefix: 'sk_polish_', sync: 1, export: 1 },
+    /* 网络与刷新：sk_net_timeout / sk_net_retry 在这一族里（sk_poll_sec 在 setRows） */
+    { prefix: 'sk_net_', sync: 1, export: 1 },
+    /* 导演台「这一家的高级参数面板关着」这类本机界面状态：进导出，不跟云同步 */
+    { prefix: 'sk_dir_', sync: 0, export: 1 },
+    /* 本机资产库根：代理要读的那一份（恢复默认也不清） */
+    { key: 'sk_local_dir', sync: 1, export: 1, keep: 1 },
+    /* 自定义供应商登记（一份 JSON 数组）：代理读它的镜像 .data/sk_custom.json 合并进 /registry，
+       必须跟着数据文件走才能换机器还在。清单里只有「照哪一家的形状 + 地址 + 型号 id」，
+       密钥仍按 keyId 存 sk_key_<id>，同步这一份不会把凭据带出去。 */
+    { key: 'sk_custom', sync: 1, export: 1 },
+    /* 「只补开启之后生成的」那个起点时刻：跟 scope 一起走，否则换台机器一拉就整批补。
+       它是游标不是设置，不进设置导出。 */
+    { key: 'sk_media_local_since', sync: 1 },
+    /* 云同步三格与两个附带开关：只在本机（页面填了就压过 .env，换机器带过去等于替人做主），
+       也不进导出。地址 / 账号 / 密码算凭据，导出时不带。 */
+    { key: 'sk_cloud_url', secret: 1 },
+    { key: 'sk_cloud_user', secret: 1 },
+    { key: 'sk_cloud_pass', secret: 1 },
+    { key: 'sk_cloud_keys' },
+    { key: 'sk_cloud_prompts' },
+
+    /* —— 分页与分栏 —— */
+    { prefix: 'page_mode_', sync: 1, export: 1, assist: 'page' },
+    { prefix: 'page_size_', sync: 1, export: 1, assist: 'page' },
+    /* 导演台 / 工作台 / 素材库调出来的界面状态：进导出，不跟云同步（窗口尺寸各台不一样）。
+       下面两条精确键要先于 dir_ 那一族被认出来：dock_h 是写错变量名留下的死值、
+       ws_unload 是整个工作区的救生包 —— 两个都不算设置，导出也不带。 */
+    { key: 'dir_dock_h', sync: 0, export: 0 },
+    { key: 'dir_ws_unload', sync: 0, export: 0 },
+    { key: 'dir_split', sync: 1, export: 1 },
+    { key: 'dir_dock', sync: 1, export: 1 },
+    { key: 'dir_cand_expand', sync: 1, export: 1 },
+    { key: 'dir_muted', sync: 1, export: 1 },
+    /* 整族兜底（导演台 / 工作台 / 素材库各自的界面状态）。dir_img / dir_video / dir_audio /
+       dir_render 是**本机磁盘路径**，换台机器就不成立，所以整族只进导出、不跟云同步。 */
+    { prefix: 'dir_', sync: 0, export: 1 },
+    { key: 'wb_split', sync: 1, export: 1 },
+    { key: 'sb_bal_show', sync: 1, export: 1 },
+    /* 首屏 / 列表缓存：随时能重建，既不进同步也不进导出 */
+    { suffix: '_cache_v1', sync: 0, export: 0 },
+  ],
+  /* 三节的默认待遇（条目上写了显式标记就以条目为准）。 */
+  sections: {
+    rows: { sync: 1, export: 1, assist: 1 },
+    setRows: { sync: 0, export: 1, assist: 0 },
+    families: { sync: 0, export: 0, assist: 0 },
+  },
+  /* 一个键落在哪一节：返回 { d: 声明那一行, s: 节名 }，认不出返回 null。
+     顺序 = rows 精确 → setRows 精确 → families 精确 → families 后缀 → families 最长前缀。 */
+  markOf(k) {
+    if (!k) return null;
+    const r = (this.rows || []).find(x => x.key === k);
+    if (r) return { d: r, s: 'rows' };
+    const s = (this.setRows || []).find(x => (x.key || x.num) === k);
+    if (s) return { d: s, s: 'setRows' };
+    const fams = this.families || [];
+    const exact = fams.find(x => x.key && x.key === k);
+    if (exact) return { d: exact, s: 'families' };
+    const suf = fams.find(x => x.suffix && k.endsWith(x.suffix));
+    if (suf) return { d: suf, s: 'families' };
+    let best = null;
+    for (const f of fams) {
+      if (f.prefix && k.startsWith(f.prefix) && (!best || f.prefix.length > best.prefix.length)) best = f;
+    }
+    return best ? { d: best, s: 'families' } : null;
+  },
+  /* 某一项待遇（sync / export / keep / secret / assist）：条目上写了显式标记就用它，
+     否则套那一节的默认值；认不出的键一律 false（不说「能动」）。 */
+  flagOf(k, name) {
+    const m = this.markOf(k);
+    if (!m) return false;
+    const v = m.d[name];
+    if (v != null) return v !== 0 && v !== false && v !== '0';
+    return !!((this.sections || {})[m.s] || {})[name];
+  },
+  syncOf(k) { return this.flagOf(k, 'sync'); },
+  exportOf(k) { return this.flagOf(k, 'export'); },
+  keepOf(k) { return this.flagOf(k, 'keep'); },
+  /* 导出设置时「含密钥」那一次确认读它：这里只标哪些键算凭据。 */
+  secretOf(k) { return this.flagOf(k, 'secret'); },
+  assistOf(k) { return this.flagOf(k, 'assist'); },
+  /* 助手可改的静态那部分：名 / 取值 / 说都从声明现拼。动态三族（分页 / 素材库设置 / 各家型号）
+     要等清单，由调用方拿 assistDynamic 判完再拼，不在这里假装有形状。 */
+  assistSpecs() {
+    const out = {};
+    const addSpec = (d, section) => {
+      const key = d.key || d.num;
+      if (!key || !this.flagOf(key, 'assist')) return;
+      if (d.assist === 'page' || d.assist === 'chars' || d.assist === 'model') return;
+      const name = d.aName || (section === 'rows' ? this.groupName(d.group) + ' · ' + d.name : d.label);
+      const opts = d.opts || [];
+      const ofOpts = opts.map(o => o[0] + ' = ' + o[1]).join('；');
+      if (d.kind === 'num') {
+        out[key] = { 名: name, 数值: true,
+          说: (d.unit ? '单位是' + d.unit + '，' : '') + '要大于 0。' + (d.hint || '') };
+      } else if (d.kind === 'bool' || d.kind === 'check') {
+        out[key] = { 名: name, 取值: ['1', '0'], 说: '1 = 开启，0 = 关掉。' + (d.hint || '') };
+      } else {
+        out[key] = { 名: name, 取值: d.aVals || opts.map(o => o[0]),
+          说: (d.aSay ? d.aSay + (ofOpts ? '。' + ofOpts : '') : ofOpts) };
+      }
+    };
+    (this.rows || []).forEach(d => addSpec(d, 'rows'));
+    (this.setRows || []).forEach(d => addSpec(d, 'setRows'));
+    (this.families || []).forEach(d => addSpec(d, 'families'));
+    return out;
+  },
+  /* 助手白名单里那几族要等清单的：分页表 / 素材库设置 / 各家当前型号。
+     声明在、才去取那一份清单 —— 声明撤掉之后助手就不能改，不会「页面没了它还认」。 */
+  assistDynamic(group) {
+    return (this.families || []).some(f => f.assist === group);
+  },
   /* 这一项现在是不是「开着」：seg 的关档存的是 'off'，bool 的关是根本没这个键（或空值）。
      只有这一份读法，设置页判「该不该画」与别处判「生效没」都走它，别各自 getItem 一遍。 */
   isOn(k) {
@@ -1422,9 +1649,17 @@ window.UI_PREFS = {
     const g = (this.groups || []).find(x => x.id === id);
     return (g && g.name) || '界面';
   },
-  /* 这一张表在「跟着 .data 同步」与「进设置导出」两份名单里的键名出处；keepKeys() 是「恢复默认不清」那份。 */
+  /* 界面偏好那 10 个键名（设置页渲染与旧调用点用）；keepKeys() 是「恢复默认不清」那份，
+     三节里写了 keep:1 的都算。 */
   keys() { return (this.rows || []).map(r => r.key); },
-  keepKeys() { return (this.rows || []).filter(r => r.keep).map(r => r.key); },
+  keepKeys() {
+    const out = [];
+    const pickKeep = d => { if (d && d.keep && d.key && out.indexOf(d.key) < 0) out.push(d.key); };
+    (this.rows || []).forEach(pickKeep);
+    (this.setRows || []).forEach(pickKeep);
+    (this.families || []).forEach(pickKeep);
+    return out;
+  },
 };
 
 /* ============================================================================
@@ -1455,7 +1690,7 @@ window.UI_PREFS = {
         裸值那份必被包成信封，于是 `prompt()` 读出来是 `{"data":"……"}` 这种源码。
      ② **新键已经有值就不搬**（以新键为准）。万一是另一台机器同步回来的陈旧值，
         拿它覆盖本机刚填的那份就是倒退 —— 与 `ModelPrefs.migrate()` 同一立场。
-     ③ **`.data/` 里那份镜像要显式删**，不能只 removeItem：旧键已经不在 SYNCABLE 里了，
+     ③ **`.data/` 里那份镜像要显式删**，不能只 removeItem：旧键已经不在同步名单里了（UI_PREFS.syncOf 判 false），
         存储钩子不认它，服务器上那份会留下来；下一次 boot 看见「服务器有、本地没有」
         就把它拉回 localStorage，于是每次开页面重复一遍「拉回来 / 删掉」。
         这就是下面 DELETE 用 `?nobak=1` 的原因（同 sweepLegacyKeys）：
@@ -1485,7 +1720,7 @@ async function migrateRenamedKeys() {
     }
     /* ① 搬的是原始字符串，形状原样过去；搬过就删旧键（搬失败上面已经 continue 了） */
     window.LS.del(from);
-    /* ③ 服务器上那份也要删（见上面那段注释：旧键已不在 SYNCABLE，钩子不会替你发） */
+    /* ③ 服务器上那份也要删（见上面那段注释：旧键已不在同步名单里，钩子不会替你发） */
     try { await Net.fetch('/data/' + encodeURIComponent(from) + '?nobak=1', { method: 'DELETE', timeout: 8000, retry: 0 }); } catch (e) { /* 服务器上那份删不掉只留一份旧数据，本机改名照旧生效 */ }
     moved.push(from + ' → ' + to);
   }
@@ -1556,7 +1791,7 @@ const LEGACY_KEYS = [
      所以「当前哪一档」这个状态本身没有了。不在这里点掉的话，那份镜像会在下次 boot 把它恢复回来。 */
   'sk_prov_tab',
   /* 浮窗「被拖走、此后不再跟球」的标记作废：浮窗只能随球挪，没有「拖走就不再跟」这一档。
-     它要在这一张表里点名，而不是谁开机顺手 removeItem 一下：`ai_chat` 那一条前缀在 SYNCABLE 名单里，
+     它要在这一张表里点名，而不是谁开机顺手 removeItem 一下：`ai_chat` 那一条前缀在同步名单里，
      服务器上那份镜像不会被一次 localStorage 删除带走，下次对账又把它拉回来。 */
   'ai_chat_fxy',
   /* 「让 AI 给角色定音色」那一枚设置项整族作废（2026-10-27）：这一条从来没有被任何一处生成

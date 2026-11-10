@@ -1,15 +1,18 @@
 #!/usr/bin/env node
 /* 助手进建模台（快档，不开浏览器）：
-   ① TOOLS / ACTS / 路由 / 策略表里都有建模台那一族，且只对 model.html 出现；
+   ① 建模台那一族由页面能力声明现拼进 TOOLS / ACTS / 路由 / 策略表，且只对 model.html 出现；
    ② `model_edit` 的 check/run 只转发给 WBBridge.model3d（校验在页面那一份）；
    ③ `model_list` / `model_read` 走桥的只读面，不在建模台时照实说；
    ④ 工具结果裁剪有分档（大列表短、单文件长），默认仍是 7000；
-   ⑤ chat.js 的接线：按工具档位裁剪 + 兜底把「问不通」写回上下文。 */
+   ⑤ chat.js 的接线：按工具档位裁剪 + 兜底把「问不通」写回上下文；
+   ⑥ 新增一页只改声明：惰性同步把新页面的工具拼进目录，助手代码一个字不动；
+   ⑦ 坏声明 fail-closed：校验前置，整份不进表，错误在 declErrors 里点名。 */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import vm from 'node:vm';
 import { fileURLToPath } from 'node:url';
+import { MODEL_ASSISTANT } from '../web/model3d/assistant.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -17,11 +20,15 @@ const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
 let n = 0;
 const ok = (c, m) => { n += 1; assert.ok(c, m); };
 
-/* ---- 在 vm 里装 chat-tools.js（经典脚本，挂 window.AiChatTools） ---- */
+/* ---- 在 vm 里装 bridges.js + chat-tools.js（经典脚本，挂 window.AiChatTools）----
+   建模台那一族不再手写：页面把能力声明登记到 WBBridge.declare，助手目录由它现拼。
+   这里照页面的做法先登记 MODEL_ASSISTANT，再建目录（建目录末尾会收一遍声明）。 */
 const win = { fmtBytes: x => String(x) + 'B' };
 win.window = win;
 const ctx = { window: win, console, errText: e => String((e && e.message) || e) };
 vm.createContext(ctx);
+vm.runInContext(read('web/core/bridges.js'), ctx);
+win.WBBridge.declare('model3d', MODEL_ASSISTANT);
 vm.runInContext(read('web/features/chat-tools.js'), ctx);
 const api = win.AiChatTools.build({
   cap: s => String(s),
@@ -95,6 +102,54 @@ ok(toolCap('nope') === 0, '没声明 = 0（运行处回默认 7000）');
   ok(src.includes('toolCap(ins.name) || TOOL_OUT'), '结果裁剪按工具档位（默认 TOOL_OUT）');
   ok(src.includes('Math.max(RESULT_MAX, maxOut)'), '落盘阈值跟着档位抬（长结果不被 8KB 线先截）');
   ok(src.includes('连着 \' + stale + \' 次没有拿到新结果'), '兜底把「问不通」写回上下文');
+}
+
+/* 建目录时声明已在 → 末尾那一遍同步就把建模台拼齐了，参数形状与裁剪档都跟着声明走。 */
+ok(Object.keys(api.declErrors()).length === 0, '合法的建模台声明没有拼错');
+ok(api.TOOL_INPUT.model_edit.properties.scope.enum.join(',') === 'scene,selection', 'model_edit 的参数形状来自声明');
+ok(toolCap('model_list') === 4000, 'model_list 的裁剪档来自声明');
+
+/* 装一份干净的桥 + 目录，模拟「新增一页」：只登记声明，助手代码不动。 */
+function freshAssistant(page) {
+  const w = { fmtBytes: x => String(x) + 'B' };
+  w.window = w;
+  const c = { window: w, console, errText: e => String((e && e.message) || e) };
+  vm.createContext(c);
+  vm.runInContext(read('web/core/bridges.js'), c);
+  vm.runInContext(read('web/features/chat-tools.js'), c);
+  const a = w.AiChatTools.build({ cap: s => String(s), TOOL_OUT: 7000, RESULT_MAX: 8192,
+    EF: { ids: () => [], list: () => [] }, page: () => page });
+  return { w, a };
+}
+
+/* ---- ⑥ 新增一页只改声明 ---- */
+{
+  const { w, a } = freshAssistant('probe.html');
+  ok(!a.TOOLS.probe_list, '声明没到之前目录里没有这一页');
+  w.WBBridge.declare('probe', {
+    page: '探针页', route: 'probe.html',
+    reads: [{ id: 'probe_list', method: 'list', cap: 1234, arg: '无参数', doc: '探针查询', input: { type: 'object', properties: {} } }],
+    acts: [{ id: 'probe_edit', op: 'edit', effect: 'write', arg: '{}', title: '探针动作', doc: '探针写入', input: { type: 'object', properties: {} } }],
+  });
+  ok(a.visibleTools('probe.html').includes('probe_list'), '新页面的查询由声明现拼进目录（惰性同步）');
+  ok(a.visibleActs('probe.html').includes('probe_edit'), '新页面的动作由声明现拼进目录');
+  ok(a.TOOL_ROUTE.probe_list === 'probe.html' && a.toolCap('probe_list') === 1234, '路由与裁剪档跟着声明走');
+  ok(a.ACTION_META.probe_edit.effect === 'write' && a.ACTION_META.probe_edit.route === 'probe.html', '策略表跟着声明走');
+  ok(!a.visibleTools('director.html').includes('probe_list'), '新页面不跨页泄漏');
+  ok(Object.keys(a.declErrors()).length === 0, '合法的新页声明没有错误');
+}
+
+/* ---- ⑦ 坏声明 fail-closed：校验前置，整份不进表 ---- */
+{
+  const { w, a } = freshAssistant('bad.html');
+  w.WBBridge.declare('bad', {
+    page: '坏页', route: 'bad.html',
+    reads: [{ id: 'bad_read', method: 'list', arg: '无参数', doc: '坏查询' }],
+    acts: [{ id: 'bad_act', op: 'edit', arg: '{}', title: '坏动作', doc: '缺 effect' }],
+  });
+  a.visibleTools('bad.html');
+  ok(!a.TOOLS.bad_read && !a.ACTS.bad_act, '坏声明整份不进表（那条合法的查询也不进，半份比没有更坏）');
+  ok(a.declErrors().bad && a.declErrors().bad.includes('effect'), '坏声明的原因点名（缺 effect）');
 }
 
 console.log('✓ chat-model-actions：' + n + ' 项通过');

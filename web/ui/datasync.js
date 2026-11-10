@@ -6,89 +6,11 @@
      提示词归档、云同步状态与基线），所以「本机数据文件」也跟着包走 —— v1 那种只带
      浏览器 localStorage/IndexedDB 的包不是一份完整备份。旧形状一律拒绝，不做双读兼容。 */
   const PACK_VERSION = 2;
-  /* 界面偏好那一批键名只由 ui.js 的 UI_PREFS 给（这张表同时被设置页渲染与助手白名单读），
-     这里拿不到就当空表：宁可这几项这次不同步，也不让 DataSync 整块挂掉。顺序判据在 tests/settings-schema.cjs。 */
-  const PREF_KEYS = (window.UI_PREFS && window.UI_PREFS.keys) ? window.UI_PREFS.keys() : [];
-  /* 参与同步的键（前缀或全名）。刻意**不含**首屏缓存（*_cache_v1，可随时重建） */
-  const SYNCABLE = [
-    'sk_key_', 'sk_base_', 'sk_model_', 'sk_off_', 'sk_text_vision', 'sk_text_audio', 'sk_text_video', 'sk_polish_', 'sk_net_', 'sk_poll_sec',
-    /* 文字 AI 的供应方选择与「自己填的型号」也属于「换个地方要重弄一遍」的东西，跟着数据文件走。
-       `sk_text_models_` 在 v13 起已经改成一份 `sk_model_prefs`（见 gen-forms.js 的 ModelPrefs），
-       这一条**先留着**：迁移是把旧键删掉的，键不在名单里就轮不到 `syncable()`，那次删除
-       就不会镜像到 `.data/` —— 旧文件留在服务器上，下次对账又把它拉回来。 */
-    'sk_text_prov', 'sk_text_models_',
-    /* 设置页「添加自定义供应商」登记的接口（图片 / 视频 / 语音 / 文字 / 识别 / 搜索六档都能加）：一份 JSON 数组，
-       代理读它的镜像 `.data/sk_custom.json` 合并进 /registry —— 跟着数据文件走才能换机器还在。
-       清单里只有「照哪一家的形状 + 地址 + 型号 id」，密钥仍按 keyId 存 `sk_key_<id>`，
-       所以同步这一份不会把凭据带出去。 */
-    'sk_custom',
-    /* 本机资产库的根（那一份字节住在哪里）：`sk_local_dir` 存的是一个**目录路径字符串**。
-       必须跟着数据文件走 —— 代理的 `localRoot()` 读的是 `.data/sk_local_dir.json`，
-       界面上填了目录而它没落到服务器那份，表现就是「改了位置、产物还往老地方写」，
-       而且没有任何报错。（旧的 `sk_autosave` 是「按三类分别另存到哪」，那一族已撤，
-       清理在 ui.js 的 LEGACY_KEYS。） */
-    'sk_local_dir',
-    'ai_usage', 'sparkcine_gallery', 'audio_tasks', 'fav_items',   // 视频台不再有本地任务（卡片来自接口）
-    'page_mode_', 'page_size_',
-    /* 界面布局偏好里**不属于 UI_PREFS** 的那几项：分栏比例（三个工作台 + 语音台共用 wb_split、导演台 dir_split）、
-       侧栏余额勾选、导演台的候选展开与静音。
-       以前只存浏览器本地 → 换台机器（或清一次浏览器数据）栏宽和视图全丢，
-       而它们和 dir_theme 一样属于「用户调出来的界面」，该跟着数据文件走。
-       刻意不写整个 'dir_' 前缀：dir_img / dir_video / dir_audio / dir_render 是**本机磁盘路径**，
-       换台机器就不成立。 */
-    'wb_split', 'dir_split', 'dir_cand_expand', 'dir_muted', 'sb_bal_show',
-    /* 建模台「复用历史白膜」那一档（不启用 / 当前组 / 全部组）：它是一条生成规矩，
-       换台机器应当照旧 —— 与 char_ 前缀那几项同一类。 */
-    'sk_model3d_reuse',
-    /* 产物镜像的「存哪 / 读哪 / 标识」开关：以前这一行是 UI_PREFS 的手抄第三份，
-       抄漏的 sb_open 与 sk_media_badge 换台机器就回到默认档 —— 整批改由下面那张表带出来。 */
-    ...PREF_KEYS,
-    /* 素材库（角色 / 场景 / 道具）。键名 2026-10 由 drama_chars 改成 char_lib：
-       拍短剧页删掉之后 drama_ 前缀已经名不副实。搬运用下面的 `migrateRenamedKeys()`。
-       旧名 drama_chars **刻意不在这里**：它在名单里就意味着「服务器上有一份也要拉回来」，
-       而迁移正是要把那份删掉的 —— 留着会让一次失败的 DELETE（代理不在 / 超时）变成
-       「下次 boot 又拉回来」，于是每次开页面重复一遍拉回 / 删掉。
-       不在名单里的代价是：那一份文件万一没删掉，它就静静躺在 .data/ 里不再被读 ——
-       这比一条死循环划算得多（迁移里对每条旧键都显式发一次 DELETE ?nobak=1，绕开 .bak）。 */
-    'char_lib',
-    /* 素材库那一页的设置（char_ 前缀：音色怎么定、候选张数、是否让 AI 自动定音色）。
-       它们和 page_mode_ / sk_polish_ 一样属于「换台机器要重配一遍」的东西。 */
-    'char_',
-    /* AI 助手的对话记录：换浏览器 / 换机器还想接着上次问，所以和数据文件走。
-       只存问答正文（上限 60 条），工具查出来的东西不落盘 —— 那是随时能重查的。 */
-    'ai_chat',
-    /* 注意：提示词不再进 localStorage，改存归档文件夹（PromptLog → /prompts），
-       归档位置是库根下的「提示词\」（跟着 sk_local_dir 那一格走），页面不再单独存目录键 */
-  ];
-  /* 前缀匹配会把「缓存」也算进来（audio_tasks_cache_v1 会被 audio_tasks 命中），所以再排一次。
-     ai_chat_* 这几条是「'ai_chat' 这一条前缀顺带命中」的，必须在这里逐条点名排除（踩过：附件身份整包同步出网）：
-     · ai_chat_files —— 存的是附件的名字 / 本机资产地址 / 文本快照。换到另一台机器那些 la_xxx 根本不在，
-       等于把「你往助手递过哪些文件、文件里写了什么」上传到坚果云，而它一点用都没有。
-     · ai_chat_auto  —— 「执行前不用我点确认」。这是**本机**的安全开关，跟着云走会变成
-       「换台机器一开机，助手就已经在自动提交任务了」。
-     · ai_chat_xy    —— 悬浮球坐标，窗口尺寸各台机器不一样，同步过去只会把球摆到看不见的地方。
-     · ai_chat_snap  —— 「拖到边上吸住」的开关，跟着上一条走：它是本机窗口几何的事，不是用户的偏好数据。
-     · ai_chat_watch —— 「助手提交、还在等结果的任务」清单 + 球上没看的条数。任务号跟着机器走：
-       同步到另一台，那边会去轮这一台提交的任务、并把提醒弹在错的人面前。
-     · ai_chat_notice —— 「出结果弹系统通知」的开关。浏览器的授权状态本来就不在 localStorage 里、
-       同步不过去；把开关同步过去等于在没授权的机器上许诺「会弹」，而它一定弹不出来。
-     · ai_chat_off —— 「这个浏览器上干脆不装 AI 助手」。和 ai_chat_auto 同理是**本机**的选择：
-       在一台机器上关掉它，不该顺手把另一台也关了。
-     对话记录 ai_chat 照旧同步；助手的供应方/型号只在设置页那一档（sk_text_prov / sk_model_*），
-     抽屉里不再有第二份选择。 */
-  const NOT_SYNC = ['_cache_v1', 'sk_model_meta_', 'ai_chat_files', 'ai_chat_auto', 'ai_chat_xy', 'ai_chat_snap', 'ai_chat_watch', 'ai_chat_notice', 'ai_chat_off',
-    /* ai_chat_ref_send ——「引用发给助手时带哪些字段」是本机的一份口味：
-       换台机器的人可能想全带、也可能只发图片；跟着云同步走会替别人改主意。
-       它**进设置导出**（换机器导一次设置带得走），只是不跟着 .data 同步。 */
-    'ai_chat_ref_send',
-    /* 浮窗几何（ai_chat_h）与 ai_chat_xy 同一类：各台机器的窗宽窗高不一样，
-       同步过去只会把浮窗摆到另一台看不见的地方。
-       （旧的 ai_chat_fxy「浮窗被拖走」标记已作废 —— 浮窗不再能脱离球；
-         盘上那份残留由 ui.js 的 LEGACY_KEYS 连镜像一起删，不在这里点名。） */
-    'ai_chat_h',
-    /* 建模台与工作台 / 导演台之间递东西的那枚一次性口袋：同一台机器上两个页面之间的事，
-       跟着云同步走会把「这台刚出的白膜」塞进另一台的参考槽里（而且它本来就带 10 分钟有效期）。 */
-    'model3d_handoff'];
+  /* 哪些键跟着 `.data` 走只由 ui.js 的 UI_PREFS 答（三节声明 + 显式标记）。
+     认不出的一律不同步；声明还没求值时宁可这一轮不同步，也不让 DataSync 整块挂掉。
+     顺序判据在 tests/settings-schema.cjs。 */
+  const syncable = key => !!key
+    && !!(window.UI_PREFS && window.UI_PREFS.syncOf) && window.UI_PREFS.syncOf(key);
 
 
   const TOL = 3000;                          // 容忍 3 秒的时钟/写入误差，避免两边来回覆盖
@@ -112,9 +34,6 @@
     return stale && !NO_LOCAL.has(key);
   };
 
-  const syncable = key => !!key
-    && !NOT_SYNC.some(x => key === x || key.endsWith(x) || key.startsWith(x))
-    && SYNCABLE.some(p => key === p || key.startsWith(p));
 
   /* 多标签页写同一份 `.data`：以前两个标签页同时 flush 就是最后的那个覆盖前面的。
      浏览器支持 Web Locks 时把每一次写入串起来（单个键仍是最新值赢，但不再交叉写坏整表）；

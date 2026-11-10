@@ -896,7 +896,7 @@ function topBoolValue(decl, on) {
       if (!this.customSet(this.customList().filter(e => e && e.id !== id))) return false;
       /* 清干净这一家名下的每一把钥匙。
          `sk_model_` 是漏掉过的那一个：设置页按 `sk_model_<keyId>` 存
-         型号，而 EXPORTABLE 又把 `sk_model_` 整段导出去 —— 删掉一家之后它的型号选择还留在盘上，
+         型号，而设置导出又把 `sk_model_` 整段带出去 —— 删掉一家之后它的型号选择还留在盘上，
          跟着导出/云同步跑到另一台机器；那边注册表里没有这个 keyId，这份死数据就没人认领了。 */
       ['sk_key_', 'sk_off_', 'sk_base_', 'sk_model_'].forEach(p => window.LS.del(p + id));
       if (window.LS.get('sk_text_prov') === id) window.LS.del('sk_text_prov');

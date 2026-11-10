@@ -1693,3 +1693,20 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .cmd-none { padding: var(--sp-16); color: var(--sub); font-size: var(--fs-13); }
 .cmd-foot { padding: var(--sp-8) var(--sp-16); border-top: var(--hair) solid var(--line);
   color: var(--sub); font-size: var(--fs-11); }
+
+/* RefView —— 参考框素材的「点开看」弹窗（web/ui/ref-view.js 按需补载；图片可画白笔掩码） */
+.rv-stage { position: relative; display: flex; align-items: center; justify-content: center;
+  min-height: calc(var(--sp-64) * 2); background: var(--media-bg); border-radius: var(--radius-10); overflow: hidden; }
+.rv-stage img { display: block; max-width: 100%; max-height: min(56vh, calc(var(--sp-64) * 8)); }
+.rv-stage video { display: block; max-width: 100%; max-height: min(56vh, calc(var(--sp-64) * 8)); }
+.rv-stage .rv-none { padding: var(--sp-24); color: var(--sub); font-size: var(--fs-13); }
+.rv-maskview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.rv-draw { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
+.rv-audio { display: block; width: 100%; padding: var(--sp-16); }
+.rv-audio audio { width: 100%; }
+.rv-bar { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-8); }
+.rv-tools { display: inline-flex; gap: var(--sp-4); }
+.rv-tools .mini.on { border-color: var(--acc); color: var(--acc); }
+.rv-hint { color: var(--sub); font-size: var(--fs-11); }
+.rv-info { color: var(--sub); font-size: var(--fs-12); margin-top: var(--sp-4);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

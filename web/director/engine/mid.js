@@ -51,6 +51,12 @@ export function createMid(E, document, window) {
     setStatus,
   } = E;
 
+/* 「这一条候选是用哪句话生成的」—— 当前查看的那条候选自己的描述优先，没有才回落到这一镜的描述。
+   为什么必须按**候选**取：每条候选都记着生成它时用的那句（`c.prompt`，submitCandidate 里写的），
+   而提示词框原来写死读 `sh.prompt`，于是：
+     · 用 A 生成第一条、改成 B 生成第二条，回头点第一条 —— 框里还是 B（那一条的描述再也看不见）；
+     · 换一条候选看，框里的字**一个字都不动**（selectCandidate 只换播放器与操作行）。
+   用户的说法是「应该保留生成候选镜头时的提示词在输入框」，就是这么一件事。 */
 function promptTextOf(sh) {
   const c = sh && (sh.candidates || [])[projOf().curCand];
   if (c && c.prompt != null && c.prompt !== '') return c.prompt;
@@ -67,6 +73,7 @@ function paintPromptBox(sh) {
   syncGenGate(sh);
   syncAtBack(sh);
 }
+/* 中栏空态：按这一镜的实际情况给出文案（不再写死「点右侧生成这一镜」） */
 function playerEmptyText(sh) {
   if (curDraftCand()) return ['这条候选还没有描述', '在右侧「提示词」里写一句，再点「生成这条」'];
   /* 还没写提示词时**不要**推荐「AI 润色提示词」：那道润色入口的守卫是

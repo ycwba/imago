@@ -365,8 +365,18 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        把 `typed` / `off` / `got` / `media` 从按 keyId 改成按 `keyId:kind` 存，旧格子只作兜底并按
        modelsFilter / modelsExclude 过滤；`web/domain/text-ai.js` 的 `modelGroups` / `model` /
        `rawModels` 同步按这一道判据筛。两份都是首屏取数底座（设置页、工作台、助手共用），
-       没有按需的落点。实跑 30 枚 / 852210 字节（登记上限 856000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 856000;
+       没有按需的落点。实跑 30 枚 / 852210 字节（登记上限 856000）。
+     ·  +0.9KB（2026-11-10，桥的能力声明那一半）：`web/core/bridges.js` 长出 `declare` / `declarations` ——
+       桥的运行时 api（install / get）与静态能力声明是同一座桥的两半：页面模块求值时登记「给助手哪些工具」，
+       助手目录由它现拼（新增一页的能力只改那一页的声明，助手代码不动）。bridges.js 是命令式编辑器共用的
+       桥命名空间，页面 boot 就要 install、助手装载就要读，没有按需的落点。实跑 30 枚 / 856010 字节（登记上限 857000）。
+     ·  +15.4KB（2026-11-10，设置项全量收进声明）：`web/ui/ui.js` 的 `UI_PREFS` 从「界面偏好一张表」
+        扩成设置总目录（`rows` / `setRows` / `families` 三节 + 节默认 + `markOf` / `flagOf`
+        与各派生读法），设置页渲染与写盘、DataSync 同步名单、设置导出与恢复默认、助手可改白名单
+        都改问这一份。它必须留在首屏：设置页卡片直接按它渲染，DataSync 的存储钩子在任意页面
+        第一次写 localStorage 时就要判 `syncOf`，助手白名单也随时可取 —— 按需补载会让
+        「第一次写完才加载」漏掉那一笔镜像。实跑 30 枚 / 872614 字节（登记上限 874000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 874000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

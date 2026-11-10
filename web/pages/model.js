@@ -21,6 +21,13 @@ import { clipNamesOf, clipOf } from '../model3d/clip.js';
 import { BODY_PRESETS, POSE_PRESETS } from '../model3d/mannequin.js';
 import { CLAY, LIGHT_PRESETS, SKETCH } from '../model3d/palette.js';
 import { createDock } from './model/dock.js';
+import { MODEL_ASSISTANT } from '../model3d/assistant.js';
+
+/* 能力声明在模块求值时就登记（不等 boot）：助手的目录按 route 过滤，
+   轮到建模台时这份声明早已在了；运行时桥（install）仍由 boot 里的 installModelBridge 挂。 */
+if (window.WBBridge && typeof window.WBBridge.declare === 'function') {
+  window.WBBridge.declare('model3d', MODEL_ASSISTANT);
+}
 
 const PAGE_FILE = 'model.html';
 const D2R = Math.PI / 180;
@@ -56,7 +63,7 @@ export default {
       railTab: 'scene',       // scene | lib
       sideTab: 'ai',          // ai | props | cam | light
       refImages: [],          // 交给 AI 的参考素材（图片 / 视频 / 声音；只给 AI 看）
-      sketch: { on: false, mode: 'camera', tool: 'select', color: 'blue', text: '' },
+      sketch: { on: false, tool: 'select', color: 'blue', text: '' },
       sketchMarks: [],        // 涂鸦标注（不进 doc；画给 AI 看的运镜）
       origin: null,           // { page:'studio'|'director', type?, shot? }
       prevDoc: null,          // AI 修改前的快照（「撤销这次修改」）
@@ -615,6 +622,9 @@ export default {
       if (st.savedId) st.lastSceneId = st.savedId;
       const g = Vault.cleanGroup(group != null ? group : (st.savedGroup || st.sceneGroup || ''));
       setBlankScene(name, g);
+      /* 新场景同样不带旧标注（与打开场景同一条规矩）。 */
+      if (view) view.clearSketch();
+      if (st.sketch.on) toggleSketch(false);
       if (opts.announce) note('已新建场景：' + st.doc.name, 'ok');
       return true;
     }
@@ -641,6 +651,10 @@ export default {
         st.selIds = [];
         st.prevDoc = null;
         dropRefs();
+        /* 换场景：标注是画给「这一个画面」的，不清就会叠到新场景上（标注不进 doc，
+           也没有跟着场景存的说法）。涂鸦模式一并退出。 */
+        view.clearSketch();
+        if (st.sketch.on) toggleSketch(false);
         await applyRefs(st.doc);
         await syncAssets();
         view.setDoc(st.doc, { refit: true, resetTime: true });
@@ -1262,7 +1276,7 @@ export default {
       try {
         const catalog = await aiCatalogText(prompt);
         let media = [];
-        const refItems = st.refImages.map(x => ({ kind: x.kind || 'image', label: x.label, src: x.src }));
+        const refItems = st.refImages.map(x => ({ kind: x.kind || 'image', label: x.label, src: x.src, mask: x.mask || '' }));
         if (refItems.length && window.TextAI) {
           try {
             const REG = await window.Api.registry();
@@ -2000,8 +2014,10 @@ export default {
 
       if (st.sideTab === 'ai') {
         const REF_MARK = { image: '图', video: '视频', audio: '声音' };
-        const refs = st.refImages.map((x, i) => '<span class="chip on" title="' + esc(REF_KIND_ZH[x.kind] || '素材') + '">'
-          + esc((REF_MARK[x.kind] || '图') + ' · ' + (x.label || ('素材 ' + (i + 1))))
+        const refs = st.refImages.map((x, i) => '<span class="chip on" data-ref-view="' + i + '"'
+          + ' title="' + esc((REF_KIND_ZH[x.kind] || '素材') + '：' + (x.label || ('素材 ' + (i + 1)))
+            + '（点开查看' + (x.kind === 'image' ? ' / 画掩码' : '') + '）') + '">'
+          + esc((REF_MARK[x.kind] || '图') + ' · ' + (x.label || ('素材 ' + (i + 1)))) + (x.mask ? ' · 已标记' : '')
           + '<button class="ui-linkbtn" type="button" data-ref-remove="' + i + '" title="移除">×</button></span>').join('');
         body.innerHTML =
           '<div class="mm-field"><label>要生成什么 / 改什么（一句话就行）</label>'
@@ -2046,7 +2062,11 @@ export default {
             if (refIsBlob(gone)) { try { URL.revokeObjectURL(gone.src); } catch (err) { /* 已释放过就算了 */ } }
             st.refImages.splice(i, 1);
             paintSide();
+            return;
           }
+          /* 素材条目本体 = 打开查看（图片可就地画掩码）；删 / 换走上面那颗 × 与「选素材」。 */
+          const vc = e.target.closest('[data-ref-view]');
+          if (vc) { openRefView(st.refImages[Number(vc.dataset.refView)]); return; }
         };
         body.oninput = e => {
           const ta = e.target.closest('[data-r="mmPrompt"]');
@@ -2616,7 +2636,17 @@ export default {
       if (view) view.setSketch({ ...st.sketch });
       paintSketchBar();
       paintTools();
-      if (next) note('在视口里画标注：蓝线 = 相机路径，黄线 = 主体运动；转视角用中 / 右键');
+      if (next) note('在视口里画标注：蓝线 = 相机路径，黄线 = 主体运动；与提示词冲突时听提示词');
+    }
+    /* 撤最后一笔标注（工具条那颗与 Ctrl+Z 同走这里）；只回退标注，不碰 doc 的撤销。 */
+    function sketchUndoOne() {
+      if (view) view.sketchUndo();
+    }
+    function onSketchKeydown(e) {
+      if (!st.sketch.on) return;
+      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z')) return;
+      if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      if (view && view.sketchUndo()) { e.preventDefault(); e.stopPropagation(); }
     }
     function paintSketchBar() {
       const host = $('mmViewport');
@@ -2641,11 +2671,9 @@ export default {
         + (st.sketch.tool === 'text'
           ? '<input class="ui-inp" data-sketch-text placeholder="文字" value="' + esc(st.sketch.text) + '">'
           : '')
-        + '<select class="ui-inp" data-sketch-mode>'
-        + '<option value="camera"' + (st.sketch.mode === 'camera' ? ' selected' : '') + '>镜头这么动</option>'
-        + '<option value="subject"' + (st.sketch.mode === 'subject' ? ' selected' : '') + '>主体这么走</option>'
-        + '</select>'
         + '<span class="mm-sketch-count">' + st.sketchMarks.length + ' 条</span>'
+        + '<button class="ghost mini" type="button" data-act="sketchUndo" title="撤掉最后一笔（Ctrl+Z 同）"'
+        + (st.sketchMarks.length ? '' : ' disabled') + '>撤一笔</button>'
         + '<button class="ghost mini" type="button" data-act="sketchClear">清空</button>'
         + '<button class="ghost mini" type="button" data-act="sketchAi">按标注生成运镜</button>'
         + '<button class="pri" type="button" data-act="sketchDone">✓ 完成</button>'
@@ -2658,6 +2686,7 @@ export default {
         if (col) { st.sketch.color = col.dataset.sketchColor; view.setSketch({ color: st.sketch.color }); paintSketchBar(); return; }
         const tool = e.target.closest('[data-sketch-tool]');
         if (tool) { st.sketch.tool = tool.dataset.sketchTool; view.setSketch({ tool: st.sketch.tool }); paintSketchBar(); return; }
+        if (e.target.closest('[data-act="sketchUndo"]')) { sketchUndoOne(); return; }
         if (e.target.closest('[data-act="sketchClear"]')) { view.clearSketch(); st.sketchMarks = []; paintSketchBar(); return; }
         if (e.target.closest('[data-act="sketchAi"]')) { generateSketch(); return; }
         if (e.target.closest('[data-act="sketchDone"]')) { toggleSketch(false); return; }
@@ -2668,30 +2697,36 @@ export default {
         st.sketch.text = inp.value;
         view.setSketch({ text: inp.value });
       };
-      bar.onchange = e => {
-        const mode = e.target.closest('[data-sketch-mode]');
-        if (mode) st.sketch.mode = mode.value === 'subject' ? 'subject' : 'camera';
-      };
     }
     async function generateSketch() {
       if (!view || st.busy) return;
       const marks = view.getSketch();
       if (!marks.length) { note('先在视口里画几笔：蓝线 = 相机路径，黄线 = 主体运动', 'err'); return; }
       const typed = (($('mmPrompt') && $('mmPrompt').value) || '').trim();
-      const camPath = st.sketch.mode === 'camera' ? view.getSketchCamPath() : [];
-      note('按标注生成运镜…');
+      /* 颜色即语义（蓝 = 相机 / 黄 = 主体…），不再分模式：每段蓝线各自换算成一段机位位移
+         （多段都保留），黄线与其它颜色原样进提示词。你写的那句话是主令 ——
+         与颜色语义冲突时听那句话；蓝线只是「镜头这么走」的几何材料。 */
+      const camPaths = view.getSketchCamPaths();
+      const before = new Set(((((st.doc || {}).anim || {}).tracks) || []).map(t => t.id));
+      note('按标注生成…');
       await generate({
-        prompt: typed || ((st.sketch.mode === 'subject' ? '按黄色标注让主体这样运动，镜头跟住' : '按蓝色标注生成一条运镜')),
+        prompt: typed || '按涂鸦标注生成：蓝线生成机位运镜，黄线让主体照着线走（镜头跟住主体）',
         noSelection: true,
         sketch: {
-          mode: st.sketch.mode,
           marks,
-          camPath,
+          camPaths,
           aspect: view ? view.aspect : '16:9',
           duration: st.doc ? st.doc.anim.duration : 4,
           fps: st.doc ? st.doc.anim.fps : 24,
         },
       });
+      /* 闭环：生成出的新轨道送到眼前（轨道坞里选中 + 滚进视野）；AI 没产出新轨道就不打扰。 */
+      const fresh = ((((st.doc || {}).anim || {}).tracks) || []).filter(t => !before.has(t.id));
+      if (fresh.length) {
+        const pick = fresh.find(t => t.of && t.of.kind === 'cam') || fresh[fresh.length - 1];
+        if (dock) dock.focusTrack(pick.id);
+        note('已生成轨道「' + pick.id + '」，轨道坞里已选中；不满意就改标注重跑', 'ok');
+      }
     }
 
     /* ---------------- 工具条 ---------------- */
@@ -3379,6 +3414,17 @@ export default {
       paintSide();
       note('已加入 ' + made.length + ' 个素材', 'ok');
     }
+    /* 点开一条参考素材：看图 / 听声音 / 放视频；图片上还能画白笔掩码（发给 AI 当「要改的区域」）。
+       查看组件按需补载（这一页不常驻它），掩码挂在素材条目上，随这一轮消息一起发。 */
+    async function openRefView(item) {
+      if (!item) return;
+      if (!window.RefView) {
+        const ok = loadPickerScript('web/ui/ref-view.js', () => window.RefView)
+          .then(() => !!window.RefView).catch(() => false);
+        if (!await ok) { note('查看组件没加载起来，刷新一次再试', 'err'); return; }
+      }
+      window.RefView.open(item, { onSaveMask: url => { item.mask = url || ''; paintSide(); } });
+    }
     /* 视频转白模：选一段视频，交给 AI 按它建白模。
        文字型号能看视频就把视频本体发过去；只能看图时按设置退成几帧画面（本机解码，不经过服务端）。
        提示词空着时先填一句，用户还能改；接着直接开跑 —— 这一个入口的语义就是「选完就建」。 */
@@ -3628,7 +3674,11 @@ export default {
       });
     }
 
-    onMounted(async () => { await nextTick(); await boot(); });
+    onMounted(async () => {
+      document.addEventListener('keydown', onSketchKeydown, true);
+      await nextTick();
+      await boot();
+    });
     onActivated(() => {
       active.value = true;
       if (view) { view.setActive(() => active.value); view.invalidate(); }
@@ -3644,6 +3694,7 @@ export default {
     });
     onBeforeUnmount(() => {
       disposed = true;
+      document.removeEventListener('keydown', onSketchKeydown, true);
       stopStreamSoon();
       if (bridgeOff) { bridgeOff(); bridgeOff = null; }
       if (dock) { dock.destroy(); dock = null; }

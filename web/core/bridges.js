@@ -14,4 +14,17 @@
     const api = B[name];
     return api && typeof api === 'object' ? api : null;
   };
+  /* 能力声明与运行时桥是同一座桥的两半：install 挂「现在真的能不能做」（ready/check/run），
+     declare 挂「这一页给助手哪些工具」的纯数据声明（查询 / 动作 / 路由 / 裁剪档 / 参数形状）。
+     声明在页面模块求值时登记，助手的目录由它现拼 —— 新增一页的能力只改那一页的声明，
+     不改助手代码。声明不依赖页面是否在前台：工具按 route 过滤，轮到那一页时模块早已求值。 */
+  const DECL = Object.create(null);
+  B.declare = function (name, decl) {
+    if (!name) throw new Error('bridge name required');
+    if (!decl || typeof decl !== 'object') throw new Error('bridge declaration required');
+    DECL[name] = decl;
+  };
+  B.declarations = function () {
+    return Object.keys(DECL).map(name => ({ name, decl: DECL[name] }));
+  };
 })();

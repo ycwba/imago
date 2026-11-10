@@ -1598,8 +1598,29 @@ function createPromptsStore(opts) {
       if (!id) { json(400, { error: { message: '缺少 id（任务号）' } }); return true; }
       if (/^la_[A-Za-z0-9]+$/.test(id)) {
         const it = localAssetEntry(id);
+        let prompt = String((it && it.prompt) || '');
+        const task = String((it && (it.taskId || (it.detail && it.detail.task))) || '');
+        /* 本机账里那份提示词可能是列表索引的 300 字（镜像时列表还没拿到全文）：
+           账里记着平台任务号，就再去归档里找整份 —— 以前这里直接返回 300 字那份，
+           详情面板对 `la_` 号永远只能显示被截断的提示词。 */
+        if (task) {
+          const rows = promptRows(dir).filter(r => r.i && r.i === task);
+          if (!rows.length) rows.push(...scanPromptTask(dir, task));
+          if (rows.length) {
+            rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+            const hit = rows.find(r => it && it.provider && r.p === it.provider) || rows[0];
+            try {
+              const text = fs.readFileSync(path.join(dir, hit.f), 'utf8');
+              const at = text.indexOf('## 提示词');
+              if (at >= 0) {
+                const full = text.slice(at + '## 提示词'.length).trim();
+                if (full.length > prompt.length) prompt = full;
+              }
+            } catch (e) { /* 归档文件读不出来就用账里那份 */ }
+          }
+        }
         json(200, { ok: true, id, matched: 1, local: true, provider: (it && it.provider) || '',
-          file: (it && it.file) || '', title: (it && it.name) || '', type: 'local', prompt: (it && it.prompt) || '', all: [] });
+          file: (it && it.file) || '', title: (it && it.name) || '', type: 'local', prompt, all: [] });
         return true;
       }
       const rows = promptRows(dir).filter(r => r.i && r.i === id);

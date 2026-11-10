@@ -327,10 +327,11 @@ export function scanNodes(text) {
 
 /* 涂鸦标注：页面手里那一份（不进 doc）。这里只把它整理成给 AI 看的文字。
    颜色是语义：蓝 = 相机路径 / 黄 = 主体 / 红 = 避开 / 绿 = 保留 / 白 = 说明 / 灰黑 = 参考。
-   camPath 是程序从蓝线换算好的机位位移 —— 让 AI 照抄，别让它做三维换算。 */
+   camPaths 是程序从每段蓝线各自换算好的机位位移（多段蓝线一段不少）——
+   几何让 AI 照着点走，别让它做三维换算；怎么编排以用户那句话为准。 */
 function sketchTextOf(sk) {
   if (!sk || !Array.isArray(sk.marks) || !sk.marks.length) return ' ';
-  const lines = ['模式：' + (sk.mode === 'subject' ? 'subject（主体这么走，镜头跟住）' : 'camera（镜头这么动）')];
+  const lines = [];
   if (sk.aspect || sk.duration || sk.fps) {
     lines.push('画幅 ' + (sk.aspect || '16:9') + ' · 时间轴 ' + (sk.duration || 4) + 's · ' + (sk.fps || 24) + 'fps');
   }
@@ -342,14 +343,20 @@ function sketchTextOf(sk) {
     } else if (m.type === 'text') {
       lines.push('- text · ' + col + '：' + String(m.text || '') + ' @ ' + JSON.stringify(m.at || []));
     } else if (Array.isArray(m.pts) && m.pts.length) {
-      lines.push('- ' + (m.type || 'path') + ' · ' + col + '：' + m.pts.length + ' 点，'
-        + JSON.stringify(m.pts[0]) + ' → ' + JSON.stringify(m.pts[m.pts.length - 1]));
+      /* 中间控制点也给 AI（最多 24 个，多了按序均匀抽样）：只给首尾两点的话，
+         黄线 / 灰线这类不进 camPaths 的路径，AI 只能沿直线脑补中间的走向。 */
+      const cap = 24;
+      const step = Math.ceil(m.pts.length / cap);
+      const pts = step <= 1 ? m.pts
+        : m.pts.filter((_, i) => i === 0 || i === m.pts.length - 1 || i % step === 0);
+      lines.push('- ' + (m.type || 'path') + ' · ' + col + '：' + JSON.stringify(pts));
     }
   }
-  if (Array.isArray(sk.camPath) && sk.camPath.length) {
-    lines.push('程序算好的机位路径（照抄，不要自己换算）：' + JSON.stringify(sk.camPath));
+  if (Array.isArray(sk.camPaths) && sk.camPaths.length) {
+    lines.push('程序按每段蓝线各自换算好的机位位移（几何照这些点走，不要自己换算三维；'
+      + '用哪几段 / 先后 / 快慢 / 要不要连成一条，以用户这句话为准）：' + JSON.stringify(sk.camPaths));
   }
-  return lines.join('\n');
+  return lines.length ? lines.join('\n') : ' ';
 }
 
 /* 这一轮的占位符取值。抽出来是为了能直接对着契约正文断言「下一轮的提示词里真的
@@ -363,13 +370,15 @@ export function promptVarsOf(opts) {
   const media = (Array.isArray(o.media) ? o.media : [])
     .concat((o.images || []).filter(x => !(o.media || []).length));
   const n = { image: 0, video: 0, audio: 0 };
-  const refs = media.map(x => {
+  const refs = [];
+  for (const x of media) {
+    if (x && x.isMask) continue;   // 掩码跟着它的图走：不占编号，原图那一行已注明
     const kind = x && x.kind === 'video' ? 'video' : x && x.kind === 'audio' ? 'audio' : 'image';
     n[kind] += 1;
     const tag = kind === 'image' ? '图' : kind === 'video' ? '视频' : '音频';
     const label = line(x && (x.label || x.name)) || (tag + n[kind]);
-    return tag + n[kind] + ' = ' + label;
-  });
+    refs.push(tag + n[kind] + ' = ' + label + (x && x.hasMask ? '（附白色掩码：白 = 要局部编辑的区域）' : ''));
+  }
   const problems = String(o.problems || '');
   return {
     prompt: String(o.prompt || ''),

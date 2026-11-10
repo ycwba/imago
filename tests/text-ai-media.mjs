@@ -146,4 +146,30 @@ ok(pm.caps && pm.caps.video && pm.caps.video.ok === false, 'caps 要一起交回
 const legacy = await TextAI.polishImages(null, [], { prov, model: 'm-all' });
 ok(legacy.images.length === 0 && legacy.note === '', '没有图片时旧入口安静返回');
 
+/* ---- ⑥ 图片掩码：原图之后紧跟一张 isMask 部件，原图打 hasMask；编号口跳过掩码 ---- */
+TextAI.shrink = async () => 'data:image/jpeg;base64,AAA';
+const pm2 = await TextAI.prepareMedia(null, [
+  { kind: 'image', label: '看图', src: 'a', mask: 'm1' },
+  { kind: 'image', label: '没画的', src: 'b' },
+], { prov, model: 'm-all' });
+ok(pm2.media.length === 3, '原图 + 它的掩码 + 无掩码原图 = 三发：' + pm2.media.length);
+ok(pm2.media[0].hasMask === true && pm2.media[1].isMask === true && /掩码/.test(pm2.media[1].label)
+  && !pm2.media[2].hasMask && !pm2.media[2].isMask,
+  '掩码紧跟原图、标记只打在自己与原图上：' + JSON.stringify(pm2.media.map(x => x.label)));
+TextAI.shrink = async () => null;
+const pm4 = await TextAI.prepareMedia(null, [{ kind: 'image', label: '看图', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
+ok(pm4.media.length === 1 && !pm4.media[0].hasMask && /掩码没带/.test(pm4.note), '掩码读不出来时逐条说明，原图照带');
+TextAI.shrink = async () => 'data:image/jpeg;base64,AAA';
+const pm5 = await TextAI.prepareMedia(null, [{ kind: 'audio', label: '听声', src: 'b', mask: 'm1' }], { prov, model: 'm-all' });
+ok(pm5.media.length === 1 && pm5.media[0].kind === 'audio', '非图片条目不认掩码');
+/* 旧入口：掩码部件留在 images 里随请求发出，但编号只数素材图、掩码在原图行注明 */
+const pl = await TextAI.polishImages(null, [
+  { label: '参考图1', src: 'a', mask: 'm1' },
+  { label: '参考图2', src: 'b' },
+], { prov, model: 'm-all' });
+ok(pl.images.length === 3, '掩码部件留在 images 里（要随请求发出）：' + pl.images.length);
+ok(pl.note.includes('图1 = 参考图1（它的下一张图是白色掩码') && pl.note.includes('图2 = 参考图2'),
+  '编号只数素材图：' + pl.note);
+ok(!pl.note.includes('图3'), '掩码不占 编号');
+
 console.log('文字 AI 多模态判定与随附素材：' + n + ' 条断言通过');

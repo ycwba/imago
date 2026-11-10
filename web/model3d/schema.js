@@ -42,8 +42,9 @@ const intAtLeast = (v, min, d) => Math.max(min, Math.round(num(v, d)));
 /* 只清洗控制字符与首尾空白，不按显示长度截断。 */
 const cleanText = v => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, '').trim();
 const cleanLine = v => cleanText(v).replace(/\s+/g, ' ');
-/* 颜色只收 `#rgb` / `#rrggbb`；写错就当没写（白模灰阶）。 */
-const cleanColor = v => {
+/* 颜色只收 `#rgb` / `#rrggbb`；写错就当没写（白模灰阶）。
+   轨道坞的逐帧颜色编辑也走这一份，判定只有一处。 */
+export const cleanColor = v => {
   const s = cleanLine(v).toLowerCase();
   if (/^#[0-9a-f]{6}$/.test(s)) return s;
   if (/^#[0-9a-f]{3}$/.test(s)) return '#' + s[1] + s[1] + s[2] + s[2] + s[3] + s[3];
@@ -444,10 +445,10 @@ function normalizePath(raw) {
     path.closed = raw.closed === true;
   }
   /* 机位沿路径走时的朝向：fixed（保持轨道自己的 target，默认）/ heading（沿切线）/
-     target（看向 lookAt 那个节点） */
+     target（看向 lookAt 那个节点）；heading 也可带 lookAt，给 framing:keep 当主体 */
   if (raw.look === 'heading' || raw.look === 'target') {
     path.look = raw.look;
-    if (raw.look === 'target') path.lookAt = cleanLine(raw.lookAt);
+    if (raw.lookAt) path.lookAt = cleanLine(raw.lookAt);
   }
   /* 速度曲线与构图：ease 不写 = linear（旧行为照旧）；framing 只在有 look 时有意义 */
   if (['in', 'out', 'inout', 'linear', 'hold'].indexOf(raw.ease) >= 0) path.ease = raw.ease;
@@ -692,7 +693,7 @@ function sparsePath(path) {
   }
   if (path.look === 'heading' || path.look === 'target') {
     out.look = path.look;
-    if (path.look === 'target' && path.lookAt) out.lookAt = path.lookAt;
+    if (path.lookAt) out.lookAt = path.lookAt;
   }
   if (path.ease) out.ease = path.ease;
   if (path.framing) out.framing = path.framing;

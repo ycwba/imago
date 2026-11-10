@@ -30,6 +30,57 @@ const aspectOf = v => {
   return (p.length === 2 && p[0] > 0 && p[1] > 0) ? p[0] / p[1] : 16 / 9;
 };
 
+/* 沿切线看时机位的目标点（heading 档：前方 1.5 米，与路径同一高度） */
+const headingTarget = (at, deg) => {
+  const rad = deg * D2R;
+  return [at[0] + Math.sin(rad) * 1.5, at[1], at[2] + Math.cos(rad) * 1.5];
+};
+
+/* 主体在画幅里的位置（NDC：正中 0、右缘 +1）与屏幕右向 / 上向。
+   主体在相机身后、视线退化（零长 / 竖直朝天）时返回 null。 */
+function frameOf(at, target, subj, fovDeg, aspect) {
+  const fx = target[0] - at[0], fy = target[1] - at[1], fz = target[2] - at[2];
+  const fl = Math.hypot(fx, fy, fz);
+  if (fl < 1e-6) return null;
+  const f = [fx / fl, fy / fl, fz / fl];
+  let rx = -f[2], rz = f[0];
+  const rl = Math.hypot(rx, rz);
+  if (rl < 1e-6) return null;
+  rx /= rl; rz /= rl;
+  const r = [rx, 0, rz];
+  const u = [-rz * f[1], rz * f[0] - rx * f[2], rx * f[1]];
+  const vx = subj[0] - at[0], vy = subj[1] - at[1], vz = subj[2] - at[2];
+  const d = vx * f[0] + vy * f[1] + vz * f[2];
+  if (d <= 1e-6) return null;
+  const tanH = Math.tan(Math.min(179, Math.max(1, fovDeg || 35)) * D2R / 2);
+  const x = vx * r[0] + vz * r[2];
+  const y = vx * u[0] + vy * u[1] + vz * u[2];
+  return { nx: x / (d * tanH * aspect), ny: y / (d * tanH), d, tanH, r, u };
+}
+
+/* framing:"keep" 的基线：轨道起点那一刻机位看着哪、主体在画幅里什么位置。
+   主体 = lookAt 指的节点（没指就是起点那一刻的瞄准点），取文档里的静态位置；
+   纯函数逐帧重算，不存上一帧状态。基线退化时返回 null（keep 不动镜头）。 */
+function keepBaseline(tr, cam, doc, duration) {
+  const off = Math.max(0, Number(tr.offset) || 0);
+  const s0 = sampleTrack(tr, off, duration);
+  const at0 = (s0 && s0.at) || cam.pos;
+  let tgt0 = (s0 && s0.target) || cam.target;
+  const look = tr.path && tr.path.look;
+  if (look === 'heading' && s0 && s0.at && s0.heading != null) {
+    tgt0 = headingTarget(s0.at, s0.heading);
+  } else if (look === 'target' && tr.path.lookAt) {
+    const n = findNode(doc.scene.nodes, tr.path.lookAt);
+    if (n) tgt0 = n.at;
+  }
+  if (!at0 || !tgt0) return null;
+  const n = tr.path && tr.path.lookAt ? findNode(doc.scene.nodes, tr.path.lookAt) : null;
+  const subj = n ? n.at : tgt0;
+  const fov0 = (s0 && s0.fov != null) ? s0.fov : cam.fov;
+  const fr = frameOf(at0, tgt0, subj, fov0, aspectOf(doc.scene.view && doc.scene.view.aspect));
+  return fr ? { subj, nx: fr.nx, ny: fr.ny } : null;
+}
+
 /* 一条轨道自己的时钟：从第 offset 秒开始、按 speed 倍速走、自己的 duration（0 = 用全局）。
    offset 之前返回 null（这条轨道还没开始）；之后按自己的局部时间采样，整条轨道可带 ease。 */
 function trackClock(track, t, duration) {
@@ -305,13 +356,12 @@ export function sampleCams(anim, doc, t, nodeSamples) {
       /* 沿路径走时的朝向：heading = 沿切线；target = 一直看着 lookAt 那个节点 */
       const look = tr.path && tr.path.look;
       if (look === 'heading' && s.at && s.heading != null) {
-        const rad = s.heading * D2R;
-        out.target = [s.at[0] + Math.sin(rad) * 1.5, s.at[1], s.at[2] + Math.cos(rad) * 1.5];
+        out.target = headingTarget(s.at, s.heading);
       } else if (look === 'target' && tr.path.lookAt) {
         const tgt = atOf(tr.path.lookAt);
         if (tgt) out.target = tgt;
       }
-      /* 三分法：把主体从正中挪到偏右三分之一；center / keep 不偏（keep 的原位基线留待后续） */
+      /* 构图：rule3 把主体让到右三分之一；keep 把主体钉在轨道起点那一刻的画幅位置 */
       const framing = tr.path && tr.path.framing;
       if (framing === 'rule3' && s.at && out.target) {
         const fx = out.target[0] - s.at[0], fy = out.target[1] - s.at[1], fz = out.target[2] - s.at[2];
@@ -325,6 +375,25 @@ export function sampleCams(anim, doc, t, nodeSamples) {
             const fov = Math.min(179, Math.max(1, out.fov || 35)) * D2R;
             const shift = depth * Math.tan(fov / 2) * aspectOf(doc.scene.view && doc.scene.view.aspect) / 3;
             out.target = [out.target[0] - rx * shift, out.target[1], out.target[2] - rz * shift];
+          }
+        }
+      } else if (framing === 'keep' && s.at && out.target) {
+        const base = keepBaseline(tr, cam, doc, duration);
+        if (base) {
+          const aspect = aspectOf(doc.scene.view && doc.scene.view.aspect);
+          /* 沿屏幕右向 / 上向挪瞄准点把主体送回基线；单 pass 只在主体深度 == 瞄准距离时
+             精确，多收敛几遍把残差压到画布像素以下 */
+          for (let i = 0; i < 8; i++) {
+            const fr = frameOf(out.at, out.target, base.subj, out.fov, aspect);
+            if (!fr) break;
+            const dx = fr.nx - base.nx, dy = fr.ny - base.ny;
+            if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) break;
+            const sx = dx * fr.d * fr.tanH * aspect, sy = dy * fr.d * fr.tanH;
+            out.target = [
+              out.target[0] + fr.r[0] * sx + fr.u[0] * sy,
+              out.target[1] + fr.u[1] * sy,
+              out.target[2] + fr.r[2] * sx + fr.u[2] * sy,
+            ];
           }
         }
       }

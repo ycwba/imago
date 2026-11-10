@@ -60,7 +60,7 @@ function load(opts = {}) {
   };
   const ctx = {
     window: {
-      UI_PREFS: { keys: () => ['sk_theme'] },
+      UI_PREFS: { syncOf: k => k === 'sk_theme' || k.startsWith('sk_model_') },
       LS: { get: k => localStorage.getItem(k) },
       Kv, Net, Toast: {}, Store: {}, PromptLog: null,
       b64Bytes: () => new Uint8Array(),

@@ -417,7 +417,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
 
 当前选中：{selected}
 
-参考素材：{refImages}（这一轮附带的图片 / 视频 / 声音按上面的顺序对应「图1、视频1、音频1…」；看不到的素材不要凭空编造）
+参考素材：{refImages}（这一轮附带的图片 / 视频 / 声音按上面的顺序对应「图1、视频1、音频1…」；看不到的素材不要凭空编造。某张图注明「附白色掩码」时，它的下一张图就是那张掩码：白色像素 = 用户要在原图上局部编辑 / 重点看的区域，黑 = 其余部分保持原样 —— 改动只落在白色区域里，别把整张图重画一遍）
 
 当前场景（v3；新建实体时是一句说明；修改时分【场景大纲】+【选中实体完整细节】两段 —— 大纲每行是 \`id「名字」(形状或种类) 子n\`，n 是子节点数，只够认出结构；节点坐标 / 材质 / 轨道只在选中实体那一段，机位 / 灯 / 灯光装置 / 时间轴在大纲末尾各一行。照这里的 id 改，大纲里没有的 id 不要编）：
 {current}
@@ -428,9 +428,10 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
 
 {sketch}
 
-**涂鸦运镜（材料里「涂鸦标注」那一段）**：用户在场地的参考深度面上画了标注，颜色是语义 —— 蓝 = 相机要走的路径 / 黄 = 主体运动 / 红 = 要避开 / 绿 = 保留 / 白 = 中性说明 / 灰与黑 = 背景参考（可忽略）。
-- 模式 camera：按蓝线生成机位轨道；程序已把蓝线换算成 \`camPath\`（机位位移），照抄，不要自己算三维。模式 subject：按黄线生成主体运动，机位用 \`look:"target"\` 跟住。
-- 图元：path 折线 / arrow 箭头（from → to）/ circle / rect / text（带文字）。一次运镜只做一件事；优先给 \`path\`（ease 用 inout）；控制点 4–8 个就够；节奏（多快、什么时候停）由你决定。这一段整个没出现时，说明这次没有涂鸦。
+**涂鸦运镜（材料里「涂鸦标注」那一段）**：用户在场地的参考深度面上画了标注，**颜色即语义，不分模式** —— 蓝 = 相机要走的路径 / 黄 = 主体运动 / 红 = 要避开 / 绿 = 保留 / 白与文字 = 中性说明 / 灰与黑 = 背景参考（可忽略）。
+- **用户写的那句话是主令**：它与颜色语义冲突时（例：蓝线却叫主体走、黄线却叫镜头推、红圈里要放东西），一律听那句话；没写或没冲突才按颜色语义与标注顺序理解。图元：path 折线 / arrow 箭头（from → to）/ circle / rect / text（带文字）。
+- 蓝线：\`camPaths\` 里是程序按**每一段**蓝线各自换算好的机位位移（多段蓝线一段不少）：段内几何照着点走，不要自己算三维；用哪几段、先后、快慢、要不要连成一条按主令来，没说就按标注顺序串走。没有蓝线也能直接按主令生成机位轨道。黄线：点就是世界坐标，直接当主体 path 的控制点用；机位用 \`look:"target"\` 跟住。
+- 一次运镜只做一件事；优先给 \`path\`（ease 用 inout）；控制点 4–8 个就够；节奏（多快、什么时候停）由你决定。这一段整个没出现时，说明这次没有涂鸦。
 
 **动画摆件清单（材料里「库里带动画的摆件」那一段）**：每行 \`- 文件路径：clip1 / clip2\`，列出这个场景里已经用到、自带动画的 3D 文件与可用 clip 名。给 \`asset\` 节点写 \`clip\` 时只能填这里列出的名字；同一件摆件可以放多个实例，每个实例各配 \`clipSpeed\` / \`clipLoop\` / \`clipOffset\`（都挂在节点上，不在清单里）。这一段整个没出现时，说明这次没有带动画的摆件，\`clip\` 一律不写。
 
@@ -480,14 +481,14 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
 - \`interp\`：\`smooth\`（默认）/ \`linear\` / \`hold\`；\`enabled:false\` 停用；\`color\` 是轨道色号（0~5，程序按调色板取模）。键上的 \`ease\` 覆盖这一段；\`scale\` 改物体本身大小；\`visible\` 是出现 / 消失（STEP）。
 - 轨道自己的时钟：\`offset\`（第几秒开始，之前不动）、\`speed\`（倍速）、\`duration\`（自己的长度，省略 = 全片）。局部时间 = (t − offset) × speed。
 - \`keysMode\`：\`override\`（默认，关键帧接管）/ \`offset\`（关键帧只当相对路径的偏移，路径形状保留）。节点轨道可带 \`follow\`（跟着某个节点，位移叠在它身上）；\`solo:true\` 时只让被 solo 的轨道动。
-- 机位的 path 可带 \`look\`：\`fixed\`（默认，保持自己的 target）/ \`heading\`（沿切线）/ \`target\`（看向 \`lookAt\` 那个节点 id）。
+- 机位的 path 可带 \`look\`：\`fixed\`（默认，保持自己的 target）/ \`heading\`（沿切线）/ \`target\`（看向 \`lookAt\` 那个节点 id）；\`heading\` 也可带 \`lookAt\`，给 \`framing:keep\` 当主体。
 - \`motion\` 也可以给对象 \`{kind:"walk"|"run", speed, stride, arm}\` 调步频 / 步幅 / 臂摆。叠加顺序写死：姿势表 → 节点 controls → 步态（覆盖同一关节）→ 关节轨道（在 base 上叠加）。
 - 轨道数、关键帧数、路径点数都不设上限；\`t\` 只要求 >= 0。
 - 新建实体时，顶层 \`anim.duration\` / \`anim.fps\` / \`anim.loop\` 会写进当前场景时间轴（时长取现有与这次的较大值）；修改时用 \`anim\` op 显式改这几个值。
 
 **运镜（机位轨道）**：优先给 \`path\`，\`keys\` 只用来修某一两帧。
 - 推近 / 拉远：path 沿视线方向（或 fov 关键帧）；摇：水平弧 + target 跟着；移：水平直线 + target 固定；跟：\`look:"target"\` + path 与主体平行；升降：path 的 y 分量；环绕：path circle + \`look:"target"\`；手持：pts 密一点 + 每点小抖动；定格：path 走一半 + keys 里 hold。
-- \`path.look\`：\`fixed\`（默认）/ \`heading\`（沿切线）/ \`target\`（看 \`lookAt\` 那个节点）；\`path.framing\`：\`center\` / \`rule3\`（主体偏到三分之一，不顶正中）/ \`keep\`（暂按 center）。
+- \`path.look\`：\`fixed\`（默认）/ \`heading\`（沿切线，可带 \`lookAt\` 当主体）/ \`target\`（看 \`lookAt\` 那个节点）；\`path.framing\`：\`center\` / \`rule3\`（主体偏到三分之一，不顶正中）/ \`keep\`（主体保持在轨道起点那一刻的画幅位置）。
 - \`path.ease\` / 轨道 \`ease\`（\`in\` / \`out\` / \`inout\` / \`linear\` / \`hold\`）决定起停；\`speed\` 决定快慢，两者别混着用。
 - 硬约束：一次运镜只做一件事（推 + 摇 + 环绕一起会晕）；\`free\` 控制点 4–8 个就够；主体在画幅里别超过 1/3 边长；有起有停，别匀速到底。
 
@@ -748,9 +749,9 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       { name: 'animations', from: '库里有动画的摆件清单', desc: 'AI 写 clip 时只能填这里列出的 clip 名；空时整段不出现' },
       { name: 'current', from: '场景大纲 + 选中子树的完整细节（新建时是说明）', desc: '照大纲与细节里的 id 改；超出预算时细节退成骨架' },
       { name: 'problems', from: '上一轮丢掉的零件明细 / 被跳过的修改 / 几何体检结论', desc: 'AI 照它避免重犯；没有上一轮问题时整段不出现' },
-      { name: 'sketch', from: '涂鸦标注（类型 / 颜色 / 位置 / 文字 + 程序算好的 camPath）', desc: 'AI 读颜色与图元的意图、照抄 camPath；没有涂鸦时整段不出现' },
+      { name: 'sketch', from: '涂鸦标注（类型 / 颜色 / 位置 / 文字 + 每段蓝线各自换算的 camPaths）', desc: '颜色即语义（蓝 = 相机 / 黄 = 主体…），用户那句话是主令、冲突时听它；没有涂鸦时整段不出现' },
       { name: 'selected', from: '当前选中的节点 id', desc: '选中的子树在 current 里给全字段、只给一遍' },
-      { name: 'refImages', from: '这一轮附带的参考图清单', desc: '按图1、图2…的顺序对应视觉输入' },
+      { name: 'refImages', from: '这一轮附带的参考图清单', desc: '按图1、图2…的顺序对应视觉输入；注明「附白色掩码」的图，下一张就是它的掩码（白 = 要局部编辑的区域）' },
     ],
   },
   /* Skill 的「使用场景」：设置页 Skill 卡的一级菜单 = 场景，点一个场景看
@@ -1377,17 +1378,21 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       fr.readAsDataURL(blob);
     });
   },
-  /* 润色 / 建模的多模态统一入口：list = [{ kind:'image'|'audio'|'video', label, src }]。
+  /* 润色 / 建模的多模态统一入口：list = [{ kind:'image'|'audio'|'video', label, src, mask? }]。
      返回 { media, note, caps }：
        · media 只含**当前型号真能收**且读得出来的那几条（顺序按 list）；
        · note 是一句给界面看的话（带了什么 / 没带什么、为什么）；
        · caps 是三类能力判定（页面拿它决定「视频要不要退成抽帧」这类事）。
-     图片仍走 shrink（整图缩小、省 tokens）；音频 / 视频原样读字节。 */
+     图片仍走 shrink（整图缩小、省 tokens）；音频 / 视频原样读字节。
+     图片条目可带 `mask`（用户在图上画的白笔掩码 dataURL）：原图发出去之后**紧跟一张掩码图**
+     （`isMask` 标记），并在原图上打 `hasMask` —— 编号各口（提示词的 图N / 附件清单）跳过掩码、
+     只在原图上注明「附白色掩码」，模型看到的是「这张图 + 白色 = 要局部编辑的区域」。 */
   async prepareMedia(REG, list, opts) {
     const items = (list || []).filter(x => x && x.src).map(x => ({
       kind: this.MEDIA_KINDS.indexOf(x.kind) >= 0 ? x.kind : 'image',
       label: x.label || '素材',
       src: x.src,
+      mask: x.kind === 'image' ? String(x.mask || '') : '',
     }));
     if (!items.length) return { media: [], note: '', caps: null };
     const caps = await this.mediaAsync(REG, opts && opts.prov, opts && opts.model);
@@ -1398,7 +1403,19 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       if (!cap.ok) { notes.push(this.MEDIA_ZH[it.kind] + '「' + it.label + '」没带（' + cap.why + '）'); continue; }
       if (it.kind === 'image') {
         const one = await this.prepImages([it], opts);
-        if (one.length) media.push(one[0]); else notes.push('图片「' + it.label + '」读不出来');
+        if (one.length) {
+          media.push(one[0]);
+          if (it.mask) {
+            let murl = '';
+            try { murl = await this.shrink(it.mask, (opts && opts.edge) || 1024, 0.9) || ''; } catch (e) { murl = ''; }
+            if (murl) {
+              one[0].hasMask = true;
+              media.push({ kind: 'image', label: one[0].label + ' · 掩码', url: murl, isMask: true });
+            } else {
+              notes.push('图片「' + it.label + '」的掩码没带（读不出来）');
+            }
+          }
+        } else notes.push('图片「' + it.label + '」读不出来');
         continue;
       }
       const url = await this._mediaDataUrl(it.src, it.kind);
@@ -1417,7 +1434,8 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     return { media, note, caps };
   },
   /* 只带图片的旧入口（工作台 / 导演台 / 助手 / 建模台原来的调用点）：
-     返回 { images, note }。声音 / 视频走 prepareMedia。 */
+     返回 { images, note }。声音 / 视频走 prepareMedia。
+     编号只数素材图本身：掩码跟着它的图走（图N 的下一张就是它的掩码），不占 图N。 */
   async polishImages(REG, list, opts) {
     const r = await this.prepareMedia(REG, (list || []).map(x => ({ ...x, kind: 'image' })), opts);
     const images = r.media.filter(x => x.kind === 'image');
@@ -1430,10 +1448,13 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
           : '素材图没能读出来（可能已过期或不是图片），本次只按文字润色',
       };
     }
+    const named = images.filter(x => !x.isMask);
     return {
       images,
-      note: images.length
-        ? '已附带 ' + images.length + ' 张素材图供文字 AI 识别：' + images.map((x, i) => '图' + (i + 1) + ' = ' + x.label).join('、')
+      note: named.length
+        ? '已附带 ' + named.length + ' 张素材图供文字 AI 识别：'
+          + named.map((x, i) => '图' + (i + 1) + ' = ' + x.label
+            + (x.hasMask ? '（它的下一张图是白色掩码：白 = 要局部编辑的区域）' : '')).join('、')
         : '',
     };
   },

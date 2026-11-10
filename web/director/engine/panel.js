@@ -809,6 +809,27 @@ function addRefImage(sh, src, label, refId) {
      老数据没有 id 的条目按 label → nameKey 反查库里补 id（14.1-6）。 */
   sh.refMeta.push({ id: refId || null, label: label || null });
 }
+/* 点开一张已放的素材图（首帧 / 尾帧 / 画面 / 参考图）：灯箱是全站那一份，
+   本页的 cfg 在导出接线那一块登记（srcOf / kindOf 现取）。读不出地址就当没反应。 */
+function viewShotMedia(sh, key) {
+  const it = { src: '', label: '' };
+  if (key === 'first') { it.src = sh.firstFrame ? Api.mediaSrc(sh.firstFrame) : ''; it.label = '开头画面'; }
+  else if (key === 'last') { it.src = sh.lastFrame ? Api.mediaSrc(sh.lastFrame) : ''; it.label = '结尾画面'; }
+  else if (key.startsWith('kf:')) {
+    const kf = (sh.keyframes || [])[Number(key.slice(3))];
+    if (!kf || !kf.assetId) return;
+    it.src = Api.assetSrc(kf.assetId); it.label = '画面 · 第 ' + kf.t + ' 秒';
+  } else if (key.startsWith('ref:')) {
+    const i = Number(key.slice(4));
+    const d2 = (sh.refImages || [])[i];
+    if (!d2) return;
+    it.src = Api.mediaSrc(d2);
+    const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
+    it.label = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
+  } else return;
+  if (!it.src) return;
+  try { window.Wb.lightbox.open(it); } catch (e) { /* 灯箱没就绪时点了就当没反应 */ }
+}
 /* 14.1-6：老工程 refMeta 没 id 的条目，按 label → nameKey 反查库里补 id。
    查不到的照实标「这条引用对不上库」，不静默丢。幂等：已有 id 的不动。 */
 function backfillRefMetaIds(shots) {
@@ -1504,10 +1525,10 @@ function renderEditor() {
         <em>${chainOn ? (sh.firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
       </label>
       <div class="assets-grid">
-        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
-        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
+        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}${sh.firstFrame && !chainSlot ? ' data-view="first"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}${sh.lastFrame ? ' data-view="last"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
-          <div class="asset-slot kf">
+          <div class="asset-slot kf"${kf.status === 'done' && kf.assetId ? ` data-view="kf:${i}"` : ''}>
             ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML(Api.assetSrc(kf.assetId), { type: 'image' })}<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
               : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">${icon('close', 11)}</button>`
               : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
@@ -1524,7 +1545,7 @@ function renderEditor() {
              切片生成的）只写序号。 */
           const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
           const cap = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
-          return `<div class="asset-slot" title="${esc(cap)}">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">${esc(cap)}</span></div>`;
+          return `<div class="asset-slot" data-view="ref:${i}" title="${esc(cap)}（点开查看）">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">${esc(cap)}</span></div>`;
         }).join('') : ''}
         ${ic.ref && sh.refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (sh.refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${sh.refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
       </div>
@@ -1950,7 +1971,12 @@ function renderEditor() {
         renderEditor(); scheduleSave();
       };
     });
-    if (!k) return;
+    if (!k) {
+      /* 已填素材的瓦片没有 data-slot（首帧 / 尾帧 / 画面 / 参考图）：本体点击 = 灯箱看图，删除走 ×。 */
+      const v = slot.dataset.view;
+      if (v) slot.onclick = e => { if (e.target.closest('.x')) return; viewShotMedia(sh, v); };
+      return;
+    }
     // 与已选素材互斥的槽位：点不开选择器（先清空另一组才能加），小 × 仍可删除已放的素材
     // data-slot 是 HTML 属性（全小写），SLOT_ROLE 的键跟 canAddSlot 调用方一致（驼峰）；
     // 以前这里直接拿 dataset 的原值查表，参考视频/参考音频永远查不到 role → 互斥根本拦不住。
@@ -1959,8 +1985,15 @@ function renderEditor() {
       slot.onclick = () => flashConflict(cNote || '该素材与已选素材互斥，不能同时使用');
       return;
     }
-    // 所有槽位都只走同一份选择器（本地文件在它顶部的「本地上传」档位里）
-    if (k === 'first' || k === 'last' || k === 'ref') slot.onclick = () => openPickDlg(sh, k);
+    // 所有槽位都只走同一份选择器（本地文件在它顶部的「本地上传」档位里）；
+    // 已放好首帧 / 尾帧的那格本体留给「看灯箱」，换一张先 × 再选。
+    if (k === 'first' || k === 'last' || k === 'ref') {
+      const filled = (k === 'first' && sh.firstFrame) || (k === 'last' && sh.lastFrame);
+      slot.onclick = e => {
+        if (filled && !e.target.closest('.x')) { viewShotMedia(sh, k); return; }
+        openPickDlg(sh, k);
+      };
+    }
     else slot.onclick = () => pickRefMedia(sh, k);
   });
 }

@@ -740,18 +740,22 @@ export function setSketchMarks(stage, marks) {
   }
 }
 
-/* 蓝线 → 机位位移（程序算，AI 照抄）：以蓝线第一点为原点，
-   每个点相对它的偏移加到当前机位位置上。没有蓝线就回空表。 */
-export function screenToCamPath(marks, cam) {
-  const blue = (Array.isArray(marks) ? marks : [])
-    .find(m => m && m.type === 'path' && m.color === 'blue' && Array.isArray(m.pts) && m.pts.length >= 2);
-  if (!blue || !cam || !Array.isArray(cam.pos)) return [];
-  const p0 = blue.pts[0];
-  return blue.pts.map(p => [
-    r3(cam.pos[0] + p[0] - p0[0]),
-    r3(cam.pos[1] + p[1] - p0[1]),
-    r3(cam.pos[2] + p[2] - p0[2]),
-  ]);
+/* 蓝线 → 机位位移（程序算，AI 照几何走）：每一段蓝线各自成段，段内以它自己的
+   第一点为原点，把每个点的相对偏移加到当前机位位置上。返回「段」的数组 ——
+   多段蓝线一段不少地保留；编排（用哪几段 / 先后 / 快慢 / 要不要连成一条）
+   由用户那句话说了算，程序不替人合并。没有蓝线回空数组。 */
+export function screenToCamPaths(marks, cam) {
+  const blues = (Array.isArray(marks) ? marks : [])
+    .filter(m => m && m.type === 'path' && m.color === 'blue' && Array.isArray(m.pts) && m.pts.length >= 2);
+  if (!blues.length || !cam || !Array.isArray(cam.pos)) return [];
+  return blues.map(b => {
+    const p0 = b.pts[0];
+    return b.pts.map(p => [
+      r3(cam.pos[0] + p[0] - p0[0]),
+      r3(cam.pos[1] + p[1] - p0[1]),
+      r3(cam.pos[2] + p[2] - p0[2]),
+    ]);
+  });
 }
 
 export function disposeStage(stage) {

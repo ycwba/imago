@@ -18,7 +18,7 @@ import {
   createStage, setPanorama, buildContent, disposeContent, disposeStage,
   boundsOf, updateCameraRig, setCameraRigs, setTrackPaths,
   setStageLights, applyLightSample, tightenStageShadows, updateLightRig, setLightRigs,
-  setSketchMarks, screenToCamPath,
+  setSketchMarks, screenToCamPaths,
 } from './scene.js';
 import { sampleAnim, sampleCams, sampleLights } from './anim.js';
 import { findNode } from './schema.js';
@@ -680,8 +680,12 @@ export function createView(host, opts = {}) {
     });
     if (best >= 0) { sketchMarks.splice(best, 1); syncSketch(); notifySketch(); }
   }
-  function beginStroke(e) {
-    const pt = sketchPoint(e);
+  function beginStroke(e, surfaceAt) {
+    /* surfaceAt：Alt 起笔时射线打在模型表面上的那个点（箭头 / 画笔才能从主体身上起笔）；
+       不给就落回参考深度面。继续的笔画点仍走深度面 —— 起笔锚一次，后面不混锚。 */
+    const pt = surfaceAt
+      ? [round3s(surfaceAt.x), round3s(surfaceAt.y), round3s(surfaceAt.z)]
+      : sketchPoint(e);
     if (!pt) return;
     if (sketchTool === 'eraser') { eraseNear(pt); return; }
     if (sketchTool === 'text') {
@@ -739,9 +743,11 @@ export function createView(host, opts = {}) {
       const rect = renderer.domElement.getBoundingClientRect();
       pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
       ray.setFromCamera(pointer, activeCamera());
-      if (content && ray.intersectObject(content.group, true).some(h => !h.object.isLineSegments)) return;
+      const hit = content ? ray.intersectObject(content.group, true).find(h => !h.object.isLineSegments) : null;
+      /* 点在实体上仍是普通点选；按住 Alt 才在模型表面起笔（涂鸦不抢实体的选中）。 */
+      if (hit && !e.altKey) return;
       e.preventDefault();
-      beginStroke(e);
+      beginStroke(e, hit ? hit.point : null);
       return;
     }
     downAt = { x: e.clientX, y: e.clientY };
@@ -951,9 +957,17 @@ export function createView(host, opts = {}) {
       syncSketch();
     },
     clearSketch() { sketchMarks = []; syncSketch(); notifySketch(); },
-    getSketchCamPath() {
+    /* 撤上一笔（只回退标注，不碰 doc 的撤销栈）。空表时是空操作。 */
+    sketchUndo() {
+      if (!sketchMarks.length) return false;
+      sketchMarks.pop();
+      syncSketch();
+      notifySketch();
+      return true;
+    },
+    getSketchCamPaths() {
       const c = doc && ((doc.scene.cams.find(x => x.id === doc.scene.active)) || doc.scene.cams[0]);
-      return c ? screenToCamPath(sketchMarks, { pos: c.pos }) : [];
+      return c ? screenToCamPaths(sketchMarks, { pos: c.pos }) : [];
     },
     set onSketchChange(fn) { onSketchChange = fn; },
     setActive(fn) { active = fn || (() => true); markDirty(); kick(); },
