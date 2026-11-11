@@ -48,7 +48,7 @@
 | B14 | §17.5 | engine.js 继续按域搬 | ● | 剩下的 16 个域全部搬进 `web/director/engine/*.js`（现共 29 个域模块 / 574 位接线名单），engine.js 收在 1423 行（方案起点 5194，目标 <1500），只剩工作区状态 / 事件接线 / 撤销日志；`tests/split-plan.mjs` 的尺子改指 estimate 域，工作台的 `createSplit` 改名 `createImageSplit`（与导演台域工厂同名被 dup-guard 判成第二份）。AGENTS.md 的域清单同步 | 2026-11-10 |
 | B14 | §17.6 | 生成依赖链可视化 | ● | 顺序条每一镜标接续：右上角链扣（还在等）/ 对勾（等到了），title 写「等第 N 镜「名字」出画面（状态）」；「生成全部分镜」确认框把要等的镜头对（`A ← B`）列出来 | 2026-11-09 |
 | B15 | §18 | 运镜生成：丝滑路径与镜头语言 | ● | `anim.js`：`samplePath` 加 ease（in / out / inout / linear / hold）、轨道级 `ease`、`look` 的 heading / target、`framing:"rule3"` 把主体让到三分之一；`schema.js`：path 加 `ease` / `framing`、轨道加 `ease`；`ai.js` 的 `sceneMetaLines` 把每台机位的现有轨道（id / 路径 / 帧数 / 偏移 / 倍速）列进提示词；契约两份逐字节补「运镜」一节（镜头语言表 + 优先 path + 控制点 4–8 + 一次只做一件事 + 起停别匀速）。**偏差**：ease 不写仍按 linear（存量场景不变，契约推荐 inout）；`framing:"keep"` 2026-11-10 已补齐（基线取轨道起点、纯函数重算，见已知问题 #26） | 2026-11-09 |
-| B16 | 完善方案四项 | ◐ | 掩码细笔刷（修 ×2 根因）· 掩码弹窗加大 · 深度可调涂鸦（自动/定距/贴面）· 导演台贴纸一期（统一选择器入口 + 预览导出烧入）；方案见 docs/完善方案-掩码细笔刷·涂鸦深度·导演台贴纸.md | 2026-11-12 |
+| B16 | 完善方案四项 | ● | 四项全落地（方案 docs/完善方案-掩码细笔刷·涂鸦深度·导演台贴纸.md）：①掩码笔刷四档修 ×2 根因（极细 6px @1024）+ 弹窗专属 id 放宽到 1216px；②深度可调涂鸦三档（auto / 定距滑杆 + [ ] 微调 / 贴面 raycast），marks 仍是世界坐标、契约零改动，导出纯件 pickSurfacePoint / planeAnchorOf；③导演台贴纸一期：film.stickers（normalize 只认 data: 与 /asset/）、timeline 贴纸 lane + 工具条「贴纸」→ AssetPicker 统一选择器（本地上传经 saveLocalAsset 入库拿 /asset/ 引用）、编辑弹窗全量数值可调 + 删除、play 预览叠层与 media-export 帧循环同一份 drawStickers（z 序 视频→转场→贴纸→字幕）、FCPXML 不带（记录）。判据 director-sticker 23 条（登记 all.cjs）+ model3d-sketch 30 条（贴面取样 / 面锚夹取）+ 探针（极细 8px / 弹窗 1218px @1440）| 2026-11-12 |
 
 ## 依赖关系
 
