@@ -160,6 +160,9 @@ export function createTimeline(E, document, window) {
     const capPack = packCaptionLanes(film.captions);
     const voiceLanes = voicePack.lanes.length ? voicePack.lanes : [{ lane: 0, items: [] }];
     const capLanes = capPack.lanes.length ? capPack.lanes : [{ lane: 0, items: [] }];
+    /* 贴纸（成片级图片 overlay）：单 lane，t0/t1 直接当行几何 —— 与 clip 的 f0/span 同一把尺子。 */
+    const stickerItems = (Array.isArray(film.stickers) ? film.stickers : [])
+      .map(st => Object.assign({}, st, { f0: st.t0, span: Math.max(0.1, st.t1 - st.t0) }));
     const rows = [{ kind: 'markers', key: 'markers', label: '标记' }];
     imageLanes.forEach((items, lane) => rows.push({
       kind: 'image', key: `image-${lane}`, lane, items,
@@ -173,6 +176,7 @@ export function createTimeline(E, document, window) {
       kind: 'caption', key: `caption-${l.lane}`, lane: l.lane, items: l.items,
       label: l.lane ? `字幕 ${l.lane + 1}` : '字幕',
     }));
+    rows.push({ kind: 'sticker', key: 'sticker', lane: 0, items: stickerItems, label: '贴纸' });
     return { tl, rows, voiceOverflow: voicePack.overflow, capOverflow: capPack.overflow };
   }
 
@@ -241,6 +245,11 @@ export function createTimeline(E, document, window) {
         ${tb('undo', 'undo', undoTitle())}
         ${tb('redo', 'redo', '重做（Ctrl/⌘+Shift+Z）')}
         <span class="tl-undocount" id="tlUndoVal" title="${esc(undoTitle())}">${esc(undoCountText())}</span>
+      </div>
+      <i class="tl-sep"></i>
+      <i class="tl-sep"></i>
+      <div class="tl-tgroup">
+        ${tb('stickers', 'image', '添加贴纸（透明 PNG 最佳；选完落在播放头起 3 秒）')}
       </div>
       <i class="tl-sep"></i>
       <div class="tl-tgroup">
@@ -436,6 +445,15 @@ export function createTimeline(E, document, window) {
     </div>`;
   }
 
+  /* 贴纸块：button 而不是 div 块 —— 一期手势就是「点开编辑」，不进 edit.js 的拖拽体系。 */
+  function stickerHTML(st, pps) {
+    const w = Math.max(8, Math.round(tlXOfTime(Math.max(0.1, st.t1 - st.t0), pps) * 100) / 100);
+    const x = Math.round(tlXOfTime(st.t0, pps) * 100) / 100;
+    return `<button type="button" class="tl-sticker" data-sticker="${esc(st.id)}"
+      style="left:${x}px;width:${w}px" title="${esc(st.name)} · ${clockText(st.t0)}–${clockText(st.t1)} · 点开编辑">
+      <span class="tl-sticker-name">${esc(st.name)}</span></button>`;
+  }
+
   function junctionsHTML(film, tl, pps) {
     let html = '';
     for (let i = 0; i < tl.rows.length - 1; i++) {
@@ -482,6 +500,9 @@ export function createTimeline(E, document, window) {
     } else if (row.kind === 'caption') {
       body = row.items.map(cap => captionHTML(cap, pps, film, row.lane)).join('');
       if (!film.captions.length) body = '<span class="tl-lane-hint">字幕会排在这一轨</span>';
+    } else if (row.kind === 'sticker') {
+      body = row.items.map(st => stickerHTML(st, pps)).join('');
+      if (!row.items.length) body = '<span class="tl-lane-hint">贴纸会排在这一轨（工具条「贴纸」添加）</span>';
     }
     return `<div class="${cls}" data-row="${row.key}" data-lane="${row.lane == null ? 0 : row.lane}">${body}</div>`;
   }
@@ -507,6 +528,7 @@ export function createTimeline(E, document, window) {
       ${trackBlock('image')}
       ${trackBlock('voice')}
       ${trackBlock('caption')}
+      ${trackBlock('sticker')}
       ${over}${overCap}
       <div class="tl-snap-line" id="tlSnapLine" hidden></div>
     </div>`;
@@ -871,6 +893,7 @@ export function createTimeline(E, document, window) {
       if (act === 'zoom-out') return zoomOut();
       if (act === 'zoom-fit') return zoomFit();
       if (act === 'markers') { markersOpen = !markersOpen; render(); return; }
+      if (act === 'stickers') { pickStickers(); return; }
       if (act === 'snap') {
         snapOn = !snapOn;
         tool.classList.toggle('is-on', snapOn);
@@ -891,6 +914,8 @@ export function createTimeline(E, document, window) {
       if (toolAction) toolAction(act, { playhead });
       return;
     }
+    const stBtn = t.closest('[data-sticker]');
+    if (stBtn) { e.stopPropagation(); editSticker(stBtn.getAttribute('data-sticker')); return; }
     const eye = t.closest('[data-eye]');
     if (eye) { e.stopPropagation(); return toggleRowFlag('vis', eye.getAttribute('data-eye')); }
     const lock = t.closest('[data-lock]');
@@ -1029,6 +1054,121 @@ export function createTimeline(E, document, window) {
   }
 
   /* ---------------- 对外面 ---------------- */
+  /* ---------------- 贴纸：添加（统一选择器）与编辑 ---------------- */
+  /* 本地上传的字节走 saveLocalAsset 入资产库（/asset/ 引用才「记得住」）；
+     资产库 / 收藏选来的直接用 assetId。平台直链（dl）取不回字节，存了只会变破图——跳过照实说。 */
+  async function pickStickers() {
+    const film = filmNow();
+    const total = deriveTimeline(film.clips).total;
+    const list = await window.AssetPicker.open({
+      types: ['图片'], multiple: true, upload: { accept: 'image/*' },
+      title: '选贴纸（透明 PNG 最佳）',
+    });
+    if (!list || !list.length) return;
+    const arr = Array.isArray(film.stickers) ? film.stickers : [];
+    const t0 = Math.max(0, Math.min(playhead, Math.max(0, total - 1)));
+    let added = 0, skipped = 0;
+    for (const en of list) {
+      let src = '';
+      if (en.assetId) src = '/asset/' + en.assetId;
+      else if (/^(data:|\/asset\/)/.test(String(en.src || ''))) src = String(en.src);
+      else if (en.file) {
+        try {
+          const b64 = await window.AssetTransfer.toB64(en.file);
+          const saved = await window.Api.saveLocalAsset({
+            name: en.name || '贴纸.png', mime: en.file.type || 'image/png',
+            format: 'png', data: b64, meta: { provider: '本机', prompt: '' },
+          });
+          src = saved.url || window.Api.assetSrc(saved.assetId || saved.id);
+        } catch (e) {
+          if (setStatus) setStatus('<span class="err">贴纸「' + esc(en.name || '') + '」没入库：' + esc(errText(e)) + '</span>');
+          continue;
+        }
+      } else { skipped++; continue; }
+      if (!src) { skipped++; continue; }
+      /* 默认铺法：居中、宽 1/4 画幅、高按图片宽高比（画幅按 16:9 估，竖幅工程在编辑里调） */
+      let iw = 400, ih = 300;
+      try { const dim = await imageSize(src); iw = dim.w || iw; ih = dim.h || ih; } catch (e) { /* 读不出就按 4:3 估 */ }
+      const w = 0.25;
+      const h = Math.max(0.02, Math.min(1.5, w * (16 / 9) / Math.max(0.01, iw / ih)));
+      arr.push({
+        id: 'stk-' + Date.now().toString(36) + '-' + Math.round(Math.random() * 1e4).toString(36),
+        name: String(en.name || '贴纸').slice(0, 60),
+        src, x: 0.5 - w / 2, y: 0.5 - h / 2, w, h,
+        t0, t1: total > t0 ? Math.min(total, t0 + 3) : t0 + 3,
+        opacity: 1, z: arr.length,
+      });
+      added++;
+    }
+    if (added) {
+      film.stickers = arr;
+      scheduleSaveQuiet();
+      render();
+      if (setStatus) setStatus('<span class="ok">✓ 已加 ' + added + ' 张贴纸（播放头起 3 秒，点块可编辑）</span>'
+        + (skipped ? '；' + skipped + ' 张没加（拿不到字节）' : ''));
+    } else if (skipped) {
+      if (setStatus) setStatus('<span class="err">没加成：' + skipped + ' 张拿不到字节（平台直链不支持当贴纸，先存资产库再选）</span>');
+    }
+  }
+  function imageSize(src) {
+    return new Promise((res, rej) => {
+      const im = new window.Image();
+      im.onload = () => res({ w: im.naturalWidth, h: im.naturalHeight });
+      im.onerror = () => rej(new Error('读不出图片'));
+      im.src = src;
+    });
+  }
+  /* 编辑弹窗：数值全量可调 + 删除；保存就地改条目（撤销随工作区快照走）。 */
+  function editSticker(id) {
+    const film = filmNow();
+    const st = (film.stickers || []).find(x => x.id === id);
+    if (!st || !window.UiDialog) return;
+    const row = (label, key, type, step, min, max) => '<label class="tl-stk-row"><span>' + esc(label) + '</span>'
+      + '<input type="' + type + '" data-stk="' + key + '" step="' + step + '" min="' + min + '" max="' + max
+      + '" value="' + esc(String(st[key] == null ? '' : st[key])) + '"></label>';
+    window.UiDialog.open({
+      id: 'stkEdit', title: '编辑贴纸', sub: st.name,
+      body: box => {
+        box.innerHTML = '<div class="tl-stk-form">'
+          + row('名称', 'name', 'text', '', '', '')
+          + row('开始（秒）', 't0', 'number', 0.1, 0, 1e6)
+          + row('结束（秒）', 't1', 'number', 0.1, 0.1, 1e6)
+          + row('X（0–1）', 'x', 'number', 0.01, -0.5, 1.5)
+          + row('Y（0–1）', 'y', 'number', 0.01, -0.5, 1.5)
+          + row('宽（0–1）', 'w', 'number', 0.01, 0.02, 1.5)
+          + row('高（0–1）', 'h', 'number', 0.01, 0.02, 1.5)
+          + row('不透明度（0–1）', 'opacity', 'number', 0.05, 0, 1)
+          + row('层序', 'z', 'number', 1, -99, 99)
+          + '</div>';
+      },
+      actions: [
+        { label: '删掉', danger: true, onClick: () => {
+            const arr = (filmNow().stickers || []).filter(x => x.id !== id);
+            filmNow().stickers = arr;
+            scheduleSaveQuiet(); render();
+            if (setStatus) setStatus('已删掉贴纸「' + esc(st.name) + '」');
+          } },
+        { label: '保存', primary: true, onClick: () => {
+            const cur = (filmNow().stickers || []).find(x => x.id === id);
+            if (!cur) return true;
+            const form = document.querySelector('#stkEdit .tl-stk-form');
+            if (form) {
+              form.querySelectorAll('[data-stk]').forEach(inp => {
+                const k = inp.dataset.stk;
+                if (k === 'name') { cur.name = String(inp.value || '').slice(0, 60) || '贴纸'; return; }
+                const n = Number(inp.value);
+                if (Number.isFinite(n)) cur[k] = n;
+              });
+              if (cur.t1 <= cur.t0) cur.t1 = cur.t0 + 0.1;
+              scheduleSaveQuiet(); render();
+            }
+            return true;
+          } },
+        { label: '取消', value: null },
+      ],
+    });
+  }
+
   return {
     bind,
     render,

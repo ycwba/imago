@@ -609,7 +609,7 @@
   max-width: calc(100% - var(--sp-24));
   pointer-events: none;
 }
-.mm-sketch-colors, .mm-sketch-tools, .mm-sketch-foot {
+.mm-sketch-colors, .mm-sketch-tools, .mm-sketch-foot, .mm-sketch-depth {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -621,6 +621,9 @@
   box-shadow: var(--shadow-2);
   pointer-events: auto;
 }
+/* 深度行：贴面开关 + 距离滑杆 + 读数（自动 / x.xm / 贴面） */
+.mm-sketch-depth input[type="range"] { flex: 1; min-width: 90px; accent-color: var(--acc); }
+.mm-sketch-depth input[type="range"]:disabled { opacity: var(--a-50); }
 .mm-sketch-swatch {
   width: var(--sz-chip);
   height: var(--sz-chip);

@@ -11,6 +11,7 @@
      音量 > 100% 与淡入淡出包络走 WebAudio GainNode（原生元素音量封顶 1）。
 
    播放层不碰工程数据：它只读 film，写回（改音量 / 剪段）都归编辑核。 */
+import { activeAt } from '../sticker.js';
 
 import {
   deriveTimeline, coversTime, itemVisible, voiceLaneMap, captionLaneMap,
@@ -66,6 +67,8 @@ export function createPlay(E, document, window) {
   let still = null;
   let trLayer = null;
   let subWrap = null;
+  let stkWrap = null;
+  let stkKey = '';
   let pbBtn = null;
   let pbTime = null;
   let pbMute = null;
@@ -173,6 +176,7 @@ export function createPlay(E, document, window) {
       <video id="player" playsinline></video>
       <img id="playerStill" class="player-still" alt="">
       <div class="preview-transition-layer" id="pvTr" hidden></div>
+      <div class="stk-wrap" id="stkWrap" aria-hidden="true"></div>
       <div class="sub-wrap" id="subWrap" aria-hidden="true"></div>
       ${pbBarHTML()}
       <span class="arbadge" id="arBadge"></span>
@@ -374,6 +378,20 @@ export function createPlay(E, document, window) {
       + `${esc(String(c.text || '')).replace(/\n/g, '<br>')}</div>`).join('');
   }
 
+  /* ---------------- 贴纸叠层（与导出同一份 activeAt；DOM 序在字幕之下） ---------------- */
+  function applyStickers(t) {
+    if (!stkWrap) return;
+    const f = film();
+    const hits = activeAt(f.stickers, t);
+    const key = hits.map(s => [s.id, s.x, s.y, s.w, s.h, s.opacity, s.src].join('')).join('');
+    if (key === stkKey) return;
+    stkKey = key;
+    stkWrap.innerHTML = hits.map(s => '<img class="stk-ov" src="' + esc(String(s.src)) + '" alt="" draggable="false"'
+      + ' style="left:' + (Number(s.x) * 100).toFixed(2) + '%;top:' + (Number(s.y) * 100).toFixed(2)
+      + '%;width:' + (Number(s.w) * 100).toFixed(2) + '%;height:' + (Number(s.h) * 100).toFixed(2)
+      + '%;opacity:' + (Math.min(1, Math.max(0, Number(s.opacity) == null ? 1 : Number(s.opacity)))) + '">').join('');
+  }
+
   /* ---------------- 配音 ---------------- */
   function ensureVoiceEl(id, src) {
     let rec = voices.get(id);
@@ -501,6 +519,7 @@ export function createPlay(E, document, window) {
       lastUi = wall;
       paintTime();
       applyTransition(t, false);
+      applyStickers(t);
       applyCaptions(t);
       if (Timeline) Timeline.playbackSync(t);
     }
@@ -516,6 +535,7 @@ export function createPlay(E, document, window) {
     lastUi = 0;
     applyStage(pos, true);
     applyTransition(pos, true);
+    applyStickers(pos);
     applyCaptions(pos);
     syncVoices(pos, true);
     if (video && stageKind === 'video') playSafe(video);
@@ -596,6 +616,7 @@ export function createPlay(E, document, window) {
     still = col.querySelector('#playerStill');
     trLayer = col.querySelector('#pvTr');
     subWrap = col.querySelector('#subWrap');
+    stkWrap = col.querySelector('#stkWrap');
     pbBtn = col.querySelector('#pbBtn');
     pbTime = col.querySelector('#pbTime');
     pbMute = col.querySelector('#pbMute');
@@ -655,7 +676,7 @@ export function createPlay(E, document, window) {
     ctx = null;
     mainNode = null;
     mainGain = null;
-    col = null; box = null; video = null; still = null; trLayer = null; subWrap = null;
+    col = null; box = null; video = null; still = null; trLayer = null; subWrap = null; stkWrap = null; stkKey = '';
     pbBtn = null; pbTime = null; pbMute = null;
     stageKind = '';
     stageClipId = '';

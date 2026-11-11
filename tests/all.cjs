@@ -333,6 +333,8 @@ run('tests/director-film.mjs', process.execPath, ['tests/director-film.mjs']);
 run('tests/director-strip.mjs', process.execPath, ['tests/director-strip.mjs']);
 /* 时间线编辑纯件：切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 波形 / 刻度像素换算。 */
 run('tests/director-tl-edit.mjs', process.execPath, ['tests/director-tl-edit.mjs']);
+/* 贴纸纯件：归一化 / 片长收紧 / 取活排序 / 一份画法。 */
+run('tests/director-sticker.mjs', process.execPath, ['tests/director-sticker.mjs']);
 /* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
 run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pack.mjs']);
 /* 模板样式的挂根：每条选择器加零权重 `:where(.director-page)` 前缀（@scope 会被强制夜间扩展整块跳过），

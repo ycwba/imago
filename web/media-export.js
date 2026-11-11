@@ -536,6 +536,18 @@
        源时刻 = 下段 sourceStart + (成片秒 − 窗口起点) × 下段倍速）。
        这一段帧落在下段顺序表的前面，同一只迭代器不能倒着走，所以进窗时**另建一只**、出窗立刻释放
        —— 同时最多活着一只，不会为每个窗口各留一份解码器。 */
+    /* 贴纸（成片级图片 overlay）：字节先解好缓存（同一 src 只解一次），帧循环里同步取。
+       画法与 activeAt 都在 director/sticker.js（window.DirectorSticker，双模式挂载）；
+       模块没跑过（理论上不可能 —— 导演台页面 play 域已 import 它）就跳过并记一句诊断。 */
+    const STK = window.DirectorSticker || null;
+    const stickerList = STK ? (opts.stickers || []).map(st => STK.clampSticker(st, duration)) : [];
+    const stickerImgs = new Map();
+    for (const st of stickerList) {
+      if (stickerImgs.has(st.src)) continue;
+      const still = await loadStill(st.src).catch(() => null);
+      stickerImgs.set(st.src, stillDrawable(still));
+    }
+    const stickerImgOf = st => stickerImgs.get(st.src) || null;
     const windows = (opts.transitions || [])
       .map(x => ({
         id: String((x && x.id) || ''),
@@ -650,6 +662,8 @@
           if (a.kind === 'image') pushMode('static-image'); else pushMode(a.iter.mode);
           compositeTransition(ctx, w, h, winNow.id, (t - winNow.start) / winNow.duration, inc);
         }
+        const liveStickers = STK ? STK.activeAt(stickerList, t) : [];
+        if (liveStickers.length) STK.drawStickers(ctx, w, h, liveStickers, stickerImgOf);
         let live = null;
         for (const c of captionList) {
           if (t >= c.start && t < c.end) (live || (live = [])).push(c);

@@ -1085,6 +1085,19 @@
     font-size: var(--fs-11); color: var(--txt); pointer-events: none; }
 
   /* ---------------- 字幕 ---------------- */
+  /* 贴纸块与预览层（B16-3）：块是 button（点开编辑），预览层 DOM 序在字幕之下 */
+  .tl-board .tl-sticker { position: absolute; top: var(--sp-2); bottom: var(--sp-2); display: flex; align-items: center;
+    padding: 0 var(--sp-8); border: var(--hair-1-5) solid var(--acc-line-32); border-radius: var(--radius-4);
+    background: color-mix(in srgb, var(--acc-tint-18) var(--a-30), transparent); color: var(--txt);
+    font-size: var(--fs-11); overflow: hidden; cursor: pointer; text-align: left; }
+  .tl-board .tl-sticker:hover { border-color: var(--acc); }
+  .tl-board .tl-sticker .tl-sticker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .stk-wrap { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; border-radius: var(--radius-4); }
+  .stk-ov { position: absolute; }
+  .tl-stk-form { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 300px; }
+  .tl-stk-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); }
+  .tl-stk-row > span { flex: 0 0 110px; color: var(--sub); }
+  .tl-stk-row input { flex: 1; }
   .tl-board .tl-cap { position: absolute; top: var(--sp-2); bottom: var(--sp-2);
     border: var(--hair) solid color-mix(in srgb, var(--ok) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;

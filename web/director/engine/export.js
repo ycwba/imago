@@ -216,6 +216,7 @@ async function exportFilm(opts) {
     if (o.onStarted) { try { o.onStarted({ clips: plan.clips.length, subtitles: plan.captions.length }); } catch (e) { /* 回调是调用方给的，它抛错不该把已经提交的导出带崩 */ } }
     const r = await ME.exportFilm({
       clips: plan.clips, transitions: plan.transitions, voices: plan.voices, captions: plan.captions,
+      stickers: (filmOf().stickers || []),
       width: size.w, height: size.h, fps: TL_FPS, duration: plan.duration,
       signal: abortCtl.signal,
       onProgress: j => {
