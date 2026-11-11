@@ -139,11 +139,11 @@ let midCandExpand = window.LS.get('dir_cand_expand') === '1';
 function pbBarHTML() {
   const muted = window.LS.get('dir_muted') === '1';
   return `<div class="pb-bar">
-        <button class="pb-btn" id="pbBtn" title="播放 / 暂停">${icon('play', 15)}</button>
+        <button type="button" class="pb-btn" id="pbBtn" title="播放 / 暂停">${icon('play', 15)}</button>
         <span class="pb-time" id="pbTime">00:00 / 00:00</span>
         <span class="sp"></span>
-        <button class="pb-btn" id="pbMute" title="${muted ? '已静音' : '声音已开启'}">${icon(muted ? 'speakerOff' : 'speaker', 14)}</button>
-        <button class="pb-btn" id="pbFull" title="全屏观看">${icon('expand', 14)}</button>
+        <button type="button" class="pb-btn" id="pbMute" title="${muted ? '已静音' : '声音已开启'}">${icon(muted ? 'speakerOff' : 'speaker', 14)}</button>
+        <button type="button" class="pb-btn" id="pbFull" title="全屏观看">${icon('expand', 14)}</button>
       </div>`;
 }
 /* 全屏：整块 `.player-box` 进去，控件跟着一起（只让 <video> 进全屏的话，
@@ -227,9 +227,9 @@ function candActsHTML(sh) {
   const cur = cands[projOf().curCand];
   const picked = !!(cur && cur.vid === sh.selId);
   const usable = !!(cur && !picked && cur.status === 'succeeded' && cur.url);
-  return `<span class="faces"><button class="ghost${picked ? '' : ' off'}" id="unsel" ${picked && !cur.locked ? '' : 'disabled'}>× 取消选用</button><button class="ghost${picked ? ' off' : ''}" id="usec" ${usable ? '' : 'disabled'}>✓ 选用</button></span>
-    <button class="ghost" id="lockc" ${cur ? '' : 'disabled'}>${icon('lock', 12)} ${cur && cur.locked ? '解锁' : '锁定'}</button>
-    <button class="ghost danger" id="delc" ${cur && !cur.locked ? '' : 'disabled'}>${icon('trash', 12)} 删除</button>`;
+  return `<span class="faces"><button type="button" class="ghost${picked ? '' : ' off'}" id="unsel" ${picked && !cur.locked ? '' : 'disabled'}>× 取消选用</button><button type="button" class="ghost${picked ? ' off' : ''}" id="usec" ${usable ? '' : 'disabled'}>✓ 选用</button></span>
+    <button type="button" class="ghost" id="lockc" ${cur ? '' : 'disabled'}>${icon('lock', 12)} ${cur && cur.locked ? '解锁' : '锁定'}</button>
+    <button type="button" class="ghost danger" id="delc" ${cur && !cur.locked ? '' : 'disabled'}>${icon('trash', 12)} 删除</button>`;
 }
 /* 操作行的按钮绑定（renderMid 与「切换候选」共用） */
 function bindCandActs(col) {
@@ -773,11 +773,11 @@ function renderScenes() {
          剪辑态整块不画：场景图管的是「以后新建的镜头带哪张参考图」，
          属于生成态那一族（用户点名：剪辑态左栏不该带新建删除那些生成态的东西）。
          留着的是场景名与镜头数 —— 那是这一组的标签，剪的时候还要靠它认场景。 */
-      head.innerHTML = (midEditTrim ? '' : `<button class="sc-thumb" data-act="scpic"></button>`)
+      head.innerHTML = (midEditTrim ? '' : `<button type="button" class="sc-thumb" data-act="scpic"></button>`)
         + `<input value="${esc(sc.name)}" title="点一下可以改场景名">
         <span class="sc-cnt">${listed.length} 镜</span>`
-        + (midEditTrim ? '' : `<button class="icon-btn add" data-act="addshot" title="在这个场景末尾新建一个镜头">${icon('plus', 14)}</button>
-        <button class="icon-btn del" data-act="delscene" title="删除整个场景（连带里面的镜头）">${TRASH_SVG}</button>`);
+        + (midEditTrim ? '' : `<button type="button" class="icon-btn add" data-act="addshot" title="在这个场景末尾新建一个镜头">${icon('plus', 14)}</button>
+        <button type="button" class="icon-btn del" data-act="delscene" title="删除整个场景（连带里面的镜头）">${TRASH_SVG}</button>`);
       /* 收养只认「画的是同一张图」这一件事：这一格的媒体可能是从素材库现取的外链，
          整颗按钮推倒重来就是让它重新走一遍加载（任务轮询每一轮都走 renderSoft 重画左栏，
          闪的正是这一下）。收养的是整颗按钮 —— 绑定的键是它，不是里面的 <img>。 */
@@ -842,9 +842,9 @@ function renderScenes() {
              的镜头清单，点一行只做「切镜 / 跳针」，这三颗整个不画 ——
              以前它们悬停才浮出来，剪的时候一不留神就复制了一镜或删掉了一段。 */
           + (midEditTrim ? '' : `<div class="ops">
-            <button class="op-btn grip" title="按住拖动排序">${icon('grip', 12)}</button>
-            <button class="op-btn dup" title="复制镜头">${icon('copy', 12)}</button>
-            <button class="op-btn del danger" title="删除镜头">${TRASH_SVG}</button>
+            <button type="button" class="op-btn grip" title="按住拖动排序">${icon('grip', 12)}</button>
+            <button type="button" class="op-btn dup" title="复制镜头">${icon('copy', 12)}</button>
+            <button type="button" class="op-btn del danger" title="删除镜头">${TRASH_SVG}</button>
           </div>`);
         /* 收养旧的那一格缩略图，条件只有「它显示的就是这一镜此刻选用的那一份素材」——
            按**缩略图身份**认，不按镜头认：换了选用的候选，旧格子里是另一条视频的首帧，

@@ -328,7 +328,7 @@ export function createCaptionDomain(E, document, window) {
         <label class="sub-hl" title="高亮底只在预览与烧录里生效">
           <input type="checkbox" data-cap-hl="${esc(c.id)}"${captionHighlighted(c) ? ' checked' : ''}> 高亮
         </label>
-        <button class="ghost mini" data-cap-del="${esc(c.id)}" title="删掉这一条字幕">${icon('trash', 11)}</button>
+        <button type="button" class="ghost mini" data-cap-del="${esc(c.id)}" title="删掉这一条字幕">${icon('trash', 11)}</button>
       </div>
       <textarea class="ui-ta sub-ta" rows="1" data-cap-text="${esc(c.id)}">${esc(c.text)}</textarea>
     </div>`;
@@ -354,18 +354,18 @@ export function createCaptionDomain(E, document, window) {
       ${rows}
       <div class="btn-row">
         ${window.aiBtnHTML({ id: 'capGen', label: '按配音补字幕', title: '给还没有字幕挂着的那几句配音各补一条（已有的不覆盖）' })}
-        <button class="tool" id="capAdd" title="在播放头那一秒加一条（${CAP_ADD_SECONDS} 秒）">${icon('plus', 14)} 在播放头加一条</button>
+        <button type="button" class="tool" id="capAdd" title="在播放头那一秒加一条（${CAP_ADD_SECONDS} 秒）">${icon('plus', 14)} 在播放头加一条</button>
       </div>
       <div class="btn-row">
-        <button class="tool" id="capImport" title="导入 .srt（时间就是成片秒，不覆盖）">${icon('upload', 14)} 导入 SRT</button>
-        <button class="tool" id="capExport" title="把全片字幕导出成 .srt">${icon('download', 14)} 导出 SRT</button>
-        <button class="tool" id="capAsr" title="${busy ? '' : '识别播放头指着那一段素材里的话（首次可能等几分钟）'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
+        <button type="button" class="tool" id="capImport" title="导入 .srt（时间就是成片秒，不覆盖）">${icon('upload', 14)} 导入 SRT</button>
+        <button type="button" class="tool" id="capExport" title="把全片字幕导出成 .srt">${icon('download', 14)} 导出 SRT</button>
+        <button type="button" class="tool" id="capAsr" title="${busy ? '' : '识别播放头指着那一段素材里的话（首次可能等几分钟）'}">${icon('mic', 14)} ${busy ? '取消识别' : '自动识别'}</button>
       </div>
       <div class="adv-grid">
         <div><label>每行字数</label><input type="number" id="capMaxChars" min="8" max="120" step="1" value="${RESEGMENT_DEFAULT_CHARS}"></div>
       </div>
       <div class="btn-row">
-        <button class="tool" id="capReseg" title="按「每行字数」把长字幕切成几条，时间按字数比例分">${icon('rows', 14)} 按每行字数重切</button>
+        <button type="button" class="tool" id="capReseg" title="按「每行字数」把长字幕切成几条，时间按字数比例分">${icon('rows', 14)} 按每行字数重切</button>
       </div>`;
   }
 

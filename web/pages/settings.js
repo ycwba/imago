@@ -965,7 +965,7 @@ const SettingsView = {
         const id2 = window.esc(x.id);
         const src = x.typed ? '自己填的' : (x.api ? '接口给的' : '本机记的');
         const del = x.typed
-          ? '<button class="ghost mini" title="移除这个型号（只清本机记录）"'
+          ? '<button type="button" class="ghost mini" title="移除这个型号（只清本机记录）"'
             + ' data-tdel="' + id2 + '" data-tkid="' + es + '">' + ic('close', 10) + '</button>' : '';
         if (text) {
           const on = x.id === cur;
@@ -2068,16 +2068,16 @@ const SettingsView = {
     }
 
     /* ---------- 数据与同步 ---------- */
-    const dataInfo = ref('读取中…');
+    const dataInfo = ref('加载中…');
     const dataInfoTitle = ref('');
     const dataMsg = ref('');
-    const persistInfo = ref('读取中…');
+    const persistInfo = ref('加载中…');
     const persistGranted = ref(false);
     const dataBusy = reactive({ copy: false, push: false, pull: false, exp: false, imp: false });
     /* ---------- 备份中心：本机快照的唯一界面（端点只经 DataSync 走 /backup/*） ----------
        健康提示必须说清「哪一份坏了」：state.json 校验不过时代理会拒绝写入，
        这时界面上要是还写「正常」，用户就会一直以为自己的修改存下来了。 */
-    const backupInfo = ref('读取中…');
+    const backupInfo = ref('加载中…');
     const backupMsg = ref('');
     const backupRows = ref([]);
     const backupBusy = reactive({ create: false, verify: false, refresh: false });
@@ -2113,8 +2113,8 @@ const SettingsView = {
           + '<span class="cloud-key">' + escH(x.reason) + '</span>'
           + '<span class="cloud-meta">' + escH(fmtTime(x.ts)) + ' · ' + Number(x.keys || 0) + ' 键 / '
           + Number(x.prompts || 0) + ' 归档' + (x.assetsIndex ? ' / 含资产索引' : '') + '</span>'
-          + '<button class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="preview">看差异</button>'
-          + '<button class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="restore">恢复这份</button>'
+          + '<button type="button" class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="preview">看差异</button>'
+          + '<button type="button" class="ghost mini xs" data-snap="' + escH(x.id) + '" data-act="restore">恢复这份</button>'
           + '</div>').join('') + '</div>';
       box.querySelectorAll('[data-snap]').forEach(b => { b.onclick = () => backupRowAct(b.dataset.snap, b.dataset.act); });
     }
@@ -2445,8 +2445,8 @@ const SettingsView = {
             + cf.map(x => '<div class="cloud-row">'
               + '<span class="cloud-key">' + escH(x.key) + '</span>'
               + '<span class="cloud-meta">本机 ' + escH(fmtTime(x.localTs)) + ' ／ 云端 ' + escH(fmtTime(x.remoteTs)) + '</span>'
-              + '<button class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="local">用本机覆盖云端</button>'
-              + '<button class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="remote">用云端覆盖本机</button>'
+              + '<button type="button" class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="local">用本机覆盖云端</button>'
+              + '<button type="button" class="ghost mini xs" data-cf="' + escH(x.key) + '" data-side="remote">用云端覆盖本机</button>'
               + '</div>').join('') + '</div>';
           cBox.querySelectorAll('[data-cf]').forEach(b => {
             b.onclick = async () => {
@@ -2699,7 +2699,7 @@ const SettingsView = {
             + (n ? '清掉后本机存的任务号与提示词就没了，删除还会同步进数据文件与云端。'
                  : '本机没有记录。')
             + '</span>'
-            + '<button class="ghost mini danger wide" data-hist="' + window.esc(k.kind) + '"'
+            + '<button type="button" class="ghost mini danger wide" data-hist="' + window.esc(k.kind) + '"'
             + (n ? '' : ' disabled') + '>清空</button></div>';
         }).join('');
         host.querySelectorAll('[data-hist]').forEach(b => { b.onclick = () => clearHist(b.dataset.hist); });
@@ -2727,8 +2727,8 @@ const SettingsView = {
        归档目录**不给位置**：它固定跟着「本机资产库」那个根走（根下 `提示词\`），
        这里只把代理现算出来的路径读出来显示。以前这一格让用户另存一个 prompt_dir，
        与库根各指一处 —— 换了库根，归档还留在老地方，用户得记住两个位置。 */
-    const promptDir = ref('读取中…');
-    const promptInfo = ref('读取中…');
+    const promptDir = ref('加载中…');
+    const promptInfo = ref('加载中…');
     const promptMsg = ref('');
     const promptOpenBusy = ref(false);
     function paintPrompt(d) {
@@ -3311,13 +3311,13 @@ const SettingsView = {
 
     const asrLocalText = computed(() => {
       const l = asrLocal.value;
-      if (!l) return '读取中…';
+      if (!l) return '加载中…';
       if (l.available) return '可用 · ' + (l.model || '（模型）') + (l.bytes ? ' · ' + mbOf(l.bytes) : '');
       return '不可用：' + (l.why || '缺少运行包');
     });
     const asrBrowserText = computed(() => {
       const b = asrBrowser.value;
-      if (!b) return '读取中…';
+      if (!b) return '加载中…';
       if (b.complete) return '已就绪 · ' + mbOf(b.bytes || 0);
       if (!b.files || !b.files.length) return '还没下载';
       return '缺 ' + b.missing.length + ' 个文件（已有 ' + mbOf(b.bytes || 0) + '）：再跑一次浏览器内识别会接着补齐';

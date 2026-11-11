@@ -216,7 +216,7 @@
         /* 值与标签都过一遍 esc：标签里有平台名 / 计量单位这种外来词，
            原先五份里 assets 用 textContent（天然安全）、另几份直接拼进 innerHTML。统一到安全的那一侧。 */
         const ti = o.title ? ' title="' + window.esc(o.title(v)) + '"' : '';
-        return '<button class="chip' + (o.cls ? ' ' + o.cls : '') + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
+        return '<button type="button" class="chip' + (o.cls ? ' ' + o.cls : '') + (on(v) ? ' on' : '') + '" data-v="' + window.esc(v) + '"' + ti + '>'
           + window.esc(label) + (n ? ' ' + n : '') + '</button>';
       }).join('');
       box.querySelectorAll('.chip').forEach(b => { b.onclick = () => onPick(b.dataset.v); });
@@ -259,7 +259,7 @@
       box.innerHTML = '<span class="' + (oo.cls || 'ai-chip') + '"'
         + (oo.tip ? ' title="' + window.esc(oo.tip) + '"' : '') + '>'
         + window.icon('sparkles', oo.iconSize || 12) + ' ' + window.esc(t)
-        + '<button id="' + window.esc(cid) + '" title="' + window.esc(oo.clearTitle || AiChip.CLEAR_TITLE) + '>'
+        + '<button type="button" id="' + window.esc(cid) + '" title="' + window.esc(oo.clearTitle || AiChip.CLEAR_TITLE) + '>'
         + window.icon('close', 10) + '</button></span>';
       const c = document.getElementById(cid);
       if (c) c.onclick = oo.onClear;
@@ -858,7 +858,7 @@ window.GoPage = {
     location.href = f;
   },
   btn(file, label) {
-    return '<button class="tool mini" data-go="' + String(file || '').replace(/"/g, '') + '">'
+    return '<button type="button" class="tool mini" data-go="' + String(file || '').replace(/"/g, '') + '">'
       + String(label || '去看看') + '</button>';
   },
   /* 用一个委托接住整个容器里的所有入口：`setStatus` 写进去的按钮是后来才出现的，
@@ -1235,7 +1235,7 @@ window.copyText = async function copyText(txt) {
         const b = hostEl();
         b.hidden = false;
         b.className = kind === 'warn' ? 'warn' : 'err';
-        b.innerHTML = '<span class="msg"></span><button class="bx" title="关闭">' + window.icon('close', 11) + '</button>';
+        b.innerHTML = '<span class="msg"></span><button type="button" class="bx" title="关闭">' + window.icon('close', 11) + '</button>';
         b.querySelector('.msg').innerHTML = window.sanitizeHTML(msg);
         b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
       };

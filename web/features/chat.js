@@ -963,7 +963,7 @@
     el.files.innerHTML = files.map((f, i) =>
       '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" data-fi="' + i + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '（点开查看' + (f.kind === '图片' ? ' / 画掩码' : '') + '）' : ' · 字节已不在，要重新拖')) + '">'
       + esc(f.kind) + '·' + esc(cap(f.name, 18)) + (f.mask ? ' · 已标记' : '')
-      + '<button data-i="' + i + '" title="从这一轮移开">×</button></span>').join('');
+      + '<button type="button" data-i="' + i + '" title="从这一轮移开">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
     el.files.querySelectorAll('.ac-fi').forEach(c => {
       c.onclick = e => {
@@ -3356,14 +3356,14 @@
       <div class="ac-hd">
         <span class="ac-tt">${window.icon('sparkles', 15)}AI 助手</span>
         <span class="ac-here" id="acHere"></span>
-        <button class="ac-x ic" id="acDock" title="固定到右侧" aria-label="固定到右侧" aria-pressed="false"><span data-icon="panelRight" data-size="15"></span></button>
-        <button class="ac-x ic" id="acNew" title="新建会话" aria-label="新建会话"><span data-icon="plus" data-size="15"></span></button>
-        <button class="ac-x ic" id="acHist" title="历史会话" aria-label="历史会话"><span data-icon="clock" data-size="15"></span></button>
-        <button class="ac-x" id="acClose" title="收起" aria-label="收起">×</button>
+        <button type="button" class="ac-x ic" id="acDock" title="固定到右侧" aria-label="固定到右侧" aria-pressed="false"><span data-icon="panelRight" data-size="15"></span></button>
+        <button type="button" class="ac-x ic" id="acNew" title="新建会话" aria-label="新建会话"><span data-icon="plus" data-size="15"></span></button>
+        <button type="button" class="ac-x ic" id="acHist" title="历史会话" aria-label="历史会话"><span data-icon="clock" data-size="15"></span></button>
+        <button type="button" class="ac-x" id="acClose" title="收起" aria-label="收起">×</button>
       </div>
       <div class="ac-scrim" id="acScrim" hidden></div>
       <div class="ac-hist" id="acHistBox" hidden>
-        <div class="ac-hist-h"><b>历史会话</b><span id="acHistSum"></span><button class="ac-x" id="acHistClose" title="关掉">×</button></div>
+        <div class="ac-hist-h"><b>历史会话</b><span id="acHistSum"></span><button type="button" class="ac-x" id="acHistClose" title="关掉">×</button></div>
         <div class="ac-hist-qrow"><input id="acHistQ" type="search" placeholder="搜索会话标题或内容…"></div>
         <div class="ac-hist-l" id="acHistList"></div>
       </div>
@@ -3376,12 +3376,12 @@
           <textarea class="ac-ta" id="acTa" placeholder="问点什么；也可以把素材卡拖到悬浮球或这里（Enter 发送 · Shift+Enter 换行）"></textarea>
         </div>
         <div class="ac-row">
-          <button class="ghost" id="acFile" title="添加文件">＋文件</button>
+          <button type="button" class="ghost" id="acFile" title="添加文件">＋文件</button>
           <input type="file" id="acFileIn" multiple hidden>
           <span class="sp"></span>
-          <button class="ghost danger" id="acWipe" title="清空对话记录">清空</button>
-          <button class="ghost" id="acStop" hidden>停止</button>
-          <button class="tool acc" id="acSend">发送</button>
+          <button type="button" class="ghost danger" id="acWipe" title="清空对话记录">清空</button>
+          <button type="button" class="ghost" id="acStop" hidden>停止</button>
+          <button type="button" class="tool acc" id="acSend">发送</button>
         </div>
         <div class="ac-note" id="acNote" hidden></div>
         <div class="ac-hint" id="acHint"></div>
@@ -3701,7 +3701,7 @@
     /* 会话列表那一格自己滚（`.ac-hist-list`）：按搜索框改一个字就换整列，行数少了浏览器把滚动位
        夹回上限 —— 表现是「滚到底下那几段会话，输入框里删一个字，列表弹回顶」。 */
     Wb.viewport.keep(box, () => {
-        box.innerHTML = items.map(s => '<button class="ac-hs' + (s.id === SESS.cur ? ' on' : '') + '" data-sid="' + esc(s.id)
+        box.innerHTML = items.map(s => '<button type="button" class="ac-hs' + (s.id === SESS.cur ? ' on' : '') + '" data-sid="' + esc(s.id)
           + '" title="切到这段会话（按 Delete 删除）">'
           + '<div class="ac-hs-t">' + esc(s.title || '（还没说话）') + '</div>'
           + '<div class="ac-hs-m">' + esc(when(s.at)) + ' · ' + (s.msgs || []).length + ' 条'

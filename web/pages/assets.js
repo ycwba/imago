@@ -805,7 +805,7 @@ export default {
       const why = filterWhy();
       if (why.length) {
         return window.Wb.emptyHTML(['按现在这些条件（' + why.join('、') + '）一条都没有。'],
-          '<button class="tool mini" data-clearf="1">清掉这些条件</button>');
+          '<button type="button" class="tool mini" data-clearf="1">清掉这些条件</button>');
       }
       if (!assets.length) {
         return window.Wb.emptyHTML(['还没有产物'],
@@ -1035,7 +1035,7 @@ export default {
       Wb.viewport.keep(pageEl.value, () => {
         box.innerHTML = BUCKETS.map(b => {
           if (!n[b.key]) return '';
-          return '<button class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
+          return '<button type="button" class="phead-chip' + (F.bucket === b.key ? ' on' : '') + '" data-bucket="' + b.key + '"'
             + ' title="再点一下取消"><i class="dot ' + b.dot + '"></i>'
             + '<span>' + b.label + '</span><b>' + n[b.key] + '</b></button>';
         }).join('');

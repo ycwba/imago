@@ -191,16 +191,16 @@ function renderMid() {
       <div class="cand-strip${midCandExpandOf() ? ' expanded' : ''}">
         <div class="thumbs" id="candThumbs">${cands.length ? cands.map((c, i) => candThumbInner(c, i === projOf().curCand)).join('') + candAddTile() : candPlaceholder()}</div>
         ${cands.length ? `<span class="cand-pager">
-          <button class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}</button>
-          <button class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
+          <button type="button" class="ghost" id="candExpand" title="${midCandExpandOf() ? '收成一排左右滚动' : '展开成多行，一屏看完所有候选'}">${window.icon(midCandExpandOf() ? 'chevronUp' : 'chevronDown', 13)}</button>
+          <button type="button" class="ghost" id="cPrev" title="上一条候选">${window.icon('stepBack', 14)}</button>
           <span class="cand-count">${projOf().curCand + 1} / ${cands.length}</span>
-          <button class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
+          <button type="button" class="ghost" id="cNext" title="下一条候选">${window.icon('stepNext', 14)}</button>
         </span>` : ''}
       </div>
       <div class="cand-acts" id="candActs">
         <!-- 导入是项目级动作，但这一屏最常用 —— 跟「选用 / 锁定 / 删除」同一排（用户点名搬到这儿）。
              尾段包成 #candActsRest：切换候选的快路径只整块换这一段，导入与弹性空的节点（连绑定）不动。 -->
-        <button class="ghost" id="importMid" title="导入视频 / 素材：视频成为这一镜的新候选，图片成为静态段">${icon('box', 13)} 导入</button>
+        <button type="button" class="ghost" id="importMid" title="导入视频 / 素材：视频成为这一镜的新候选，图片成为静态段">${icon('box', 13)} 导入</button>
         <span class="sp"></span>
         <span class="rest" id="candActsRest">${candActsHTML(sh)}</span>
       </div>`}

@@ -215,8 +215,8 @@ export function createDetail(ctx) {
         + '<span class="md-row-gen"><span class="md-row-gen-l">重出</span>'
         + modelHTML('image', 'text_to_image', rg.model || gens.asset.model, a.id)
         + countHTML(cap, rg.count || 1, '张', a.id) + '</span>'
-        + '<button class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
-        + '<button class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
+        + '<button type="button" class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
+        + '<button type="button" class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
         + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
         + '</div>';
     }).join('');

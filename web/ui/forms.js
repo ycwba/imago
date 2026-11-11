@@ -102,7 +102,7 @@ function keepBodyScroll(el, fn) {
         <div class="pinl-think" hidden></div>
         <pre class="pinl-out" spellcheck="false"></pre>
         <div class="pinl-ft">
-          ${o.onStop ? '<button class="ghost" data-act="stop">停止这一轮</button>' : '<span class="pinl-load"><span class="spin-dot"></span>正在接收…</span>'}
+          ${o.onStop ? '<button type="button" class="ghost" data-act="stop">停止这一轮</button>' : '<span class="pinl-load"><span class="spin-dot"></span>正在接收…</span>'}
           <span class="pinl-len"></span>
         </div>
       </div>`;
@@ -168,13 +168,13 @@ function keepBodyScroll(el, fn) {
         <div class="pinl-talk" hidden></div>
         ${o.onFollow ? `<div class="pinl-chat">
           <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？')}">
-          <button class="ghost" data-act="follow">${icon('sparkles', 13)} ${InlinePolish.FOLLOW.again}</button>
+          <button type="button" class="ghost" data-act="follow">${icon('sparkles', 13)} ${InlinePolish.FOLLOW.again}</button>
         </div>` : ''}
         <div class="pinl-ft">
-          <button class="pri" data-act="apply">${esc(o.applyLabel || '替换原提示词')}</button>
-          ${o.onReask ? '<button class="ghost" data-act="reask">' + icon('sparkles', 13) + ' 改回答</button>' : ''}
-          <button class="ghost" data-act="retry">${icon('refresh', 13)} 重新润色</button>
-          <button class="ghost" data-act="close">放弃</button>
+          <button type="button" class="pri" data-act="apply">${esc(o.applyLabel || '替换原提示词')}</button>
+          ${o.onReask ? '<button type="button" class="ghost" data-act="reask">' + icon('sparkles', 13) + ' 改回答</button>' : ''}
+          <button type="button" class="ghost" data-act="retry">${icon('refresh', 13)} 重新润色</button>
+          <button type="button" class="ghost" data-act="close">放弃</button>
           <span class="pinl-len"></span>
         </div>
       </div>`;
@@ -336,8 +336,8 @@ function keepBodyScroll(el, fn) {
         ${o.intro ? `<div class="pinl-note" style="display:block">${esc(o.intro)}</div>` : ''}
         <div class="pinl-qs"></div>
         <div class="pinl-ft">
-          <button class="pri" data-act="go">${esc(o.submitLabel || '按回答继续润色')}</button>
-          <button class="ghost" data-act="skip">${esc(o.skipLabel || '跳过，直接润色')}</button>
+          <button type="button" class="pri" data-act="go">${esc(o.submitLabel || '按回答继续润色')}</button>
+          <button type="button" class="ghost" data-act="skip">${esc(o.skipLabel || '跳过，直接润色')}</button>
           <span class="pinl-len"></span>
         </div>
       </div>`;
@@ -354,10 +354,10 @@ function keepBodyScroll(el, fn) {
         wrapEl.className = 'pinl-q';
         const opts = Array.isArray(q.options) ? q.options.filter(x => String(x || '').trim()) : [];
         wrapEl.innerHTML = `<div class="pinl-qt"></div>`
-          + (opts.length ? `<div class="pinl-opts">${opts.map((t, j) => `<button class="pinl-opt" data-i="${i}" data-j="${j}"></button>`).join('')}`
+          + (opts.length ? `<div class="pinl-opts">${opts.map((t, j) => `<button type="button" class="pinl-opt" data-i="${i}" data-j="${j}"></button>`).join('')}`
             /* 「其他」永远是最后一个候选：点了就进自由输入 —— 候选覆盖不到的写法有个明确的入口，
                不必自己去找那个输入框（找不到就等于没有这个功能）。 */
-            + `<button class="pinl-opt pinl-other" data-i="${i}" data-j="other"><span class="ic">${icon('pencil', 12)}</span>其他</button></div>` : '')
+            + `<button type="button" class="pinl-opt pinl-other" data-i="${i}" data-j="other"><span class="ic">${icon('pencil', 12)}</span>其他</button></div>` : '')
           /* 自由输入永远是每题的最后一块 —— 候选里没有的写法靠它 */
           + `<div class="pinl-own"><input type="text" data-i="${i}" placeholder="或者自己写…"></div>`;
         wrapEl.querySelector('.pinl-qt').textContent = q.q;
@@ -543,10 +543,10 @@ function keepBodyScroll(el, fn) {
     dlg.className = 'ui-dlg';
     dlg.innerHTML = `<div class="pr-head"><b>${window.esc(title)}</b>${sub ? `<div class="sub">${window.esc(sub)}</div>` : ''}</div>
       <div class="pr-body" id="prBody"></div>
-      <div class="pr-foot"><button class="ghost" id="prRetry">${icon('refresh', 13)} 重新润色</button>
+      <div class="pr-foot"><button type="button" class="ghost" id="prRetry">${icon('refresh', 13)} 重新润色</button>
         <span class="hint" id="prHint"></span><span class="sp"></span>
-        <button class="ghost" id="prCancel">取消</button>
-        <button class="pri" id="prOk"></button></div>`;
+        <button type="button" class="ghost" id="prCancel">取消</button>
+        <button type="button" class="pri" id="prOk"></button></div>`;
     document.body.appendChild(dlg);
     dlg.showModal();
     return dlg;
@@ -575,7 +575,7 @@ function keepBodyScroll(el, fn) {
       <div class="pr-followrow">
         <input class="pr-followin" type="text" spellcheck="false"
           placeholder="${window.esc(o.followPlaceholder || '还要怎么改？')}">
-        <button class="ghost pr-followbtn">${icon('sparkles', 13)} ${window.InlinePolish.FOLLOW.again}</button>
+        <button type="button" class="ghost pr-followbtn">${icon('sparkles', 13)} ${window.InlinePolish.FOLLOW.again}</button>
       </div>`;
     foot.parentNode.insertBefore(wrap, foot);
     const talk = wrap.querySelector('.pr-talk');
@@ -735,7 +735,7 @@ function keepBodyScroll(el, fn) {
         ${dur}
         ${chain}
         ${bodyCell}
-        <button class="x iconbtn" data-del="${r.u}" title="删掉这一条">${icon('close', 11)}</button>
+        <button type="button" class="x iconbtn" data-del="${r.u}" title="删掉这一条">${icon('close', 11)}</button>
       </div>`;
     }
     function paint() {
@@ -921,7 +921,7 @@ function keepBodyScroll(el, fn) {
             <span class="pa-kind">${esc(kindZh(a.kind))}</span>
             <input class="pa-look" data-a="${i}" value="${esc(a.look || '')}" placeholder="外貌 / 场景 / 物品描述" aria-label="外貌描述">
             ${a.kind === 'actor' ? `<input class="pa-voice" data-a="${i}" value="${esc(a.voice || '')}" placeholder="音色描述（30~80 字）" aria-label="音色描述">` : ''}
-            <button class="x iconbtn" data-adel="${i}" title="不建这一条">${icon('close', 11)}</button>
+            <button type="button" class="x iconbtn" data-adel="${i}" title="不建这一条">${icon('close', 11)}</button>
           </div>`).join('')
         + '</div>';
     }
@@ -1094,7 +1094,7 @@ function keepBodyScroll(el, fn) {
             body.innerHTML = items.length ? items.map((it, i) => `<div class="pr-row" data-i="${i}">
                 <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
                 <textarea data-i="${i}">${esc(it.text || '')}</textarea>
-                <button class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
+                <button type="button" class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
               </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面')}</div>`;
           });
           okBtn.disabled = !items.length;
@@ -1443,7 +1443,7 @@ function keepBodyScroll(el, fn) {
             return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"${f.required ? ' data-required="1"' : ''}><label>${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
           }).join('')}</div>
           <div class="pf-foot"><span class="hint" id="pfMsg"></span><span class="sp"></span>
-            <button class="ghost" id="pfCancel">取消</button><button class="pri" id="pfOk">${esc(o.okLabel || '确定')}</button></div>`;
+            <button type="button" class="ghost" id="pfCancel">取消</button><button type="button" class="pri" id="pfOk">${esc(o.okLabel || '确定')}</button></div>`;
         document.body.appendChild(dlg);
         dlg.showModal();
         /* select 字段也过公共下拉组件（原生留在 DOM 里当数据源，读取仍走 .value） */
@@ -1594,9 +1594,9 @@ function keepBodyScroll(el, fn) {
       if (cells.length >= 42) break;
     }
     pop.innerHTML = `<div class="dp-head">
-        <button class="dp-nav" data-nav="-1" title="上个月">‹</button>
+        <button type="button" class="dp-nav" data-nav="-1" title="上个月">‹</button>
         <b>${view.getFullYear()} 年 ${view.getMonth() + 1} 月</b>
-        <button class="dp-nav" data-nav="1" title="下个月">›</button>
+        <button type="button" class="dp-nav" data-nav="1" title="下个月">›</button>
       </div>
       <div class="dp-week">${WEEK.map(w => `<span>${w}</span>`).join('')}</div>
       <div class="dp-grid">${cells.map(c => {
@@ -1605,13 +1605,13 @@ function keepBodyScroll(el, fn) {
         if (c.out) cls.push('out');
         if (t === today.getTime()) cls.push('today');
         if (cur && iso(c.d) === iso(cur)) cls.push('sel');
-        return `<button class="${cls.join(' ')}" data-d="${iso(c.d)}">${c.d.getDate()}</button>`;
+        return `<button type="button" class="${cls.join(' ')}" data-d="${iso(c.d)}">${c.d.getDate()}</button>`;
       }).join('')}</div>
       <div class="dp-foot">
-        <button class="ghost mini" data-act="today">今天</button>
-        <button class="ghost mini" data-act="clear">清除</button>
+        <button type="button" class="ghost mini" data-act="today">今天</button>
+        <button type="button" class="ghost mini" data-act="clear">清除</button>
         <span style="flex:1"></span>
-        <button class="ghost mini" data-act="close">关闭</button>
+        <button type="button" class="ghost mini" data-act="close">关闭</button>
       </div>`;
     pop.querySelectorAll('[data-nav]').forEach(b => b.onclick = e => {
       e.stopPropagation();

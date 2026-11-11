@@ -2123,7 +2123,7 @@ window.Chars = (function () {
        配音时会退回这个型号的第一个音色，但这件事必须当场说出来，不能让人以为还在用自己挑的那个。 */
     const v = voiceOf(REG, { opts: opts }, c);
     return (v.stale ? `<span class="ui-tag warn">存的「${esc(v.saved)}」不是这个型号的声音，这次按「${esc((v.list[0] || {}).name || '')}」念</span>` : '')
-      + vs.slice(0, 6).map(x => `<button class="ui-pill${c.voice === x.id ? ' on' : ''}" data-act="voice" data-vid="${esc(x.id)}"
+      + vs.slice(0, 6).map(x => `<button type="button" class="ui-pill${c.voice === x.id ? ' on' : ''}" data-act="voice" data-vid="${esc(x.id)}"
         title="${esc([x.name, x.lang, x.gender].filter(Boolean).join(' · '))}">${esc(x.name)}</button>`).join('')
       + (vs.length > 6 ? `<span class="ui-hint">共 ${vs.length} 个</span>` : '');
   }
@@ -2140,7 +2140,7 @@ window.Chars = (function () {
     if (list.length < 2) return '';
     const cur = (c && c.voiceMode) || voiceWay(c, REG, opts).mode;
     return '<span class="ui-seg" role="group" aria-label="这一位的声音怎么定">' + list.map(x =>
-      `<button class="${x.id === cur ? 'on' : ''}" data-act="voiceway" data-way="${esc(x.id)}"
+      `<button type="button" class="${x.id === cur ? 'on' : ''}" data-act="voiceway" data-way="${esc(x.id)}"
         title="${x.id === cur ? '这位现在用：' + x.label : '改成：' + x.label}">${x.label}</button>`).join('') + '</span>';
   }
   /* 声音那一块按**这一位角色自己**的定音色方式渲染（voiceWay → 注册表声明的 ttsMode，
@@ -2166,9 +2166,9 @@ window.Chars = (function () {
     const libNotes = vm === 'design' ? libVoiceEntries('note') : [];
     const libAudios = vm === 'clone' ? libVoiceEntries('audio') : [];
     const takeNote = libNotes.length
-      ? `<button class="ghost" data-act="vnotepick" title="从素材库挑一位">${ic('users', 12)} 用素材的音色描述</button>` : '';
+      ? `<button type="button" class="ghost" data-act="vnotepick" title="从素材库挑一位">${ic('users', 12)} 用素材的音色描述</button>` : '';
     const takeAudio = libAudios.length
-      ? `<button class="ghost mini" data-act="vaudiopick" title="从素材库挑一位">${ic('users', 12)} 用素材的声音克隆</button>` : '';
+      ? `<button type="button" class="ghost mini" data-act="vaudiopick" title="从素材库挑一位">${ic('users', 12)} 用素材的声音克隆</button>` : '';
     if (vm === 'design') return fb + '<input class="ui-inp ui-in" data-act="voicenote" placeholder="描述这个人的声音：男/女、年纪、清亮还是沙哑、语速快慢、情绪底子" '
       + 'value="' + esc(c.voiceNote || '') + '">'
       + `<span class="ui-hint">「${mn}」按这段描述出声${(c.voiceBy === 'ai' && String(c.voiceNote || '').trim()) ? '（AI 按人设写的）' : ''}`
@@ -2179,8 +2179,8 @@ window.Chars = (function () {
     if (vm === 'clone') return fb + (c.refAudio
         ? `<span class="ui-tag ok">参考音频：${esc(String(c.refAudioName || '已挂的那一段').slice(0, 18))}</span>`
         : '<span class="ui-hint">还没有参考音频：这一段要 3~10 秒干净的人声</span>')
-      + `<button class="ghost mini" data-act="refaudio">${c.refAudio ? '换一段' : ic('upload', 12) + ' 上传参考音频'}</button>`
-      + (c.refAudio ? '<button class="ui-linkbtn" data-act="refclear">去掉</button>' : '')
+      + `<button type="button" class="ghost mini" data-act="refaudio">${c.refAudio ? '换一段' : ic('upload', 12) + ' 上传参考音频'}</button>`
+      + (c.refAudio ? '<button type="button" class="ui-linkbtn" data-act="refclear">去掉</button>' : '')
       + takeAudio;
     return fb + '<span class="ui-voice-list">' + voiceChips(REG, opts, c) + '</span>';
   }
@@ -2240,11 +2240,11 @@ window.Chars = (function () {
           + '<img src="' + esc(Api.mediaSrc(x.src)) + '" ' + A + '="' + esc(o.zoom || 'zoom') + '"'
           + ' data-src="' + esc(x.src) + '" data-name="' + esc((nm ? nm + ' · ' : '') + label) + '" alt="">'
           + '<span class="t">' + label + '</span>'
-          + '<button class="ui-linkbtn" ' + A + '="' + esc(o.act || '') + '" data-src="' + esc(x.src) + '"'
+          + '<button type="button" class="ui-linkbtn" ' + A + '="' + esc(o.act || '') + '" data-src="' + esc(x.src) + '"'
           + (o.extra || '') + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一张') + '</button>'
           /* 删掉这一张候选（`o.del` 由调用方给动作名）：攒了一排不满意的，得能一张张清掉 ——
              以前只能「用这一张」或整个重出，挑剩下的永远留在那儿。 */
-          + (o.del ? '<button class="ui-linkbtn danger" ' + A + '="' + esc(o.del) + '" data-src="' + esc(x.src) + '"'
+          + (o.del ? '<button type="button" class="ui-linkbtn danger" ' + A + '="' + esc(o.del) + '" data-src="' + esc(x.src) + '"'
             + (o.extra || '') + '>删掉</button>' : '')
           + '</span>';
       }).join('') + (o.tail || '') + '</div>';
@@ -2278,7 +2278,7 @@ window.Chars = (function () {
        那颗「一次出几条」的按钮也留着（禁用）：整排只剩一个转圈，看着就像入口没了。 */
     if (o.waiting) {
       return '<div class="ui-cands"><span class="lab">声音候选</span>' + waitHTML(o.waiting)
-        + (cap.n > 1 ? '<button class="ghost mini" data-act="vgen" data-n="' + cap.n + '" disabled>一次出 ' + cap.n + ' 条试听</button>' : '')
+        + (cap.n > 1 ? '<button type="button" class="ghost mini" data-act="vgen" data-n="' + cap.n + '" disabled>一次出 ' + cap.n + ' 条试听</button>' : '')
         + '</div>';
     }
     const canClone = !!ttsWays(REG, opts).clone;
@@ -2287,17 +2287,17 @@ window.Chars = (function () {
       const nm = String(x.name || voiceName(REG, opts, x.voice, x.mode) || wayLabel(x.mode)).slice(0, 18);
       const cloned = !!(c.refAudio && c.refAudio === x.src);
       return '<span class="ui-cand' + (on ? ' on' : '') + '">'
-        + '<button class="ui-linkbtn" data-act="vplay" data-src="' + esc(x.src) + '"'
+        + '<button type="button" class="ui-linkbtn" data-act="vplay" data-src="' + esc(x.src) + '"'
         + ' title="播本机存着的这一段">' + ic('play', 11) + '</button>'
         + '<span class="t">' + esc(nm) + (x.dur ? ' · ' + x.dur + 's' : '') + '</span>'
-        + (cap.pickable ? '<button class="ui-linkbtn" data-act="vuse" data-vid="' + esc(x.voice || '')
+        + (cap.pickable ? '<button type="button" class="ui-linkbtn" data-act="vuse" data-vid="' + esc(x.voice || '')
           + '" data-vname="' + esc(nm) + '"' + (on ? ' disabled' : '') + '>' + (on ? '在用' : '用这一条') + '</button>' : '')
-        + (canClone ? '<button class="ui-linkbtn" data-act="vclone" data-src="' + esc(x.src) + '"'
+        + (canClone ? '<button type="button" class="ui-linkbtn" data-act="vclone" data-src="' + esc(x.src) + '"'
           + ' data-name="' + esc(nm) + '"' + (cloned ? ' disabled' : '')
           + ' title="挂成这一位的参考音频">' + (cloned ? '正在用它' : '拿这条去克隆') + '</button>' : '')
         + '</span>';
     }).join('');
-    const gen = cap.n > 1 ? '<button class="ghost mini" data-act="vgen" data-n="' + cap.n + '">一次出 ' + cap.n + ' 条试听</button>' : '';
+    const gen = cap.n > 1 ? '<button type="button" class="ghost mini" data-act="vgen" data-n="' + cap.n + '">一次出 ' + cap.n + ' 条试听</button>' : '';
     const why = cap.why ? '<span class="ui-hint">' + esc(cap.why) + '</span>' : '';
     const bad = failed.length
       ? '<span class="ui-hint err">有 ' + failed.length + ' 条没出来：' + esc(failed.map(x => x.err).join('；').slice(0, 160)) + '</span>' : '';
@@ -2319,7 +2319,7 @@ window.Chars = (function () {
     /* 场景与道具不出这一块（它们不出声）：返回空串而不是在页面里各自 if 一次 ——
        少一处判断就少一处「这一页忘了改」。 */
     if (!isVoiced(c)) return '';
-    return '<div class="ui-vrow"><div class="ui-voice"><button class="play" data-act="play" title="试听（会真的合成一小段）">' + ic('play', 12) + '</button>'
+    return '<div class="ui-vrow"><div class="ui-voice"><button type="button" class="play" data-act="play" title="试听（会真的合成一小段）">' + ic('play', 12) + '</button>'
       + '<div class="wv">' + WAVE + '</div>' + voiceBoxHTML(REG, opts, c) + '</div>'
       + voiceWaySeg(REG, opts, c)
       /* 两条留痕：定成了说一句「AI 按人设定的」（人可以直接改），没定成写清**为什么** ——
@@ -2327,7 +2327,7 @@ window.Chars = (function () {
       + (c.voiceAuto ? '<div class="ui-hint">画完角色时 AI 按人设定成了这个声音：' + esc(String(c.voiceAuto).slice(0, 40))
           + '</div>' : '')
       + (c.voiceErr ? '<div class="ui-note err">没定成声音：' + esc(String(c.voiceErr).slice(0, 160))
-          + '<button class="ui-linkbtn" data-act="revoice">再让 AI 定一次</button></div>' : '')
+          + '<button type="button" class="ui-linkbtn" data-act="revoice">再让 AI 定一次</button></div>' : '')
       + voiceCandsHTML(REG, opts, c, o) + '</div>';
   }
   /* 「这一位身上有没有声音」的一枚状态芯片（素材库列表与详情都要用） */

@@ -375,8 +375,11 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
         与各派生读法），设置页渲染与写盘、DataSync 同步名单、设置导出与恢复默认、助手可改白名单
         都改问这一份。它必须留在首屏：设置页卡片直接按它渲染，DataSync 的存储钩子在任意页面
         第一次写 localStorage 时就要判 `syncOf`，助手白名单也随时可取 —— 按需补载会让
-        「第一次写完才加载」漏掉那一笔镜像。实跑 30 枚 / 872614 字节（登记上限 874000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 874000;
+        「第一次写完才加载」漏掉那一笔镜像。实跑 30 枚 / 872614 字节（登记上限 874000）。
+     ·  +1.5KB（2026-11-12，完善清单机械债）：`web/ui/forms.js` / `web/ui/ui.js` / `web/ui/command.js`
+        等常驻件里几十颗 <button> 补上 type 属性（规范要求，弹窗内误提交隐患一并掐掉）、
+        命令面板上下键选中行 scrollIntoView —— 都是常驻件的字节。实跑 30 枚 / 874139 字节（登记上限 876000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 876000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

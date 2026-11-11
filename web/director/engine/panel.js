@@ -1433,7 +1433,7 @@ function renderEditor() {
   const edHtml = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
-      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" data-at-btn title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button class="ghost mini" id="pClear">清空</button></span></div>
+      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" data-at-btn title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button type="button" class="ghost mini" id="pClear">清空</button></span></div>
       <div class="ta-wrap">
         <!-- 镜像层：textarea 没法给某几个字上色，所以在它下面铺一层同字号同内边距的副本，
              只给 @片段 画底（文字本身透明，看得见的还是 textarea 里那行字 ——
@@ -1476,7 +1476,7 @@ function renderEditor() {
            放在标签后面就读成了「画面素材的一种设置」（工作台也是这个顺序）。 */
         modeChipsHTML(sh)}
       <div class="ed-label" style="margin-top: var(--sp-16)"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
-      ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-8)">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
+      ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button type="button" class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-8)">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
       <div class="btn-row">
         ${window.aiBtnHTML({ id: 'kfGenBtn', label: '按描述生成这一镜的画面', busy: '生成中…', busyOn: kfRunOf() })}
       </div>
@@ -1525,18 +1525,18 @@ function renderEditor() {
         <em>${chainOn ? (sh.firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
       </label>
       <div class="assets-grid">
-        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}${sh.firstFrame && !chainSlot ? ' data-view="first"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
-        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}${sh.lastFrame ? ' data-view="last"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
+        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}${sh.firstFrame && !chainSlot ? ' data-view="first"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}${sh.lastFrame ? ' data-view="last"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(sh.keyframes || []).map((kf, i) => `
           <div class="asset-slot kf"${kf.status === 'done' && kf.assetId ? ` data-view="kf:${i}"` : ''}>
-            ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML(Api.assetSrc(kf.assetId), { type: 'image' })}<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
-              : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">${icon('close', 11)}</button>`
-              : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
-              : kf.status === 'queued' ? `<span class="spin-dot" style="opacity:.45"></span><span class="sub">排队中</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
+            ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML(Api.assetSrc(kf.assetId), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
+              : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">${icon('close', 11)}</button>`
+              : kf.status === 'polishing' ? `<span class="spin-dot"></span><span class="sub">润色中</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
+              : kf.status === 'queued' ? `<span class="spin-dot" style="opacity:.45"></span><span class="sub">排队中</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
               : kf.status === 'failed' ? `<span class="sub err" title="${esc(kf.err || '')}">失败</span>`
-                + `<button class="x iconbtn on-dark" data-retry="${i}" title="重试这一张" style="right: var(--sp-24)">${icon('refresh', 12)}</button>`
-                + `<button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
-              : `<span class="ic">${icon('image', 16)}</span><button class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
+                + `<button type="button" class="x iconbtn on-dark" data-retry="${i}" title="重试这一张" style="right: var(--sp-24)">${icon('refresh', 12)}</button>`
+                + `<button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`
+              : `<span class="ic">${icon('image', 16)}</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
             <span class="cap">画面 ${i + 1} · 第 ${kf.t} 秒</span>
           </div>`).join('')}
         ${(ic.ref || sh.refImages.length) ? sh.refImages.map((d2, i) => {
@@ -1545,7 +1545,7 @@ function renderEditor() {
              切片生成的）只写序号。 */
           const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
           const cap = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
-          return `<div class="asset-slot" data-view="ref:${i}" title="${esc(cap)}（点开查看）">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">${esc(cap)}</span></div>`;
+          return `<div class="asset-slot" data-view="ref:${i}" title="${esc(cap)}（点开查看）">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">${esc(cap)}</span></div>`;
         }).join('') : ''}
         ${ic.ref && sh.refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (sh.refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${sh.refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
       </div>
@@ -1556,11 +1556,11 @@ function renderEditor() {
         ic.none ? (shotCombo(sh)
           ? `<div class="hint">输入模式「${esc(comboLabel(shotCombo(sh)))}」不用参考素材</div>`
           : '<div class="hint">当前型号不支持参考素材</div>') : ''}
-      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}>
-        ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
+      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}${sh.refVideo && ic.refVideo ? ' title="点开更换素材 · × 移除"' : ''}>
+        ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
-      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}>
-        ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
+      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}${sh.refAudio && ic.refAudio ? ' title="点开更换素材 · × 移除"' : ''}>
+        ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
       <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top: var(--sp-16)">
         <div class="adv-head" id="advHead">
@@ -1601,7 +1601,7 @@ function renderEditor() {
     <div class="ed-footer">
       <span class="can ${canGen ? '' : 'no'}" id="edFooterCan"${blockWhy ? ` title="${esc(blockWhy)}"` : ''}>${footerCanText(canGen, blockWhy)}</span>
       <span class="est" id="estTxt">估价中…</span>
-      <button class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
+      <button type="button" class="pri" id="genOne" ${canGen && !genOneBusy ? '' : 'disabled'}>${genOneBusy ? '创建中…' : GenOf().genBtnLabel(sh)}</button>
     </div>`;
   /* keep 要罩住**所有改这一块高度的画法**，不只是 innerHTML：模板里那三排声明驱动的容器
      与关键帧高级设置那一块都是空壳（hidden），拼串时还没有内容；公共件还完视口之后才补画的话，

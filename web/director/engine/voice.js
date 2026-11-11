@@ -746,7 +746,7 @@ function renderVoiceCol(col, sh) {
           <span id="trimT"></span>
           从 <input type="number" id="trimS" step="0.1" min="0">
           到 <input type="number" id="trimE" step="0.1" min="0">
-          秒 <button class="ghost mini" id="trimApply">应用</button>
+          秒 <button type="button" class="ghost mini" id="trimApply">应用</button>
           <span id="trimNote"></span>
         </div>
         <div class="adj-row" id="rowVol">
@@ -817,8 +817,8 @@ function renderVoiceCol(col, sh) {
         <div class="adj-row" id="rowLane">
           <span class="lab">所在行</span>
           <span class="cnt" id="cutLaneRow">第 1 行</span>
-          <button class="tool mini" id="laneUp" title="挪到上一行（只改画在哪一行，时间与顺序不变）">${icon('arrowUp', 12)} 上一行</button>
-          <button class="tool mini" id="laneDown" title="挪到下一行（只改画在哪一行，时间与顺序不变）">${icon('arrowDown', 12)} 下一行</button>
+          <button type="button" class="tool mini" id="laneUp" title="挪到上一行（只改画在哪一行，时间与顺序不变）">${icon('arrowUp', 12)} 上一行</button>
+          <button type="button" class="tool mini" id="laneDown" title="挪到下一行（只改画在哪一行，时间与顺序不变）">${icon('arrowDown', 12)} 下一行</button>
         </div>
         <div class="hint" id="tlAdjLen"></div>
       </div>
@@ -830,7 +830,7 @@ function renderVoiceCol(col, sh) {
       <div class="btn-row">
         ${window.aiBtnHTML({ id: 'lineGenAi', label: 'AI 生成台词', mini: true,
           title: '按这一镜的画面提示词与时长写一句能念完的台词' })}
-        <button class="tool mini" id="lineGenVoice" ${String(sh.line || '').trim() && String(sh.lineWho || '').trim() ? '' : 'disabled'} data-tip-no-line="先写一句台词" data-tip-no-who="先在台词里写说话人" data-tip-ok="按这句台词和说话人的素材直接合成语音">${icon('mic', 13)} 生成语音</button>
+        <button type="button" class="tool mini" id="lineGenVoice" ${String(sh.line || '').trim() && String(sh.lineWho || '').trim() ? '' : 'disabled'} data-tip-no-line="先写一句台词" data-tip-no-who="先在台词里写说话人" data-tip-ok="按这句台词和说话人的素材直接合成语音">${icon('mic', 13)} 生成语音</button>
       </div>
       <div id="lineInline" hidden></div>
       <div class="line-list one">${lineRowsHTML(lMine)}</div>
@@ -853,15 +853,15 @@ function renderVoiceCol(col, sh) {
              dialog.script textarea 的边框，四个页面四种边框就是这么来的（复用公共件）。 -->
         <textarea id="voiceDesign" class="ui-ta" rows="2" placeholder="例：年轻女声，语速偏慢，带一点沙哑">${esc(voiceDraftOf().design)}</textarea>
         <div class="btn-row">
-          <button class="ghost" id="voiceDesignPick" title="从素材库挑一位，把它身上写的那段音色描述填到这里">${icon('users', 14)} 取一位素材的音色描述</button>
-          <button class="ghost" id="voiceDesignSave" title="把这一格的声音描述写回素材库里同名的那一位"${voiceDraftOf().who ? '' : ' disabled'}>${icon('check', 14)} 存回素材库</button>
+          <button type="button" class="ghost" id="voiceDesignPick" title="从素材库挑一位，把它身上写的那段音色描述填到这里">${icon('users', 14)} 取一位素材的音色描述</button>
+          <button type="button" class="ghost" id="voiceDesignSave" title="把这一格的声音描述写回素材库里同名的那一位"${voiceDraftOf().who ? '' : ' disabled'}>${icon('check', 14)} 存回素材库</button>
         </div>` : ''}
       ${way.mode === 'clone' ? `
         <div class="ed-label"><span>音色素材（参考音频）</span></div>
         <div class="btn-row">
-          <button class="tool" id="voiceRefPick">${icon('mic', 14)} ${voiceDraftOf().ref ? '换一条参考音频' : '选参考音频'}</button>
-          <button class="tool" id="voiceRefFromLib" title="拿素材库里另一位挂着的参考音频当这一句的嗓子">${icon('users', 14)} 用素材的声音克隆</button>
-          ${voiceDraftOf().ref ? `<button class="ghost" id="voiceRefDel">去掉这一条</button>` : ''}
+          <button type="button" class="tool" id="voiceRefPick">${icon('mic', 14)} ${voiceDraftOf().ref ? '换一条参考音频' : '选参考音频'}</button>
+          <button type="button" class="tool" id="voiceRefFromLib" title="拿素材库里另一位挂着的参考音频当这一句的嗓子">${icon('users', 14)} 用素材的声音克隆</button>
+          ${voiceDraftOf().ref ? `<button type="button" class="ghost" id="voiceRefDel">去掉这一条</button>` : ''}
         </div>
         <div class="hint" id="voiceRefName">${voiceDraftOf().ref
           ? '已选：' + esc(voiceDraftOf().ref.name || voiceDraftOf().ref.assetId || '这一条')
@@ -877,7 +877,7 @@ function renderVoiceCol(col, sh) {
         ${window.aiBtnHTML({ id: 'voiceAdd', label: '合成并加到这一轨',
           disabled: !(voiceCanSynth && !vLenWhy),
           title: wayWhy || vLenWhy || '会真发一次请求并计费，点第二下确认' })}
-        <button class="tool" id="voiceFile" title="不发请求、不计费"><span class="ic">${icon('upload', 14)}</span><span class="tx">放一条音频（库里 / 本机）</span></button>
+        <button type="button" class="tool" id="voiceFile" title="不发请求、不计费"><span class="ic">${icon('upload', 14)}</span><span class="tx">放一条音频（库里 / 本机）</span></button>
       </div>
       <!-- AI 润色「要念的话」：那颗按钮与工作台、镜头编辑器那一颗是同一副画法、同一个名字（公共层
            InlinePolish.btnHTML，作用域只写进说明句），面板也是同一个（InlinePolish）。
@@ -889,7 +889,7 @@ function renderVoiceCol(col, sh) {
       <div id="voicePolish" hidden></div>
       ${voiceBalOut && boolProv && voiceBalOut === boolProv.id ? `
       <div class="ui-note err">上一次合成这一家回了「余额 / 额度不够」（<b>不会拦你</b>，再点一次照样真发请求）
-        <button class="tool mini" id="voiceBalGo" style="margin-left: var(--sp-8)">去「用量与余额」</button></div>` : ''}
+        <button type="button" class="tool mini" id="voiceBalGo" style="margin-left: var(--sp-8)">去「用量与余额」</button></div>` : ''}
       ${window.RawRequest ? RawRequest.liveHTML('dir:voice:' + sh.id) : ''}
       </div>
       <div class="grp" id="grpSub">
@@ -900,8 +900,8 @@ function renderVoiceCol(col, sh) {
            这一镜一句配音都没有时，两颗按钮照样看得见（禁用并写明原因，而不是整块消失）。
            nAll 是整条配音轨的句数，不是这一镜的 n。 -->
       <div class="btn-row">
-        <button class="tool mini" id="voiceSplit"${nAll ? '' : ' disabled'} title="按声音来源把全片配音分到各自的轨道（只改排版，不改成片）${nAll ? '' : ' —— 全片还没有配音'}">${icon('layers', 14)} 分轨${nAll ? ' ' + nAll + ' 句' : ''}</button>
-        <button class="tool mini" id="voiceMerge"${nAll ? '' : ' disabled'} title="把全片配音合到第 1 条轨道（只改排版，不改成片）${nAll ? '' : ' —— 全片还没有配音'}">${icon('merge', 14)} 合轨</button>
+        <button type="button" class="tool mini" id="voiceSplit"${nAll ? '' : ' disabled'} title="按声音来源把全片配音分到各自的轨道（只改排版，不改成片）${nAll ? '' : ' —— 全片还没有配音'}">${icon('layers', 14)} 分轨${nAll ? ' ' + nAll + ' 句' : ''}</button>
+        <button type="button" class="tool mini" id="voiceMerge"${nAll ? '' : ' disabled'} title="把全片配音合到第 1 条轨道（只改排版，不改成片）${nAll ? '' : ' —— 全片还没有配音'}">${icon('merge', 14)} 合轨</button>
       </div>
       ${n ? `
       <div class="vc-list">${mine.map(v => {
@@ -910,8 +910,8 @@ function renderVoiceCol(col, sh) {
         return `<div class="vc-row" data-vid="${esc(v.id)}" title="点这一行选中它，改的就是这一句">
           <b>${esc(String(v.who || v.text || '配音').slice(0, 14))}</b>
           <span>成片 ${round1(pos(v.start))} 秒起 · 念 ${round1(pos(v.duration))} 秒 · 第 ${drawnLaneOf(v.id) + 1} 行${vol === 100 ? '' : ' · 音量 ' + vol + '%'}${rate === 1 ? '' : ' · 倍速 ' + spdTxt(rate)}</span>
-          <button class="ghost mini" data-vplay="${esc(v.id)}" title="本机试听（不发请求、不计费）">${icon('play', 11)}</button>
-          <button class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音（可 Ctrl+Z 退回）">${icon('trash', 11)}</button>
+          <button type="button" class="ghost mini" data-vplay="${esc(v.id)}" title="本机试听（不发请求、不计费）">${icon('play', 11)}</button>
+          <button type="button" class="ghost mini" data-vdel="${esc(v.id)}" title="删掉这一句配音（可 Ctrl+Z 退回）">${icon('trash', 11)}</button>
         </div>`;
       }).join('')}</div>` : `
       <div class="ed-label"><span>这一镜上的配音</span><span class="cnt">还没有</span></div>

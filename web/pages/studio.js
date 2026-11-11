@@ -734,7 +734,7 @@ const StudioView = {
             + ' title="' + window.esc(it.label || '拆分片段') + '">'
             + '<span class="ic">' + icon(def.ic, 18) + '</span>'
             + '<span class="sub">生成中' + (it.label ? ' · ' + window.esc(it.label) : '') + '…</span>'
-            + '<button class="x iconbtn on-dark" title="移除这个占位">' + icon('close', 11) + '</button>'
+            + '<button type="button" class="x iconbtn on-dark" title="移除这个占位">' + icon('close', 11) + '</button>'
             + '<span class="cap">' + window.esc(cap + '占位') + '</span></div>';
         }
         const name = it.name || (it.fromLib ? '资产库素材' : '本地文件');
@@ -743,8 +743,9 @@ const StudioView = {
           ? '<span class="ic">' + icon('mic', 18) + '</span><span class="sub">' + window.esc(name) + '</span>'
           : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image' });
         return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
-          + ' title="' + window.esc(cap + '：' + name + fromVid) + '">'
-          + body + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
+          + ' title="' + window.esc(cap + '：' + name + fromVid + '（点开查看 / × 移除）') + '">'
+          + body + (it.mask ? '<span class="maskbadge">已标记</span>' : '')
+          + '<button type="button" class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
       }
       function wideSlotHTML(sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];
@@ -757,7 +758,7 @@ const StudioView = {
           return '<div class="slot-wide asset-slot has-media' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
             + ' title="' + window.esc(def.label + '：' + name) + '">'
             + thumb + '<span class="rvmeta"><b>' + window.esc(name) + '</b><span>' + def.label + (note ? ' · ' + window.esc(note) : '') + '</span></span>'
-            + '<button class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button></div>';
+            + '<button type="button" class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button></div>';
         }
         const items = slotItems(sl.kind);
         const sub = [];
@@ -785,7 +786,8 @@ const StudioView = {
         const kind = window.isAudioType(it.type) ? 'audio'
           : window.mediaKindOf(it.type) === 'video' ? 'video' : 'image';
         window.RefView.open({ kind, label: it.name || it.label || '', src: mediaOf(it), mask: it.mask || '' }, {
-          onSaveMask: url => { it.mask = url || ''; },
+          /* 存完就地重画：角标（已标记 / 没标记）立刻跟着变，不然画完看不出任何变化。 */
+          onSaveMask: url => { it.mask = url || ''; renderInputArea(); },
         });
       }
       function bindSlotTile(t, sl, it, i, blocked) {
@@ -2362,7 +2364,7 @@ const StudioView = {
         if (provId) Api.balOut.mark(provId);
         box.hidden = false;
         box.innerHTML = '<div class="ui-note err" style="margin-top: var(--sp-8)">余额不足，先充值。'
-          + '<button class="tool mini" data-balgo style="margin-left: var(--sp-8)">去「用量与余额」</button></div>';
+          + '<button type="button" class="tool mini" data-balgo style="margin-left: var(--sp-8)">去「用量与余额」</button></div>';
         const b = box.querySelector('[data-balgo]');
         if (b) b.onclick = () => (window.GoPage ? GoPage.go('usage.html') : (location.hash = 'usage.html'));
       }

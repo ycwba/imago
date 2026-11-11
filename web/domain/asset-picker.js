@@ -57,11 +57,11 @@ window.AssetPicker = {
       </div>
         <!-- 来源档与类型档都用全站那一份芯片几何（.chip）；「本地上传」是动作按钮，不带选中态 -->
         <div class="ap-chips" id="apChips">
-          ${charsOnly ? '' : `<button class="chip${view === 'lib' ? ' on' : ''}" data-view="lib">资产库</button>
-          <button class="chip${view === 'fav' ? ' on' : ''}" data-view="fav">${window.icon ? window.icon('star', 12) : ''} 我的收藏</button>`}
-          ${o.chars ? `<button class="chip${view === 'char' ? ' on' : ''}" data-view="char">${window.icon ? window.icon('users', 12) : ''} 素材库</button>` : ''}
-          ${wantUpload ? `<button class="chip" data-act="upload">${window.icon ? window.icon('upload', 12) : ''} 本地上传</button>` : ''}
-          ${want3d ? `<button class="chip" data-act="model3d">${window.icon ? window.icon('model', 12) : ''} 3D 白膜</button>` : ''}
+          ${charsOnly ? '' : `<button type="button" class="chip${view === 'lib' ? ' on' : ''}" data-view="lib">资产库</button>
+          <button type="button" class="chip${view === 'fav' ? ' on' : ''}" data-view="fav">${window.icon ? window.icon('star', 12) : ''} 我的收藏</button>`}
+          ${o.chars ? `<button type="button" class="chip${view === 'char' ? ' on' : ''}" data-view="char">${window.icon ? window.icon('users', 12) : ''} 素材库</button>` : ''}
+          ${wantUpload ? `<button type="button" class="chip" data-act="upload">${window.icon ? window.icon('upload', 12) : ''} 本地上传</button>` : ''}
+          ${want3d ? `<button type="button" class="chip" data-act="model3d">${window.icon ? window.icon('model', 12) : ''} 3D 白膜</button>` : ''}
         </div>
         <div class="ap-types" id="apTypes" hidden></div>
         ${o.note ? `<div class="ap-sub">${o.note}</div>` : ''}
@@ -75,11 +75,11 @@ window.AssetPicker = {
           <div class="ap-grid" id="apGrid"></div>
           <div class="ap-empty" id="apEmpty" hidden></div>
           <div class="ap-more" id="apMore" hidden></div>
-          <div class="ap-loading" id="apLoad"><span class="ap-spin"></span>正在加载资产库…</div>
+          <div class="ap-loading" id="apLoad"><span class="ap-spin"></span>加载中…</div>
         </div>
         <div class="ap-foot"><span class="cnt" id="apCnt"></span><span class="sp"></span>
-          ${o.extraLabel ? `<button class="ghost" id="apExtra">${o.extraLabel}</button>` : ''}
-          <button class="ghost" id="apCancel">取消</button><button class="pri" id="apOk" disabled>确定</button></div>`;
+          ${o.extraLabel ? `<button type="button" class="ghost" id="apExtra">${o.extraLabel}</button>` : ''}
+          <button type="button" class="ghost" id="apCancel">取消</button><button type="button" class="pri" id="apOk" disabled>确定</button></div>`;
       document.body.appendChild(dlg);
       dlg.showModal();
 

@@ -40,7 +40,7 @@
     ).join('') + '</nav>'
     + '<div class="sb-bottom" id="sbBalance"></div>'
     + '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set" aria-label="' + window.esc(setPg.label) + '"><span class="ic">' + svgIc('gear') + '</span><span class="lb">' + window.esc(setPg.label) + '</span></a>'
-    + '<button class="sb-set" id="sbTheme"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
+    + '<button type="button" class="sb-set" id="sbTheme"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
 
   /* 点导航：不跳转整页，只让 web/app.js 切内容页（侧栏保持不动）；
      窄窗口里侧栏是浮层，选完就自动收回，否则内容一直被盖着一块。 */
@@ -170,7 +170,7 @@
     window.dispatchEvent(new CustomEvent('sb:toggle'));
   }
   /* 侧栏里有几处「看着是按钮、其实是 span/div」：鼠标能点，键盘 Tab 不到、Enter 也不动。
-     与其把它们换成 <button>（会带进 UA 样式、把侧栏那一排对齐重排一遍），
+     与其把它们换成 <button type="button">（会带进 UA 样式、把侧栏那一排对齐重排一遍），
      就地补 role/tabIndex 与 Enter/Space —— 焦点样式走 ui.css 末尾那份全站兜底。 */
   const asButton = (el, fn) => {
     if (!el) return;
@@ -224,7 +224,7 @@
      为什么连这份名单也要留：第一次勾上「左栏显示余额」时本机没有任何缓存，
      而「要问哪几家」得等 /registry + /env-status 回来才知道 —— 那之前整块是空的。
      有了 kids，刚勾上就能按名单先画出一排占位卡（名字对、钱还没到），
-     而不是让用户对着空白等到最后「突然冒出来」。老缓存没有 kids，退回单张「正在读取…」也一样不空。 */
+     而不是让用户对着空白等到最后「突然冒出来」。老缓存没有 kids，退回单张「加载中…」也一样不空。 */
   const readBalCache = () => {
     try {
       const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}');
@@ -248,7 +248,7 @@
     if (r.pending) {
       return `<div class="sb-bal-card" data-kid="${window.esc(r.kid)}" title="${window.esc(r.name)}">
         <div class="l1"><span class="nm">${window.esc(r.name)}</span><span class="am">—</span></div>
-        <div class="l2"><span class="spin-dot"></span> 正在读取…</div></div>`;
+        <div class="l2"><span class="spin-dot"></span> 加载中…</div></div>`;
     }
     const avail = window.esc(r.avail), frozen = window.esc(r.frozen), unit = window.esc(r.unit);
     /* 失败那一行把原因摆到行面上：以前只留「获取失败」四个字、原因藏进 title，
@@ -366,7 +366,7 @@
   function balBodyHTML(note, pop) {
     const shown = balList();
     const cards = balCardsHTML(shown, shown.length ? ''
-      : (note || (balRows.length ? '没有勾选「侧栏余额」的平台' : '正在读取…')));
+      : (note || (balRows.length ? '没有勾选「侧栏余额」的平台' : '加载中…')));
     const head = '<div class="sb-now-t"' + (pop ? '' : ' title="点击刷新"')
       + '>账户余额 <span class="n">' + shown.length + ' 家</span></div>';
     return '<div class="sb-bal">' + head
@@ -664,14 +664,14 @@
     const box = sb.querySelector('#sbBalance');
     if (!box) return;
     /* **先画一次再发请求**：切页/刷新时余额立刻可见（缓存），第一次勾上开关时也不会空着
-       （缓存里没有就画「正在读取…」，有 kids 就按名单画一排占位卡）。
+       （缓存里没有就画「加载中…」，有 kids 就按名单画一排占位卡）。
        以前这一支是「有缓存才画」，于是刚勾上开关的那一次：盒子空着 → 等 N 个请求全回来 →
        N 张卡一起冒出来。用户看到的就是「开了没反应，然后突然全出来了」。 */
     const cached = readBalCache();
     if (cached.rows.length) balRows = cached.rows;
     if (cached.kids.length) balKids = cached.kids;
     balPending = null;
-    paintBal(box, balRows.length ? '' : '正在读取…');
+    paintBal(box, balRows.length ? '' : '加载中…');
     if (balInflight) {
       if (opts && opts.force) balRerun = true;
       return balInflight;
@@ -769,7 +769,7 @@
       /* 现在不用「再补插一次本机那一行」：paintBal 每画一次都现算 mirrorBarHTML()，
          开关从关到开时那一块本来就跟着回来了。 */
       const box = sb.querySelector('#sbBalance');
-      if (box) paintBal(box, balRows.length ? '' : '正在读取…');
+      if (box) paintBal(box, balRows.length ? '' : '加载中…');
       /* 刚在设置页勾上「左栏显示余额」而本机一份数都没有 → 现在去取，别让那块地方
          一直停在占位上（那正是用户说的「等它刷出来」，勾开关本来就是为了现在就要看见）。
          缓存还热（60 秒内刚取过）就不白跑一遍 —— 改勾选、改「存哪一档」走的是重画，不是重新取数。 */
@@ -796,7 +796,7 @@
         const rows = c.rows.filter(r => r && r.kid !== kid);
         if (rows.length !== c.rows.length) {
           /* kids（占位卡名单）也要一起写回：整份换掉时漏了它，
-             下一次打开左栏就退回「一张泛泛的正在读取…」，而这一家明明在名单里。 */
+             下一次打开左栏就退回「一张泛泛的加载中…」，而这一家明明在名单里。 */
           localStorage.setItem(BAL_KEY, JSON.stringify({ ts: c.ts,
             rows, kids: (c.kids || []).filter(k => k && String(k.kid) !== String(kid)) }));
           balRows = rows;

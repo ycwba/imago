@@ -1668,7 +1668,7 @@
       },
       _promptHTML(prompt) {
         return '<div class="det-prompt-hd">完整提示词'
-          + (prompt ? '<button class="ghost mini" data-copyprompt>复制</button>' : '')
+          + (prompt ? '<button type="button" class="ghost mini" data-copyprompt>复制</button>' : '')
           + '</div>'
           + '<div class="det-prompt"' + (prompt ? '' : ' style="color:var(--sub)"') + '>' + esc(prompt || '（无提示词）') + '</div>';
       },
@@ -2576,7 +2576,7 @@
         + (ks.length > 3 ? ' 等 ' + ks.length + ' 个平台' : '');
       return '<div class="list-note"><span class="txt">有 ' + ks.length + ' 个平台的任务这次没取回来（'
         + detail + '）。下面只列已取到的。</span>'
-        + '<button class="ghost mini" id="' + (retryId || 'listRetry') + '">重试</button></div>';
+        + '<button type="button" class="ghost mini" id="' + (retryId || 'listRetry') + '">重试</button></div>';
     },
 
     /* ---------- 任务卡片列表（右栏）：按键复用 DOM、指纹变了才重绘 ----------
@@ -2740,9 +2740,9 @@
       rowHTML(prefix, o = {}) {
         const p = prefix || '';
         const hide = o.hidden ? ' style="display:none"' : '';
-        return '<button class="ghost" id="' + p + 'PgPrev"' + hide + '>‹ 上一页</button>'
+        return '<button type="button" class="ghost" id="' + p + 'PgPrev"' + hide + '>‹ 上一页</button>'
           + '<span class="pginfo" id="' + p + 'PgInfo"' + hide + '>' + esc(o.info || '') + '</span>'
-          + '<button class="ghost" id="' + p + 'PgNext"' + hide + '>下一页 ›</button>';
+          + '<button type="button" class="ghost" id="' + p + 'PgNext"' + hide + '>下一页 ›</button>';
       },
       /* 分页信息文案（唯一一份）：图片台自己的游标分页也用它，三个台的文字不会各写各的。
          平台的列表接口只有游标和 has_more，**根本没有任务总数**（SparkCine / VGENV 实测都一样），
@@ -3234,7 +3234,7 @@
     },
 
     /* ---------- 灯箱底部操作条（全站共用：信息 · 下载） ----------
-       以前三台各写一份，长得不一样：图片台是两个 <button>（有 hover），视频/语音台是一个 <a>
+       以前三台各写一份，长得不一样：图片台是两个 <button type="button">（有 hover），视频/语音台是一个 <a>
        （没有 hover、带下划线）。现在按钮在这里统一生成，样式统一放在 ui.css 的 #lbBar 一段
        —— 结构上保证各台一致。下载走浏览器默认方式（Wb.save → Net.save）。
        页面只要提供两件事：
@@ -3398,9 +3398,9 @@
         if (!lb) {
           lb = document.createElement('div');
           lb.id = 'lightbox';
-          lb.innerHTML = '<button class="lb-btn" id="lbPrev">‹</button>'
+          lb.innerHTML = '<button type="button" class="lb-btn" id="lbPrev">‹</button>'
             + '<div id="lbStage"></div>'
-            + '<button class="lb-btn" id="lbNext">›</button>'
+            + '<button type="button" class="lb-btn" id="lbNext">›</button>'
             + '<div id="lbBar"><span id="lbCount"></span><span id="lbInfo"></span></div>';
           document.body.appendChild(lb);
           return;

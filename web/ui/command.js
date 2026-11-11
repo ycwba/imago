@@ -84,6 +84,10 @@
       if (!items.length) return;
       sel = (sel + (k === 'ArrowDown' ? 1 : -1) + items.length) % items.length;
       cmdPaint();
+      /* 选中行要跟着滚进视野：↑↓ 整片重建后 scrollTop 回顶，条目一多选中行会沉到折叠线下。
+         （判据的假 DOM 没有querySelector，真浏览器才有这一步。） */
+      const cur = (list && typeof list.querySelector === 'function') ? list.querySelector('.cmd-item.is-sel') : null;
+      if (cur && cur.scrollIntoView) cur.scrollIntoView({ block: 'nearest' });
     } else if (k === 'Enter') {
       e.preventDefault(); e.stopPropagation();
       choose(sel);
