@@ -3,6 +3,8 @@
    只回状态与清代理侧缓存，不写用户数据；业务函数由 app 注入。 */
 'use strict';
 
+const { sendJson } = require('./http.js');
+
 function createSystemRoutes(ctx) {
   const sysStatus = ctx.sysStatus;
   const registryVersion = ctx.registryVersion;
@@ -30,9 +32,8 @@ function createSystemRoutes(ctx) {
     return now - last >= ERR_DEDUP_MS;
   }
   const cut = (s, n) => { const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim(); return t.length > n ? t.slice(0, n) + '…' : t; };
-  const send = (res, code, obj) => {
-    try { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(obj)); } catch { /* 连接已经断了 */ }
-  };
+  /* 回包口径收口到 routes/http.js 的 sendJson（本地这份与其逐字同效，删掉）。 */
+  const send = sendJson;
 
   function handleSystem(req, res, urlObj) {
     const dataPath = (urlObj && urlObj.pathname) || req.url.split('?')[0];

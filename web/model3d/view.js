@@ -21,7 +21,7 @@ import {
   setSketchMarks, screenToCamPaths,
 } from './scene.js';
 import { sampleAnim, sampleCams, sampleLights } from './anim.js';
-import { findNode } from './schema.js';
+import { findNode, round3 } from './schema.js';
 import { jointsOf, applyJoints } from './rig.js';
 import { applyClip } from './clip.js';
 import { SKY, SELECT } from './palette.js';
@@ -603,7 +603,6 @@ export function createView(host, opts = {}) {
   window.addEventListener('blur', () => { cancelStroke(); stopGizmoDrag(); });
 
   /* ---------------- 涂鸦（标注只存在页面手里，不进 doc） ---------------- */
-  const round3s = v => Math.round((Number(v) || 0) * 1000) / 1000;
   function liveMarkOfStroke() {
     if (!stroke) return null;
     if (stroke.type === 'arrow') return { type: 'arrow', color: stroke.color, from: stroke.from, to: stroke.to };
@@ -640,7 +639,7 @@ export function createView(host, opts = {}) {
     const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(fwd, sketchFocusPoint());
     const out = new THREE.Vector3();
     if (!ray.ray.intersectPlane(plane, out)) return null;
-    return [round3s(out.x), round3s(out.y), round3s(out.z)];
+    return [round3(out.x), round3(out.y), round3(out.z)];
   }
   function strokePoints(from, to) {
     const cam = activeCamera();
@@ -650,7 +649,7 @@ export function createView(host, opts = {}) {
     const d = new THREE.Vector3().fromArray(to).sub(f);
     const u = d.dot(right);
     const v = d.dot(up);
-    const ptOf = (vec) => [round3s(vec.x), round3s(vec.y), round3s(vec.z)];
+    const ptOf = (vec) => [round3(vec.x), round3(vec.y), round3(vec.z)];
     if (stroke.type === 'rect') {
       const a = f.clone();
       const b = f.clone().addScaledVector(right, u);
@@ -684,7 +683,7 @@ export function createView(host, opts = {}) {
     /* surfaceAt：Alt 起笔时射线打在模型表面上的那个点（箭头 / 画笔才能从主体身上起笔）；
        不给就落回参考深度面。继续的笔画点仍走深度面 —— 起笔锚一次，后面不混锚。 */
     const pt = surfaceAt
-      ? [round3s(surfaceAt.x), round3s(surfaceAt.y), round3s(surfaceAt.z)]
+      ? [round3(surfaceAt.x), round3(surfaceAt.y), round3(surfaceAt.z)]
       : sketchPoint(e);
     if (!pt) return;
     if (sketchTool === 'eraser') { eraseNear(pt); return; }
@@ -792,13 +791,13 @@ export function createView(host, opts = {}) {
   gizmo.addEventListener('objectChange', () => {
     if (selectedCam) {
       if (!onCamTransform) return;
-      const pos = [round(camGizmo.position.x), round(camGizmo.position.y), round(camGizmo.position.z)];
+      const pos = [round3(camGizmo.position.x), round3(camGizmo.position.y), round3(camGizmo.position.z)];
       onCamTransform(selectedCam, { pos });
       return;
     }
     if (selectedLight) {
       if (!onLightTransform) return;
-      const at = [round(lightGizmo.position.x), round(lightGizmo.position.y), round(lightGizmo.position.z)];
+      const at = [round3(lightGizmo.position.x), round3(lightGizmo.position.y), round3(lightGizmo.position.z)];
       onLightTransform(selectedLight, { at });
       return;
     }
@@ -806,7 +805,7 @@ export function createView(host, opts = {}) {
     if (!obj || !onTransform) return;
     const id = obj.userData.nodeId;
     if (!id) return;
-    onTransform(id, { at: [round(obj.position.x), round(obj.position.y), round(obj.position.z)] });
+    onTransform(id, { at: [round3(obj.position.x), round3(obj.position.y), round3(obj.position.z)] });
     if (helper.visible) helper.setFromObject(obj);
     markDirty();
   });
@@ -816,13 +815,13 @@ export function createView(host, opts = {}) {
       if (!onCamTransform || !doc) return;
       const cam = doc.scene.cams.find(c => c.id === selectedCam);
       if (!cam) return;
-      const pos = [round(camGizmo.position.x), round(camGizmo.position.y), round(camGizmo.position.z)];
+      const pos = [round3(camGizmo.position.x), round3(camGizmo.position.y), round3(camGizmo.position.z)];
       const dx = cam.target[0] - cam.pos[0];
       const dy = cam.target[1] - cam.pos[1];
       const dz = cam.target[2] - cam.pos[2];
       const dist = Math.max(0.001, Math.hypot(dx, dy, dz));
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(camGizmo.quaternion).normalize();
-      const target = [round(pos[0] + dir.x * dist), round(pos[1] + dir.y * dist), round(pos[2] + dir.z * dist)];
+      const target = [round3(pos[0] + dir.x * dist), round3(pos[1] + dir.y * dist), round3(pos[2] + dir.z * dist)];
       onCamTransform(selectedCam, { pos, target });
       return;
     }
@@ -830,11 +829,11 @@ export function createView(host, opts = {}) {
       if (!onLightTransform || !doc) return;
       const light = doc.scene.lights.find(l => l.id === selectedLight);
       if (!light) return;
-      const at = [round(lightGizmo.position.x), round(lightGizmo.position.y), round(lightGizmo.position.z)];
+      const at = [round3(lightGizmo.position.x), round3(lightGizmo.position.y), round3(lightGizmo.position.z)];
       const t = light.target || [0, 0, 0];
       const dist = Math.max(0.001, Math.hypot(t[0] - at[0], t[1] - at[1], t[2] - at[2]));
       const dir = new THREE.Vector3(0, 0, -1).applyQuaternion(lightGizmo.quaternion).normalize();
-      const target = [round(at[0] + dir.x * dist), round(at[1] + dir.y * dist), round(at[2] + dir.z * dist)];
+      const target = [round3(at[0] + dir.x * dist), round3(at[1] + dir.y * dist), round3(at[2] + dir.z * dist)];
       onLightTransform(selectedLight, { at, target });
       return;
     }
@@ -843,12 +842,11 @@ export function createView(host, opts = {}) {
     const id = obj.userData.nodeId;
     if (!id) return;
     onTransform(id, {
-      rot: [round(obj.rotation.x / D2R), round(obj.rotation.y / D2R), round(obj.rotation.z / D2R)],
+      rot: [round3(obj.rotation.x / D2R), round3(obj.rotation.y / D2R), round3(obj.rotation.z / D2R)],
     });
     if (helper.visible) helper.setFromObject(obj);
     markDirty();
   });
-  const round = v => Math.round(v * 1000) / 1000;
 
   /* ---------------- 出图 / 出片 ---------------- */
   function targetFor(w, h) {

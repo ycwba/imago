@@ -1307,9 +1307,7 @@ window.Chars = (function () {
     return (Array.isArray(list) ? list : []).map(x => (typeof x === 'string' ? { id: x, name: x } : x))
       .filter(x => x && x.id).map(x => ({ id: String(x.id), name: String(x.name || x.id), lang: x.lang || '', gender: x.gender || '' }));
   }
-  const blobToBase64 = b => new Promise((res, rej) => {
-    const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1] || ''); rd.onerror = rej; rd.readAsDataURL(b);
-  });
+  const blobToBase64 = b => window.AssetTransfer.toB64(b);
   /* 参考音频这一格**有两种存法，读法只有一份**（2026-10-17）：
      · 键   —— 从选择器或本机文件挂上来的那一段，字节在 IndexedDB，JSON 里只留一个短键（`saveRefAudio`）；
      · 地址 —— 「拿已经生成的那条语音去克隆」写进去的本机资产地址（`cloneFromCands`）。

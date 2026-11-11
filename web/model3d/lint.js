@@ -12,7 +12,9 @@
    小人的高度不取比例表的估算值：渲染会把零件树按姿势造出来，再把整只抬到脚底贴地
    （root 的落地偏移），所以这里也走同一棵零件树量真实的脚底到头顶。 */
 
-import { cloneDoc, round3 } from './schema.js';
+
+
+import { cloneDoc, num, round3 } from './schema.js';
 import { variantsOf, cloneNodeForVariant } from './dsl.js';
 import { crowdLayout } from './crowd.js';
 import { mannequinTree } from './mannequin.js';
@@ -28,9 +30,8 @@ const LINT_PART_MAX = 20;
 const LINT_PASS_MAX = 8;
 const LINT_D2R = Math.PI / 180;
 
-const lintNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 const lintNumText = v => String(Number(Number(v).toFixed(2)));
-const lintAbs = v => Math.abs(lintNum(v));
+const lintAbs = v => Math.abs(num(v));
 
 const lintNameOf = node => {
   if (node.name) return node.name;
@@ -87,9 +88,9 @@ function lintScaleBox(box, factor, pivot) {
 /* ---------- 仿射矩阵（3×3 行主序 + 平移） ---------- */
 
 function lintMat(at, rot, scale) {
-  const rx = lintNum(rot[0]) * LINT_D2R;
-  const ry = lintNum(rot[1]) * LINT_D2R;
-  const rz = lintNum(rot[2]) * LINT_D2R;
+  const rx = num(rot[0]) * LINT_D2R;
+  const ry = num(rot[1]) * LINT_D2R;
+  const rz = num(rot[2]) * LINT_D2R;
   const a = Math.cos(rx), b = Math.sin(rx);
   const c = Math.cos(ry), d = Math.sin(ry);
   const e = Math.cos(rz), f = Math.sin(rz);
@@ -101,14 +102,14 @@ function lintMat(at, rot, scale) {
   for (let i = 0; i < 3; i++) {
     for (let j = 0; j < 3; j++) r[i][j] *= scale[j];
   }
-  return { r, t: [lintNum(at[0]), lintNum(at[1]), lintNum(at[2])] };
+  return { r, t: [num(at[0]), num(at[1]), num(at[2])] };
 }
 
 function lintMatOf(node, mirrorX) {
   const at = node.at || [0, 0, 0];
   const rot = node.rot || [0, 0, 0];
   const sc = node.scale || [1, 1, 1];
-  const scale = [mirrorX ? -lintNum(sc[0], 1) : lintNum(sc[0], 1), lintNum(sc[1], 1), lintNum(sc[2], 1)];
+  const scale = [mirrorX ? -num(sc[0], 1) : num(sc[0], 1), num(sc[1], 1), num(sc[2], 1)];
   return lintMat(at, rot, scale);
 }
 
@@ -290,11 +291,11 @@ function lintPrimBox(node) {
     if (!rings.length) return null;
     const box = lintEmptyBox();
     for (const ring of rings) {
-      const y = lintNum(ring.y);
+      const y = num(ring.y);
       const rx = lintAbs(ring.rx) || 0.001;
       const rz = lintAbs(ring.rz) || 0.001;
-      const cx = lintNum(ring.cx);
-      const cz = lintNum(ring.cz);
+      const cx = num(ring.cx);
+      const cz = num(ring.cz);
       lintUnionInto(box, { min: [cx - rx, y, cz - rz], max: [cx + rx, y, cz + rz] });
     }
     return box;
@@ -305,7 +306,7 @@ function lintPrimBox(node) {
     const box = lintEmptyBox();
     for (const p of prof) {
       const r = lintAbs(p[0]);
-      const y = lintNum(p[1]);
+      const y = num(p[1]);
       lintUnionInto(box, { min: [-r, y, -r], max: [r, y, r] });
     }
     return box;
@@ -316,8 +317,8 @@ function lintPrimBox(node) {
     const depth = lintAbs(node.depth) || 0.2;
     const box = lintEmptyBox();
     for (const p of poly) {
-      const x = lintNum(p[0]);
-      const y = lintNum(p[1]);
+      const x = num(p[0]);
+      const y = num(p[1]);
       lintUnionInto(box, { min: [x, y, 0], max: [x, y, depth] });
     }
     return box;
@@ -467,19 +468,19 @@ function lintApplyMove(parentMatById, unit) {
    机位跟着缩的话主体在画面里的大小一点没变，缩完还在画幅外。 */
 function lintScaleAll(doc, factor, pivot, topIds) {
   const point = p => [
-    round3(pivot[0] + (lintNum(p[0]) - pivot[0]) * factor),
-    round3(pivot[1] + (lintNum(p[1]) - pivot[1]) * factor),
-    round3(pivot[2] + (lintNum(p[2]) - pivot[2]) * factor),
+    round3(pivot[0] + (num(p[0]) - pivot[0]) * factor),
+    round3(pivot[1] + (num(p[1]) - pivot[1]) * factor),
+    round3(pivot[2] + (num(p[2]) - pivot[2]) * factor),
   ];
   for (const node of (doc.scene.nodes || [])) {
     if (!node || typeof node !== 'object') continue;
     node.at = point(node.at || [0, 0, 0]);
     const sc = Array.isArray(node.scale) ? node.scale : [1, 1, 1];
-    node.scale = [round3(lintNum(sc[0], 1) * factor), round3(lintNum(sc[1], 1) * factor), round3(lintNum(sc[2], 1) * factor)];
+    node.scale = [round3(num(sc[0], 1) * factor), round3(num(sc[1], 1) * factor), round3(num(sc[2], 1) * factor)];
     if (node.repeat) {
-      node.repeat.dx = round3(lintNum(node.repeat.dx) * factor);
-      node.repeat.dy = round3(lintNum(node.repeat.dy) * factor);
-      node.repeat.dz = round3(lintNum(node.repeat.dz) * factor);
+      node.repeat.dx = round3(num(node.repeat.dx) * factor);
+      node.repeat.dy = round3(num(node.repeat.dy) * factor);
+      node.repeat.dz = round3(num(node.repeat.dz) * factor);
     }
   }
   for (const tr of ((doc.anim && Array.isArray(doc.anim.tracks)) ? doc.anim.tracks : [])) {
@@ -501,9 +502,9 @@ function lintScaleAll(doc, factor, pivot, topIds) {
 /* 横向平移只动模型（相机不动）：贴地关系靠 y 不变保住，构图靠画幅那一步补齐。 */
 function lintShiftAll(doc, delta, topIds) {
   const addPoint = p => [
-    round3(lintNum(p[0]) + delta[0]),
-    round3(lintNum(p[1]) + delta[1]),
-    round3(lintNum(p[2]) + delta[2]),
+    round3(num(p[0]) + delta[0]),
+    round3(num(p[1]) + delta[1]),
+    round3(num(p[2]) + delta[2]),
   ];
   for (const node of (doc.scene.nodes || [])) {
     if (!node || typeof node !== 'object') continue;
@@ -545,8 +546,8 @@ function lintCamLocked(doc, cam) {
 }
 
 function lintBasisOf(cam) {
-  const pos = Array.isArray(cam.pos) ? cam.pos.map(lintNum) : [0, 0, 0];
-  const target = Array.isArray(cam.target) ? cam.target.map(lintNum) : [0, 0, 0];
+  const pos = Array.isArray(cam.pos) ? cam.pos.map(num) : [0, 0, 0];
+  const target = Array.isArray(cam.target) ? cam.target.map(num) : [0, 0, 0];
   const f = [target[0] - pos[0], target[1] - pos[1], target[2] - pos[2]];
   const fl = Math.hypot(f[0], f[1], f[2]);
   if (!(fl > 1e-6)) return null;
@@ -566,7 +567,7 @@ function lintBasisOf(cam) {
 function lintFitOf(box, cam, aspect) {
   const basis = lintBasisOf(cam);
   if (!basis) return null;
-  const fov = Math.min(179, Math.max(1, lintNum(cam.fov, 35))) * LINT_D2R;
+  const fov = Math.min(179, Math.max(1, num(cam.fov, 35))) * LINT_D2R;
   const tan = Math.tan(fov / 2);
   let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
   let depthSum = 0;
@@ -651,9 +652,9 @@ function lintFrameFix(doc, box, aspect, topIds, pushFix, pushWarn) {
           round3(basis.pos[2] + basis.u[2] * dy),
         ];
         cam.target = [
-          round3(lintNum(cam.target[0]) + basis.u[0] * dy),
-          round3(lintNum(cam.target[1]) + basis.u[1] * dy),
-          round3(lintNum(cam.target[2]) + basis.u[2] * dy),
+          round3(num(cam.target[0]) + basis.u[0] * dy),
+          round3(num(cam.target[1]) + basis.u[1] * dy),
+          round3(num(cam.target[2]) + basis.u[2] * dy),
         ];
         pushFix(fit.cy > 0 ? '机位抬高，主体回到画幅中央' : '机位压低，主体回到画幅中央');
         changed = true;

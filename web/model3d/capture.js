@@ -99,15 +99,8 @@ async function saveAsset(blob, o) {
 }
 
 function blobToB64(blob) {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => {
-      const s = String(r.result || '');
-      const i = s.indexOf(',');
-      resolve(i >= 0 ? s.slice(i + 1) : s);
-    };
-    r.onerror = () => reject(new Error('读取产物字节失败'));
-    r.readAsDataURL(blob);
+  return window.AssetTransfer.toB64(blob).catch(e => {
+    throw new Error('读取产物字节失败');
   });
 }
 

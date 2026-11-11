@@ -1095,12 +1095,7 @@ export function createBridge(E, document, window) {
          不再走「服务端渲染目录里复制一份」那条路。 */
       const blob = Export.filmBlobOf(name);
       if (!blob) return loose('这一份的字节不在本次会话里（缓存只留最近导出的那一份）：再点一次「导出成片」，导完立刻存');
-      const b64 = await new Promise((res, rej) => {
-        const fr = new FileReader();
-        fr.onload = () => res(String(fr.result).split(',')[1] || '');
-        fr.onerror = () => rej(new Error('读不出字节'));
-        fr.readAsDataURL(blob);
-      });
+      const b64 = await window.AssetTransfer.toB64(blob);
       /* 类型跟文件名 / 字节走：成片没有 H.264 时导出来的是 .webm（选容器在 MediaExport.pickCodec）。 */
       const fmt = (name.match(/\.([a-z0-9]+)$/i) || [])[1] || 'mp4';
       const d = await window.Api.saveLocalAsset({

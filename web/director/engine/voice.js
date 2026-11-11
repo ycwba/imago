@@ -1247,12 +1247,7 @@ async function localAudioAsset(file) {
   if (!/^(mp3|wav|m4a|aac|ogg|oga|opus|flac|webm)$/.test(fmt)) {
     throw new Error('「' + file.name + '」不是音频文件（.' + fmt + '）—— 本机音频只收 mp3 / wav / m4a / aac / ogg / flac');
   }
-  const b64 = await new Promise((res, rej) => {
-    const rd = new FileReader();
-    rd.onload = () => res(String(rd.result).split(',')[1] || '');
-    rd.onerror = () => rej(new Error('读这个文件失败'));
-    rd.readAsDataURL(file);
-  });
+  const b64 = await window.AssetTransfer.toB64(file);
   const saved = await Api.saveLocalAsset({ name: file.name, mime: file.type || ('audio/' + fmt), format: fmt, data: b64,
     meta: { provider: '本机', prompt: '' } });
   return saved.url || Api.assetSrc(saved.assetId || saved.id);

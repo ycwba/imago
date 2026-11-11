@@ -12,7 +12,6 @@ import { trackColorOf } from '../../model3d/palette.js';
 
 const dEsc = s => window.esc(String(s == null ? '' : s));
 const dIcon = (name, size) => (window.icon ? window.icon(name, size || 12) : '');
-const dNum = (v, d = 0) => (Number.isFinite(Number(v)) ? Number(v) : d);
 
 function trackName(doc, tr) {
   if (!tr || !tr.of) return '（轨道）';
@@ -50,7 +49,7 @@ function makeTrack(doc, of) {
    （t 相同就是同一帧），返回排好序的新数组。key 的对象身份保持不变 ——
    调用方手里攥着的「正在编辑的那一帧」不能因为重排就断线。 */
 export function retimeKey(keys, key, t) {
-  const nt = Math.max(0, Math.round(dNum(t, 0) * 100) / 100);
+  const nt = Math.max(0, Math.round(S.num(t, 0) * 100) / 100);
   key.t = nt;
   const kept = (keys || []).filter(k => k === key || Math.abs(k.t - nt) > 0.001);
   kept.sort((a, b) => a.t - b.t);
@@ -83,7 +82,7 @@ export function createDock(opts = {}) {
 
   const doc = () => getDoc();
   const view = () => getView();
-  const durationOf = () => Math.max(0.001, dNum(doc() && doc().anim && doc().anim.duration, 4));
+  const durationOf = () => Math.max(0.001, S.num(doc() && doc().anim && doc().anim.duration, 4));
 
   function dockTimeText() {
     const v = view();
@@ -138,11 +137,11 @@ export function createDock(opts = {}) {
     const d = doc();
     if (!v || !d) return;
     const dur = durationOf();
-    const cur = dNum(v.time, 0);
+    const cur = S.num(v.time, 0);
     if (d.anim.loop === false && cur >= dur) v.setTime(0);
     playing = true;
     v.playing = true;
-    baseTime = dNum(v.time, 0);
+    baseTime = S.num(v.time, 0);
     startedAt = performance.now();
     raf = requestAnimationFrame(clockFrame);
     renderDock();
@@ -279,7 +278,7 @@ export function createDock(opts = {}) {
     const pose = currentPose(tr);
     if (!pose) { note('这条轨道指向的对象已经不在了', 'err'); return; }
     const v = view();
-    const t = Math.round(dNum(v && v.time, 0) * 100) / 100;
+    const t = Math.round(S.num(v && v.time, 0) * 100) / 100;
     tr.keys = (tr.keys || []).filter(k => Math.abs(k.t - t) > 0.001);
     let key;
     if (tr.of.kind === 'cam') key = { t, at: pose.at, target: pose.target, fov: pose.fov };
@@ -604,8 +603,8 @@ export function createDock(opts = {}) {
       const entry = opts.getAssets ? opts.getAssets().get(n.file) : null;
       const clip = clipOf(entry, n.clip);
       if (!clip) return;
-      const speed = Math.max(0.001, dNum(n.clipSpeed, 1));
-      const offset = dNum(n.clipOffset, 0);
+      const speed = Math.max(0.001, S.num(n.clipSpeed, 1));
+      const offset = S.num(n.clipOffset, 0);
       const dur = durationOf();
       const end = (n.clipLoop || 'loop') === 'loop' ? dur : Math.max(0, (Number(clip.duration) || 0) / speed - offset);
       clipRows.push('<div class="mm-track-row clip">'
@@ -733,23 +732,23 @@ export function createDock(opts = {}) {
       }
       const d2 = doc();
       if (k === 'duration') {
-        const v = dNum(f.value, 4);
+        const v = S.num(f.value, 4);
         if (v > 0) {
           d2.anim.duration = v;
           const end = S.trackEndOf(d2.anim);
           if (end > v) note('动画时长 ' + v + ' 秒短于轨道末尾 ' + end + ' 秒；超出部分不会播放', 'err');
         }
       } else if (k === 'fps') {
-        const v = Math.round(dNum(f.value, 24));
+        const v = Math.round(S.num(f.value, 24));
         if (v > 0) d2.anim.fps = v;
       } else if (k === 'loop') d2.anim.loop = !!f.checked;
       else {
         const tr = selectedTrackOf();
         if (!tr) return;
         if (k === 'interp') tr.interp = f.value;
-        else if (k === 'offset') tr.offset = Math.max(0, dNum(f.value, 0));
-        else if (k === 'speed') { const v = dNum(f.value, 1); tr.speed = v > 0 ? v : 1; }
-        else if (k === 'trackDuration') tr.duration = Math.max(0, dNum(f.value, 0));
+        else if (k === 'offset') tr.offset = Math.max(0, S.num(f.value, 0));
+        else if (k === 'speed') { const v = S.num(f.value, 1); tr.speed = v > 0 ? v : 1; }
+        else if (k === 'trackDuration') tr.duration = Math.max(0, S.num(f.value, 0));
         else if (k === 'keysMode') tr.keysMode = f.value === 'offset' ? 'offset' : 'override';
         else if (k === 'solo') tr.solo = f.value === '1';
         else if (k === 'look') {

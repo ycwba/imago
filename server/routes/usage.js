@@ -1,16 +1,15 @@
 /* /assets-usage：本机资产库磁盘用量（只读，不写不删）。 */
 'use strict';
+const { sendJson, fail } = require('./http.js');
 function createUsageRoutes(ctx) {
   const localUsageScan = ctx.localUsageScan;
   async function handleUsage(req, res, dataPath) {
     if (dataPath === '/assets-usage' && req.method === 'GET') {
       try {
         const u = await localUsageScan();
-        res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify(u));
+        sendJson(res, 200, u);
       } catch (e) {
-        res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-        res.end(JSON.stringify({ error: { message: '数不出本机资产库：' + ((e && e.message) || e) } }));
+        fail(res, 500, '数不出本机资产库：' + ((e && e.message) || e));
       }
       return;
     }

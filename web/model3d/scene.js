@@ -12,6 +12,7 @@ import { mergeGeometries } from '../vendor/three/BufferGeometryUtils.js';
 import { CLAY, CLAY_DETAIL, GROUND, SKY, FOG, GRID, GRID_BOLD, SELECT, SKETCH, toneOf, trackColorOf, nodeColorOf } from './palette.js';
 import { mannequinTree, poseLimitOf } from './mannequin.js';
 import { crowdLayout } from './crowd.js';
+import { round3 } from './schema.js';
 import { variantsOf, cloneNodeForVariant } from './dsl.js';
 import { quatOfDegrees, registerJoint } from './rig.js';
 import { clipOf, mixerFor, bindClip, applyClip } from './clip.js';
@@ -655,7 +656,6 @@ export function setTrackPaths(stage, doc) {
 
 /* ---------------- 涂鸦标注（不进文档，出图时整组摘掉） ---------------- */
 
-const r3 = v => Math.round((Number(v) || 0) * 1000) / 1000;
 
 function sketchColorOf(name) {
   return SKETCH[name] != null ? SKETCH[name] : SKETCH.blue;
@@ -731,7 +731,7 @@ export function setSketchMarks(stage, marks) {
     const pts = Array.isArray(m.pts) ? m.pts.filter(p => Array.isArray(p) && p.length >= 3) : [];
     if (pts.length < 2) continue;
     const closed = m.type === 'circle' || m.type === 'rect';
-    const vecs = pts.map(p => new THREE.Vector3(r3(p[0]), r3(p[1]), r3(p[2])));
+    const vecs = pts.map(p => new THREE.Vector3(round3(p[0]), round3(p[1]), round3(p[2])));
     if (closed) vecs.push(vecs[0].clone());
     const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.9, depthTest: false, depthWrite: false });
     const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints(vecs), mat);
@@ -751,9 +751,9 @@ export function screenToCamPaths(marks, cam) {
   return blues.map(b => {
     const p0 = b.pts[0];
     return b.pts.map(p => [
-      r3(cam.pos[0] + p[0] - p0[0]),
-      r3(cam.pos[1] + p[1] - p0[1]),
-      r3(cam.pos[2] + p[2] - p0[2]),
+      round3(cam.pos[0] + p[0] - p0[0]),
+      round3(cam.pos[1] + p[1] - p0[1]),
+      round3(cam.pos[2] + p[2] - p0[2]),
     ]);
   });
 }

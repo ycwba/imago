@@ -97,6 +97,14 @@
         r.onload = () => res(r.result); r.onerror = rej;
         r.readAsDataURL(fileOrBlob);
       });
+    },
+    /* File/Blob → 纯 base64（dataURL 去头）：入库的 `data` 字段要的是这一段。
+       错误语义与 toDataURL 一致（reject），调用方自己决定吞不吞。 */
+    toB64(fileOrBlob) {
+      return this.toDataURL(fileOrBlob).then(s => {
+        const i = String(s).indexOf(',');
+        return i >= 0 ? String(s).slice(i + 1) : String(s);
+      });
     },    /* 本平台资产 id 的形态（SparkCine 是 UUID）。本地资产 la_* / 别家平台的 id 直接当 asset_id 提交会被上游判为
        「Invalid UUID」→ 顶层只回一句「部分内容需要检查。」，所以提交前先用它把不属于本平台的 id 挡掉，改走上传字节。 */
     isPlatformId(id) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(id || '')); },
@@ -335,12 +343,7 @@
         const shrunk = await shrinkBlobToJpeg(blob, 1024, 0.82).catch(() => null);
         if (shrunk && shrunk.size < blob.size) blob = shrunk;
       }
-      const url = await new Promise((res, rej) => {
-        const rd = new FileReader();
-        rd.onload = () => res(rd.result);
-        rd.onerror = () => rej(rd.error || new Error('读不出素材字节'));
-        rd.readAsDataURL(blob);
-      });
+      const url = await this.toDataURL(blob);
       if (!url) throw new Error('取不到素材字节');
       return { role, url };
     },

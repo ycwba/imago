@@ -75,11 +75,8 @@ async function mediaInfo(body) {
   } : null;
 }
 function readFileB64(file) {
-  return new Promise((res, rej) => {
-    const rd = new FileReader();
-    rd.onload = () => res(String(rd.result).split(',')[1] || '');
-    rd.onerror = () => rej(new Error('读这个文件失败（可能被占用或被移动）'));
-    rd.readAsDataURL(file);
+  return window.AssetTransfer.toB64(file).catch(e => {
+    throw new Error('读这个文件失败（可能被占用或被移动）');
   });
 }
 async function importMediaFile(file) {

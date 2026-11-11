@@ -2,6 +2,8 @@
    上游清单落盘一天、内存 60 秒、在途合并；失败按 registry 兜底并写明原因。
    allProviders / keyOf / DEFAULTS / upRequest 由 app 注入。 */
 'use strict';
+
+const { sendJson, fail } = require('./http.js');
 const fs = require('fs');
 const path = require('path');
 /* 型号清单响应「数组落在哪个字段」只认顶层 modelList.fields 那一份声明：
@@ -145,18 +147,13 @@ async function handleCapabilities(req, res, urlObj) {
   const noCache = urlObj.searchParams.get('noCache') === '1';
   const prov = allProviders().find(p => p.id === want || (p.keyId || p.id) === want);
   if (!prov) {
-    res.writeHead(404, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: { message: '找不到平台：' + want + '（检查 registry 里的 id）' } }));
+    fail(res, 404, '找不到平台：' + want + '（检查 registry 里的 id）');
     return true;
   }
   const endpoint = (prov.endpoints && prov.endpoints.models) || null;
   const apiKey = (req.headers.authorization || '').replace(/^Bearer\s*/, '')
     || keyOf(prov.keyEnv) || DEFAULTS[prov.keyId || prov.id] || '';
-  const send = payload => {
-    res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-    res.end(JSON.stringify(payload));
-    return true;
-  };
+  const send = payload => { sendJson(res, 200, payload); return true; };
   /* 缓存键带 provider id：同 base 同端点的两家（历史上 sparkcine 两家就同过）不该共用一份
      「声明为 A 家取回的清单」—— 客户端现在不读 provider 字段，一读就串。 */
   const cacheKey = prov.id + '|' + prov.base + '|' + endpoint;

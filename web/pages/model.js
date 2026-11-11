@@ -673,12 +673,7 @@ export default {
       try {
         const blob = await view.shot(320, 200, 'image/png');
         if (!blob) return '';
-        return await new Promise(res => {
-          const r = new FileReader();
-          r.onload = () => res(String(r.result || ''));
-          r.onerror = () => res('');
-          r.readAsDataURL(blob);
-        });
+        return window.AssetTransfer ? await window.AssetTransfer.toDataURL(blob) : '';
       } catch (e) { return ''; }
     }
 
@@ -1208,12 +1203,7 @@ export default {
         const { w, h } = view.sizeOf(720);
         const blob = await view.shot(w, h, 'image/jpeg', 0.8, { time: view.time });
         if (!blob) return '';
-        return await new Promise(resolve => {
-          const fr = new FileReader();
-          fr.onload = () => resolve(String(fr.result || ''));
-          fr.onerror = () => resolve('');
-          fr.readAsDataURL(blob);
-        });
+        return window.AssetTransfer ? await window.AssetTransfer.toDataURL(blob) : '';
       } catch (e) { return ''; }
     }
 
