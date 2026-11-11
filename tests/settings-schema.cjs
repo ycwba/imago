@@ -34,8 +34,7 @@ function extractObject(s, marker) {
   let i = s.indexOf('{', at), depth = 0, out = '';
   for (; i < s.length; i++) {
     const c = s[i], n = s[i + 1];
-    if (c === '/' && n === '/') { const j = s.indexOf('\n', i); i = j < 0 ? s.length : j; out += '\n'; continue; }
-    if (c === '/' && n === '*') { const j = s.indexOf('*/', i + 2); i = j < 0 ? s.length : j + 1; out += ' '; continue; }
+    /* 字符串先于注释判：字符串里含 // （URL）不能被当行注释吃掉。 */
     if (c === "'" || c === '"' || c === '`') {
       const q = c; out += c;
       for (i++; i < s.length; i++) {
@@ -45,11 +44,37 @@ function extractObject(s, marker) {
       }
       continue;
     }
+    if (c === '/' && n === '/') { const j = s.indexOf('\n', i); i = j < 0 ? s.length : j; out += '\n'; continue; }
+    if (c === '/' && n === '*') { const j = s.indexOf('*/', i + 2); i = j < 0 ? s.length : j + 1; out += ' '; continue; }
+    /* 正则字面量（前一个有效字符是这些 = 表达式位）：/…/g 里的 {} 与 // 不参与配对。 */
+    if (c === '/') {
+      const prev = out.replace(/\s+$/, '').slice(-1);
+      if (prev === '' || '([{,;=:!&|?+-*%~^'.indexOf(prev) >= 0) {
+        out += '/';
+        let inCls = false;
+        for (i++; i < s.length; i++) {
+          const d = s[i];
+          out += d;
+          if (d === '\\') { i++; out += s[i] || ''; continue; }
+          if (d === '[') inCls = true;
+          if (d === ']') inCls = false;
+          if ((d === '/' && !inCls) || d === '\n') break;
+        }
+        continue;
+      }
+      out += c;
+      continue;
+    }
     if (c === '{') depth++;
     if (c === '}') { depth--; if (!depth) { out += c; break; } }
     out += c;
   }
   return out;
+}
+/* scanner 自检：正则字面量与字符串里的 // 都不能被当注释吃掉（吃掉 = 求值错位 / 对象残缺）。 */
+{
+  const probe = extractObject("var o = { re: /{}/g, url: 'http://x', n: 1 };", 'var o =');
+  ok('extractObject 对正则字面量与 URL 串免疫', /\/\{\}\/g/.test(probe) && probe.includes('http://x'));
 }
 const sandbox = { window: { VIEW_MODES: [['list', '列表'], ['compact', '紧凑']] },
   localStorage: { getItem: () => null }, console };

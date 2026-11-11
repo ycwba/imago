@@ -248,11 +248,27 @@ export function createDock(opts = {}) {
     if (!node) return null;
     const v = view();
     const wrap = v && v.content ? v.content.byId.get(node.id) : null;
-    if (wrap) return {
-      at: [Math.round(wrap.position.x * 1000) / 1000, Math.round(wrap.position.y * 1000) / 1000, Math.round(wrap.position.z * 1000) / 1000],
-      rot: [Math.round(wrap.rotation.x * 180000 / Math.PI) / 1000, Math.round(wrap.rotation.y * 180000 / Math.PI) / 1000, Math.round(wrap.rotation.z * 180000 / Math.PI) / 1000],
-      pose: node.pose || '',
-    };
+    if (wrap) {
+      let at = [Math.round(wrap.position.x * 1000) / 1000, Math.round(wrap.position.y * 1000) / 1000, Math.round(wrap.position.z * 1000) / 1000];
+      /* 轨道带 follow 时，播放（sampleAnim）会在采样值上再叠一次被跟随节点的位置；
+         这里取到的是视口世界坐标（已含那一份），写进 key 前先减掉 —— 否则该帧起
+         对象瞬间跳出约两倍跟随偏移。base 的取法照抄 sampleAnim 的 baseAtOf：
+         先用被跟随节点自己采到的位置，没有再用它的静态 at。 */
+      if (tr.follow) {
+        const m = A.sampleAnim(d.anim, v ? v.time : 0, d);
+        let base = (m && m[tr.follow] && m[tr.follow].at) || null;
+        if (!base) {
+          const fn = S.findNode(d.scene.nodes, tr.follow);
+          base = fn ? fn.at : null;
+        }
+        if (base) at = [at[0] - base[0], at[1] - base[1], at[2] - base[2]].map(x => Math.round(x * 1000) / 1000);
+      }
+      return {
+        at,
+        rot: [Math.round(wrap.rotation.x * 180000 / Math.PI) / 1000, Math.round(wrap.rotation.y * 180000 / Math.PI) / 1000, Math.round(wrap.rotation.z * 180000 / Math.PI) / 1000],
+        pose: node.pose || '',
+      };
+    }
     return { at: node.at.slice(), rot: node.rot.slice(), pose: node.pose || '' };
   }
 
@@ -305,6 +321,7 @@ export function createDock(opts = {}) {
           const node = S.findNode(d.scene.nodes, tr.of.id);
           if (node && field === 'at' && Array.isArray(node.at)) return node.at.slice();
           if (node && field === 'rot' && Array.isArray(node.rot)) return node.rot.slice();
+          if (node && field === 'scale' && Array.isArray(node.scale)) return node.scale.slice();
         }
       }
     }
@@ -333,7 +350,9 @@ export function createDock(opts = {}) {
     } else {
       pose = currentPose(tr);
     }
-    if (!pose) { note('这条轨道指向的对象已经不在了', 'err'); return; }
+    /* pose 为 null 有两种原因：非活动机位走了 sampleTrack，t < offset 时它返回 null（还没开播）；
+       或者对象真的不在了。照实说全，别让人对着一条好端端的轨道找「对象」到底哪去了。 */
+    if (!pose) { note('没取到当前姿态：轨道还没开播，或指向的对象已经不在了', 'err'); return; }
     if (tr.of.kind === 'cam') {
       key.at = pose.at.map(x => S.round3(x));
       key.target = pose.target.map(x => S.round3(x));
@@ -368,6 +387,7 @@ export function createDock(opts = {}) {
       const i = Number(vecMatch[2]);
       const vec = Array.isArray(key[field]) ? key[field].slice() : baseVecOf(tr, key, field);
       vec[i] = field === 'scale' ? S.scaleOf(raw)[0] : S.round3(raw);
+      if (field === 'scale' && raw === 0) note('0 缩放按 1 处理（0 的节点在场景里等于消失）');
       key[field] = vec;
     } else if (path === 'key.t') {
       if (empty || !Number.isFinite(raw)) { note('时间要填数字（秒）', 'err'); renderDock(); return; }
@@ -799,6 +819,7 @@ export function createDock(opts = {}) {
   }
 
   function dragPointerDown(e) {
+    if (drag) return;                           // 第二根指针不接管正在拖的那一枚（触屏双指）
     if (e.button !== 0 || !e.target.closest) return;
     const dot = e.target.closest('.mm-key[data-dock-key]');
     if (!dot) return;
@@ -813,7 +834,6 @@ export function createDock(opts = {}) {
     selectedTrack = tr.id;
     selKey = key;
     revealKeyEdit = true;
-    swallowClickUntil = performance.now() + 400;
     drag = { tr, key, rect: bar.getBoundingClientRect(), x0: e.clientX, t0: key.t, moved: false, pid: e.pointerId };
     try { host.setPointerCapture(e.pointerId); } catch (err) { /* 捕获失败也照常拖，window 上还有监听 */ }
     renderDock();
@@ -831,7 +851,8 @@ export function createDock(opts = {}) {
     const cur = drag;
     drag = null;
     releaseCapture(cur.pid);
-    swallowClickUntil = performance.now() + 400;
+    /* 只在真拖过之后才吞 click：单纯点一下菱形（选中 / 定位）不该连坐下一次点击。 */
+    if (cur.moved) swallowClickUntil = performance.now() + 400;
     selKey = cur.key;
     revealKeyEdit = true;
     if (!cur.moved) {

@@ -215,17 +215,23 @@
         hasAudio: !!at, chain: 'mediabunny',
       };
     } finally {
-      try { input.dispose(); } catch (e) { /* dispose 失败不影响结果 */ }
+      try { input.disposeInput(); } catch (e) { /* dispose 失败不影响结果 */ }
     }
   }
 
-  /* 主档取一帧：CanvasSink 定点。首帧黑画布问题：t=0 附近取 0.26s 再归一（部分 WebM 首 GOP 是合成黑帧）。 */
+  /* 主档取一帧：CanvasSink 定点。首帧黑画布问题：t=0 附近取 0.26s 再归一（部分 WebM 首 GOP 是合成黑帧）。
+     整个解码包在 12 秒 race 里跑：输掉的那一只原本会带着 Input 挂死在解码器上（下面的「一直等
+     下一个包」），缩略图轮询反复触发、同一个文件每试一次攒一只 —— 超时即 dispose，work 侧收到
+     中断错误后走自己的收尾，调用方照旧退 <video> 兜底。 */
   async function grabByMb(src, which, atSeconds) {
     const M = await loadM();
     if (!M) return null;
     const first = which === 'first' || which === 'start';
     const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
+    let disposed = false, timedOut = false, to = 0;
+    const disposeInput = () => { if (!disposed) { disposed = true; try { input.disposeInput(); } catch (e) { /* 同上 */ } } };
     try {
+      const work = (async () => {
       const vt = await input.getPrimaryVideoTrack();
       if (!vt || !(await vt.canDecode())) return null;
       const dur = Number(await input.computeDuration());
@@ -257,8 +263,22 @@
       const blob = await new Promise(r => canvas.toBlob(r, 'image/png'));
       if (!blob || !blob.size) return null;
       return { blob, w, h };
+      })();
+      let r;
+      try {
+        r = await Promise.race([
+          work,
+          new Promise((_, rej) => { to = setTimeout(() => { timedOut = true; disposeInput(); rej(new Error('主档取帧超时')); }, 12000); }),
+        ]);
+      } catch (e) {
+        clearTimeout(to);
+        if (timedOut) { work.catch(() => {}); return null; }   // 超时 = 主档解不动，交 <video> 兜底
+        return null;
+      }
+      clearTimeout(to);
+      return r;
     } finally {
-      try { input.dispose(); } catch (e) { /* 同上 */ }
+      disposeInput();
     }
   }
 
@@ -279,7 +299,10 @@
     if (!M) return { mode: 'fallback' };
     const input = new M.Input({ source: mbSourceOf(M, src), formats: M.ALL_FORMATS });
     const made = [];
+    let disposed = false, timedOut = false, to = 0;
+    const disposeInput = () => { if (!disposed) { disposed = true; try { input.disposeInput(); } catch (e) { /* dispose 失败不影响结果 */ } } };
     try {
+      const work = (async () => {
       const vt = await input.getPrimaryVideoTrack();
       if (!vt || !(await vt.canDecode())) return { mode: 'fallback' };
       const dur = Math.max(0.05, Number(await input.computeDuration()) || 0);
@@ -387,10 +410,28 @@
         await new Promise(r => setTimeout(r, 0));      // 层间让出
       }
       return { frames: made, dur, mode: 'fixed' };
+      })();
+      /* 主档必须有超时：与 grab() 同一个坑 —— 「算出来的时长比真实视频长一点」的文件，
+         canvasesAtTimestamps 会一直等下一个包、永远不返回。切片主链挂死的代价比取一帧更大：
+         slicePump 保证同一素材一次只有一趟活，这一趟不结束，之后所有切片 / 胶片格请求全部排队。
+         超时即 dispose（斩断等在解码器上的那一发）并退 fallback，调用方 frames.js 再退 <video> 分块。 */
+      let r;
+      try {
+        r = await Promise.race([
+          work,
+          new Promise((_, rej) => { to = setTimeout(() => { timedOut = true; disposeInput(); rej(new Error('主档切片超时')); }, 12000); }),
+        ]);
+      } catch (e) {
+        clearTimeout(to);
+        if (timedOut) { work.catch(() => {}); return { mode: 'fallback' }; }
+        throw e;
+      }
+      clearTimeout(to);
+      return r;
     } catch (e) {
       return { mode: 'fallback' };
     } finally {
-      try { input.dispose(); } catch (e) { /* dispose 失败不影响结果 */ }
+      disposeInput();
     }
   }
 
@@ -495,7 +536,7 @@
       const blob = new Blob([wavHead(rate, 1, 16, dataLen)].concat(parts), { type: 'audio/wav' });
       return { blob, seconds: outCount / rate, rate };
     } finally {
-      try { input.dispose(); } catch (e) { /* 收尾清理，失败也要走完 */ }
+      try { input.disposeInput(); } catch (e) { /* 收尾清理，失败也要走完 */ }
     }
   }
 

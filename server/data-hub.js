@@ -1608,7 +1608,9 @@ function createPromptsStore(opts) {
           if (!rows.length) rows.push(...scanPromptTask(dir, task));
           if (rows.length) {
             rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-            const hit = rows.find(r => it && it.provider && r.p === it.provider) || rows[0];
+            /* 本机账的 provider 恒为 'local'（三条建账路径硬编码），归档行的 p 是平台 id ——
+               按 provider 挑那份的分支永远命不中，别留着骗读者：同名任务的归档取最新一份。 */
+            const hit = rows[0];
             try {
               const text = fs.readFileSync(path.join(dir, hit.f), 'utf8');
               const at = text.indexOf('## 提示词');

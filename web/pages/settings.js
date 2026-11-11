@@ -1827,8 +1827,7 @@ const SettingsView = {
       if (window.Dropdowns) Object.keys(hosts).forEach(k => { const b = hosts[k]; if (b) Dropdowns.build(b); });
       paintNoticeState();
     }
-    /* 自动保存写盘的那一段：屏幕上每一项按声明的三态落盘。
-       新增行没进导出名单时当场说出来（isSettingKey 由 UI_PREFS.exportOf 现算），不静默丢。 */
+    /* 自动保存写盘的那一段：屏幕上每一项按声明的三态落盘。 */
     function saveManifestRows(W, Wdel) {
       qa('[data-mkey]').forEach(el => {
         const k = el.dataset.mkey;
@@ -1989,7 +1988,14 @@ const SettingsView = {
         ],
       });
       if (!withKeys) return;
-      const json = JSON.stringify(exportSettings(withKeys === 'keys'), null, 2);
+      const pack = exportSettings(withKeys === 'keys');
+      /* 与 resetSetup 的 fail-safe 对称：声明缺失时 isSettingKey 恒 false，导出会是
+         一份空 data —— 看起来成功、实际什么都没带走，宁可当场拒绝。 */
+      if (!(window.UI_PREFS && window.UI_PREFS.exportOf) && !Object.keys(pack.data || {}).length) {
+        Toast.err('设置声明没加载出来，这次什么都没导出');
+        return;
+      }
+      const json = JSON.stringify(pack, null, 2);
       const name = 'ai-workbench-设置-' + new Date().toISOString().slice(0, 10) + '.json';
       Net.save(new Blob([json], { type: 'application/json' }), name);
       Toast.receipt('已导出设置' + (withKeys === 'keys' ? '（含密钥）' : ''));
@@ -2068,8 +2074,6 @@ const SettingsView = {
     const persistInfo = ref('读取中…');
     const persistGranted = ref(false);
     const dataBusy = reactive({ copy: false, push: false, pull: false, exp: false, imp: false });
-    /* 目录轨上「数据与同步」那一行的当前值（几份数据）—— 与 dataInfo 同源，只是短。 */
-    const dataCount = ref(0);
     /* ---------- 备份中心：本机快照的唯一界面（端点只经 DataSync 走 /backup/*） ----------
        健康提示必须说清「哪一份坏了」：state.json 校验不过时代理会拒绝写入，
        这时界面上要是还写「正常」，用户就会一直以为自己的修改存下来了。 */
@@ -2164,7 +2168,6 @@ const SettingsView = {
         const d = await r.json();
         const n = (d.files || []).length;
         const kb = (d.files || []).reduce((a, f) => a + f.size, 0);
-        dataCount.value = n;
         dataInfo.value = d.dir + ' · ' + n + ' 份数据 · ' + window.fmtBytes(kb);
         dataInfoTitle.value = d.dir;
       } catch (e) { dataInfo.value = '读不到（代理没在运行？）'; }
@@ -2636,15 +2639,12 @@ const SettingsView = {
     const cacheMsg = ref('');
     const cacheUsage = ref('');
     const cacheBusy = reactive({ api: false, meta: false, thumb: false, missed: false });
-    /* 目录轨上「清理缓存」那一行的当前值（本机 localStorage 占多少）—— 与 cacheUsage 同源，只是短。 */
-    const cacheBytes = ref(0);
     function paintCacheUsage() {
       let total = 0; const rows = [];
       for (const k of window.LS.keys()) {
         const b = (k.length + String(window.LS.get(k) || '').length) * 2;
         total += b; rows.push([k, b]);
       }
-      cacheBytes.value = total;
       rows.sort((a, b) => b[1] - a[1]);
       const top = rows.slice(0, 3).map(([k, b]) => k + ' ' + mbOf(b)).join('、');
       cacheUsage.value = '本机 localStorage 现在约 ' + mbOf(total)

@@ -2643,6 +2643,9 @@ export default {
       if (view) view.sketchUndo();
     }
     function onSketchKeydown(e) {
+      /* 页面没激活（KeepAlive 池里挂着）直接放行：捕获阶段先跑的是这里，
+         不挡的话在别的页面按 Ctrl+Z 会吞掉那一页的撤销、还隐匿撤掉一笔涂鸦。 */
+      if (!active.value) return;
       if (!st.sketch.on) return;
       if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z')) return;
       if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;

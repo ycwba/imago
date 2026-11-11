@@ -184,8 +184,21 @@ window.ModelPrefs = {
     const k = this.kid(prov);
     if (!k) return false;                       // 认不出这一家就不写：见上面第 ① 条
     const all = this._raw();
-    const cur = all[k] || {};
-    /* 三个字段**都要**先带出来再打 patch：早先这里只带 typed 与 off，
+    let cur = all[k];
+    if (!cur) {
+      /* 旧格槽（keyId 不带 :kind）只在 of() 的兜底里活着。建新槽时把 of() 现算的那份搬进来当
+         底座 —— 否则第一次 setGot / setMedia 就把用户手填的型号（typed）与隐藏勾选（off）
+         清没了，而 of() 的兜底从此不再参与（新槽已存在）。旧格子本体留在原地：与
+         sk_text_models_ 同一套纪律 —— 搬完不删，老备份读回来还有兜底。 */
+      const lk = this.baseKid(prov);
+      if (lk && all[lk]) {
+        try { console.warn('[ModelPrefs] 从旧格槽迁移型号偏好：' + k); } catch (e) { /* 控制台不可用就算了 */ }
+        cur = this.of(prov);
+      } else {
+        cur = {};
+      }
+    }
+    /* 四个字段**都要**先带出来再打 patch：早先这里只带 typed 与 off，
        于是 setOff(勾一下「展示」) 会把同一格里的 got 整份抹掉 ——
        表现为「我刚获取的型号列表，勾了一下就没了」，而勾选与获取看着毫无关系。 */
     all[k] = Object.assign({ typed: cur.typed || [], off: cur.off || [], got: cur.got || [], media: cur.media || {} }, patch);
