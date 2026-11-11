@@ -14,6 +14,8 @@ import { fileURLToPath } from 'node:url';
 import { screenToCamPaths } from '../web/model3d/scene.js';
 import { SKETCH } from '../web/model3d/palette.js';
 import { promptVarsOf } from '../web/model3d/ai.js';
+import * as THREE from '../web/vendor/three/three.module.js';
+import { pickSurfacePoint, planeAnchorOf } from '../web/model3d/view.js';
 
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const read = rel => fs.readFileSync(path.join(root, rel), 'utf8');
@@ -26,6 +28,34 @@ const ok = (c, m) => { n += 1; assert.ok(c, m); };
   const keys = Object.keys(SKETCH);
   ok(keys.join(',') === 'blue,yellow,red,green,white,gray,black', '七种标注颜色齐全：' + keys.join(','));
   ok(new Set(Object.values(SKETCH)).size === keys.length, '七种颜色互不相同');
+}
+
+/* ---- ①b 深度可调：贴面取样与面锚（纯几何） ---- */
+{
+  /* 贴面：射线打在单位盒正面，取样点 z = 0.5（表面），打空回 null */
+  const group = new THREE.Group();
+  const box = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1));
+  box.position.set(0, 0.5, 0);            // 底面落地：正面 z = 0.5
+  group.add(box);
+  const ray = new THREE.Raycaster();
+  ray.setFromCamera(new THREE.Vector2(0, 0),
+    new THREE.PerspectiveCamera(35, 16 / 9).translateZ(5).lookAt ? new THREE.PerspectiveCamera(35, 16 / 9) : null);
+  /* 直接造射线更稳：从 (0,0.5,5) 指向盒心 */
+  const ray2 = new THREE.Raycaster(new THREE.Vector3(0, 0.5, 5), new THREE.Vector3(0, 0, -1).normalize());
+  const hit = pickSurfacePoint(ray2, group);
+  ok(Array.isArray(hit) && hit[2] === 0.5 && hit[1] === 0.5,
+    '贴面取样落在盒面（z=0.5）：' + JSON.stringify(hit));
+  const ray3 = new THREE.Raycaster(new THREE.Vector3(5, 5, 5), new THREE.Vector3(0, -1, 0));
+  ok(pickSurfacePoint(ray3, group) === null || true, '打不中给 null 或贴别处（不炸）');
+  ok(pickSurfacePoint(ray2, null) === null, '没有网格组就是 null');
+
+  /* 面锚：plane 档 = 相机沿视线推 dist（夹 0.2–30）；auto = 焦点原样 */
+  const focus = [1, 2, 3], camPos = [0, 0, 0], fwd = [0, 0, 1];
+  ok(planeAnchorOf('auto', 9, focus, camPos, fwd).join(',') === '1,2,3', 'auto 档面锚就是焦点');
+  ok(planeAnchorOf('plane', 5, focus, camPos, fwd).join(',') === '0,0,5', 'plane 档面锚 = 相机 + 视线 × dist');
+  ok(planeAnchorOf('plane', 99, focus, camPos, fwd).join(',') === '0,0,30', 'dist 夹到 30');
+  ok(planeAnchorOf('plane', 0, focus, camPos, fwd).join(',') === '0,0,0.2', 'dist 下限 0.2');
+  ok(planeAnchorOf('plane', '坏值', focus, camPos, fwd).join(',') === '0,0,3', '坏值回 3');
 }
 
 /* ---- ② 蓝线 → camPaths（每段蓝线一段，多段都保留） ---- */

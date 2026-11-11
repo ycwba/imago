@@ -15,7 +15,7 @@
   var KIND_ZH = { image: '图片', video: '视频', audio: '声音' };
   /* 掩码画布的最长边：与发给文字 AI 前那一道压缩同档，画布太大只会让笔迹变细。 */
   var MASK_EDGE = 1024;
-  var BRUSH = [[0.02, '细'], [0.045, '中'], [0.09, '粗']];
+  var BRUSH = [[0.006, '极细'], [0.012, '细'], [0.025, '中'], [0.05, '粗']];
   /* 掩码的六支笔：颜色是给 AI 的区域标记，提示词里按中文名点名。全用 CSS 颜色名，
      与画布导出 / 回显读到的像素一一对应。 */
   var INK = [
@@ -149,7 +149,7 @@
               (e.clientY - r.top) * (cv.height / Math.max(1, r.height))];
     }
     function strokeTo(p) {
-      var lw = BRUSH[state.w][0] * Math.min(cv.width, cv.height) * 2;
+      var lw = Math.max(2, BRUSH[state.w][0] * Math.min(cv.width, cv.height));
       ctx.globalCompositeOperation = state.tool === 'erase' ? 'destination-out' : 'source-over';
       ctx.strokeStyle = state.ink;
       ctx.lineWidth = Math.max(2, lw);
@@ -202,7 +202,7 @@
     }
     /* 自绘光标：圆圈直径 = 笔迹直径的屏幕尺寸，画笔显当前色、橡皮虚线 —— 不用猜会画多大。 */
     function moveGhost(e) {
-      var lw = Math.max(2, BRUSH[state.w][0] * Math.min(cv.width, cv.height) * 2);
+      var lw = Math.max(2, BRUSH[state.w][0] * Math.min(cv.width, cv.height));
       var r = cv.getBoundingClientRect();
       var d = lw * (r.width / Math.max(1, cv.width));
       ghost.style.width = d + 'px';
@@ -427,6 +427,7 @@
     }
 
     window.UiDialog.open({
+      id: 'rvDlg',
       title: '查看素材',
       sub: item.label || '',
       body: box => { viewBody(box); },

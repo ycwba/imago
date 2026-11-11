@@ -37,6 +37,26 @@ export function frameRect(aspect, cssW, cssH) {
   if (h > cssH) { h = cssH; w = Math.round(cssH * ar); }
   return { x: Math.round((cssW - w) / 2), y: Math.round((cssH - h) / 2), w: Math.max(2, w), h: Math.max(2, h) };
 }
+/* 贴面取样（纯几何，判据直接用）：射线与场景网格求交，跳过描边（LineSegments），
+   交点取三位小数；打不中回 null。 */
+export function pickSurfacePoint(ray, group) {
+  if (!group) return null;
+  const hit = ray.intersectObject(group, true).find(h => !h.object.isLineSegments);
+  if (!hit) return null;
+  return [Math.round(hit.point.x * 1000) / 1000, Math.round(hit.point.y * 1000) / 1000, Math.round(hit.point.z * 1000) / 1000];
+}
+
+/* 深度面的锚点（纯几何，判据直接用）：plane 档 = 相机沿视线推 dist 米（0.2–30 夹取），
+   其余档 = 焦点原样。数组进出，不碰 three 类型。 */
+export function planeAnchorOf(mode, dist, focus, camPos, fwd) {
+  if (mode === 'plane') {
+    const n = Number(dist);
+    const d = Math.min(30, Math.max(0.2, Number.isFinite(n) ? n : 3));
+    return [camPos[0] + fwd[0] * d, camPos[1] + fwd[1] * d, camPos[2] + fwd[2] * d];
+  }
+  return focus;
+}
+
 export function sizeOfAspect(aspect, shortEdge) {
   const ar = ASPECTS[aspect] || ASPECTS['16:9'];
   const se = Math.max(2, Math.round(shortEdge) || 720);
@@ -131,12 +151,16 @@ export function createView(host, opts = {}) {
   let onSketchChange = null;
   let lastNotesKey = '';
   let lastPoseKey = '';
-  /* 涂鸦层：标注只存在页面手里（不进 doc），这里只负责画、采集与拾取。 */
+  /* 涂鸦层：标注只存在页面手里（不进 doc），这里只负责画、采集与拾取。
+     深度三档：auto = 焦点面（选中实体中心 → 机位 target → orbit.target）；
+     plane = 相机沿视线推 dist 米的定距面（同一角度给前景 / 背景分层画）；
+     surface = 每个采样点取射线与场景网格的交点（画在模型表面起伏上，打不中退 auto）。 */
   let sketchOn = false;
   let sketchTool = 'select';
   let sketchColor = 'blue';
   let sketchText = '';
   let sketchMarks = [];
+  let sketchDepth = { mode: 'auto', dist: 3 };
   let stroke = null;
   const rt = new Map();                // `${w}x${h}` -> WebGLRenderTarget
 
@@ -630,14 +654,26 @@ export function createView(host, opts = {}) {
     }
     return orbit.target.clone();
   }
+  /* 定距档的面锚 = 相机沿视线推 dist 米；自动档 = 焦点。几何走下面那个导出纯件（判据共用）。 */
+  function sketchPlaneAnchor(fwd) {
+    const c = activeCamera().position;
+    const f = sketchFocusPoint();
+    const anchor = planeAnchorOf(sketchDepth.mode, sketchDepth.dist, [f.x, f.y, f.z], [c.x, c.y, c.z], [fwd.x, fwd.y, fwd.z]);
+    return new THREE.Vector3().fromArray(anchor);
+  }
   function sketchPoint(e) {
     const rect = renderer.domElement.getBoundingClientRect();
     pointer.set(((e.clientX - rect.left) / rect.width) * 2 - 1, -((e.clientY - rect.top) / rect.height) * 2 + 1);
     ray.setFromCamera(pointer, activeCamera());
+    const out = new THREE.Vector3();
+    /* 贴面档：采样点 = 射线与场景网格的交点（画在表面起伏上）；打不中退深度面。 */
+    if (sketchDepth.mode === 'surface' && content) {
+      const hit = pickSurfacePoint(ray, content.group);
+      if (hit) return hit;
+    }
     const fwd = new THREE.Vector3();
     activeCamera().getWorldDirection(fwd);
-    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(fwd, sketchFocusPoint());
-    const out = new THREE.Vector3();
+    const plane = new THREE.Plane().setFromNormalAndCoplanarPoint(fwd, sketchPlaneAnchor(fwd));
     if (!ray.ray.intersectPlane(plane, out)) return null;
     return [round3(out.x), round3(out.y), round3(out.z)];
   }
@@ -945,6 +981,12 @@ export function createView(host, opts = {}) {
       if (opt.tool) sketchTool = String(opt.tool);
       if (opt.color) sketchColor = String(opt.color);
       if (opt.text != null) sketchText = String(opt.text);
+      if (opt.depth) {
+        const d = opt.depth || {};
+        sketchDepth.mode = (d.mode === 'plane' || d.mode === 'surface') ? d.mode : 'auto';
+        const n = Number(d.dist);
+        sketchDepth.dist = Math.min(30, Math.max(0.2, Number.isFinite(n) ? n : 3));
+      }
       if (!sketchOn) { stroke = null; syncOrbitEnabled(); }
       syncSketch();
       markDirty();
@@ -966,6 +1008,16 @@ export function createView(host, opts = {}) {
     getSketchCamPaths() {
       const c = doc && ((doc.scene.cams.find(x => x.id === doc.scene.active)) || doc.scene.cams[0]);
       return c ? screenToCamPaths(sketchMarks, { pos: c.pos }) : [];
+    },
+    /* 涂鸦条读数用：mode + 定距值 + 焦点距（自动档的滑杆回显）。 */
+    getSketchDepth() {
+      const cam = activeCamera();
+      const f = sketchFocusPoint();
+      return {
+        mode: sketchDepth.mode,
+        dist: sketchDepth.dist,
+        focusDist: Math.round(cam.position.distanceTo(f) * 1000) / 1000,
+      };
     },
     set onSketchChange(fn) { onSketchChange = fn; },
     setActive(fn) { active = fn || (() => true); markDirty(); kick(); },

@@ -1729,3 +1729,6 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
   font-size: var(--fs-11); line-height: var(--sz-chip); pointer-events: none; }
 /* 命令面板条目的悬停反馈（此前只有键盘选中态有样子，鼠标党悬停无任何变化） */
 .cmd-item:hover { background: var(--panel2); }
+/* 掩码 / 查看的专属弹窗：图片要大 —— 560px 全站帽对画掩码太小（写完 1024 显示 528） */
+dialog.ui-dlg#rvDlg { max-width: min(1200px, 96vw); width: min(1200px, 96vw); }
+#rvDlg .rv-stage img, #rvDlg .rv-stage video { max-height: min(72vh, calc(var(--sp-64) * 14)); }

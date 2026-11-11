@@ -63,7 +63,7 @@ export default {
       railTab: 'scene',       // scene | lib
       sideTab: 'ai',          // ai | props | cam | light
       refImages: [],          // 交给 AI 的参考素材（图片 / 视频 / 声音；只给 AI 看）
-      sketch: { on: false, tool: 'select', color: 'blue', text: '' },
+      sketch: { on: false, tool: 'select', color: 'blue', text: '', depth: { mode: 'auto', dist: 3 } },
       sketchMarks: [],        // 涂鸦标注（不进 doc；画给 AI 看的运镜）
       origin: null,           // { page:'studio'|'director', type?, shot? }
       prevDoc: null,          // AI 修改前的快照（「撤销这次修改」）
@@ -2637,8 +2637,22 @@ export default {
          不挡的话在别的页面按 Ctrl+Z 会吞掉那一页的撤销、还隐匿撤掉一笔涂鸦。 */
       if (!active.value) return;
       if (!st.sketch.on) return;
-      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z')) return;
       if (e.target && e.target.closest && e.target.closest('input, textarea, select, [contenteditable]')) return;
+      /* [ / ]：定距面的距离微调 ±0.25m（贴面档无效果）；auto 下先取当前焦点距当起点。 */
+      if (e.key === '[' || e.key === ']') {
+        if (st.sketch.depth.mode === 'surface') return;
+        if (st.sketch.depth.mode !== 'plane') {
+          st.sketch.depth.dist = (view && view.getSketchDepth ? view.getSketchDepth().focusDist : 3) || 3;
+        }
+        st.sketch.depth.mode = 'plane';
+        st.sketch.depth.dist = Math.min(30, Math.max(0.2, st.sketch.depth.dist + (e.key === ']' ? 0.25 : -0.25)));
+        view.setSketch({ depth: st.sketch.depth });
+        paintSketchBar();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z')) return;
       if (view && view.sketchUndo()) { e.preventDefault(); e.stopPropagation(); }
     }
     function paintSketchBar() {
@@ -2660,6 +2674,20 @@ export default {
         + SKETCH_TOOLS.map(([id, title]) => '<button class="ghost mini' + (st.sketch.tool === id ? ' on' : '')
           + '" type="button" data-sketch-tool="' + id + '" title="' + title + '">' + title.split('（')[0] + '</button>').join('')
         + '</div>'
+        + '<div class="mm-sketch-depth">'
+        + '<button class="ghost mini' + (st.sketch.depth.mode === 'surface' ? ' on' : '') + '" type="button"'
+        + ' data-act="sketchSurf" aria-pressed="' + (st.sketch.depth.mode === 'surface') + '"'
+        + ' title="笔迹贴着模型表面画（打不中退回深度面）">贴面</button>'
+        + '<input type="range" data-sketch-dist min="0.2" max="30" step="0.1"'
+        + (st.sketch.depth.mode === 'surface' ? ' disabled' : '')
+        + ' value="' + (st.sketch.depth.mode === 'plane' ? st.sketch.depth.dist
+          : (view && view.getSketchDepth ? view.getSketchDepth().focusDist : st.sketch.depth.dist)) + '"'
+        + ' title="深度面的距离（米）；拖动 = 定距画，同一角度可分层">'
+        + '<button class="ui-linkbtn" type="button" data-act="sketchAuto" title="回到焦点面（选中实体 / 机位看向）">'
+        + (st.sketch.depth.mode === 'surface' ? '贴面'
+          : st.sketch.depth.mode === 'plane' ? (Math.round(st.sketch.depth.dist * 10) / 10 + 'm')
+          : '自动') + '</button>'
+        + '</div>'
         + '<div class="mm-sketch-foot">'
         + (st.sketch.tool === 'text'
           ? '<input class="ui-inp" data-sketch-text placeholder="文字" value="' + esc(st.sketch.text) + '">'
@@ -2679,6 +2707,25 @@ export default {
         if (col) { st.sketch.color = col.dataset.sketchColor; view.setSketch({ color: st.sketch.color }); paintSketchBar(); return; }
         const tool = e.target.closest('[data-sketch-tool]');
         if (tool) { st.sketch.tool = tool.dataset.sketchTool; view.setSketch({ tool: st.sketch.tool }); paintSketchBar(); return; }
+        if (e.target.closest('[data-act="sketchSurf"]')) {
+          /* 贴面 ↔ 回到拖滑杆前的那一档（没拖过就是自动） */
+          if (st.sketch.depth.mode === 'surface') {
+            const prev = st.sketch.depth.prev || { mode: 'auto', dist: st.sketch.depth.dist };
+            st.sketch.depth.mode = prev.mode; st.sketch.depth.dist = prev.dist;
+          } else {
+            st.sketch.depth.prev = { mode: st.sketch.depth.mode, dist: st.sketch.depth.dist };
+            st.sketch.depth.mode = 'surface';
+          }
+          view.setSketch({ depth: st.sketch.depth });
+          paintSketchBar();
+          return;
+        }
+        if (e.target.closest('[data-act="sketchAuto"]')) {
+          st.sketch.depth.mode = 'auto';
+          view.setSketch({ depth: st.sketch.depth });
+          paintSketchBar();
+          return;
+        }
         if (e.target.closest('[data-act="sketchUndo"]')) { sketchUndoOne(); return; }
         if (e.target.closest('[data-act="sketchClear"]')) { view.clearSketch(); st.sketchMarks = []; paintSketchBar(); return; }
         if (e.target.closest('[data-act="sketchAi"]')) { generateSketch(); return; }
@@ -2686,9 +2733,20 @@ export default {
       };
       bar.oninput = e => {
         const inp = e.target.closest('[data-sketch-text]');
-        if (!inp) return;
-        st.sketch.text = inp.value;
-        view.setSketch({ text: inp.value });
+        if (inp) {
+          st.sketch.text = inp.value;
+          view.setSketch({ text: inp.value });
+          return;
+        }
+        /* 深度滑杆：拖动即定距画（auto → plane），只更新读数不整条重画 —— 重画会把滑杆从指下换掉 */
+        const sl = e.target.closest('[data-sketch-dist]');
+        if (sl) {
+          st.sketch.depth.mode = 'plane';
+          st.sketch.depth.dist = Number(sl.value) || 3;
+          view.setSketch({ depth: st.sketch.depth });
+          const read = bar.querySelector('[data-act="sketchAuto"]');
+          if (read) read.textContent = (Math.round(st.sketch.depth.dist * 10) / 10) + 'm';
+        }
       };
     }
     async function generateSketch() {
