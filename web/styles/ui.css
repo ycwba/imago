@@ -1694,7 +1694,7 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .cmd-foot { padding: var(--sp-8) var(--sp-16); border-top: var(--hair) solid var(--line);
   color: var(--sub); font-size: var(--fs-11); }
 
-/* RefView —— 参考框素材的「点开看」弹窗（web/ui/ref-view.js 按需补载；图片可画白笔掩码） */
+/* RefView —— 参考框素材的「点开看」弹窗（web/ui/ref-view.js 按需补载；图片可画彩色掩码） */
 .rv-stage { position: relative; display: flex; align-items: center; justify-content: center;
   min-height: calc(var(--sp-64) * 2); background: var(--media-bg); border-radius: var(--radius-10); overflow: hidden; }
 .rv-stage img { display: block; max-width: 100%; max-height: min(56vh, calc(var(--sp-64) * 8)); }
@@ -1710,3 +1710,6 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .rv-hint { color: var(--sub); font-size: var(--fs-11); }
 .rv-info { color: var(--sub); font-size: var(--fs-12); margin-top: var(--sp-4);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rv-swatch { width: var(--sz-chip); height: var(--sz-chip); padding: 0;
+  border: var(--hair) solid var(--line); border-radius: var(--radius-4); cursor: pointer; }
+.rv-swatch.on { border-color: var(--acc); box-shadow: var(--focus-shadow); }

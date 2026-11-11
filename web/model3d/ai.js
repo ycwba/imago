@@ -377,7 +377,7 @@ export function promptVarsOf(opts) {
     n[kind] += 1;
     const tag = kind === 'image' ? '图' : kind === 'video' ? '视频' : '音频';
     const label = line(x && (x.label || x.name)) || (tag + n[kind]);
-    refs.push(tag + n[kind] + ' = ' + label + (x && x.hasMask ? '（附白色掩码：白 = 要局部编辑的区域）' : ''));
+    refs.push(tag + n[kind] + ' = ' + label + (x && x.hasMask ? '（附彩色掩码：各色 = 要局部编辑的区域，黑 = 不动，用户按颜色点名）' : ''));
   }
   const problems = String(o.problems || '');
   return {

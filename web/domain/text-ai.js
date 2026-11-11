@@ -417,7 +417,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
 
 当前选中：{selected}
 
-参考素材：{refImages}（这一轮附带的图片 / 视频 / 声音按上面的顺序对应「图1、视频1、音频1…」；看不到的素材不要凭空编造。某张图注明「附白色掩码」时，它的下一张图就是那张掩码：白色像素 = 用户要在原图上局部编辑 / 重点看的区域，黑 = 其余部分保持原样 —— 改动只落在白色区域里，别把整张图重画一遍）
+参考素材：{refImages}（这一轮附带的图片 / 视频 / 声音按上面的顺序对应「图1、视频1、音频1…」；看不到的素材不要凭空编造。某张图注明「附彩色掩码」时，它的下一张图就是那张掩码：黑 = 其余部分保持原样，彩色笔画各标一个用户要局部编辑 / 重点看的区域（白 / 红 / 绿 / 蓝 / 黄 / 青），用户会在要求里按颜色点名 —— 例：「红色那块改成草地」只改红色笔迹盖住的区域。改掩码图时只动被点名的颜色区域，别把整张图重画一遍）
 
 当前场景（v3；新建实体时是一句说明；修改时分【场景大纲】+【选中实体完整细节】两段 —— 大纲每行是 \`id「名字」(形状或种类) 子n\`，n 是子节点数，只够认出结构；节点坐标 / 材质 / 轨道只在选中实体那一段，机位 / 灯 / 灯光装置 / 时间轴在大纲末尾各一行。照这里的 id 改，大纲里没有的 id 不要编）：
 {current}
@@ -751,7 +751,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       { name: 'problems', from: '上一轮丢掉的零件明细 / 被跳过的修改 / 几何体检结论', desc: 'AI 照它避免重犯；没有上一轮问题时整段不出现' },
       { name: 'sketch', from: '涂鸦标注（类型 / 颜色 / 位置 / 文字 + 每段蓝线各自换算的 camPaths）', desc: '颜色即语义（蓝 = 相机 / 黄 = 主体…），用户那句话是主令、冲突时听它；没有涂鸦时整段不出现' },
       { name: 'selected', from: '当前选中的节点 id', desc: '选中的子树在 current 里给全字段、只给一遍' },
-      { name: 'refImages', from: '这一轮附带的参考图清单', desc: '按图1、图2…的顺序对应视觉输入；注明「附白色掩码」的图，下一张就是它的掩码（白 = 要局部编辑的区域）' },
+      { name: 'refImages', from: '这一轮附带的参考图清单', desc: '按图1、图2…的顺序对应视觉输入；注明「附彩色掩码」的图，下一张就是它的掩码（各色 = 要局部编辑的区域，用户按颜色点名）' },
     ],
   },
   /* Skill 的「使用场景」：设置页 Skill 卡的一级菜单 = 场景，点一个场景看
@@ -1329,8 +1329,10 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     if (!r.ok) throw new Error('素材读取失败 HTTP ' + r.status);
     return await r.blob();
   },
-  /* 缩到最长边 edge 再转 dataURL：识图只做参考，不需要原图分辨率，省流量和 tokens */
-  async shrink(src, edge, quality) {
+  /* 缩到最长边 edge 再转 dataURL：识图只做参考，不需要原图分辨率，省流量和 tokens。
+     mime 可指定导出格式 —— 掩码走 image/png（黑白硬边经 JPEG 会出灰色过渡带，
+     「哪种颜色 = 哪个区域」的二值语义会被糊掉）。 */
+  async shrink(src, edge, quality, mime) {
     const blob = await this._blob(src);
     if (/^(video|audio)\//.test(blob.type || '')) return null;
     const bmp = await createImageBitmap(blob).catch(() => null);
@@ -1341,7 +1343,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
     cv.getContext('2d').drawImage(bmp, 0, 0, w, h);
     try { bmp.close && bmp.close(); } catch {}
-    return cv.toDataURL('image/jpeg', quality || 0.85);
+    return cv.toDataURL(mime || 'image/jpeg', quality || 0.85);
   },
   /* 批量压缩（读不出来的素材直接跳过，不影响润色）。不按张数截断：
      少带一张参考图，文字 AI 就可能把那一张上的角色 / 场景写成另一个样子。 */
@@ -1384,16 +1386,20 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
        · note 是一句给界面看的话（带了什么 / 没带什么、为什么）；
        · caps 是三类能力判定（页面拿它决定「视频要不要退成抽帧」这类事）。
      图片仍走 shrink（整图缩小、省 tokens）；音频 / 视频原样读字节。
-     图片条目可带 `mask`（用户在图上画的白笔掩码 dataURL）：原图发出去之后**紧跟一张掩码图**
-     （`isMask` 标记），并在原图上打 `hasMask` —— 编号各口（提示词的 图N / 附件清单）跳过掩码、
-     只在原图上注明「附白色掩码」，模型看到的是「这张图 + 白色 = 要局部编辑的区域」。 */
+     图片条目可带 `mask`（用户在图上画的彩笔掩码 dataURL）：原图发出去之后**紧跟一张掩码图**
+     （`isMask` 标记，走 PNG 不压缩串色），并在原图上打 `hasMask` —— 编号各口（提示词的 图N /
+     附件清单）跳过掩码、只在原图上注明「附彩色掩码」。掩码语义：黑 = 其余部分不动，
+     彩色笔画各标一个要局部编辑 / 重点看的区域，用户在提示词里按颜色点名（「红色那块改成草地」）。 */
   async prepareMedia(REG, list, opts) {
-    const items = (list || []).filter(x => x && x.src).map(x => ({
-      kind: this.MEDIA_KINDS.indexOf(x.kind) >= 0 ? x.kind : 'image',
-      label: x.label || '素材',
-      src: x.src,
-      mask: x.kind === 'image' ? String(x.mask || '') : '',
-    }));
+    const items = (list || []).filter(x => x && x.src).map(x => {
+      const kind = this.MEDIA_KINDS.indexOf(x.kind) >= 0 ? x.kind : 'image';
+      return {
+        kind,
+        label: x.label || '素材',
+        src: x.src,
+        mask: kind === 'image' ? String(x.mask || '') : '',
+      };
+    });
     if (!items.length) return { media: [], note: '', caps: null };
     const caps = await this.mediaAsync(REG, opts && opts.prov, opts && opts.model);
     const media = [];
@@ -1407,7 +1413,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
           media.push(one[0]);
           if (it.mask) {
             let murl = '';
-            try { murl = await this.shrink(it.mask, (opts && opts.edge) || 1024, 0.9) || ''; } catch (e) { murl = ''; }
+            try { murl = await this.shrink(it.mask, (opts && opts.edge) || 1024, 0.9, 'image/png') || ''; } catch (e) { murl = ''; }
             if (murl) {
               one[0].hasMask = true;
               media.push({ kind: 'image', label: one[0].label + ' · 掩码', url: murl, isMask: true });
@@ -1454,7 +1460,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       note: named.length
         ? '已附带 ' + named.length + ' 张素材图供文字 AI 识别：'
           + named.map((x, i) => '图' + (i + 1) + ' = ' + x.label
-            + (x.hasMask ? '（它的下一张图是白色掩码：白 = 要局部编辑的区域）' : '')).join('、')
+            + (x.hasMask ? '（它的下一张图是彩色掩码：各色 = 要局部编辑的区域，黑 = 不动，用户会按颜色点名）' : '')).join('、')
         : '',
     };
   },

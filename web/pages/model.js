@@ -3414,7 +3414,7 @@ export default {
       paintSide();
       note('已加入 ' + made.length + ' 个素材', 'ok');
     }
-    /* 点开一条参考素材：看图 / 听声音 / 放视频；图片上还能画白笔掩码（发给 AI 当「要改的区域」）。
+    /* 点开一条参考素材：看图 / 听声音 / 放视频；图片上还能画彩笔掩码（多色标区域，发给 AI 当「要改的地方」）。
        查看组件按需补载（这一页不常驻它），掩码挂在素材条目上，随这一轮消息一起发。 */
     async function openRefView(item) {
       if (!item) return;

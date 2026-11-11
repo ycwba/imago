@@ -156,20 +156,36 @@ ok(pm2.media.length === 3, '原图 + 它的掩码 + 无掩码原图 = 三发：'
 ok(pm2.media[0].hasMask === true && pm2.media[1].isMask === true && /掩码/.test(pm2.media[1].label)
   && !pm2.media[2].hasMask && !pm2.media[2].isMask,
   '掩码紧跟原图、标记只打在自己与原图上：' + JSON.stringify(pm2.media.map(x => x.label)));
+/* 掩码必须走 PNG：彩色笔迹经 JPEG 会出灰色过渡带，颜色分区被糊掉。
+   （本判据前段已把 prepImages 打桩，原图不经过 shrink，这里只会记到掩码那一次调用。） */
+{
+  const calls = [];
+  const realShrink = TextAI.shrink;
+  TextAI.shrink = async (src, edge, q, mime) => { calls.push({ src: String(src).slice(0, 4), mime: mime || '' }); return 'data:image/png;base64,AAA'; };
+  await TextAI.prepareMedia(null, [{ kind: 'image', label: '看图', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
+  TextAI.shrink = realShrink;
+  ok(calls.length === 1 && calls[0].src === 'm1' && calls[0].mime === 'image/png',
+    '掩码那一发按 PNG 压缩（彩色分区无损）：' + JSON.stringify(calls));
+}
 TextAI.shrink = async () => null;
 const pm4 = await TextAI.prepareMedia(null, [{ kind: 'image', label: '看图', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
 ok(pm4.media.length === 1 && !pm4.media[0].hasMask && /掩码没带/.test(pm4.note), '掩码读不出来时逐条说明，原图照带');
 TextAI.shrink = async () => 'data:image/jpeg;base64,AAA';
 const pm5 = await TextAI.prepareMedia(null, [{ kind: 'audio', label: '听声', src: 'b', mask: 'm1' }], { prov, model: 'm-all' });
 ok(pm5.media.length === 1 && pm5.media[0].kind === 'audio', '非图片条目不认掩码');
+/* 没显式给 kind 的条目兜底成 image，掩码也要认（归属判定用归一化之后的 kind） */
+const pm6 = await TextAI.prepareMedia(null, [{ label: '没写 kind', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
+ok(pm6.media.length === 2 && pm6.media[0].hasMask === true && pm6.media[1].isMask === true,
+  '没写 kind 的图片条目兜底成 image 后仍带掩码：' + pm6.media.length);
 /* 旧入口：掩码部件留在 images 里随请求发出，但编号只数素材图、掩码在原图行注明 */
 const pl = await TextAI.polishImages(null, [
   { label: '参考图1', src: 'a', mask: 'm1' },
   { label: '参考图2', src: 'b' },
 ], { prov, model: 'm-all' });
 ok(pl.images.length === 3, '掩码部件留在 images 里（要随请求发出）：' + pl.images.length);
-ok(pl.note.includes('图1 = 参考图1（它的下一张图是白色掩码') && pl.note.includes('图2 = 参考图2'),
+ok(pl.note.includes('图1 = 参考图1（它的下一张图是彩色掩码') && pl.note.includes('图2 = 参考图2'),
   '编号只数素材图：' + pl.note);
+ok(/按颜色点名/.test(pl.note), '编号说明点明「用户会按颜色点名」：' + pl.note);
 ok(!pl.note.includes('图3'), '掩码不占 编号');
 
 console.log('文字 AI 多模态判定与随附素材：' + n + ' 条断言通过');

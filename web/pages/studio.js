@@ -1439,7 +1439,7 @@ const StudioView = {
           const s = srcOf(it);
           if (!s) return;
           n += 1;
-          out.push({ label: '参考图' + n + (note ? ' · ' + note : '') + (it.mask ? '（附白色掩码）' : ''),
+          out.push({ label: '参考图' + n + (note ? ' · ' + note : '') + (it.mask ? '（附彩色掩码）' : ''),
             src: s, mask: it.mask || '', token: '@参考图' + n, role });
         };
         (m.image || []).forEach(it => add(it, 'reference_image'));

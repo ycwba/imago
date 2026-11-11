@@ -916,7 +916,7 @@
     return '【这次附带的文件】\n' + list.map((f, i) =>
       i + ' = ' + f.name + '｜' + f.kind + '｜' + window.fmtBytes(f.size) + '｜'
       + (f.file ? '本次拖进来的 File' : LOCAL_SRC.test(f.src || '') ? f.src : f.txt ? '本机存的文本快照' : '字节已不在，要让人重新拖')
-      + (f.mask ? '｜附白色掩码（紧随其后那张图：白 = 要重点看 / 局部编辑的区域）' : '')).join('\n') + '\n\n';
+      + (f.mask ? '｜附彩色掩码（紧随其后那张图：各色 = 要重点看 / 局部编辑的区域，黑 = 不动，用户会按颜色点名）' : '')).join('\n') + '\n\n';
   }
   /* 随消息附上的素材：图片 / 视频 / 音频**都按当前文字型号的能力声明**决定带不带
      （与工作台润色同一条链路 TextAI.prepareMedia；型号行上的 图 / 音 / 视 小标说了算）。
@@ -936,8 +936,10 @@
       return { media: r.media || [], note: r.note || '' };
     } catch (e) { return { media: [], note: '随附素材这一步没成：' + cap(errText(e), 120) }; }
   }
-  /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画白笔掩码（随图发给文字 AI 当「重点看的区域」）。
-     掩码只留在内存（saveFiles 的落盘清单不含它），同一轮对话里一直有效。 */
+  /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画彩笔掩码（随图发给文字 AI 当「重点看的区域」）。
+     掩码只留在内存（saveFiles 的落盘清单不含它），同一轮对话里一直有效。
+     **递进去的必须是地址串**：附件条目上 `file` 是真 File（addFiles 同时给了 blob: 的 `src` / `objUrl`），
+     RefView 把它当 URL 用，直接递 File 会被字符串化成「[object File]」，图必然读不出来。 */
   async function openFileView(f) {
     if (!f || f.kind === '文本' || !(f.file || f.src)) return;
     if (!window.RefView) {
@@ -948,7 +950,10 @@
       if (!ok) { Toast.err('查看组件没加载起来，刷新一次再试'); return; }
     }
     const kind = f.kind === '图片' ? 'image' : f.kind === '视频' ? 'video' : 'audio';
-    window.RefView.open({ kind, label: f.name || '', src: f.file || f.src, mask: f.mask || '' }, {
+    let src = String(f.src || f.objUrl || '');
+    if (!src && f.file) { try { src = URL.createObjectURL(f.file); } catch (e) { src = ''; } }
+    if (!src) { Toast.err('这一条没有可显示的地址，要重新拖一次'); return; }
+    window.RefView.open({ kind, label: f.name || '', src, mask: f.mask || '' }, {
       onSaveMask: url => { f.mask = url || ''; paintFiles(); },
     });
   }
