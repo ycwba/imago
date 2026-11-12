@@ -159,6 +159,9 @@ function createCacheRoutes(ctx) {
     if (req.method === 'GET') {
       const s = tableState(t);
       if (!key) {
+        /* slices 存的是二进制帧（packFrames 排布表），按文本整表吐出去 = 魔数对不上、
+           读回来全部静默丢帧 —— 只许 thumbs 走整表 hydrate，slices 要哪张按 key 取。 */
+        if (t === 'slices') { fail(res, 405, 'slices 表不支持整表拉回（按 key 取）'); return true; }
         /* 不带 key = 整表拉回（前端 hydrate 暖启动用；表有 3000 条 / 64MB 上限兜着）。
            逐条异步读、读一条写一条：满表这一份是几十 MB 的文本，攒成数组再一次 stringify 发出去
            会把主线程按住两百多毫秒，而这一次拉表正赶上开机 —— 页面在等字节，代理那边还有一排请求。 */

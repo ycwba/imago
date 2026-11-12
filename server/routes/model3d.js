@@ -32,6 +32,7 @@ const ASSET_DIR = '_模型文件';
 const MODEL_SUB = '模型';
 const SCENE_SUB = '场景';
 const TRASH_DIR = '.trash';
+const TRASH_KEEP = 10;               // 删库暂存只留最近 10 个，更早的连目录一起收（与 fcpxml 工程目录同口径）
 const MODEL_EXT = '.json';
 const THUMB_EXT = '.png';
 const ASSET_EXT = new Set(['.fbx', '.obj', '.glb', '.gltf']);
@@ -744,6 +745,17 @@ function createModel3dRoutes(ctx) {
       ensureDir(trash);
       let dst = path.join(trash, id + '-' + Date.now());
       try { renameWithRetry(src, dst); } catch (e) { return fail(res, 500, '删除失败：' + String(e.message || e)); }
+      /* 暂存只增不减的话，删几个大库就是几个 GB 静静躺在 .trash 里（用量扫描也跳过它）——
+         按目录名里的时间戳修剪，只留最近 TRASH_KEEP 个。修剪失败不拦删除本体。 */
+      try {
+        const olds = (fs.existsSync(trash) ? fs.readdirSync(trash, { withFileTypes: true }) : [])
+          .filter(ent => ent.isDirectory())
+          .map(ent => ent.name)
+          .sort()
+          .reverse()
+          .slice(TRASH_KEEP);
+        olds.forEach(name => { try { fs.rmSync(path.join(trash, name), { recursive: true, force: true }); } catch (e) { /* 占用就留到下一轮 */ } });
+      } catch (e) { /* 修剪失败不拦删除本体 */ }
       /* 整个库搬进暂存目录，索引里属于这个库的条目要跟着消失。 */
       await reconcile(true);
       sendJson(res, 200, { ok: true, id, movedTo: dst });

@@ -4,6 +4,9 @@
 export { parseJsonLoose } from '../domain/json-loose.js';
 
 export const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);
+
+/* 输入框逐字触发的那类重渲染走防抖：只有最外面这三行是可共享的，保存路径各自有状态机不在此列。 */
+export const debounce = (fn, ms) => { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; };
 export const round1 = v => Math.round((Number(v) || 0) * 10) / 10;
 /* 0.01 秒的取整，只给切片采样点用（采样点兼作帧缓存键）。 */
 export const round2 = v => Math.round((Number(v) || 0) * 100) / 100;

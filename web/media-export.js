@@ -156,6 +156,18 @@
     if (!r.ok) throw new Error('取不到素材字节：' + src);
     return await r.blob();
   }
+  /* 整段字节按 src 缓存（上限 6 份 FIFO，只给混音用）：同源多段 / 同一条配音多次引用
+     是切刀之后的常态 —— 没有缓存就是同一条素材经代理回源 N 遍，导出「卡在准备」多半是它。
+     视频解码路径不缓存（迭代器占着字节，跨段共享不安全）。 */
+  const blobCache = new Map();
+  async function bytesOfCached(src) {
+    if (blobCache.has(src)) return blobCache.get(src);
+    const p = bytesOf(src);
+    blobCache.set(src, p);
+    p.catch(() => blobCache.delete(src));
+    if (blobCache.size > 6) for (const k of blobCache.keys()) { if (k !== src) { blobCache.delete(k); break; } }
+    return p;
+  }
 
   /* 解一段音频 [from, to]（秒）→ AudioBuffer；解不了返回 null（不硬来）。 */
   async function decodeSlice(src, from, to) {
@@ -163,7 +175,7 @@
     if (!MB || !MB.Input) return null;
     let input = null;
     try {
-      const blob = await bytesOf(src);
+      const blob = await bytesOfCached(src);
       input = new MB.Input({ source: new MB.BlobSource(blob), formats: MB.ALL_FORMATS });
       const track = await input.getPrimaryAudioTrack();
       if (!track || !await track.canDecode()) return null;
@@ -523,7 +535,8 @@
       const f0 = Math.max(0, Number(cl.start) || 0);
       const span = Math.max(0, Number(cl.duration) || 0);
       if (cl.kind === 'image') {
-        const still = cl.src ? await loadStill(cl.src) : null;
+        /* 解不开的图片段照视频段同口径：黑帧照导，不拦整单（十条好镜头陪葬一张坏图最冤）。 */
+        const still = cl.src ? await loadStill(cl.src).catch(() => null) : null;
         rows.push({ cl, f0, span, speed: sp, iter: null, still: stillDrawable(still), stillRes: still });
         continue;
       }

@@ -37,6 +37,8 @@ export function createTimeline(E, document, window) {
     getZoom,
     setZoom,
     setStatus,
+    beginEdit,
+    filmEdited,
     scheduleSaveQuiet,
     transitionSet,
     toolAction,
@@ -451,6 +453,7 @@ export function createTimeline(E, document, window) {
     const x = Math.round(tlXOfTime(st.t0, pps) * 100) / 100;
     return `<button type="button" class="tl-sticker" data-sticker="${esc(st.id)}"
       style="left:${x}px;width:${w}px" title="${esc(st.name)} · ${clockText(st.t0)}–${clockText(st.t1)} · 点开编辑">
+      <img class="tl-sticker-thumb" src="${esc(String(st.src))}" alt="" draggable="false" loading="lazy">
       <span class="tl-sticker-name">${esc(st.name)}</span></button>`;
   }
 
@@ -1065,6 +1068,7 @@ export function createTimeline(E, document, window) {
       title: '选贴纸（透明 PNG 最佳）',
     });
     if (!list || !list.length) return;
+    beginEdit('加了一张贴纸');
     const arr = Array.isArray(film.stickers) ? film.stickers : [];
     const t0 = Math.max(0, Math.min(playhead, Math.max(0, total - 1)));
     let added = 0, skipped = 0;
@@ -1143,8 +1147,9 @@ export function createTimeline(E, document, window) {
       },
       actions: [
         { label: '删掉', danger: true, onClick: () => {
-            const arr = (filmNow().stickers || []).filter(x => x.id !== id);
-            filmNow().stickers = arr;
+            beginEdit('删掉贴纸「' + st.name + '」');
+            filmNow().stickers = (filmNow().stickers || []).filter(x => x.id !== id);
+            filmEdited();
             scheduleSaveQuiet(); render();
             if (setStatus) setStatus('已删掉贴纸「' + esc(st.name) + '」');
           } },
@@ -1153,6 +1158,7 @@ export function createTimeline(E, document, window) {
             if (!cur) return true;
             const form = document.querySelector('#stkEdit .tl-stk-form');
             if (form) {
+              beginEdit('改了贴纸「' + st.name + '」');
               form.querySelectorAll('[data-stk]').forEach(inp => {
                 const k = inp.dataset.stk;
                 if (k === 'name') { cur.name = String(inp.value || '').slice(0, 60) || '贴纸'; return; }
@@ -1160,6 +1166,7 @@ export function createTimeline(E, document, window) {
                 if (Number.isFinite(n)) cur[k] = n;
               });
               if (cur.t1 <= cur.t0) cur.t1 = cur.t0 + 0.1;
+              filmEdited();
               scheduleSaveQuiet(); render();
             }
             return true;

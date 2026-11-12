@@ -1231,37 +1231,25 @@
     refTip.style.left = Math.max(8, Math.min(vw - refTip.offsetWidth - 8, x + 12)) + 'px';
     refTip.style.top = Math.max(8, Math.min(vh - refTip.offsetHeight - 8, y + 14)) + 'px';
   }
-  /* 点击一条引用 → 现开一个弹窗看这一条（助手这一层不是「一页」，灯箱那七个钩子按前台页登记，存不住） */
+  /* 点击一条引用 → 走全站那一份查看出口（RefView，按需补载；图片可就地画掩码）。
+     只有号没有地址的（发出去后让助手 asset_open 取）退回一句说明 —— RefView 需要真地址。
+     没有的字段给 RefView 的 meta 行：类型 / 资产号 / 任务号 / 来源都在那条里，不另摆第二块。 */
   function openRefDialog(idx) {
     const r = refs[idx];
     if (!r) return;
     hideRefTip();
-    if (!window.UiDialog || !UiDialog.open) { note('引用的是：' + refLabel(r)); return; }
     const meta = [r.type || r.kind, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '',
       r.fileKey ? '本机文件 ' + r.fileKey : '', r.from ? '来自 ' + (REF_FROM_PAGE[r.from] || r.from) : '']
-      .filter(Boolean).map(esc).join(' · ');
-    UiDialog.open({
-      title: '引用的素材',
-      sub: refShort(r),
-      body: box => {
-        box.innerHTML = '<div class="ac-refdl">'
-          + (r.src ? '<img draggable="false" alt="">' : '<div class="ac-refdl-none">这一条没有可直接显示的地址（只有号）。要看它，发出去后让助手用 asset_open 按序号取。</div>')
-          + '<div class="ac-refdl-meta"><b>' + esc(refShort(r)) + '</b><div>' + meta + '</div>'
-          + (r.src ? '<div class="ac-refdl-src">' + esc(r.src) + '</div>' : '')
-          + (r.dl ? '<div class="ac-refdl-src">下载地址：' + esc(r.dl) + '</div>' : '') + '</div></div>';
-        const img = box.querySelector('img');
-        if (img) {
-          img.src = r.src;
-          img.addEventListener('error', () => {
-            const n = document.createElement('div');
-            n.className = 'ac-refdl-none';
-            n.textContent = '这个地址读不出图，让助手用 asset_open 再取一次。';
-            img.replaceWith(n);
-          });
-        }
-      },
-      actions: [{ label: '关闭', value: true }],
-    });
+      .filter(Boolean).join(' · ');
+    if (!r.src || !window.UiDialog) { note('引用的是：' + refLabel(r) + (r.src ? '' : '（这一条没有可直接显示的地址，发出去后让助手用 asset_open 按序号取）')); return; }
+    const kind = r.type === '视频' ? 'video' : r.type === '音频' ? 'audio' : 'image';
+    const enter = () => window.RefView.open({ kind, label: refShort(r), src: r.src }, { meta });
+    if (window.RefView) return enter();
+    const s = document.createElement('script');
+    s.src = 'web/ui/ref-view.js';
+    s.onload = () => (window.RefView ? enter() : note('查看组件没加载起来'));
+    s.onerror = () => note('查看组件没加载起来');
+    document.head.appendChild(s);
   }
 
   /* ---------- 画 ---------- */
@@ -1485,7 +1473,7 @@
     let o = Store.read(K_WATCH, null);
     if (!o) {
       /* 旧格式兜底：Store.read 只认信封，裸 JSON 会被当成空；读一次原始值，有就迁移成新格式。 */
-      try { o = JSON.parse(localStorage.getItem(K_WATCH) || 'null'); } catch (e) { o = null; }
+      o = window.LS.json(K_WATCH, null);
       if (o && (Array.isArray(o.items) || o.unread != null)) wwrite(o);
     }
     const items = Array.isArray(o && o.items) ? o.items.filter(x => x && x.id && x.prov) : [];
@@ -3045,7 +3033,7 @@
   const BALL = 46;
   function xyGet() {
     try {
-      const o = JSON.parse(localStorage.getItem(K_XY) || 'null');
+      const o = window.LS.json(K_XY, null);
       if (o && Number.isFinite(Number(o.x)) && Number.isFinite(Number(o.y))) return { x: Number(o.x), y: Number(o.y) };
     } catch (e) {}
     return null;

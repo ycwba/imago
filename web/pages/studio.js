@@ -288,7 +288,7 @@ const StudioView = {
         const v = Store.read(PICK_KEY, null);
         if (v && typeof v === 'object' && !Array.isArray(v)) return v;
         let raw = null;
-        try { raw = JSON.parse(localStorage.getItem(PICK_KEY) || 'null'); } catch (e) { return {}; }
+        raw = window.LS.json(PICK_KEY, null); if (raw == null) return {};
         return raw && typeof raw === 'object' && !Array.isArray(raw) ? raw : {};
       }
       function savePick(type, val) {

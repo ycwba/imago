@@ -826,8 +826,25 @@ function viewShotMedia(sh, key) {
     it.src = Api.mediaSrc(d2);
     const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
     it.label = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
+  } else if (key === 'refvideo' || key === 'refaudio') {
+    const rec = key === 'refvideo' ? sh.refVideo : sh.refAudio;
+    if (!rec) return;
+    it.src = rec.src ? Api.mediaSrc(rec.src) : '';
+    it.label = key === 'refvideo' ? '参考视频' : '参考音频';
+    it.kind = key === 'refvideo' ? 'video' : 'audio';
   } else return;
-  if (!it.src) return;
+  if (!it.src) { if (window.Toast && Toast.err) Toast.err('这一份没有可查看的地址（本机直传的字节只在当次会话）'); return; }
+  if (it.kind === 'video' || it.kind === 'audio') {
+    /* 视频 / 音频走 RefView（按需补载，与建模台 / 工作台同一份查看出口） */
+    const openRefViewer = () => window.RefView.open({ kind: it.kind, label: it.label, src: it.src });
+    if (window.RefView) return openRefViewer();
+    const s = document.createElement('script');
+    s.src = 'web/ui/ref-view.js';
+    s.onload = () => openRefViewer();
+    s.onerror = () => { if (window.Toast && Toast.err) Toast.err('查看组件没加载起来'); };
+    document.head.appendChild(s);
+    return;
+  }
   try { window.Wb.lightbox.open(it); } catch (e) { /* 灯箱没就绪时点了就当没反应 */ }
 }
 /* 14.1-6：老工程 refMeta 没 id 的条目，按 label → nameKey 反查库里补 id。
@@ -1556,10 +1573,10 @@ function renderEditor() {
         ic.none ? (shotCombo(sh)
           ? `<div class="hint">输入模式「${esc(comboLabel(shotCombo(sh)))}」不用参考素材</div>`
           : '<div class="hint">当前型号不支持参考素材</div>') : ''}
-      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}${sh.refVideo && ic.refVideo ? ' title="点开更换素材 · × 移除"' : ''}>
+      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}${sh.refVideo ? ` data-view="refvideo" title="${esc(sh.refVideo.name || '参考视频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
         ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
-      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}${sh.refAudio && ic.refAudio ? ' title="点开更换素材 · × 移除"' : ''}>
+      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}${sh.refAudio ? ` data-view="refaudio" title="${esc(sh.refAudio.name || '参考音频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
         ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
       <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top: var(--sp-16)">

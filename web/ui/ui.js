@@ -991,6 +991,7 @@ window.copyText = async function copyText(txt) {
       .replace(/[\r\n\t]+/g, ' ')        // 换行与制表留着会被文件系统截断成两半
       .replace(/[\\/:*?"<>|\x00-\x1f]+/g, '-')
       .replace(/\s+/g, ' ')
+      .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i, '$1_')  // Windows 保留设备名建不出文件
       .replace(/[. ]+$/, '')            // 结尾的点与空格：Windows 保存时悄悄去掉，名字就对不上账
       .trim();
     return (t || '素材').slice(0, max || 24);
@@ -1500,6 +1501,9 @@ window.UI_PREFS = {
     { prefix: 'sk_model_', sync: 1, export: 1, assist: 'model' },
     /* 建模台的生成规矩（复用历史白膜那一档） */
     { prefix: 'sk_model3d_', sync: 1, export: 1 },
+    /* 导演台关键帧估算的生成规矩与参数草稿（sk_kf_model / sk_kf_params / sk_kf_adv_closed）：
+       与 sk_polish_ 同一类「生成规矩，换台机器照旧」。 */
+    { prefix: 'sk_kf_', sync: 1, export: 1 },
     /* 停用的平台（sk_off_<家>）：换机器照样不想看见它们 */
     { prefix: 'sk_off_', sync: 1, export: 1 },
     { key: 'sk_text_prov', sync: 1, export: 1 },

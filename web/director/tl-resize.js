@@ -276,7 +276,10 @@ export function slideClip(clips, index, requestedDelta) {
 export function followCaptions(captions, voiceId, oldItem, newItem) {
   if (!voiceId || !oldItem || !newItem) return Array.isArray(captions) ? captions : [];
   const dStart = num(newItem.start) - num(oldItem.start);
-  if (!dStart) return captions;
+  const durChanged = Math.abs(num(newItem.duration) - num(oldItem.duration)) > 1e-6;
+  /* 起点没动（只裁 / 拉右缘）也要按**新**区间夹：以前这里整段早退，
+     从右缘裁短之后字幕比配音长出一截（预览 / 导出都照放）。 */
+  if (!dStart && !durChanged) return captions;
   const lo = pos(newItem.start);
   const hi = lo + pos(newItem.duration);
   return (Array.isArray(captions) ? captions : []).map(c => {

@@ -571,7 +571,7 @@ export function createEdit(E, document, window) {
       onMove(rec, p) {
         const r = trimOne(p.dx, p.alt);
         if (!r) { previewBox(d, oldStart, oldDur); setHint(`已到最短 ${fmtTenth(oldEnd - oldStart)}s`); return; }
-        previewBox(r.start === live.start ? d : d, r.start, r.dur);
+        previewBox(d, r.start, r.dur);
         Timeline.stripRefresh();
         setHint(side === 'start' ? `起 ${fmtTenth(live.start)}s · 长 ${fmtTenth(live.end - live.start)}s` : `止 ${fmtTenth(live.end)}s · 长 ${fmtTenth(live.end - live.start)}s`);
       },
@@ -1671,6 +1671,11 @@ export function createEdit(E, document, window) {
       return;
     }
     if (!id) return;
+    /* 标题 / 备注 / 起点 / 止点只改 `change`（失焦）落账：以前 input 也派到这里，
+       每敲一个字 commit 一次（撤销栈逐字灌满）+ panelPatch 里 paintPanel 整片重画
+       → 正在打的框被换掉、焦点回 body、第二个字落在 document 快捷键上
+       （标题带 m = 凭空建一枚标记）。 */
+    if (e.type !== 'change') return;
     if (el.id === 'mpTitle') { const m = markerById(id); panelPatch(id, { title: el.value }, `把标记标题改成「${ctxClip(el.value, 12)}」`); return; }
     if (el.id === 'mpNotes') { const m = markerById(id); if (m && m.notes === el.value) return; panelPatch(id, { notes: el.value }, '改了标记的备注'); return; }
     if (el.id === 'mpStart') { panelPatch(id, { time: num(el.value) }, `把标记起点改成 ${fmtTenth(num(el.value))} 秒`); return; }

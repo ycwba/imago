@@ -813,7 +813,7 @@ const QUOTE_MARK_KEY = 'sk_quote_unavailable';
 const QUOTE_MARK_TTL = 3600 * 1000;
 function quoteMarks() {
   try {
-    const m = JSON.parse(localStorage.getItem(QUOTE_MARK_KEY) || '{}');
+    const m = window.LS.json(QUOTE_MARK_KEY, {});
     const now = Date.now();
     Object.keys(m).forEach(k => { if (!(m[k] > now)) delete m[k]; });
     return m;
@@ -1001,7 +1001,9 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       if (pr.noQuote && window.Capabilities.whenMatches(pr.noQuote.when, qctx)) {
         return { ok: false, skip: true, reason: String(pr.noQuote.why || '这一档平台不提供询价') };
       }
-      const q = '?duration=' + sec0(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');
+      /* 与 per_second_table 同一口径：没时长不编一个 5 秒去问价（那是替平台编规格）。 */
+      if (!(Number(p.duration) > 0)) return { ok: false, reason: '没有时长，无法询价' };
+      const q = '?duration=' + Number(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');
       const full = Api.url(prov, ep) + (method === 'GET' ? q : '');
       /* 同参数的并发只发一趟：导演台一次重排会给每个分镜估一次价，参数常常一模一样，
          报价接口又是 15 秒超时的那种 —— 七条一样的请求既白等也打上游。 */

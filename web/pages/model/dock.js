@@ -593,7 +593,7 @@ export function createDock(opts = {}) {
         + '<button class="mm-tree-mini" type="button" data-dock-act="toggle" data-track-id="' + dEsc(tr.id) + '" title="' + (tr.enabled === false ? '启用' : '停用') + '">' + dIcon('eye', 11) + '</button>'
         + '<button class="mm-tree-mini" type="button" data-dock-act="delTrack" data-track-id="' + dEsc(tr.id) + '" title="删除轨道">' + dIcon('trash', 11) + '</button>'
         + '<span class="mm-track-bar" data-scrub="' + dEsc(tr.id) + '" title="点一下定位">'
-        + (tr.keys || []).map((k, i) => '<span class="mm-key' + (k === selKeyNow ? ' on' : '') + '" data-dock-key="' + i + '" style="left:' + Math.max(0, Math.min(100, (k.t / Math.max(0.001, anim.duration)) * 100)) + '%" title="' + k.t.toFixed(2) + 's · 拖动改时间"></span>').join('')
+        + (tr.keys || []).map((k, i) => '<span class="mm-key' + (k === selKeyNow ? ' on' : '') + '" data-dock-key="' + i + '" style="left:' + Math.max(0, Math.min(100, (A.trackKeyWall(tr, k.t, anim.duration) / Math.max(0.001, anim.duration)) * 100)) + '%" title="' + A.trackKeyWall(tr, k.t, anim.duration).toFixed(2) + 's（局部 ' + k.t.toFixed(2) + '）· 拖动改时间"></span>').join('')
         + '<span class="mm-playhead" data-dock="playhead"></span></span>'
         + '</div>';
     }).join('');
@@ -800,12 +800,15 @@ export function createDock(opts = {}) {
 
   function dragTo(x) {
     const d = durationOf();
-    const ratio = Math.max(0, Math.min(1, (x - drag.rect.left) / Math.max(1, drag.rect.width)));
-    const t = Math.round(ratio * d * 100) / 100;
+    /* 条带的 x 轴是墙钟秒：落点先读墙钟，写回 key.t 要换算成轨道局部
+       （offset / speed / 轨道级 ease 的轨道上，两者不是同一个数）。 */
+    const wall = Math.round(Math.max(0, Math.min(1, (x - drag.rect.left) / Math.max(1, drag.rect.width))) * d * 100) / 100;
+    const t = Math.round(A.trackLocalAt(drag.tr, wall, d) * 100) / 100;
+    drag.wall = wall;
     drag.key.t = t;
     const dot = dragDot();
     if (dot) {
-      dot.style.left = (t / d) * 100 + '%';
+      dot.style.left = ((drag.wall != null ? drag.wall : t) / d) * 100 + '%';
       dot.title = t.toFixed(2) + 's · 拖动改时间';
       dot.classList.add('dragging');
     }
@@ -855,13 +858,13 @@ export function createDock(opts = {}) {
     selKey = cur.key;
     revealKeyEdit = true;
     if (!cur.moved) {
-      setTime(cur.key.t);
+      setTime(A.trackKeyWall(cur.tr, cur.key.t, durationOf()));
       renderDock();
       return;
     }
     const before = cur.tr.keys.length;
     cur.tr.keys = retimeKey(cur.tr.keys, cur.key, cur.key.t);
-    setTime(cur.key.t);
+    setTime(A.trackKeyWall(cur.tr, cur.key.t, durationOf()));
     changed(before > cur.tr.keys.length
       ? '关键帧已移到 ' + cur.key.t.toFixed(2) + ' 秒；同一时刻的另一帧被顶掉'
       : '关键帧已移到 ' + cur.key.t.toFixed(2) + ' 秒');

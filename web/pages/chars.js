@@ -240,7 +240,7 @@ export default {
       const adoptLegacy = () => {
         /* 旧格式（裸 JSON）只在这一处兼容一次：读到就当场补写成信封，下次直接走 Store.read */
         let raw = null;
-        try { raw = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (e) { raw = null; }
+        raw = window.LS.json(KEY, null);
         if (raw && typeof raw === 'object' && !Array.isArray(raw)) Store.write(KEY, raw, { label: '素材库在跑的任务' });
         else raw = null;
         return raw || {};

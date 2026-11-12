@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 动画采样：关键帧插值、四种轨迹、节点 / 机位轨道、整表采样、播放时钟边界。纯函数。 */
 import assert from 'node:assert/strict';
-import { sampleKeys, samplePath, sampleTrack, sampleAnim, sampleCams, advanceTime } from '../web/model3d/anim.js';
+import { sampleKeys, samplePath, sampleTrack, sampleAnim, sampleCams, advanceTime, trackKeyWall, trackLocalAt, easeInv } from '../web/model3d/anim.js';
 import { normalizeDoc } from '../web/model3d/schema.js';
 import { gaitControls, controlsOf } from '../web/model3d/mannequin.js';
 
@@ -429,6 +429,28 @@ const near = (a, b, eps, m) => ok(Math.abs(a - b) <= (eps || 1e-6), m + '（' + 
   const merged = controlsOf({ pose: 't-pose', motion: 'walk', t: 0.13, controls: { 'head.yaw': 20, 'leftShoulder.pitch': 3 } });
   ok(merged['head.yaw'] === 20, 'node.controls 盖过姿势表');
   ok(merged['leftShoulder.pitch'] === base['leftShoulder.pitch'], '步态最后盖过 controls');
+}
+
+
+/* ---- 墙钟换算：trackKeyWall / trackLocalAt / easeInv ---- */
+{
+  const dur = 10;
+  const plain = { offset: 0, speed: 1, duration: 0, ease: '' };
+  ok(Math.abs(trackKeyWall(plain, 4, dur) - 4) < 1e-9, '默认轨道：墙钟 = 局部（恒等）');
+  ok(Math.abs(trackLocalAt(plain, 6, dur) - 6) < 1e-9, '默认轨道：局部 = 墙钟');
+  const off2 = { offset: 2, speed: 1, duration: 0, ease: '' };
+  ok(Math.abs(trackKeyWall(off2, 4, dur) - 6) < 1e-9, 'offset=2：局部 4 播在墙钟 6');
+  ok(Math.abs(trackLocalAt(off2, 6, dur) - 4) < 1e-9, 'offset=2：墙钟 6 的局部是 4');
+  ok(trackLocalAt(off2, 1, dur) === 0, '未开播（墙钟 < offset）局部记 0');
+  const sp2 = { offset: 0, speed: 2, duration: 0, ease: '' };
+  ok(Math.abs(trackKeyWall(sp2, 4, dur) - 2) < 1e-9, 'speed=2：局部 4 播在墙钟 2');
+  ok(Math.abs(trackLocalAt(sp2, 2, dur) - 4) < 1e-9, 'speed=2：墙钟 2 的局部是 4');
+  const eased = { offset: 0, speed: 1, duration: 0, ease: 'in' };
+  ok(Math.abs(easeInv(0.25, 'in') - 0.5) < 1e-9, 'in 的逆：0.25 → 0.5');
+  ok(Math.abs(trackKeyWall(eased, 2.5, dur) - 5) < 1e-9, 'in 轨道：局部 2.5（曲线高度 0.25）播在墙钟 5');
+  ok(Math.abs(trackLocalAt(eased, 5, dur) - 2.5) < 1e-9, 'in 轨道：墙钟 5 的局部是 2.5');
+  ok(trackKeyWall({ offset: 0, speed: 1, duration: 0, ease: 'hold' }, 4, dur) === 4, 'hold 退化为恒等（不可逆按原样）');
+  ok(Math.abs(trackLocalAt({ offset: 1, speed: 2, duration: 0, ease: '' }, 5, dur) - 8) < 1e-9, 'offset+speed 组合：墙钟 5 → 局部 8');
 }
 
 console.log('✓ model3d-anim：' + n + ' 项通过');

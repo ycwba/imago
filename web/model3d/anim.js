@@ -94,6 +94,34 @@ function trackClock(track, t, duration) {
 
 /* 关键帧之间的插值：smooth（默认，起停自然）/ linear / hold。
    首帧之前 / 末帧之后保持端点。 */
+/* 速度曲线的逆映射：把「局部时间落在曲线上的高度」还原成 u（0..1）。
+   hold 是台阶（不可逆），按 u = y 处理 —— hold 档的关键帧时间本来就没有连续语义。 */
+export function easeInv(y, ease) {
+  const v = clamp01(y);
+  if (ease === 'in') return Math.sqrt(v);
+  if (ease === 'out') return 1 - Math.sqrt(1 - v);
+  if (ease === 'inout') return 0.5 - Math.sin(Math.asin(Math.min(1, Math.max(-1, 1 - 2 * v))) / 3);
+  return v;
+}
+
+/* 关键帧的「墙钟时刻」：局部 t 在曲线上对应的位置 u，换回墙钟 = off + u·dur / sp。
+   轨道条带的 x 轴是墙钟秒 —— 菱形摆位、点击定位都用它；不做这道换算的话，
+   offset / speed / 轨道级 ease 的轨道上「菱形看着在哪」与「实际在哪」是两回事。 */
+export function trackKeyWall(track, keyT, duration) {
+  const off = Math.max(0, Number(track.offset) || 0);
+  const sp = Number(track.speed) > 0 ? Number(track.speed) : 1;
+  const dur = Math.max(0.001, Number(track.duration) > 0 ? Number(track.duration) : duration);
+  return off + (easeInv(clamp01(keyT / dur), track.ease) * dur) / sp;
+}
+
+/* 反向：墙钟 → 局部（拖动落点写回 key.t 用；轨道未开播（wall < off）记 0）。 */
+export function trackLocalAt(track, wall, duration) {
+  const off = Math.max(0, Number(track.offset) || 0);
+  const sp = Number(track.speed) > 0 ? Number(track.speed) : 1;
+  const dur = Math.max(0.001, Number(track.duration) > 0 ? Number(track.duration) : duration);
+  return easeU(clamp01(((wall - off) * sp) / dur), track.ease) * dur;
+}
+
 export function sampleKeys(keys, t, interp = 'smooth') {
   if (!Array.isArray(keys) || !keys.length) return null;
   if (t <= keys[0].t) return keys[0];

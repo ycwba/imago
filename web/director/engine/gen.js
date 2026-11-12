@@ -675,7 +675,16 @@ async function runGenAll(plan) {
               throw stopErr;
             }
             try { await submitCandidate(sh, phs[i]); okN++; submitted.add(sh); }
-            catch (e) { firstErr = firstErr || e; }
+            catch (e) {
+              /* 与 drawShot 同一口径：这一条失败就停手（不接着花后面的钱），
+                 剩下的占位也结掉（它们从没提交出去，留成「创建中」永远不动）。 */
+              for (let j = i + 1; j < phs.length; j++) {
+                phs[j].status = 'failed';
+                phs[j].error = '这一批在前一条失败后没有提交（删掉即可重试）';
+              }
+              firstErr = firstErr || e;
+              break;
+            }
           }
           if (!okN) throw firstErr || new Error('没有提交成功任何一条');
           return okN;

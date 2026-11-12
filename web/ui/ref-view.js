@@ -16,6 +16,7 @@
   /* 掩码画布的最长边：与发给文字 AI 前那一道压缩同档，画布太大只会让笔迹变细。 */
   var MASK_EDGE = 1024;
   var BRUSH = [[0.006, '极细'], [0.012, '细'], [0.025, '中'], [0.05, '粗']];
+  var TOOLS = [['browse', '浏览'], ['brush', '画笔'], ['erase', '橡皮']];
   /* 掩码的六支笔：颜色是给 AI 的区域标记，提示词里按中文名点名。全用 CSS 颜色名，
      与画布导出 / 回显读到的像素一一对应。 */
   var INK = [
@@ -90,51 +91,54 @@
     return [d[0], d[1], d[2]];
   }
 
-  /* 掩码编辑态：彩笔画在透明画布上，橡皮 destination-out；导出时垫一层黑底。
-     hooks = { setEditing(on), ctl(c), setKeyOff(fn), exit(), askLeave() }：
-       setEditing —— 弹窗脚上的「关闭」在编辑中藏起来（丢工作只留 rv-bar 那两条路）；
-       ctl —— 把「脏没脏 / 怎么退」交回弹窗层（Esc 在那里截）；
-       setKeyOff —— 编辑器的 Ctrl+Z 挂在弹窗上，退场由 applyMask 经它摘除；
-       exit —— 不问直接退回看图态（没画过的「返回 / Esc」走它）；
-       askLeave —— 画过但没「完成」时先问一句「丢弃？」再退。 */
-  function openMaskEditor(stage, item, done, hooks) {
+  /* 掩码编辑（灯箱式单层）：打开即大图 + 常驻工具条；「浏览」档只看不画，
+     画笔 / 橡皮直接落在图上。hooks：
+       save(url|null) —— 完成 / 清除掩码：存回条目并由弹窗层关窗（null = 清掉已存掩码）；
+       exit() —— 没动过：直接关；
+       askLeave() —— 有改动没完成：先问「丢弃？」再关；
+       setEditing(on) / ctl(c) / setKeyOff(fn) —— 与弹窗层的 Esc 拦截、Ctrl+Z 摘除对接。 */
+  function openMaskEditor(stage, item, hooks) {
     var img = stage.querySelector('img');
     var dlg = stage.closest('dialog');
     var bar = document.createElement('div');
     bar.className = 'rv-bar is-edit';
     bar.innerHTML =
       '<span class="rv-tools" role="group">'
-      + '<button type="button" class="ghost mini on" data-tool="brush" aria-pressed="true">画笔</button>'
-      + '<button type="button" class="ghost mini" data-tool="erase" aria-pressed="false">橡皮</button></span>'
-      + '<span class="rv-tools" role="group">'
-      + BRUSH.map((b, i) => '<button type="button" class="ghost mini' + (i === 1 ? ' on' : '') + '" aria-pressed="' + (i === 1) + '" data-w="' + i + '">' + b[1] + '</button>').join('')
+      + TOOLS.map(tl => '<button type="button" class="ghost mini' + (tl[0] === 'browse' ? ' on' : '')
+        + '" data-tool="' + tl[0] + '" aria-pressed="' + (tl[0] === 'browse') + '">' + tl[1] + '</button>').join('')
       + '</span>'
       + '<span class="rv-tools" role="group">'
-      + INK.map((c, i) => '<button type="button" class="rv-swatch' + (i === 0 ? ' on' : '') + '" aria-pressed="' + (i === 0)
+      + BRUSH.map((b, i) => '<button type="button" class="ghost mini' + (i === 1 ? ' on' : '') + '" data-w="' + i + '">' + b[1] + '</button>').join('')
+      + '</span>'
+      + '<span class="rv-tools" role="group">'
+      + INK.map(c => '<button type="button" class="rv-swatch' + (c[0] === 'white' ? ' on' : '')
         + '" data-ink="' + c[0] + '" style="background:' + c[0]
         + '" aria-label="' + c[1] + '色区域" title="' + c[1] + '色区域 · 按颜色点名"></button>').join('')
       + '</span>'
-      + '<button type="button" class="ghost mini" data-act="undo"' + ' title="撤掉上一步（Ctrl+Z）">撤一步</button>'
+      + '<button type="button" class="ghost mini" data-act="undo" title="撤掉上一步（Ctrl+Z）">撤一步</button>'
       + '<button type="button" class="ghost mini" data-act="clearink" title="只擦掉当前颜色的笔迹">清此色</button>'
       + '<button type="button" class="ghost mini" data-act="clear">清空</button>'
-      + '<span class="rv-hint">彩色＝要改，黑＝不动</span>'
+      + '<span class="rv-hint">浏览=只看 · 彩色＝要改，黑＝不动</span>'
       + '<span class="sp" style="flex:1"></span>'
-      + '<button type="button" class="pri mini" data-act="done">完成</button>'
-      + '<button type="button" class="ghost mini" data-act="back">返回</button>';
+      + '<button type="button" class="pri mini" data-act="done">✓ 完成</button>'
+      + '<button type="button" class="ghost mini" data-act="close" title="关闭（有改动会先问）">✕</button>';
     var cv = document.createElement('canvas');
     cv.className = 'rv-draw';
+    var ov = document.createElement('canvas');
+    ov.className = 'rv-maskview';
     var ghost = document.createElement('div');
     ghost.className = 'rv-ghost';
-    var state = { tool: 'brush', w: 1, ink: 'white', drawing: false, dirty: false, primed: false };
+    var state = { tool: 'browse', w: 1, ink: 'white', drawing: false, dirty: false, primed: false };
     var undoStack = [];
     var ctx = cv.getContext('2d');
-    if (hooks && typeof hooks.setEditing === 'function') hooks.setEditing(true);
+    if (hooks.setEditing) hooks.setEditing(true);
 
     function fitCanvas() {
       var iw = img.naturalWidth || 1, ih = img.naturalHeight || 1;
       var size = maskCanvasSize(iw, ih);
       var prev = state.primed ? cv.toDataURL() : '';
       cv.width = size[0]; cv.height = size[1];
+      ov.width = cv.width; ov.height = cv.height;
       if (prev) {
         var old = new Image();
         old.onload = () => { ctx.drawImage(old, 0, 0, cv.width, cv.height); };
@@ -152,7 +156,7 @@
       var lw = Math.max(2, BRUSH[state.w][0] * Math.min(cv.width, cv.height));
       ctx.globalCompositeOperation = state.tool === 'erase' ? 'destination-out' : 'source-over';
       ctx.strokeStyle = state.ink;
-      ctx.lineWidth = Math.max(2, lw);
+      ctx.lineWidth = lw;
       ctx.lineCap = 'round'; ctx.lineJoin = 'round';
       ctx.beginPath();
       ctx.moveTo(state.last[0], state.last[1]);
@@ -179,8 +183,7 @@
       im.src = prev;
       state.dirty = true;
     }
-    /* 只擦当前颜色：掩码语义是分色区域，「这一色不要了」是自然手势。
-       抗锯齿的边缘按色距 <60 一并清掉。 */
+    /* 只擦当前颜色：分色区域的自然手势（抗锯齿边缘按色距 <60 一并清）。 */
     function clearInk() {
       pushUndo();
       try {
@@ -200,7 +203,6 @@
         if (window.Toast && Toast.err) Toast.err('这一笔读不出来，清不了');
       }
     }
-    /* 自绘光标：圆圈直径 = 笔迹直径的屏幕尺寸，画笔显当前色、橡皮虚线 —— 不用猜会画多大。 */
     function moveGhost(e) {
       var lw = Math.max(2, BRUSH[state.w][0] * Math.min(cv.width, cv.height));
       var r = cv.getBoundingClientRect();
@@ -212,9 +214,14 @@
       ghost.style.borderColor = state.ink;
       ghost.classList.toggle('erase', state.tool === 'erase');
     }
+    /* 覆盖层（已存掩码的红影）只在浏览档显示；画笔 / 橡皮时藏掉，自己的笔迹才看得清。 */
+    function syncOverlay() {
+      ov.style.display = (state.tool === 'browse' && item.mask) ? '' : 'none';
+      ghost.style.display = state.tool === 'browse' ? 'none' : 'block';
+    }
 
     cv.addEventListener('pointerdown', e => {
-      if (e.button !== 0) return;
+      if (e.button !== 0 || state.tool === 'browse') return;
       e.preventDefault();
       try { cv.setPointerCapture(e.pointerId); } catch (err) { /* 有的指针不给捕获，照画 */ }
       pushUndo();
@@ -222,7 +229,7 @@
       strokeTo([state.last[0] + 0.01, state.last[1] + 0.01]);
     });
     cv.addEventListener('pointermove', e => { moveGhost(e); if (state.drawing) strokeTo(posOf(e)); });
-    cv.addEventListener('pointerenter', e => { ghost.style.display = 'block'; moveGhost(e); });
+    cv.addEventListener('pointerenter', e => { moveGhost(e); if (state.tool !== 'browse') ghost.style.display = 'block'; });
     cv.addEventListener('pointerleave', () => { ghost.style.display = 'none'; });
     var stop = e => {
       if (!state.drawing) return;
@@ -233,12 +240,11 @@
     cv.addEventListener('pointercancel', stop);
 
     function paintToggles() {
-      bar.querySelectorAll('[data-tool],[data-w],[data-ink]').forEach(x => {
+      bar.querySelectorAll('[data-tool],[data-ink]').forEach(x => {
         var on = x.classList.contains('on');
         if (x.hasAttribute('aria-pressed')) x.setAttribute('aria-pressed', on ? 'true' : 'false');
       });
     }
-    /* 编辑器退场前摘掉自己的 Ctrl+Z（挂在弹窗上，不摘会留在下一轮编辑里）。 */
     var onKey = e => {
       if (!(e.ctrlKey || e.metaKey) || (e.key !== 'z' && e.key !== 'Z')) return;
       e.preventDefault();
@@ -246,17 +252,11 @@
       undoStep();
     };
     if (dlg) dlg.addEventListener('keydown', onKey, true);
-    if (hooks && typeof hooks.ctl === 'function') hooks.ctl({ dirty: () => state.dirty, leave });
-    if (hooks && typeof hooks.setKeyOff === 'function') {
-      hooks.setKeyOff(() => { if (dlg) dlg.removeEventListener('keydown', onKey, true); });
-    }
-    function closeEdit(v) {
-      done(v);
-    }
+    if (hooks.setKeyOff) hooks.setKeyOff(() => { if (dlg) dlg.removeEventListener('keydown', onKey, true); });
+    if (hooks.ctl) hooks.ctl({ dirty: () => state.dirty, leave });
     function leave() {
-      /* 画过但没「完成」：先问一句再丢（返回 / Esc / 关闭三条路都走这里）。 */
-      if (state.dirty && hooks && typeof hooks.askLeave === 'function') { hooks.askLeave(); return; }
-      closeEdit(null);
+      if (state.dirty && hooks.askLeave) { hooks.askLeave(); return; }
+      hooks.exit();
     }
 
     bar.onclick = e => {
@@ -266,18 +266,19 @@
         state.tool = b.dataset.tool;
         bar.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('on', x === b));
         paintToggles();
+        syncOverlay();
       } else if (b.dataset.ink) {
         state.ink = b.dataset.ink;
-        if (state.tool === 'erase') {   // 选颜色 = 要画了：自动从橡皮切回画笔
-          state.tool = 'brush';
+        if (state.tool === 'browse') {
+          state.tool = 'brush';   // 选颜色 = 要画了：从浏览直接切画笔
           bar.querySelectorAll('[data-tool]').forEach(x => x.classList.toggle('on', x.dataset.tool === 'brush'));
+          syncOverlay();
         }
         bar.querySelectorAll('[data-ink]').forEach(x => x.classList.toggle('on', x === b));
         paintToggles();
       } else if (b.dataset.w != null) {
         state.w = Number(b.dataset.w);
         bar.querySelectorAll('[data-w]').forEach(x => x.classList.toggle('on', x === b));
-        paintToggles();
       } else if (b.dataset.act === 'undo') {
         undoStep();
       } else if (b.dataset.act === 'clearink') {
@@ -287,13 +288,20 @@
         ctx.globalCompositeOperation = 'source-over';
         ctx.clearRect(0, 0, cv.width, cv.height);
         state.dirty = true;
+      } else if (b.dataset.act === 'dropmask') {
+        pushUndo();
+        ctx.clearRect(0, 0, cv.width, cv.height);
+        state.dirty = true;   // 保存统一走「完成」（item.mask 在那时一并更新）
       } else if (b.dataset.act === 'done') {
-        if (!state.dirty) { closeEdit(null); return; }
-        closeEdit(hasStroke(cv) ? flatten() : '');
-      } else if (b.dataset.act === 'back') {
+        commitMask(state.dirty ? (hasStroke(cv) ? flatten() : '') : 'keep');
+      } else if (b.dataset.act === 'close') {
         leave();
       }
     };
+    function commitMask(url) {
+      if (hooks.setEditing) hooks.setEditing(false);
+      hooks.save(url);   // url: dataURL = 存；'' = 清空；'keep' = 没动过（调用方直接关）
+    }
     function flatten() {
       var out = document.createElement('canvas');
       out.width = cv.width; out.height = cv.height;
@@ -306,6 +314,7 @@
 
     stage.innerHTML = '';
     stage.appendChild(img);
+    stage.appendChild(ov);
     stage.appendChild(cv);
     stage.appendChild(ghost);
     stage.parentElement.insertBefore(bar, stage.nextSibling);
@@ -331,7 +340,9 @@
       return bits.filter(Boolean).map(rvEsc).join(' · ');
     }
 
-    function viewBody(box) {
+    /* 灯箱式：打开即大图 / 播放器，工具条常驻在底部（没有「先看再进编辑」的第二层）。
+       图片默认「浏览」档只看不画；「完成」把掩码存回条目并关窗；Esc / ✕ 在有改动时先问丢弃。 */
+    function viewBody(box, close) {
       var dlg = box.closest('dialog');
       var stage = document.createElement('div');
       stage.className = 'rv-stage';
@@ -344,94 +355,76 @@
           + (item.mask ? '<canvas class="rv-maskview"></canvas>' : '');
       }
       var bar = document.createElement('div');
-      bar.className = 'rv-bar';
-      bar.innerHTML = (canMask
-        ? '<button type="button" class="ghost mini" data-act="mask">' + (item.mask ? '改掩码' : '在图上标记要改的区域') + '</button>'
-          + (item.mask ? '<button type="button" class="ghost mini" data-act="dropmask">清除掩码</button>' : '')
-        : '')
-        + '<span class="rv-hint">只看与标记</span>';
+      bar.className = 'rv-bar is-edit';
       var info = document.createElement('div');
       info.className = 'rv-info';
       info.innerHTML = infoLine();
       box.appendChild(stage); box.appendChild(bar); box.appendChild(info);
-      if (kind === 'image') {
-        var im = stage.querySelector('img');
-        im.src = item.src;
-        im.addEventListener('error', () => {
-          stage.innerHTML = '<div class="rv-none">这一份素材的地址读不出来（可能已过期）。</div>';
-        });
-        if (item.mask) paintOverlay(stage.querySelector('.rv-maskview'), item.mask);
-      }
-      /* body 在 UiDialog 自己的 cancel 监听之前跑：编辑中把 Esc 截下来走「丢弃确认」，
-         不让弹窗连工作一起收走；看图态照常放行（Esc = 关窗）。重渲染会再挂一次，
-         先摘旧的那一份（闭包里的 box 已经过期）。 */
+
+      /* Esc：有改动先问丢弃，没改动直接关（UiDialog 自己的 cancel 在 body 之后挂，这里先拦）。 */
       if (dlg.__rvCancel) dlg.removeEventListener('cancel', dlg.__rvCancel);
       dlg.__rvCancel = e => {
-        if (!editing || !editorCtl) return;
+        if (editing && editorCtl) {
+          e.preventDefault();
+          e.stopImmediatePropagation();
+          editorCtl.leave();
+          return;
+        }
         e.preventDefault();
         e.stopImmediatePropagation();
-        editorCtl.leave();
+        close();
       };
       dlg.addEventListener('cancel', dlg.__rvCancel);
-      function applyMask(url) {
-        editing = false; editorCtl = null;
-        if (editorKeyOff) { editorKeyOff(); editorKeyOff = null; }
-        if (dlg) { var f = dlg.querySelector('.pr-foot'); if (f) f.style.display = ''; }
-        if (url !== null) {
-          item.mask = url || '';
-          if (opts.onSaveMask) opts.onSaveMask(url || null);
-        }
-        box.innerHTML = '';
-        viewBody(box);
+
+      if (kind !== 'image') {
+        bar.innerHTML = '<span class="rv-hint">只读预览</span>'
+          + '<span class="sp" style="flex:1"></span>'
+          + '<button type="button" class="ghost mini" data-act="close">✕ 关闭</button>';
+        bar.onclick = e => { if (e.target.closest('[data-act="close"]')) close(); };
+        return;
       }
-      bar.onclick = e => {
-        var b = e.target.closest('button');
-        if (!b) return;
-        if (b.dataset.act === 'mask') {
-          var img0 = stage.querySelector('img');
-          /* 图已经读不出来（error 占位把 <img> 换掉了 / 坏图挂着）：没有可画的底，不给进编辑态 ——
-             以前这一步会对 null 调 addEventListener 抛错，或给坏图挂一个永远不响的 load。 */
-          if (!img0) return;
-          if (img0.complete && !img0.naturalWidth) {
-            if (window.Toast && Toast.err) Toast.err('这张图读不出来，画不了掩码');
-            return;
+
+      /* 图片：直接进可画的状态。画法状态与撤销栈都在编辑器里；关闭走 hooks.finish。 */
+      bar.innerHTML = '<span class="rv-hint">浏览 = 只看；画笔直接画</span>';
+      var img = stage.querySelector('img');
+      img.src = item.src;
+      /* 图片解码是异步的：naturalWidth 没到手就 fitCanvas，画布会按 1×1 定尺寸且永不重定
+         （一笔涂满 = 掩码全坏，还会把已存掩码压成垃圾）。等 load / decode 真到了再开编辑。 */
+      img.addEventListener('load', () => { try { if (img.decode) img.decode().catch(() => 0); } catch (e) { /* decode 不可用就算了，load 本身已经够 fitCanvas 用 */ } }, { once: true });
+      img.addEventListener('error', () => {
+        stage.innerHTML = '<div class="rv-none">这一份素材的地址读不出来（可能已过期）。</div>';
+        bar.innerHTML = '<span class="rv-hint">读不出来，关窗重挑一份</span>';
+      });
+      var closeNow = () => close(true);
+      openMaskEditor(stage, item, {
+        /* 编辑器回给弹窗层的钩子：save = 完成（dataURL 存 / '' 清 / 'keep' 没动过直接关）。 */
+        save(url) {
+          if (url !== 'keep') {
+            item.mask = url || '';
+            if (opts.onSaveMask) opts.onSaveMask(url || null);
           }
-          bar.remove(); info.remove();
-          var enter = () => openMaskEditor(stage, item, applyMask, {
-            setEditing(on) {
-              editing = on;
-              var f = dlg.querySelector('.pr-foot');
-              if (f) f.style.display = on ? 'none' : '';
-            },
-            ctl(c) { editorCtl = c; },
-            setKeyOff(f) { editorKeyOff = f; },
-            exit: () => applyMask(null),
-            askLeave() {
-              window.Confirm.ask({
-                title: '丢弃这次的标记？',
-                body: '还没点「完成」，这次画的会全部丢掉。',
-                okLabel: '丢弃', danger: true,
-              }).then(yes => { if (yes) applyMask(null); });
-            },
-          });
-          /* 编辑器挂自己的 Ctrl+Z 在弹窗上；进编辑态后如果图才加载出来（或加载失败），照常处理。 */
-          if (img0.complete && img0.naturalWidth) enter();
-          else {
-            img0.addEventListener('load', enter, { once: true });
-            img0.addEventListener('error', () => applyMask(null), { once: true });
-          }
-        } else if (b.dataset.act === 'dropmask') {
-          applyMask('');
-        }
-      };
+          closeNow();
+        },
+        exit() { closeNow(); },
+        askLeave() {
+          window.Confirm.ask({
+            title: '丢弃这次的标记？',
+            body: '还没点「完成」，这次画的会全部丢掉。',
+            okLabel: '丢弃', danger: true,
+          }).then(yes => { if (yes) closeNow(); });
+        },
+        setEditing(on) { editing = on; },
+        ctl(c) { editorCtl = c; },
+        setKeyOff(f) { editorKeyOff = f; },
+      });
     }
 
     window.UiDialog.open({
       id: 'rvDlg',
       title: '查看素材',
       sub: item.label || '',
-      body: box => { viewBody(box); },
-      actions: [{ label: '关闭', value: true }],
+      body: (box, close) => { viewBody(box, close); },
+      actions: [],
     });
   }
 

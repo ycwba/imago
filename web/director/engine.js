@@ -468,6 +468,10 @@ function redo() {
 }
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey)) return;
+  /* 页面没在前台就放行：KeepAlive 池里这份监听永远活着，不挡的话
+     在建模台 / 工作台按 Ctrl+Z 撤的是看不见的导演台时间线（还把别的撤销路径吞掉）。 */
+  const act = window.__spaActivity;
+  if (act && act.visible && !act.visible('director.html')) return;
   const t = e.target;
   if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;   // 输入框内保留浏览器原生撤销
   const k = e.key.toLowerCase();
@@ -531,6 +535,8 @@ const Timeline = createTimeline({
   getZoom: () => tlZoom,
   setZoom: v => { tlZoom = tlClampZoom(Number(v) || 1); if (window.LS) window.LS.set('dir_tl_zoom', String(tlZoom)); },
   setStatus: (...a) => setStatus(...a),
+  beginEdit: (...a) => beginEdit(...a),
+  filmEdited: (...a) => filmEdited(...a),
   scheduleSaveQuiet: () => scheduleSaveQuiet(),
   transitionSet: (...a) => transitionSet(...a),
   toolAction: (...a) => toolAction(...a),
@@ -957,7 +963,6 @@ const Voice = createVoice({
   midEditTrimOf,
   voiceDraftOf: () => voiceDraft,
   vcTabOf: () => vcTab,
-  polishVoiceText: (...a) => polishVoiceText(...a),
   linePanelRows: (...a) => linePanelRows(...a),
   lineWhoDatalistHTML: (...a) => lineWhoDatalistHTML(...a),
   lineRowsHTML: (...a) => lineRowsHTML(...a),
@@ -983,70 +988,6 @@ const {
    这里只多交代一句「这是配画面的一句配音」（要口语、要短、不要解释），
    因为工作台润的是一整段文本，而这一处润的是一句台词。
    润色只改字：不合成、不计费，所以不需要二次确认。 */
-async function polishVoiceText(col) {
-  const ta = col.querySelector('#voiceText');
-  const host = col.querySelector('#voicePolish');
-  const btn = col.querySelector('#voicePolishBtn');
-  if (!ta || !host) return;
-  const original = String(ta.value || '').trim();
-  if (original.length < 2) { setStatus('<span class="err">先写几个字再润色</span>'); return; }
-  if (!window.TextAI || !TextAI.prov(REG)) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-  if (!(await TextAI.canRun(REG))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
-  host.hidden = false;
-  const sysBase = TextAI.prompt('audio');
-  /* 这一处特有的一句（工作台润的是一整段文本，这里润的是画面上一句台词：要短、要一口气念完）。
-     其余那几句对模型的交代走公共实现 `TextAI.polishExtra` / `answersNote`，与工作台同一份。 */
-  const hint = '这是要给画面配的一句配音：要口语、要短（一口气能念完），不要写解释、不要写旁白提示、'
-    + '不要带引号或表情符号，只返回这一句本身。';
-  const taskWord = '配音稿（画面上一句台词）';
-  /* 与镜头提示词润色同一套：有 ctl 就把片段灌进 InlinePolish 的面板（流式），
-     没有 ctl 就用 AiStream 自己摆一块；只有反问那一轮仍是短 JSON 一次性调用。 */
-  const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(REG, sys, user, { signal: ctl.signal }, ctl.push)
-    : AiStream.text(REG, sys, user, { host: host, title: 'AI 正在润色这一句配音…' });
-  const run = async (answers, ctl) => ({
-    after: await call(
-      TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ answers })),
-      TextAI.polishUser(taskWord, original), ctl),
-    note: '',
-  });
-  const ask = () => TextAI.askPolish(REG,
-    TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ stage: 'ask' })),
-    TextAI.askUser(taskWord, original, { count: '2–3', tail: '这一句没有随消息附图，别问画面之外的' }), {});
-  /* 出结果之后接着说：拿屏幕上这一版（用户可能刚改过）按那一句再改，仍然只改字、不合成。 */
-  const follow = async (askText, current, ctl, ctx) => {
-    const p = TextAI.followPrompt({
-      what: taskWord, ask: askText, current,
-      extra: [hint, TextAI.answersNote(ctx && ctx.answers)],
-    });
-    return { after: await call(p.sys, p.user, ctl), note: '' };
-  };
-  /* 忙与闲只切状态：那一行字与图标各归哪一格都由公共层管（`aiBtnState` 只换 `.tx`，
-     不重写整副 innerHTML —— 那样图标一会儿包在 .ic 里、一会儿裸着，颜色跟着漂）。 */
-  window.aiBtnState(btn, true);
-  try {
-    await InlinePolish.interactive(host, {
-      ask: TextAI.shouldAsk() ? ask : null, run: run, before: original,
-      askTitle: 'AI 想先问几个问题',
-      askIntro: '没答的按默认理解走',
-      onFollow: follow,
-      followPlaceholder: '还要怎么改？例：再短一点 / 语气急一点 / 数字写成中文读法',
-      onApply: v => {
-        ta.value = v;
-        voiceDraft.text = v;
-        /* 字数闸门跟着重判一次：润完可能变短到这一家的最少字数以下，按钮要当场禁掉
-           （与手写时那一条是同一个判据，所以直接调输入框上那个 handler，不另写一份）。 */
-        if (typeof ta.oninput === 'function') ta.oninput();
-        setStatus('<span class="ok">✓ 已替换这一句</span>');
-      },
-      onStatus: t => setStatus(t),
-    });
-  } catch (e) {
-    InlinePolish.clear(host);
-    setStatus('<span class="err">润色失败：' + esc(String(errText(e))) + '</span>');
-  } finally { window.aiBtnState(btn, false); }
-}
-
 /* 「上一镜 / 下一镜」两颗按钮已删（2026-10 用户点名）：切镜走左栏的分镜列表。 */
 
 /* 成片媒体域（engine/media.js）：签名地址刷新 / 成片尺寸 / 素材编号计划 / 下载转发

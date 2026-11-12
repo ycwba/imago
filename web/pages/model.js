@@ -63,7 +63,8 @@ export default {
       railTab: 'scene',       // scene | lib
       sideTab: 'ai',          // ai | props | cam | light
       refImages: [],          // 交给 AI 的参考素材（图片 / 视频 / 声音；只给 AI 看）
-      sketch: { on: false, tool: 'select', color: 'blue', text: '', depth: { mode: 'auto', dist: 3 } },
+      sketch: { on: false, tool: 'select', color: 'blue', text: '', guides: true,
+        depth: { mode: 'auto', dist: 3 } },
       sketchMarks: [],        // 涂鸦标注（不进 doc；画给 AI 看的运镜）
       origin: null,           // { page:'studio'|'director', type?, shot? }
       prevDoc: null,          // AI 修改前的快照（「撤销这次修改」）
@@ -1351,10 +1352,12 @@ export default {
         st.aiText = r.say || '';
         note(parts.join(' · '), (r.skipped || dropped) ? 'err' : 'ok');
         archivePrompt(prompt);
+        return true;
       } catch (e) {
         if (view && st.doc) view.setDoc(st.doc, {});
         const msg = e && e.name === 'AbortError' ? '已停止' : window.errText(e);
         note((e && e.name === 'AbortError' ? '' : '生成失败：') + msg, 'err');
+        return false;
       } finally {
         st.busy = '';
         st.aiCtl = null;
@@ -2675,6 +2678,8 @@ export default {
           + '" type="button" data-sketch-tool="' + id + '" title="' + title + '">' + title.split('（')[0] + '</button>').join('')
         + '</div>'
         + '<div class="mm-sketch-depth">'
+        + '<button class="ghost mini' + (st.sketch.guides ? ' on' : '') + '" type="button" data-act="sketchGuides"'
+        + ' aria-pressed="' + !!st.sketch.guides + '" title="景深参考：落地垂线 + 深度面框，不转角度也能读出画在哪层">景深</button>'
         + '<button class="ghost mini' + (st.sketch.depth.mode === 'surface' ? ' on' : '') + '" type="button"'
         + ' data-act="sketchSurf" aria-pressed="' + (st.sketch.depth.mode === 'surface') + '"'
         + ' title="笔迹贴着模型表面画（打不中退回深度面）">贴面</button>'
@@ -2707,6 +2712,12 @@ export default {
         if (col) { st.sketch.color = col.dataset.sketchColor; view.setSketch({ color: st.sketch.color }); paintSketchBar(); return; }
         const tool = e.target.closest('[data-sketch-tool]');
         if (tool) { st.sketch.tool = tool.dataset.sketchTool; view.setSketch({ tool: st.sketch.tool }); paintSketchBar(); return; }
+        if (e.target.closest('[data-act="sketchGuides"]')) {
+          st.sketch.guides = !st.sketch.guides;
+          view.setSketch({ guides: st.sketch.guides });
+          paintSketchBar();
+          return;
+        }
         if (e.target.closest('[data-act="sketchSurf"]')) {
           /* 贴面 ↔ 回到拖滑杆前的那一档（没拖过就是自动） */
           if (st.sketch.depth.mode === 'surface') {
@@ -2760,7 +2771,7 @@ export default {
       const camPaths = view.getSketchCamPaths();
       const before = new Set(((((st.doc || {}).anim || {}).tracks) || []).map(t => t.id));
       note('按标注生成…');
-      await generate({
+      const okGen = await generate({
         prompt: typed || '按涂鸦标注生成：蓝线生成机位运镜，黄线让主体照着线走（镜头跟住主体）',
         noSelection: true,
         sketch: {
@@ -2772,6 +2783,7 @@ export default {
         },
       });
       /* 闭环：生成出的新轨道送到眼前（轨道坞里选中 + 滚进视野）；AI 没产出新轨道就不打扰。 */
+      if (!okGen) return;   // 生成失败 / 停止：不再报「已生成轨道」（以前 st.doc 已换时才出现双 note）
       const fresh = ((((st.doc || {}).anim || {}).tracks) || []).filter(t => !before.has(t.id));
       if (fresh.length) {
         const pick = fresh.find(t => t.of && t.of.kind === 'cam') || fresh[fresh.length - 1];

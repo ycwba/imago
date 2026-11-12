@@ -421,6 +421,9 @@ function slicePump() {
         sliceBusy--;
         const p = slicePending.get(job.key);
         if (p) { job.times.forEach(t => p.delete(t)); if (!p.size) slicePending.delete(job.key); }
+        /* 整趟完成也要报一声重画：onFrame 只在逐帧回调里响，一趟在两拍之间解完时，
+           缓存里现成的后半段格子没人贴 —— 表现就是「后面那几段要拖一下轨道才出现」。 */
+        slicePaintSoon();
         slicePump();
         job.res();
       });

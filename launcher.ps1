@@ -146,15 +146,16 @@ function Get-EnvPortRaw([string]$File) {
   $raw = $null
   foreach ($line in ($text -split "`r?`n")) {
     $m = [regex]::Match($line.Trim(), '^(?:export\s+)?PORT\s*=\s*([^\s#]+)', 'IgnoreCase')
-    if ($m.Success) { $raw = $m.Groups[1].Value }
+    if ($m.Success) { $raw = $m.Groups[1].Value -replace '^["'']+|["'']+$', '' }
   }
   return $raw
 }
 
 function ToPort([string]$Value) {
   if ([string]::IsNullOrWhiteSpace($Value)) { return 0 }
+  $Value = $Value.Trim().Trim('"', "'")   # .env 惯例写法 PORT="6200"：与 server/app.js 的剥引号同口径
   $n = 0
-  if ([int]::TryParse($Value.Trim(), [ref]$n) -and $n -ge 1 -and $n -le 65534) { return $n }
+  if ([int]::TryParse($Value, [ref]$n) -and $n -ge 1 -and $n -le 65534) { return $n }
   return 0
 }
 

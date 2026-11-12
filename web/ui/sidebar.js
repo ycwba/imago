@@ -227,7 +227,7 @@
      而不是让用户对着空白等到最后「突然冒出来」。老缓存没有 kids，退回单张「加载中…」也一样不空。 */
   const readBalCache = () => {
     try {
-      const c = JSON.parse(localStorage.getItem(BAL_KEY) || '{}');
+      const c = window.LS.json(BAL_KEY, {});
       return { ts: Number(c.ts) || 0,
         rows: Array.isArray(c.rows) ? c.rows.filter(r => r && r.kid) : [],
         kids: Array.isArray(c.kids) ? c.kids.filter(k => k && k.kid) : [] };

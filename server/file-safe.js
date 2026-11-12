@@ -10,7 +10,8 @@ function fileSafe(s, max) {
     .replace(/[\\/:*?"<>|\u0000-\u001f]/g, '-')
     .replace(/\s+/g, ' ')
     .trim()
-    .slice(0, max || 60);
+    .slice(0, max || 60)
+    .replace(/^(CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9])(\.|$)/i, '$1_');
   return out.replace(/^[.\s-]+|[.\s-]+$/g, '');
 }
 

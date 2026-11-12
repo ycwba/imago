@@ -23,6 +23,7 @@ import {
 import { sampleAnim, sampleCams, sampleLights } from './anim.js';
 import { findNode, round3 } from './schema.js';
 import { jointsOf, applyJoints } from './rig.js';
+import { SKETCH } from './palette.js';
 import { applyClip } from './clip.js';
 import { SKY, SELECT } from './palette.js';
 
@@ -161,7 +162,9 @@ export function createView(host, opts = {}) {
   let sketchText = '';
   let sketchMarks = [];
   let sketchDepth = { mode: 'auto', dist: 3 };
+  let sketchGuides = true;   // 景深参考：落地垂线 + 深度面框（不拖角度也能读出画在哪一层）
   let stroke = null;
+  let guideGrp = null;
   const rt = new Map();                // `${w}x${h}` -> WebGLRenderTarget
 
   /* 置脏必须连着排一帧：只把 dirty 立起来、不踢 kick 的话，rAF 循环不会醒
@@ -587,6 +590,9 @@ export function createView(host, opts = {}) {
     if (disposed || !active()) return;
     let more = false;
     if (dirty) {
+      /* 定距面的面框代表「当前视线这一层」：视角一动框就得跟着重摆（垂线是世界锚定不用动）。
+         重摆要排在 paint **之前**——重摆本身不置脏，排在后面会慢一帧停下；几何只有 8 条线段。 */
+      if (sketchOn && sketchGuides && sketchDepth.mode === 'plane') rebuildSketchGuides();
       dirty = false;
       paint();
       if (onCameraChange && mode === 'director') {
@@ -636,7 +642,75 @@ export function createView(host, opts = {}) {
   function syncSketch() {
     const live = liveMarkOfStroke();
     setSketchMarks(stage, live ? sketchMarks.concat([live]) : sketchMarks);
+    rebuildSketchGuides();
     markDirty();
+  }
+  /* 景深参考（不进 doc，出图与标注一起摘掉）：
+     · 每条标注隔点放一根「落地垂线」+ 地面落点 —— 不转角度也能读出画在第几层；
+     · 定距档再画一个深度面框（四角 + 对角十字），拖滑杆时框跟着走，层在哪一眼可见。 */
+  function rebuildSketchGuides() {
+    if (guideGrp) { stage.remove(guideGrp); guideGrp = null; }
+    if (!sketchOn || !sketchGuides || (!sketchMarks.length && sketchDepth.mode !== 'plane')) return;
+    guideGrp = new THREE.Group();
+    guideGrp.name = 'stage-sketch-guides';
+    const linePos = [], dotPos = [];
+    for (const m of sketchMarks) {
+      const pts = m.type === 'arrow' ? [m.from, m.to] : m.type === 'text' ? [m.at] : (m.pts || []);
+      for (let i = 0; i < pts.length; i += 2) {
+        const p = pts[i];
+        if (!Array.isArray(p)) continue;
+        linePos.push(p[0], p[1], p[2], p[0], 0, p[2]);
+        dotPos.push(p[0], 0.002, p[2]);
+      }
+    }
+    if (linePos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(linePos, 3));
+      const mat = new THREE.LineBasicMaterial({ color: SKETCH.white, transparent: true, opacity: 0.35, depthTest: false });
+      const seg = new THREE.LineSegments(geo, mat);
+      seg.renderOrder = 898;
+      guideGrp.add(seg);
+    }
+    if (dotPos.length) {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(dotPos, 3));
+      const mat = new THREE.PointsMaterial({ color: SKETCH.white, size: 5, sizeAttenuation: false, transparent: true, opacity: 0.5, depthTest: false });
+      const pts = new THREE.Points(geo, mat);
+      pts.renderOrder = 899;
+      guideGrp.add(pts);
+    }
+    if (sketchDepth.mode === 'plane') {
+      const cam = activeCamera();
+      const fwd = new THREE.Vector3();
+      cam.getWorldDirection(fwd);
+      const anchor = sketchPlaneAnchor(fwd);
+      const right = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 0);
+      const up = new THREE.Vector3().setFromMatrixColumn(cam.matrixWorld, 1);
+      /* 面的尺寸按视锥在该深度处的可视范围估（fov 竖直、画幅比取当前），框比可视范围大一圈 */
+      const dist = Math.max(0.2, cam.position.distanceTo(anchor));
+      const halfH = Math.tan((cam.fov * D2R) / 2) * dist * 1.15;
+      const halfW = halfH * (renderer.domElement.clientWidth / Math.max(1, renderer.domElement.clientHeight));
+      const corners = [
+        anchor.clone().addScaledVector(right, -halfW).addScaledVector(up, -halfH),
+        anchor.clone().addScaledVector(right, halfW).addScaledVector(up, -halfH),
+        anchor.clone().addScaledVector(right, halfW).addScaledVector(up, halfH),
+        anchor.clone().addScaledVector(right, -halfW).addScaledVector(up, halfH),
+      ];
+      const frame = [];
+      for (let i = 0; i < 4; i++) {
+        const a = corners[i], b = corners[(i + 1) % 4];
+        frame.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      frame.push(corners[0].x, corners[0].y, corners[0].z, corners[2].x, corners[2].y, corners[2].z);
+      frame.push(corners[1].x, corners[1].y, corners[1].z, corners[3].x, corners[3].y, corners[3].z);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(frame, 3));
+      const mat = new THREE.LineBasicMaterial({ color: SKETCH.blue, transparent: true, opacity: 0.4, depthTest: false });
+      const seg = new THREE.LineSegments(geo, mat);
+      seg.renderOrder = 897;
+      guideGrp.add(seg);
+    }
+    stage.add(guideGrp);
   }
   function notifySketch() {
     if (!onSketchChange) return;
@@ -914,6 +988,7 @@ export function createView(host, opts = {}) {
     const prevRigs = stage.rigs ? stage.rigs.visible : false;
     const prevLightRigs = stage.lightRigs ? stage.lightRigs.visible : false;
     const prevSketch = stage.sketch ? stage.sketch.visible : false;
+    const prevGuides = guideGrp ? guideGrp.visible : false;
     const prevPaths = stage.paths ? stage.paths.visible : false;
     const prevHelper = helper.visible;
     const prevGizmo = gizmo.getHelper().visible;
@@ -921,6 +996,7 @@ export function createView(host, opts = {}) {
     if (stage.rigs) stage.rigs.visible = false;
     if (stage.lightRigs) stage.lightRigs.visible = false;
     if (stage.sketch) stage.sketch.visible = false;
+    if (guideGrp) guideGrp.visible = false;
     if (stage.paths) stage.paths.visible = false;
     helper.visible = false;
     gizmo.getHelper().visible = false;
@@ -937,6 +1013,7 @@ export function createView(host, opts = {}) {
     if (stage.rigs) stage.rigs.visible = prevRigs;
     if (stage.lightRigs) stage.lightRigs.visible = prevLightRigs;
     if (stage.sketch) stage.sketch.visible = prevSketch;
+    if (guideGrp) guideGrp.visible = prevGuides;
     if (stage.paths) stage.paths.visible = prevPaths;
     helper.visible = prevHelper;
     gizmo.getHelper().visible = prevGizmo;
@@ -987,6 +1064,7 @@ export function createView(host, opts = {}) {
         const n = Number(d.dist);
         sketchDepth.dist = Math.min(30, Math.max(0.2, Number.isFinite(n) ? n : 3));
       }
+      if (opt.guides != null) sketchGuides = !!opt.guides;
       if (!sketchOn) { stroke = null; syncOrbitEnabled(); }
       syncSketch();
       markDirty();

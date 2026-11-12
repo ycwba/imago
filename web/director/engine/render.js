@@ -5,7 +5,7 @@
 
 import { createMarker } from '../tl-markers.js';
 import { chosenCandOf, deriveTimeline, normalizeTransition, transitionNameOf } from '../film.js';
-import { num } from '../util.js';
+import { num, debounce } from '../util.js';
 
 export function createRender(E, document, window) {
   'use strict';
@@ -522,7 +522,6 @@ function healStaleUrls() {
 }
 
 /* 输入框逐字触发的重渲染走防抖：避免每敲一个字就整列重建（左栏/中栏互刷时更明显） */
-function debounce(fn, ms) { let t = null; return () => { clearTimeout(t); t = setTimeout(fn, ms); }; }
 const renderScenesSoon = debounce(() => renderScenes(), 350);
 const renderMidSoon = debounce(() => renderMid(), 350);
 /* 删场景 / 删掉最后一个镜头时兜底：项目至少保留一个场景，否则左栏会空、存档也会坏 */

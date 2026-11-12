@@ -1553,7 +1553,15 @@ function createPromptsStore(opts) {
     return rows;
   }
   const promptRows = dir => readPromptIndex(dir) || rebuildPromptIndex(dir);
+  /* la_ 详情的回查面是「每开一张本机卡都可能踩一遍」——索引窗口查不到就整目录扫一遍
+     （同步 fs，几百条就是一两百毫秒，还阻塞代理主循环）。确实没归档的 task 号记进负缓存，
+     60 秒内不再扫；负缓存只在索引重建时清一次（有新归档进来索引会变）。 */
+  const promptMiss = new Map();
+  const PROMPT_MISS_MS = 60 * 1000;
   function scanPromptTask(dir, id, cap) {
+    const mk = dir + '' + id;
+    const missAt = promptMiss.get(mk);
+    if (missAt && Date.now() - missAt < PROMPT_MISS_MS) return [];
     let meta;
     try { meta = readDirMetaRows(dir); } catch { return []; }
     const out = [];
@@ -1562,6 +1570,7 @@ function createPromptsStore(opts) {
       if (r.i !== id) continue;
       out.push({ ...r, pr: promptBodyOf(path.join(dir, r.f)) });
     }
+    if (!out.length) promptMiss.set(mk, Date.now()); else promptMiss.delete(mk);
     return out;
   }
   function promptFileList(dir) {

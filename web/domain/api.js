@@ -877,7 +877,7 @@ function topBoolValue(decl, on) {
        云同步、整包备份都跟着数据文件走，不用另外登记。 */
     customList() {
       try {
-        const a = JSON.parse(localStorage.getItem('sk_custom') || '[]');
+        const a = window.LS.json('sk_custom', []);
         return Array.isArray(a) ? a : [];
       } catch { return []; }        // 写坏过一次就不再猜：界面按「没有自定义平台」渲染，代理那边会说明读失败
     },
