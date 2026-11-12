@@ -71,6 +71,7 @@ desktop.ini
 .workbuddy/
 .workbuddy-ai/
 .zcodeignore
+.qoderignore
 .superdesign/tmp/
 
 # 结构化数据（含 .data/cache 那份缩略图与切片缓存、.data/models 那份模型缓存、
