@@ -333,6 +333,8 @@ run('tests/director-film.mjs', process.execPath, ['tests/director-film.mjs']);
 run('tests/director-strip.mjs', process.execPath, ['tests/director-strip.mjs']);
 /* 时间线编辑纯件：切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 波形 / 刻度像素换算。 */
 run('tests/director-tl-edit.mjs', process.execPath, ['tests/director-tl-edit.mjs']);
+/* fileSafe 双份的边界：Windows 保留设备名两份同解除 / 各自文档化行为不漂。 */
+run('tests/file-safe.mjs', process.execPath, ['tests/file-safe.mjs']);
 /* 贴纸纯件：归一化 / 片长收紧 / 取活排序 / 一份画法。 */
 run('tests/director-sticker.mjs', process.execPath, ['tests/director-sticker.mjs']);
 /* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
@@ -409,6 +411,8 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.arg
   /* 建模台出图的像素基线：不带 lights / light 段的存量白膜按内置主光 + 补光出图，与基线逐像素比；
      另打一条灯轨道证明逐帧灯光真的进画面。真 WebGL（WARP）出图跨进程逐字节一致，所以阈值比整页截图紧。 */
   run('tests/e2e/model-render.cjs', process.execPath, ['tests/e2e/model-render.cjs'], { tier: 'browser' });
+  /* RefView 灯箱：fitCanvas 时序（P0-1 回归闸：打开即画布按图片真实尺寸）/ Esc 丢弃确认 / 完成 PNG。 */
+  run('tests/e2e/ref-view.cjs', process.execPath, ['tests/e2e/ref-view.cjs'], { tier: 'browser' });
 /* 静态预压缩的线上那一半（同一份判据文件，`--live` 才起隔离实例）：响应头与三档体积真的到了线上。 */
 run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs', '--live'], { tier: 'browser' });
   run('tests/e2e/cloud-sync.cjs', process.execPath, ['tests/e2e/cloud-sync.cjs'], { tier: 'browser' });

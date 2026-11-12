@@ -5,6 +5,11 @@
    ③ activeAt：时间窗过滤 + z 升序稳定；
    ④ drawStickers：假 ctx 记录 drawImage / globalAlpha（一份画法预览与导出同视觉的前提）。 */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { normalizeStickers, clampSticker, activeAt, drawStickers } from '../web/director/sticker.js';
 
 let n = 0;
@@ -84,3 +89,15 @@ const ok = (c, m) => { n += 1; assert.ok(c, m); };
 }
 
 console.log('✓ director-sticker：' + n + ' 项通过');
+
+
+/* ---- 源码级：贴纸三动作必须进撤销账（beginEdit → 改 → filmEdited）----
+   不进账的话下一次 beginEdit 的 historyFinalizePending 会把「带贴纸的当前态」定稿进
+   上一条编辑的 after 快照 —— 那一下 Ctrl+Z 同时退掉上一步真实编辑 + 贴纸。 */
+{
+  const tlSrc = fs.readFileSync(path.join(root, 'web', 'director', 'engine', 'timeline.js'), 'utf8');
+  assert.ok(tlSrc.includes("beginEdit('加了一张贴纸')"), '加贴纸进撤销账');
+  assert.ok(tlSrc.includes("beginEdit('删掉贴纸"), '删贴纸进撤销账');
+  assert.ok(tlSrc.includes("beginEdit('改了贴纸"), '改贴纸进撤销账');
+  assert.ok((tlSrc.match(/filmEdited\(\)/g) || []).length >= 2, '删 / 改两路都调 filmEdited');
+}

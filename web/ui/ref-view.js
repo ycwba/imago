@@ -384,39 +384,40 @@
         return;
       }
 
-      /* 图片：直接进可画的状态。画法状态与撤销栈都在编辑器里；关闭走 hooks.finish。 */
-      bar.innerHTML = '<span class="rv-hint">浏览 = 只看；画笔直接画</span>';
+      /* 图片：等解码真的到手（naturalWidth > 0）再进编辑器 —— fitCanvas 按真实尺寸定画布，
+         解码没完成就定尺寸会得到 1×1 画布（一笔涂满全图，掩码整条坏）。加载中先给一句提示。 */
+      bar.innerHTML = '<span class="rv-hint">加载中…</span>';
       var img = stage.querySelector('img');
       img.src = item.src;
-      /* 图片解码是异步的：naturalWidth 没到手就 fitCanvas，画布会按 1×1 定尺寸且永不重定
-         （一笔涂满 = 掩码全坏，还会把已存掩码压成垃圾）。等 load / decode 真到了再开编辑。 */
-      img.addEventListener('load', () => { try { if (img.decode) img.decode().catch(() => 0); } catch (e) { /* decode 不可用就算了，load 本身已经够 fitCanvas 用 */ } }, { once: true });
+      var closeNow = () => close(true);
+      img.addEventListener('load', () => {
+        bar.innerHTML = '<span class="rv-hint">浏览 = 只看；画笔直接画</span>';
+        openMaskEditor(stage, item, {
+          /* 编辑器回给弹窗层的钩子：save = 完成（dataURL 存 / '' 清 / 'keep' 没动过直接关）。 */
+          save(url) {
+            if (url !== 'keep') {
+              item.mask = url || '';
+              if (opts.onSaveMask) opts.onSaveMask(url || null);
+            }
+            closeNow();
+          },
+          exit() { closeNow(); },
+          askLeave() {
+            window.Confirm.ask({
+              title: '丢弃这次的标记？',
+              body: '还没点「完成」，这次画的会全部丢掉。',
+              okLabel: '丢弃', danger: true,
+            }).then(yes => { if (yes) closeNow(); });
+          },
+          setEditing(on) { editing = on; },
+          ctl(c) { editorCtl = c; },
+          setKeyOff(f) { editorKeyOff = f; },
+        });
+      }, { once: true });
       img.addEventListener('error', () => {
         stage.innerHTML = '<div class="rv-none">这一份素材的地址读不出来（可能已过期）。</div>';
         bar.innerHTML = '<span class="rv-hint">读不出来，关窗重挑一份</span>';
-      });
-      var closeNow = () => close(true);
-      openMaskEditor(stage, item, {
-        /* 编辑器回给弹窗层的钩子：save = 完成（dataURL 存 / '' 清 / 'keep' 没动过直接关）。 */
-        save(url) {
-          if (url !== 'keep') {
-            item.mask = url || '';
-            if (opts.onSaveMask) opts.onSaveMask(url || null);
-          }
-          closeNow();
-        },
-        exit() { closeNow(); },
-        askLeave() {
-          window.Confirm.ask({
-            title: '丢弃这次的标记？',
-            body: '还没点「完成」，这次画的会全部丢掉。',
-            okLabel: '丢弃', danger: true,
-          }).then(yes => { if (yes) closeNow(); });
-        },
-        setEditing(on) { editing = on; },
-        ctl(c) { editorCtl = c; },
-        setKeyOff(f) { editorKeyOff = f; },
-      });
+      }, { once: true });
     }
 
     window.UiDialog.open({

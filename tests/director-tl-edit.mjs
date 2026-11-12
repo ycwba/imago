@@ -2,6 +2,11 @@
 /* 时间线编辑纯件（新剪辑核的交互数学）：切刀 / 融合 / 裁剪 / 滑移滑动编辑点 / 波纹 /
    拖动重排与跨行 / 吸附 / 波形 peaks / 比例尺刻度。全部纯函数，不开浏览器。 */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 import {
   splitClipAt, splitVoiceAt, splitCaptionAt,
   canMergeClips, mergeClipsAt, removeClipAt, duplicateClipAt,
@@ -451,3 +456,12 @@ assert.equal(tlTimeInView(11, 0, 1000, z10), false);
 assert.equal(tlTimeInView(11, 500, 1000, z10), true);
 
 console.log('✓ 导演台时间线编辑纯件：切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 波形 / 刻度与像素换算');
+
+
+/* ---- 源码级：标记面板的文本格只认 change（失焦落账）----
+   input 也派给 onPanelInput 的话，每敲一个字 commit 一次（撤销栈逐字灌满）+
+   panelPatch 里 paintPanel 整片重画 → 焦点回 body，第二个字落在 document 快捷键上。 */
+{
+  const editSrc = fs.readFileSync(path.join(root, 'web', 'director', 'engine', 'edit.js'), 'utf8');
+  assert.ok(editSrc.includes("if (e.type !== 'change') return;"), '标记面板文本格只认 change（不逐键重画）');
+}

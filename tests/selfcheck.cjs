@@ -375,3 +375,8 @@ ok('助手页面快照是合法 JSON 而不是截断串', /function compactCtx/.
 
 console.log('\n' + (bad ? '✗ ' : '✓ ') + checks + ' 项，' + bad + ' 项未通过');
 process.exit(bad ? 1 : 0);
+
+
+/* ToPort 必须剥 .env 惯例引号：PORT="6200" 时 launcher 与代理（app.js 剥引号绑 6200）
+   要读出同一个号 —— 不剥的话启动器等 5175、服务在 6200 活着，排查全按错号走。 */
+ok(launcherPs.includes(".Trim('\"', \"'\")"), 'launcher.ps1 ToPort 剥 .env 引号（与代理同口径）');

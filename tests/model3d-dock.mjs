@@ -2,6 +2,11 @@
 /* 轨道坞的两处纯逻辑：关键帧改时间（拖动与手填同一份）与逐帧颜色归一。
    不开浏览器 —— 只取 dock.js 的 retimeKey 与 schema.js 的 cleanColor。 */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 import { retimeKey } from '../web/pages/model/dock.js';
 import { cleanColor } from '../web/model3d/schema.js';
 
@@ -62,3 +67,14 @@ const eq = (a, b, m) => { n += 1; assert.deepEqual(a, b, m); };
 }
 
 console.log('✓ model3d-dock：' + n + ' 项通过');
+
+
+/* ---- 源码级：条带摆位 / 拖动预览 / 点击定位必须同一把尺（墙钟）----
+   trackKeyWall / trackLocalAt 的纯函数用例在 model3d-anim.mjs；这里钉的是
+   dock.js 三个消费点都真的在用它们（漏一处就是「看着在哪」与「实际在哪」分家）。 */
+{
+  const dockSrc = fs.readFileSync(path.join(root, 'web', 'pages', 'model', 'dock.js'), 'utf8');
+  assert.ok(dockSrc.includes('A.trackKeyWall(tr, k.t, anim.duration)'), '条带摆位用 trackKeyWall（墙钟）');
+  assert.ok(dockSrc.includes('A.trackLocalAt(drag.tr, wall, d)'), '拖动落点写回用 trackLocalAt');
+  assert.ok((dockSrc.match(/A\.trackKeyWall/g) || []).length >= 3, '点击定位 / 拖完定位也用 trackKeyWall');
+}
