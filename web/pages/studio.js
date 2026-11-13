@@ -776,19 +776,18 @@ const StudioView = {
          现在那些手势都在空槽加号上，本体留给「看」。 */
       async function viewSlotItem(it) {
         if (!it || !(it.file || it.src || it.url)) return;
-        if (!window.RefView) {
-          const ok = window.__spaLoadScript
-            ? await window.__spaLoadScript('web/ui/ref-view.js', () => window.RefView)
-              .then(() => !!window.RefView).catch(() => false)
-            : false;
-          if (!ok) { Toast.err('查看组件没加载起来，刷新一次再试'); return; }
-        }
         const kind = window.isAudioType(it.type) ? 'audio'
           : window.mediaKindOf(it.type) === 'video' ? 'video' : 'image';
-        window.RefView.open({ kind, label: it.name || it.label || '', src: mediaOf(it), mask: it.mask || '' }, {
-          /* 存完就地重画：角标（已标记 / 没标记）立刻跟着变，不然画完看不出任何变化。 */
-          onSaveMask: url => { it.mask = url || ''; renderInputArea(); },
-        });
+        const src = it.file ? URL.createObjectURL(it.file) : mediaOf(it);
+        if (!window.Wb) { Toast.err('灯箱没加载起来'); return; }
+        if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+        Wb.lightbox.open({ src, label: it.name || it.label || '', kind }, [{ src, label: it.name || '', kind }]);
+        if (kind !== 'image') return;
+        const ok = window.__spaLoadScript
+          ? await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
+            .then(() => !!window.LbMask).catch(() => false)
+          : false;
+        if (ok) LbMask.enter(url => { it.mask = url || ''; renderInputArea(); });
       }
       function bindSlotTile(t, sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];

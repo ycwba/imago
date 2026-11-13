@@ -835,14 +835,8 @@ function viewShotMedia(sh, key) {
   } else return;
   if (!it.src) { if (window.Toast && Toast.err) Toast.err('这一份没有可查看的地址（本机直传的字节只在当次会话）'); return; }
   if (it.kind === 'video' || it.kind === 'audio') {
-    /* 视频 / 音频走 RefView（按需补载，与建模台 / 工作台同一份查看出口） */
-    const openRefViewer = () => window.RefView.open({ kind: it.kind, label: it.label, src: it.src });
-    if (window.RefView) return openRefViewer();
-    const s = document.createElement('script');
-    s.src = 'web/ui/ref-view.js';
-    s.onload = () => openRefViewer();
-    s.onerror = () => { if (window.Toast && Toast.err) Toast.err('查看组件没加载起来'); };
-    document.head.appendChild(s);
+    /* 视频 / 音频走灯箱（与图片同一份出口，灯箱的 kindOf 已按 video 标记分流） */
+    try { window.Wb.lightbox.open({ src: it.src, label: it.label, video: it.kind === 'video' }); } catch (e) { /* 灯箱没就绪就算了 */ }
     return;
   }
   try { window.Wb.lightbox.open(it); } catch (e) { /* 灯箱没就绪时点了就当没反应 */ }

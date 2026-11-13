@@ -3480,13 +3480,26 @@ export default {
     /* 点开一条参考素材：看图 / 听声音 / 放视频；图片上还能画彩笔掩码（多色标区域，发给 AI 当「要改的地方」）。
        查看组件按需补载（这一页不常驻它），掩码挂在素材条目上，随这一轮消息一起发。 */
     async function openRefView(item) {
-      if (!item) return;
-      if (!window.RefView) {
-        const ok = loadPickerScript('web/ui/ref-view.js', () => window.RefView)
-          .then(() => !!window.RefView).catch(() => false);
-        if (!await ok) { note('查看组件没加载起来，刷新一次再试', 'err'); return; }
+      if (!item || !item.src) return;
+      const kind = item.kind || 'image';
+      if (!window.Wb) {
+        const ok = loadPickerScript('web/ui/workbench.js', () => window.Wb)
+          .then(() => !!window.Wb).catch(() => false);
+        if (!await ok) { note('灯箱没加载起来，刷新一次再试', 'err'); return; }
       }
-      window.RefView.open(item, { onSaveMask: url => { item.mask = url || ''; paintSide(); } });
+      if (!window.Wb.lightbox.cfg) {
+        window.Wb.lightbox.init({
+          keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
+          kindOf: it => (it && it.kind) || 'image', list: () => [],
+          nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
+        });
+      }
+      window.Wb.lightbox.open({ src: item.src, label: item.label, kind }, [{ src: item.src, label: item.label, kind }]);
+      if (kind !== 'image') return;
+      const ok2 = loadPickerScript('web/ui/lb-mask.js', () => window.LbMask)
+        .then(() => !!window.LbMask).catch(() => false);
+      if (!await ok2) return;
+      window.LbMask.enter(url => { item.mask = url || ''; paintSide(); });
     }
     /* 视频转白模：选一段视频，交给 AI 按它建白模。
        文字型号能看视频就把视频本体发过去；只能看图时按设置退成几帧画面（本机解码，不经过服务端）。

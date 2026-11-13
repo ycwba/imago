@@ -1732,3 +1732,10 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 /* 掩码 / 查看的专属弹窗：全站弹窗帽对画掩码太小（写完的图只显示一半宽） */
 dialog.ui-dlg#rvDlg { max-width: min(calc(var(--sp-64) * 19), 96vw); width: min(calc(var(--sp-64) * 19), 96vw); }
 #rvDlg .rv-stage img, #rvDlg .rv-stage video { max-height: min(72vh, calc(var(--sp-64) * 14)); }
+/* 灯箱掩码绘画（web/ui/lb-mask.js 按需补载；在灯箱 stage 上叠画布 + 工具条） */
+.lb-mask-bar { position: fixed; bottom: var(--sp-16); left: 50%; transform: translateX(-50%);
+  z-index: 11; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap;
+  max-width: min(calc(var(--sp-64) * 17), 94vw); padding: var(--sp-8) var(--sp-12);
+  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
+  box-shadow: var(--shadow-3); pointer-events: auto; }
+.lb-mask-cv { position: absolute; cursor: crosshair; touch-action: none; z-index: 5; }

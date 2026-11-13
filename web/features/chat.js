@@ -939,23 +939,20 @@
   /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画彩笔掩码（随图发给文字 AI 当「重点看的区域」）。
      掩码只留在内存（saveFiles 的落盘清单不含它），同一轮对话里一直有效。
      **递进去的必须是地址串**：附件条目上 `file` 是真 File（addFiles 同时给了 blob: 的 `src` / `objUrl`），
-     RefView 把它当 URL 用，直接递 File 会被字符串化成「[object File]」，图必然读不出来。 */
+     灯箱要的是地址串，直接递 File 会被字符串化成「[object File]」，图必然读不出来。 */
   async function openFileView(f) {
     if (!f || f.kind === '文本' || !(f.file || f.src)) return;
-    if (!window.RefView) {
-      const ok = window.__spaLoadScript
-        ? await window.__spaLoadScript('web/ui/ref-view.js', () => window.RefView)
-          .then(() => !!window.RefView).catch(() => false)
-        : false;
-      if (!ok) { Toast.err('查看组件没加载起来，刷新一次再试'); return; }
-    }
     const kind = f.kind === '图片' ? 'image' : f.kind === '视频' ? 'video' : 'audio';
     let src = String(f.src || f.objUrl || '');
     if (!src && f.file) { try { src = URL.createObjectURL(f.file); } catch (e) { src = ''; } }
     if (!src) { Toast.err('这一条没有可显示的地址，要重新拖一次'); return; }
-    window.RefView.open({ kind, label: f.name || '', src, mask: f.mask || '' }, {
-      onSaveMask: url => { f.mask = url || ''; paintFiles(); },
-    });
+    if (!window.Wb) { Toast.err('灯箱没加载起来'); return; }
+    if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+    Wb.lightbox.open({ src, label: f.name || '', kind }, [{ src, label: f.name || '', kind }]);
+    if (kind !== 'image' || !window.__spaLoadScript) return;
+    const ok = await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
+      .then(() => !!window.LbMask).catch(() => false);
+    if (ok) LbMask.enter(url => { f.mask = url || ''; paintFiles(); });
   }
   function paintFiles() {
     if (!el.files) return;
@@ -1231,9 +1228,8 @@
     refTip.style.left = Math.max(8, Math.min(vw - refTip.offsetWidth - 8, x + 12)) + 'px';
     refTip.style.top = Math.max(8, Math.min(vh - refTip.offsetHeight - 8, y + 14)) + 'px';
   }
-  /* 点击一条引用 → 走全站那一份查看出口（RefView，按需补载；图片可就地画掩码）。
-     只有号没有地址的（发出去后让助手 asset_open 取）退回一句说明 —— RefView 需要真地址。
-     没有的字段给 RefView 的 meta 行：类型 / 资产号 / 任务号 / 来源都在那条里，不另摆第二块。 */
+  /* 点击一条引用 → 走全站那一份灯箱查看出口（图片可就地画掩码）。
+     只有号没有地址的（发出去后让助手 asset_open 取）退回一句说明。 */
   function openRefDialog(idx) {
     const r = refs[idx];
     if (!r) return;
@@ -1241,15 +1237,10 @@
     const meta = [r.type || r.kind, r.assetId ? '资产 ' + r.assetId : '', r.taskId ? '任务 ' + r.taskId : '',
       r.fileKey ? '本机文件 ' + r.fileKey : '', r.from ? '来自 ' + (REF_FROM_PAGE[r.from] || r.from) : '']
       .filter(Boolean).join(' · ');
-    if (!r.src || !window.UiDialog) { note('引用的是：' + refLabel(r) + (r.src ? '' : '（这一条没有可直接显示的地址，发出去后让助手用 asset_open 按序号取）')); return; }
+    if (!r.src || !window.Wb) { note('引用的是：' + refLabel(r) + (r.src ? '' : '（这一条没有可直接显示的地址，发出去后让助手用 asset_open 按序号取）')); return; }
     const kind = r.type === '视频' ? 'video' : r.type === '音频' ? 'audio' : 'image';
-    const enter = () => window.RefView.open({ kind, label: refShort(r), src: r.src }, { meta });
-    if (window.RefView) return enter();
-    const s = document.createElement('script');
-    s.src = 'web/ui/ref-view.js';
-    s.onload = () => (window.RefView ? enter() : note('查看组件没加载起来'));
-    s.onerror = () => note('查看组件没加载起来');
-    document.head.appendChild(s);
+    if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+    Wb.lightbox.open({ src: r.src, label: refShort(r), kind }, [{ src: r.src, label: refShort(r), kind }]);
   }
 
   /* ---------- 画 ---------- */
