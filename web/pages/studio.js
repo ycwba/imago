@@ -780,7 +780,12 @@ const StudioView = {
           : window.mediaKindOf(it.type) === 'video' ? 'video' : 'image';
         const src = it.file ? URL.createObjectURL(it.file) : mediaOf(it);
         if (!window.Wb) { Toast.err('灯箱没加载起来'); return; }
-        if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+        /* 总是设 ref 友好的 cfg：别的页留下的 cfg 的 srcOf / kindOf 不认 {src,kind} 形状的条目 */
+        Wb.lightbox.init({
+          keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
+          kindOf: it => (it && it.kind) || 'image', list: () => [],
+          nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
+        });
         Wb.lightbox.open({ src, label: it.name || it.label || '', kind }, [{ src, label: it.name || '', kind }]);
         if (kind !== 'image') return;
         const ok = window.__spaLoadScript

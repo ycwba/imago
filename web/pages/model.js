@@ -3487,13 +3487,11 @@ export default {
           .then(() => !!window.Wb).catch(() => false);
         if (!await ok) { note('灯箱没加载起来，刷新一次再试', 'err'); return; }
       }
-      if (!window.Wb.lightbox.cfg) {
-        window.Wb.lightbox.init({
-          keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
-          kindOf: it => (it && it.kind) || 'image', list: () => [],
-          nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
-        });
-      }
+      window.Wb.lightbox.init({
+        keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
+        kindOf: it => (it && it.kind) || 'image', list: () => [],
+        nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
+      });
       window.Wb.lightbox.open({ src: item.src, label: item.label, kind }, [{ src: item.src, label: item.label, kind }]);
       if (kind !== 'image') return;
       const ok2 = loadPickerScript('web/ui/lb-mask.js', () => window.LbMask)

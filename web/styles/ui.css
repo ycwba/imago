@@ -1694,44 +1694,18 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .cmd-foot { padding: var(--sp-8) var(--sp-16); border-top: var(--hair) solid var(--line);
   color: var(--sub); font-size: var(--fs-11); }
 
-/* RefView —— 参考框素材的「点开看」弹窗（web/ui/ref-view.js 按需补载；图片可画彩色掩码） */
-.rv-stage { position: relative; display: flex; align-items: center; justify-content: center;
-  min-height: calc(var(--sp-64) * 2); background: var(--media-bg); border-radius: var(--radius-10); overflow: hidden; }
-.rv-stage img { display: block; max-width: 100%; max-height: min(56vh, calc(var(--sp-64) * 8)); }
-.rv-stage video { display: block; max-width: 100%; max-height: min(56vh, calc(var(--sp-64) * 8)); }
-.rv-stage .rv-none { padding: var(--sp-24); color: var(--sub); font-size: var(--fs-13); }
-.rv-maskview { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.rv-draw { position: absolute; inset: 0; width: 100%; height: 100%; cursor: crosshair; touch-action: none; }
-.rv-audio { display: block; width: 100%; padding: var(--sp-16); }
-.rv-audio audio { width: 100%; }
-.rv-bar { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-8); }
+/* 灯箱掩码绘画共享件（web/ui/lb-mask.js 按需补载）：色块 / 工具组 / 提示 / 自绘笔刷光标 */
 .rv-tools { display: inline-flex; gap: var(--sp-4); }
 .rv-tools .mini.on { border-color: var(--acc); color: var(--acc); }
 .rv-hint { color: var(--sub); font-size: var(--fs-11); }
-.rv-info { color: var(--sub); font-size: var(--fs-12); margin-top: var(--sp-4);
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rv-swatch { width: var(--sz-chip); height: var(--sz-chip); padding: 0;
   border: var(--hair) solid var(--line); border-radius: var(--radius-4); cursor: pointer; }
-.rv-swatch.on { border-color: var(--acc); box-shadow: var(--focus-shadow); }
-/* 掩码编辑态补充（同上一段 RefView）：工具条吸在弹窗滚动口底部，画着画着不滚出视野 */
-.rv-bar.is-edit { position: sticky; bottom: 0; background: var(--panel);
-  margin: var(--sp-8) calc(-1 * var(--sp-16)) 0; padding: var(--sp-8) var(--sp-16) 0;
-  border-top: var(--hair) solid var(--line); }
+/* 色块的选中态与键盘焦点环同形（都借 --focus-shadow）会分不清：选中改内圈描边 */
+.rv-swatch.on { border-color: var(--acc); box-shadow: inset 0 0 0 var(--hair) var(--panel); }
 /* 自绘笔刷光标：圆圈直径 = 笔迹直径，画笔显当前色、橡皮虚线；difference 混色保证任何底上看得见 */
 .rv-ghost { position: absolute; pointer-events: none; display: none;
   border: var(--hair) solid white; border-radius: var(--radius-999); mix-blend-mode: difference; }
 .rv-ghost.erase { border-style: dashed; }
-/* 色块的选中态与键盘焦点环同形（都借 --focus-shadow）会分不清：选中改内圈描边 */
-.rv-swatch.on { border-color: var(--acc); box-shadow: inset 0 0 0 var(--hair) var(--panel); }
-/* 素材槽上「已画掩码」的角标（studio 槽位；建模台的 chip 用文字后缀，两种形状各自一份） */
-.asset-slot .maskbadge { position: absolute; top: var(--sp-4); left: var(--sp-4); padding: 0 var(--sp-4);
-  border-radius: var(--radius-999); background: var(--acc-tint-18); color: var(--acc);
-  font-size: var(--fs-11); line-height: var(--sz-chip); pointer-events: none; }
-/* 命令面板条目的悬停反馈（此前只有键盘选中态有样子，鼠标党悬停无任何变化） */
-.cmd-item:hover { background: var(--panel2); }
-/* 掩码 / 查看的专属弹窗：全站弹窗帽对画掩码太小（写完的图只显示一半宽） */
-dialog.ui-dlg#rvDlg { max-width: min(calc(var(--sp-64) * 19), 96vw); width: min(calc(var(--sp-64) * 19), 96vw); }
-#rvDlg .rv-stage img, #rvDlg .rv-stage video { max-height: min(72vh, calc(var(--sp-64) * 14)); }
 /* 灯箱掩码绘画（web/ui/lb-mask.js 按需补载；在灯箱 stage 上叠画布 + 工具条） */
 .lb-mask-bar { position: fixed; bottom: var(--sp-16); left: 50%; transform: translateX(-50%);
   z-index: 11; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap;
@@ -1739,3 +1713,10 @@ dialog.ui-dlg#rvDlg { max-width: min(calc(var(--sp-64) * 19), 96vw); width: min(
   background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
   box-shadow: var(--shadow-3); pointer-events: auto; }
 .lb-mask-cv { position: absolute; cursor: crosshair; touch-action: none; z-index: 5; }
+
+/* 素材槽上「已画掩码」的角标（studio 槽位；建模台的 chip 用文字后缀，两种形状各自一份） */
+.asset-slot .maskbadge { position: absolute; top: var(--sp-4); left: var(--sp-4); padding: 0 var(--sp-4);
+  border-radius: var(--radius-999); background: var(--acc-tint-18); color: var(--acc);
+  font-size: var(--fs-11); line-height: var(--sz-chip); pointer-events: none; }
+/* 命令面板条目的悬停反馈（此前只有键盘选中态有样子，鼠标党悬停无任何变化） */
+.cmd-item:hover { background: var(--panel2); }

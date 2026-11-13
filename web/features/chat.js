@@ -947,7 +947,11 @@
     if (!src && f.file) { try { src = URL.createObjectURL(f.file); } catch (e) { src = ''; } }
     if (!src) { Toast.err('这一条没有可显示的地址，要重新拖一次'); return; }
     if (!window.Wb) { Toast.err('灯箱没加载起来'); return; }
-    if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+    Wb.lightbox.init({
+      keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
+      kindOf: it => (it && it.kind) || 'image', list: () => [],
+      nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
+    });
     Wb.lightbox.open({ src, label: f.name || '', kind }, [{ src, label: f.name || '', kind }]);
     if (kind !== 'image' || !window.__spaLoadScript) return;
     const ok = await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
@@ -1239,7 +1243,11 @@
       .filter(Boolean).join(' · ');
     if (!r.src || !window.Wb) { note('引用的是：' + refLabel(r) + (r.src ? '' : '（这一条没有可直接显示的地址，发出去后让助手用 asset_open 按序号取）')); return; }
     const kind = r.type === '视频' ? 'video' : r.type === '音频' ? 'audio' : 'image';
-    if (!Wb.lightbox.cfg) Wb.lightbox.init({});
+    Wb.lightbox.init({
+      keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
+      kindOf: it => (it && it.kind) || 'image', list: () => [],
+      nameOf: it => (it && it.label) || 'ref', info: it => [it.label || ''],
+    });
     Wb.lightbox.open({ src: r.src, label: refShort(r), kind }, [{ src: r.src, label: refShort(r), kind }]);
   }
 
