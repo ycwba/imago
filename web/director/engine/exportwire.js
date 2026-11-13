@@ -88,10 +88,14 @@ Wb.lightbox.init({
   list: () => [],
   keyOf: it => (it && it.src) || '',
   srcOf: it => (it && it.src) || '',
-  kindOf: it => (it && it.video ? 'video' : 'image'),
-  /* 下载名按 kindOf 给扩展名：本批 viewShotMedia 把首帧 / 尾帧 / 画面 / 参考图也点亮了灯箱
-     （全是图片）—— 以前恒给 .mp4，图片存下来叫「参考图 1.mp4」。 */
-  nameOf: it => window.fileSafe((it && it.label) || 'merged', 60) + ((it && it.video) ? '.mp4' : '.png'),
+  kindOf: it => (it && it.kind) || (it && it.video ? 'video' : 'image'),
+  /* 下载名按 kind 给扩展名：首帧 / 尾帧 / 画面 / 参考图是图片，参考视频 / 参考音频各走各的
+     —— 以前恒给 .mp4，图片存下来叫「参考图 1.mp4」。 */
+  nameOf: it => {
+    const k = (it && it.kind) || (it && it.video ? 'video' : 'image');
+    return window.fileSafe((it && it.label) || 'merged', 60)
+      + (k === 'audio' ? '.mp3' : k === 'video' ? '.mp4' : '.png');
+  },
   info: it => [(it && it.label) || ''],
 });
 

@@ -3,7 +3,7 @@
    ① 队列里真的留下了号与地址，这一轮发给模型的正文里有【这次引用的素材】清单与同一下标；
    ② 助手用 asset_open 按清单序号取字节 —— 真的取到图、真的交给看图型号（字节是本机那份）；
    ③ 取不到就说取不到，不编图里的内容；
-   ④ 输入框里的引用可悬停（弹出这一条）可点击（开弹层看图）；
+   ④ 输入框里的引用可悬停（弹出这一条）可点击（开全站灯箱看图）；
       **正文是真相** —— 把那段文字改坏，这条引用就作废（队列里那条一起删、这一轮不再发给模型），
       资产库里的那一份没动。高亮上不再有 ×（标记就是正文里的文字，键盘删它就够了）。 */
 'use strict';
@@ -103,30 +103,31 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     const wantTip = await page.eval(id => (window.Api && window.Api.assetSrc ? window.Api.assetSrc(id) : '/asset/' + id), laId);
     must(tip.img === wantTip, '悬停卡里的缩略图不是这一份本机资产：' + tip.img + '（要 ' + wantTip + '）');
 
-    /* ---------- 3) 点击：开弹层，图能画出来（地址就是队列里那一份） ---------- */
+    /* ---------- 3) 点击：开全站灯箱，图能画出来（地址就是队列里那一份） ---------- */
     const dlg = await page.eval(async () => {
       const hl = document.querySelector('.ac-ref-hl');
       const ta = document.getElementById('acTa');
       const r = hl.getBoundingClientRect();
       ta.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true,
         clientX: r.left + Math.max(1, r.width / 2), clientY: r.top + Math.max(1, r.height / 2) }));
-      await new Promise(r2 => setTimeout(r2, 120));
-      const d = document.querySelector('dialog.ui-dlg');
-      const img = d ? d.querySelector('.ac-refdl img') : null;
+      await new Promise(r2 => setTimeout(r2, 200));
+      const lb = document.getElementById('lightbox');
+      const stage = document.getElementById('lbStage');
+      const img = stage ? stage.querySelector('img') : null;
       const out = {
-        open: !!(d && d.open), title: d ? (d.querySelector('.pr-head b') || {}).textContent || '' : '',
-        img: img ? img.getAttribute('src') : '', text: d ? d.innerText.slice(0, 400) : '',
+        open: !!lb && lb.style.display === 'flex',
+        img: img ? img.getAttribute('src') : '',
+        stage: stage ? stage.innerHTML.slice(0, 160) : '',
       };
-      const btn = d ? [...d.querySelectorAll('.pr-foot button')].find(b => /关闭/.test(b.textContent)) : null;
-      if (btn) btn.click();
-      await new Promise(r2 => setTimeout(r2, 120));
-      out.closed = !document.querySelector('dialog.ui-dlg[open]');
+      const esc2 = lb && lb.style.display === 'flex';          // 灯箱没有标题栏：Esc 关
+      if (esc2) document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      await new Promise(r2 => setTimeout(r2, 150));
+      out.closed = !lb || lb.style.display !== 'flex';
       return out;
     });
-    must(dlg.open, '点引用没有开弹层：' + JSON.stringify(dlg));
-    must(/引用的素材/.test(dlg.title), '弹层标题不对：' + dlg.title);
-    must(dlg.img === wantTip, '弹层里画的不是这条资产：' + dlg.img + '（要 ' + wantTip + '）');
-    must(dlg.closed, '弹层关不掉：' + JSON.stringify(dlg));
+    must(dlg.open, '点引用没有开灯箱：' + JSON.stringify(dlg));
+    must(dlg.img === wantTip, '灯箱里画的不是这条资产：' + dlg.img + '（要 ' + wantTip + '）');
+    must(dlg.closed, '灯箱关不掉：' + JSON.stringify(dlg));
 
     /* ---------- 4) 这一轮的正文里有清单，序号从 0 起、带号带地址 ---------- */
     const sent = await page.eval(async () => {
@@ -196,7 +197,7 @@ function must(cond, msg) { ++n; if (!cond) throw new Error('第 ' + n + ' 项不
     must(!/\[引用素材：[^\]\n]+\]/.test(cut.value), '改字之后那圈完整标记还在输入框里：' + JSON.stringify(cut.value));
     must(cut.hl === 0, '改字之后高亮还画着：' + cut.hl);
     must(cut.saved === 0, '改字之后引用队列里还留着：' + cut.saved);
-    must(/去掉/.test(cut.note) && /不会再拿到/.test(cut.note) && /没动/.test(cut.note),
+    must(/引用文字被改过/.test(cut.note) && /已去掉/.test(cut.note) && /资产/.test(cut.note),
       '改字之后没说清这条引用作废了：' + JSON.stringify(cut.note));
     const still = await (await fetch(proxy.base + '/local-assets', { headers: { cookie: proxy.cookie } })).json();
     must(((still && still.data) || []).some(x => x && x.id === laId), '引用作废把本机资产也删掉了：' + JSON.stringify(still).slice(0, 300));

@@ -3497,7 +3497,9 @@ export default {
       const ok2 = loadPickerScript('web/ui/lb-mask.js', () => window.LbMask)
         .then(() => !!window.LbMask).catch(() => false);
       if (!await ok2) return;
-      window.LbMask.enter(url => { item.mask = url || ''; paintSide(); });
+      window.LbMask.enter(url => { item.mask = url || ''; paintSide(); },
+        { existing: item.mask,
+          onExit: () => { if (item.mask && window.LbMask) LbMask.echo(item.mask); } });
     }
     /* 视频转白模：选一段视频，交给 AI 按它建白模。
        文字型号能看视频就把视频本体发过去；只能看图时按设置退成几帧画面（本机解码，不经过服务端）。

@@ -1713,6 +1713,12 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
   background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
   box-shadow: var(--shadow-3); pointer-events: auto; }
 .lb-mask-cv { position: absolute; cursor: crosshair; touch-action: none; z-index: 5; }
+/* 独立回显层（LbMask.echo，✓ 完成后与重开旧掩码共用）：黑底抠成透明、白染主题红，
+   半透明叠在图上 —— 标记一直看得见，又盖不住原图 */
+.lb-mask-echo { position: absolute; z-index: 5; pointer-events: none; opacity: .55; }
+/* 缩略图上的掩码回显（素材槽 / 附件 chip）：screen 混色让黑底消失、彩色笔画留在预览图上 */
+.mask-echo { position: absolute; inset: 0; width: 100%; height: 100%;
+  object-fit: cover; opacity: .6; mix-blend-mode: screen; pointer-events: none; }
 
 /* 素材槽上「已画掩码」的角标（studio 槽位；建模台的 chip 用文字后缀，两种形状各自一份） */
 .asset-slot .maskbadge { position: absolute; top: var(--sp-4); left: var(--sp-4); padding: 0 var(--sp-4);

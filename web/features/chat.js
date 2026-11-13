@@ -956,7 +956,9 @@
     if (kind !== 'image' || !window.__spaLoadScript) return;
     const ok = await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
       .then(() => !!window.LbMask).catch(() => false);
-    if (ok) LbMask.enter(url => { f.mask = url || ''; paintFiles(); });
+    if (ok) LbMask.enter(url => { f.mask = url || ''; paintFiles(); },
+      { existing: f.mask,
+        onExit: () => { if (f.mask && window.LbMask) LbMask.echo(f.mask); } });
   }
   function paintFiles() {
     if (!el.files) return;

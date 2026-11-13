@@ -1204,6 +1204,13 @@
          把那一帧当 poster（缓存命中时不出 .tph 占位层）。给「视频要能在小栏里直接看、
          点画面不强制打开灯箱」的列表用；默认行为不变（列表里仍然是一张静帧海报）。
          视频与图片共用同一套键（keyOf 归一化）与同一个 IndexedDB 存储。 */
+      /* 缩略图上的掩码回显（全站一份）：放在 thumb 容器（position:relative）里盖在媒体上。
+         黑底掩码靠 screen 混色隐形，彩色笔画留在预览图上 —— 「这张图带过标记」不用点开就知道。 */
+      maskHTML(url) {
+        const u = String(url || '');
+        if (!u) return '';
+        return '<img class="mask-echo" src="' + esc(u) + '" alt="" aria-hidden="true">';
+      },
       mediaHTML(src, opts) {
         if (!src) return '';
         const key = this.keyOf((opts && opts.key) || src);
@@ -3453,9 +3460,13 @@
         let src = '';
         try { src = await Promise.resolve(c.srcOf ? c.srcOf(it) : (it.src || '')); }
         catch (e) { stage.innerHTML = '<div class="lb-hint">' + esc('读取失败：' + errText(e)) + '</div>'; return; }
+        /* cfg 的取数规则不认这个条目形状时（别的页面留下的 cfg、老条目少字段）退回条目
+           自己带的地址：灯箱不该因为「规则对不上」就宣判「没有可预览的内容」。 */
+        if (!src && it) src = it.src || it.url || it.dl || '';
         if (this._cur !== it) return;                       // 期间又换了一条：丢弃这次结果
         it.__lbUrl = src || '';                             // lbBar 的下载按钮用它（同步取）
-        const kind = (c.kindOf ? c.kindOf(it) : 'image') || 'image';
+        /* kind 同理：cfg 说不出（返回空 / 没声明）就先问条目自己的 kind，最后才当图片 */
+        const kind = (c.kindOf ? c.kindOf(it) : null) || (it && it.kind) || 'image';
         const mk = tag => { const el = document.createElement(tag); el.src = src; el.controls = true; el.autoplay = true; return el; };
         /* 视频 / 音频也要有加载失败的兜底：图片那一支本来就有（下面 im.onerror），
            媒体这两支漏了 —— 于是盘上那份成片没了之后灯箱里是一片黑，界面上什么都不说。 */

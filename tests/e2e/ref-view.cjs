@@ -1,9 +1,10 @@
 'use strict';
 /* RefView（灯箱 + 掩码绘画）e2e：
    ① fitCanvas 时序：打开就画（P0-1 回归闸）—— 画布必须按图片真实尺寸定，而不是 1×1；
-   ② 浏览 / 画笔两档：浏览不落笔；
-   ③ 完成（onSaveMask 收到 PNG）与 Esc 丢弃确认（有改动先问，不静默丢）；
-   ④ 视频走同一灯箱的播放器。 */
+   ② 浏览档不落笔；
+   ③ 完成（onSaveMask 收到 PNG）；
+   ④ 完成之后标记常驻回显（编辑层收走、回显层留在图上）；
+   ⑤ 重开带 existing 掩码时旧笔画原样画回画布（编辑接着上一版画）。 */
 const h = require('./harness.cjs');
 
 (async () => {
@@ -38,6 +39,7 @@ const h = require('./harness.cjs');
       const g = cv.getContext('2d'); g.fillStyle = 'white'; g.fillRect(0, 0, 1024, 640);
       window.__rv = { saved: 'unset', closed: false };
       const src = cv.toDataURL('image/png');
+      window.__rv.src = src;
       if (!Wb.lightbox.cfg) {
         Wb.lightbox.init({
           keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
@@ -95,6 +97,37 @@ const h = require('./harness.cjs');
       return String(window.__rv.saved);
     });
     ok(/^data:image\/png/.test(save), '完成把掩码 PNG 交回 onSaveMask');
+
+    /* ④ 完成之后标记常驻：编辑画布收走，回显层（黑底抠掉、半透明）留在灯箱图上 */
+    const echo = await page.eval(() => {
+      const e2 = document.querySelector('#lbStage .lb-mask-echo');
+      return {
+        has: !!e2, w: e2 ? e2.width : 0,
+        editorGone: !document.querySelector('.lb-mask-cv') && !document.querySelector('.lb-mask-bar'),
+      };
+    });
+    ok(echo.has && echo.editorGone && echo.w > 0, '完成后掩码常驻回显（编辑层收走）：' + JSON.stringify(echo));
+
+    /* ⑤ 重开旧掩码：enter 带 existing 时旧笔画原样画回画布（编辑接着上一版画）。
+       采样点取上一段笔画的中点（显示坐标 90,40 按画布比例折算），轮询等异步画入。 */
+    const reopen = await page.eval(async () => {
+      Wb.lightbox.open({ src: window.__rv.src, label: 'e2e', kind: 'image' }, [{ src: window.__rv.src, label: 'e2e', kind: 'image' }]);
+      for (let i = 0; i < 40 && !document.querySelector('#lbStage img'); i++) await new Promise(res => setTimeout(res, 50));
+      LbMask.enter(() => {}, { existing: window.__rv.saved });
+      const cv0 = document.querySelector('.lb-mask-cv');
+      if (!cv0) return null;
+      const r = cv0.getBoundingClientRect();
+      const x = Math.max(0, Math.min(cv0.width - 1, Math.round((r.width ? (90 / r.width) : 0) * cv0.width)));
+      const y = Math.max(0, Math.min(cv0.height - 1, Math.round((r.height ? (40 / r.height) : 0) * cv0.height)));
+      let painted = false;
+      for (let i = 0; i < 30; i++) {
+        await new Promise(res => setTimeout(res, 60));
+        const g = cv0.getContext('2d').getImageData(x, y, 1, 1).data;
+        if (g[3] > 8) { painted = true; break; }
+      }
+      return { painted };
+    });
+    ok(reopen && reopen.painted, '重开时旧掩码画回画布（接着画，不重画）');
     ok(!page.errors.length, '零页面错误' + (page.errors.length ? '：' + page.errors.slice(-3).join(' | ') : ''));
   } catch (e) {
     bad++;

@@ -1687,14 +1687,33 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     const content = parts.length
       ? [{ type: 'text', text: user + '\n\n' + this.mediaLegend(use) }].concat(parts)
       : user;
-    return { model, body: {
+    const body = {
       model,
       /* extraMessages：工具循环把工具结果接在用户消息后面（联网那一层是 web_search / web_read，
          建模台那一层是自查构图的三条）。
          工具结果用 user 角色传（OpenAI 兼容面最稳），正文里已写明「不是用户的新要求」。 */
       messages: [{ role: 'system', content: sys }, { role: 'user', content }]
         .concat(Array.isArray(o.extraMessages) ? o.extraMessages : []),
-    } };
+    };
+    /* 文字 AI 这一路也要留「实际发出的请求」快照（`wb:raw-request`，与 Api.request 同一出口事件）：
+       掩码 / 随附素材只在这一路出现，原始请求面板不给它留快照，用户就永远没处核对
+       「掩码到底带没带上」。正文里的「随附素材」清单 + 紧随原图的那发 <dataURL image/png> 就是证据。 */
+    this._snap(prov, body, o);
+    return { model, body };
+  },
+  /* 快照投递：tag / label 由调用方给（opts.snapTag / opts.snapLabel），没给的落 ''（不进任何面板）。 */
+  _snap(prov, body, o) {
+    try {
+      const o2 = o || {};
+      window.dispatchEvent(new CustomEvent('wb:raw-request', { detail: {
+        tag: String(o2.snapTag || ''), label: String(o2.snapLabel || ''),
+        provider: (prov && prov.id) || '', providerName: (prov && (prov.displayName || prov.name)) || '',
+        endpoint: 'chat', method: 'POST',
+        path: String((prov && prov.relay) || '') + ((prov && prov.endpoints && prov.endpoints.chat) || '/chat/completions'),
+        body: (window.Api && Api.snapOf) ? Api.snapOf(body) : body,
+        at: Date.now(),
+      } }));
+    } catch (e) { /* 展示快照失败不能影响真正要发的那一次请求 */ }
   },
   /* 用量落账也只有一份（流式与非流式都要记，否则流式上线后每日曲线会缺一块）。
      记录里的时间字段叫 at（发生时间），不叫 ts —— 信封自己占用了 ts（写入时间，

@@ -205,11 +205,17 @@ const StudioView = {
       }
       let TYPE = '';
       /* 原始请求折叠块：跟着当前类型换标签。面板里只有**将要发出的那一份请求**，
-         随表单实时变（预览与提交同一份拼装逻辑；素材槽位在预览里是占位说明）。 */
+         随表单实时变（预览与提交同一份拼装逻辑；素材槽位在预览里是占位说明）。
+         下面再单列一块「润色的原始请求」：掩码 / 随附素材只走文字 AI 那一路，
+         生成请求里本来就没有 —— 不单列，用户画完掩码在这里永远找不到它。 */
       function paintRawHost() {
         const host = pageEl.value && pageEl.value.querySelector('[data-raw-host]');
         if (!host || !window.RawRequest || !TYPE) return;
-        host.innerHTML = RawRequest.liveHTML('studio:' + TYPE);
+        host.innerHTML = RawRequest.liveHTML('studio:' + TYPE)
+          + RawRequest.html('studio:' + TYPE + ':polish', {
+            title: '润色的原始请求',
+            waiting: '润色一次后这里显示实际发出的请求体；掩码随图附上，原图紧跟一张彩色掩码图。',
+          });
         RawRequest.bind(host);
         refreshPreview();
       }
@@ -744,7 +750,7 @@ const StudioView = {
           : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image' });
         return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
           + ' title="' + window.esc(cap + '：' + name + fromVid + '（点开查看 / × 移除）') + '">'
-          + body + (it.mask ? '<span class="maskbadge">已标记</span>' : '')
+          + body + Wb.thumbs.maskHTML(it.mask) + (it.mask ? '<span class="maskbadge">已标记</span>' : '')
           + '<button type="button" class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
       }
       function wideSlotHTML(sl, it, i, blocked) {
@@ -792,7 +798,9 @@ const StudioView = {
           ? await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
             .then(() => !!window.LbMask).catch(() => false)
           : false;
-        if (ok) LbMask.enter(url => { it.mask = url || ''; renderInputArea(); });
+        if (ok) LbMask.enter(url => { it.mask = url || ''; renderInputArea(); },
+          { existing: it.mask,
+            onExit: () => { if (it.mask && window.LbMask) LbMask.echo(it.mask); } });
       }
       function bindSlotTile(t, sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];
@@ -1665,9 +1673,13 @@ const StudioView = {
           const sent = new Set(media.map(x => x.kind + '|' + x.label));
           return list.map(x => Object.assign({}, x, { sent: sent.has(x.mk + '|' + x.label) }));
         };
+        /* 润色那一发也留原始请求快照（掩码随图附上，只有这一路带）——tag 单独一段，
+           面板在生成预览下面单列一块，两份不打架。 */
+        const POLISH_TAG = 'studio:' + TYPE + ':polish';
         const call = (sys, user, ctl) => ctl
-          ? TextAI.chatStream(REG, sys, user, { media, signal: ctl.signal }, ctl.push)
-          : TextAI.chat(REG, sys, user, { media });
+          ? TextAI.chatStream(REG, sys, user,
+            { media, signal: ctl.signal, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord }, ctl.push)
+          : TextAI.chat(REG, sys, user, { media, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord });
         const prep = async () => { const p = await TextAI.prepareMedia(REG, mediaList()); media = p.media; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
         /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
@@ -1705,7 +1717,8 @@ const StudioView = {
         const ask = async () => {
           const picked = await prep();
           const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ media, materials: extraMaterials(), stage: 'ask' }));
-          return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }), { media });
+          return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }),
+            { media, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord });
         };
         const follow = async (askText, current, ctl, ctx) => {
           const picked = await prep();

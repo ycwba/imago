@@ -834,11 +834,7 @@ function viewShotMedia(sh, key) {
     it.kind = key === 'refvideo' ? 'video' : 'audio';
   } else return;
   if (!it.src) { if (window.Toast && Toast.err) Toast.err('这一份没有可查看的地址（本机直传的字节只在当次会话）'); return; }
-  if (it.kind === 'video' || it.kind === 'audio') {
-    /* 视频 / 音频走灯箱（与图片同一份出口，灯箱的 kindOf 已按 video 标记分流） */
-    try { window.Wb.lightbox.open({ src: it.src, label: it.label, video: it.kind === 'video' }); } catch (e) { /* 灯箱没就绪就算了 */ }
-    return;
-  }
+  /* 条目自带 kind（video / audio / image）：灯箱的 kindOf 先读它，别的页留下的 cfg 也认 */
   try { window.Wb.lightbox.open(it); } catch (e) { /* 灯箱没就绪时点了就当没反应 */ }
 }
 /* 14.1-6：老工程 refMeta 没 id 的条目，按 label → nameKey 反查库里补 id。

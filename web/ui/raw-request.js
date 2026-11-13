@@ -45,6 +45,7 @@
     catch (e) { return true; }
   };
   const attrs = (tag, o) => ' data-raw-tag="' + E(tag) + '"'
+    + (o && o.title ? ' data-raw-title="' + E(o.title) + '"' : '')
     + (o && o.className ? ' class="' + E(o.className) + '"' : '');
 
   /* ---------- 标题那一行：统一的说法 ----------
@@ -65,9 +66,9 @@
     if (pv) return { kind: 'preview', chip: '预览中 · ' + nameOf(pv), diff: false };
     return { kind: 'none', chip: '尚未发送', diff: false };
   }
-  function headHTML(tag) {
+  function headHTML(tag, alt) {
     const st = reqStateOf(tag);
-    return '<b class="raw-title">原始请求</b>'
+    return '<b class="raw-title">' + E(alt || '原始请求') + '</b>'
       + '<span class="raw-chip ' + (st.kind === 'sent' ? 'ok' : '') + '">' + E(st.chip) + '</span>'
       + (st.diff ? '<span class="raw-warn" title="平台改写了请求体，或预览算得不准">这次发出去的与当时的预览不一致</span>' : '');
   }
@@ -94,15 +95,16 @@
       + '<span class="raw-chip' + (pv ? ' ok' : '') + '">' + E(pv ? ('预览 · ' + nameOf(pv)) : '尚未算出') + '</span>';
   }
 
-  /* 单栏（素材库那一处：那一格只有「发出去的那一次」可看，没有实时预览） */
+  /* 单栏（素材库那一处：那一格只有「发出去的那一次」可看，没有实时预览）。
+     opts.title 换标题（同一屏有多块原始请求时区分用）；opts.waiting 换空态那句话。 */
   function html(tag, opts) {
     const t = String(tag == null ? '' : tag);
     const snap = snaps.get(t) || null;
     const open = openTags.has(t) ? ' open' : '';
     return '<details class="raw-req' + (snap ? ' has-snap' : ' waiting') + '"'
       + attrs(t, opts) + open + '>'
-      + '<summary' + (snap && snap.label ? ' title="' + E(snap.label) + '"' : '') + '>' + headHTML(t) + '</summary>'
-      + '<pre>' + E(snap ? bodyText(snap) : '还没发过；生成一次后这里显示实际发出的请求体。') + '</pre>'
+      + '<summary' + (snap && snap.label ? ' title="' + E(snap.label) + '"' : '') + '>' + headHTML(t, opts && opts.title) + '</summary>'
+      + '<pre>' + E(snap ? bodyText(snap) : (opts && opts.waiting) || '还没发过；生成一次后这里显示实际发出的请求体。') + '</pre>'
       + '</details>';
   }
   function htmlList(tags, opts) {
@@ -189,7 +191,7 @@
         /* 预览块（live）显示的是**将要发**的那一份，发出去不改它 —— 只有单栏快照那一族要写正文。 */
         if (el.dataset.rawLive) return;
         const sum = el.querySelector('summary');
-        if (sum) sum.innerHTML = headHTML(tag);
+        if (sum) sum.innerHTML = headHTML(tag, el.dataset.rawTitle);
         const pre = el.querySelector('pre');
         if (pre) pre.textContent = bodyText(snap);
         el.classList.add('has-snap');
