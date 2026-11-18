@@ -420,3 +420,21 @@ export function libraryTokenOf(name, note) {
   const t = String(note == null ? '' : note).trim();
   return t ? (n + '·' + t) : n;
 }
+
+/* 上一行的反查：一个 token（`名字` / `名字·资产名`）**现在**指的是哪一张图。
+   挑进参考图时存的是当时的地址，库里换图 / 设锚点 / 换资产之后旧地址就成了旧图 ——
+   对账方（导演台把绑定的参考图跟上库里的现值）读这一份，与写 token 的判据同一套：
+   名字段对不上这条素材不猜（改名链路 renameShotRefs 负责把 label 跟上）、
+   资产没了也不猜，一律返回空串，让调用方留着原值。 */
+export function libraryRefSrcOf(entry, label) {
+  const D = typeof window !== 'undefined' ? window.Chars : null;
+  if (!D || !entry) return '';
+  const nm = String(entry.name || '').trim();
+  const s = String(label == null ? '' : label).replace(/^@/, '').trim();
+  if (!nm || (s !== nm && s.indexOf(nm + '·') !== 0)) return '';
+  const note = s === nm ? '' : s.slice(nm.length + 1);
+  if (!note) return (D.refPicOf ? D.refPicOf(entry) : '') || '';
+  const a = (D.Cast.assetsOf(entry) || []).find(x => x && x.src
+    && String((D.Cast.assetName && D.Cast.assetName(x)) || '').trim() === note);
+  return a ? a.src : '';
+}

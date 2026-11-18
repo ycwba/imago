@@ -8,7 +8,7 @@ import { setTakePrompt } from '../takes.js';
 import { num } from '../util.js';
 import { createBoardPreview } from '../board-preview.js';
 import { shotRefPlanOf } from '../ref-plan.js';
-import { createAssetMention, insertToken, libraryPicChoices as libPicChoices, libraryTokenOf as libTokenOf } from '../../ui/index.js';
+import { createAssetMention, insertToken, libraryPicChoices as libPicChoices, libraryTokenOf as libTokenOf, libraryRefSrcOf } from '../../ui/index.js';
 
 export function createPanel(E, document, window) {
   const {
@@ -879,6 +879,44 @@ function backfillRefMetaIds(shots) {
   } catch (e) { /* 库读不到就跳过，下次再补 */ }
   return n;
 }
+/* ---- 素材库改图之后，把工程里绑着这条素材的参考图地址跟上 ----
+   @素材 选中时存的是**当时的地址**（addLibPicToShot），库里换图 / 设锚点 / 换资产之后
+   旧地址就成了旧图 —— 芯片缩略图、提交体、画面生成的参考图读的都是这一份。
+   按 refMeta.id 对账（id 是库条目主键，改名不断引用），现值从 libraryRefSrcOf 现算：
+   对不上（条目删了 / label 对不上 / 资产没了）与算出来相等的一律不动。
+   场景条目整类跳过：场景图有「左栏自己挑的那张」（挂在 sc.img 上），引用行上分不出
+   挑的还是跟的，挑的那张不该被库里的新图顶掉 —— 喂图链路（feedScenePics）自己会重挂。
+   调用方必须先跑 backfillRefMetaIds：老数据没有 id，回填之后才有账可对。
+   换过就重画 + 悄悄落盘（返回换了几处，0 = 没动）。幂等：连调几次没变化就是 0。 */
+function refreshLibRefs() {
+  const D = window.Chars;
+  if (!D || !D.Lib || !D.isSceneItem) return 0;
+  const lib = D.Lib.list() || [];
+  if (!lib.length) return 0;
+  let n = 0;
+  const libEntryOf = id => lib.find(x => x && x.id === id) || null;
+  const fixOne = holder => {
+    const imgs = holder.refImages, metas = holder.refMeta;
+    if (!Array.isArray(imgs) || !Array.isArray(metas)) return;
+    for (let i = 0; i < imgs.length; i++) {
+      const src = imgs[i], rm = metas[i];
+      if (!src || !rm || !rm.id) continue;          // 手动传的 / 画面切片的（没绑库条目）不碰
+      const hit = libEntryOf(rm.id);
+      if (!hit || D.isSceneItem(hit)) continue;
+      const now = libraryRefSrcOf(hit, rm.label);
+      if (now && now !== src) { imgs[i] = now; n++; }
+    }
+  };
+  allShots().forEach(sh => {
+    fixOne(sh);                                     // 老工程的镜头级一份（sanitize 后一般已搬进候选，防御性）
+    (sh.candidates || []).forEach(fixOne);
+  });
+  if (n && wsLoadedOf()) { renderAll(); scheduleSaveQuiet(); }
+  return n;
+}
+/* 页面切回前台时对一次账：素材库改图时导演台在后台，wb:char-pic 那条监听被岛的
+   active 闸收掉 —— 迁移岛在 onActivated 里直接调（与 __directorSlicePause 同一模式）。 */
+window.__directorLibRefs = refreshLibRefs;
 function removeRefImage(sh, i) {
   cfg(sh).refImages.splice(i, 1);
   if (Array.isArray(cfg(sh).refMeta)) cfg(sh).refMeta.splice(i, 1);
@@ -1126,6 +1164,9 @@ window.addEventListener('wb:char-pic', e => {
   const item = d && d.item;
   if (!item || !item.name) return;
   const name = String(item.name);
+  /* 先对一次账：这条素材的图若是「换过」（重出 / 挑候选 / 设锚点），工程里绑着它的
+     参考图地址先跟上 —— 下面的追加按地址去重，对完账才不会把同一张加成两条。 */
+  const fixed = refreshLibRefs();
   let touched = 0, pics = 0, why = '';
   /* 找出引用了这条素材的镜头：占位符还在的那些（待建档、刚出图）+ 已经写成 `@名字` 的那些。
      第二类盖两种情况 —— 拆分镜挂图时那条还没有预览图（挂不上、提示词里的 @名字 留着），
@@ -1149,7 +1190,7 @@ window.addEventListener('wb:char-pic', e => {
     if (one.ok) { if (!one.dup) pics++; }
     else if (!why) why = one.why || '';
   });
-  if (!touched) return;
+  if (!touched && !fixed) return;
   renderAll(); scheduleSave();
   setStatus('<span class="ok">✓ 素材「' + esc(name) + '」出图了：'
     + (pics ? '已补进 ' + pics + ' 个镜头的参考图' : '占位符已换成真名')
@@ -2097,6 +2138,7 @@ function installCapRepaint() {
     needProv,
     addRefImage,
     backfillRefMetaIds,
+    refreshLibRefs,
     syncAtBack: () => mention.syncBack(),
     libPicChoices,
     addLibPicToShot,

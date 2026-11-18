@@ -3,9 +3,11 @@
    ① 正在打 @ 的判定（邮箱 / 中文紧邻 / 空白截断 / 选中一段时不弹）；
    ② 插入 token 的位置与补空格；range 给了就替换掉那一段；
    ③ 素材库一条的 token 写法（名字 / 名字·资产名）；
-   ④ 这一条素材有哪几张图：预览图在前、角色资产在后、同一张不重复。 */
+   ④ 这一条素材有哪几张图：预览图在前、角色资产在后、同一张不重复；
+   ⑤ token 反查（现在指的是哪一张）：名字跟锚点 / 预览图，名字·资产名跟资产现地址，
+      对不上的一律空串 —— 对账方（导演台刷新绑定的参考图）靠它判「动不动账」。 */
 import assert from 'node:assert/strict';
-import { mentionAt, insertToken, libraryTokenOf, libraryPicChoices } from '../web/ui/asset-mention.js';
+import { mentionAt, insertToken, libraryTokenOf, libraryPicChoices, libraryRefSrcOf } from '../web/ui/asset-mention.js';
 
 let n = 0;
 const ok = (c, m) => { n += 1; assert.ok(c, m); };
@@ -52,5 +54,16 @@ ok(choices.some(x => x.src === 'f.png' && x.note === ''), '预览图不是锚点
 ok(choices.some(x => x.src === 'x.png' && x.note === '三视图'), '角色资产带自己的名字');
 ok(choices.filter(x => x.src === 'a.png').length === 1, '锚点就是那张资产时不重复列');
 ok(libraryPicChoices({ name: '空的', assets: [] }).length === 0, '一张图都没有时返回空');
+
+/* ---- ⑤ token 反查：现在指的是哪一张 ---- */
+ok(libraryRefSrcOf(entry, '小雅') === 'a.png', '光写名字时跟「认人最准的那张」（锚点优先）');
+ok(libraryRefSrcOf(entry, '@小雅') === 'a.png', '老数据带 @ 前缀的 label 也认');
+ok(libraryRefSrcOf(entry, '小雅·三视图') === 'x.png', '带资产名时跟那一条资产的现地址');
+ok(libraryRefSrcOf({ name: '小雅', face: 'f.png', assets: [] }, '小雅') === 'f.png', '没设锚点时跟预览图');
+ok(libraryRefSrcOf({ name: '小雅', assets: [] }, '小雅') === '', '图被清空时返回空（调用方留着原值）');
+ok(libraryRefSrcOf(entry, '小雅·没有了') === '', '资产没了不猜');
+ok(libraryRefSrcOf(entry, '别人·三视图') === '', '名字段对不上不猜');
+ok(libraryRefSrcOf(entry, '别人') === '', '整个 label 对不上不猜');
+ok(libraryRefSrcOf(null, '小雅') === '', '没有条目返回空');
 
 console.log('@素材纯件：' + n + ' 条断言通过');

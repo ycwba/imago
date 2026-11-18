@@ -397,6 +397,8 @@ run('tests/scope-guards.cjs', process.execPath, ['tests/scope-guards.cjs']);
 run('tests/director-e-deps.cjs', process.execPath, ['tests/director-e-deps.cjs']);
 /* 同一实现别写第二份（唯一实现清单）：跨 web/server/tools 数定义点，新增同名重复直接红。 */
 run('tests/dup-guard.mjs', process.execPath, ['tests/dup-guard.mjs']);
+/* 文案硬约束（组件自述）：已删的组件外说明行不回归、磁贴数量不写死、磁贴渲染层不写死大小文案。 */
+run('tests/copy-guard.mjs', process.execPath, ['tests/copy-guard.mjs']);
 run('tests/architecture.cjs', process.execPath, ['tests/architecture.cjs']);
 /* metrics：--strict 恒开。管的是总量基线（M1 基线可读、M2 总行数/代码行不超基线 +5%）；
    单文件行数只打印不判红。本地跑也按同一把尺子量。 */

@@ -498,8 +498,8 @@ const StudioView = {
         paintLeft();
       }
       function renderModeChips() {
-        /* 档位收哪些素材的说明行已删（modeHead 那一格随模板一起摘）：素材槽磁贴自己写着
-           「已有 N / max」，组件本身就是说明。 */
+        /* 档位收哪些素材的说明行已删：素材槽磁贴自己写着「已有 N / max」，
+           组件本身就是说明（判据 tests/copy-guard.mjs 守着它不回来）。 */
         const row = $('modeRow');
         const list = comboList();
         if (!list.length) {

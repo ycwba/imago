@@ -312,7 +312,7 @@ const LAYER_EXCEPTIONS = [
   { id: 'web/ui/datasync.js → ModelPrefs [domain]', max: 2, why: '导设置时带上型号偏好：同上，属跨层读数据' },
   { id: 'web/ui/skills.js → TextAI [domain]', max: 1, why: '内置 Skill 正文与 TextAI.DEF 同源，读的是同一份文案定义' },
   { id: 'web/ui/asset-mention.js → Api [domain]', max: 2, why: '@素材浮层要显示缩略图、并把库里那张图的地址交给页面：地址只走 Api.mediaSrc（与 workbench 同一条历史账）' },
-  { id: 'web/ui/asset-mention.js → Chars [domain]', max: 1, why: '「素材库那一条有哪几张图」读 Chars.refPicOf / Cast.assetsOf：先把浮层共用起来，数据面等 Chars 拆接口' },
+  { id: 'web/ui/asset-mention.js → Chars [domain]', max: 2, why: '「素材库那一条有哪几张图」（libraryPicChoices）与「token 现在指的是哪一张」（libraryRefSrcOf，导演台对账用的反查）读 Chars.refPicOf / Cast.assetsOf：先把浮层共用起来，数据面等 Chars 拆接口' },
 ];
 
 /* 把「现在的违例」算成 id → 条数。id 形如 `文件 → 面名 [层]`，不带行号。 */

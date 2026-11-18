@@ -96,6 +96,9 @@ if (dirLayout) Wb.split.enable({
   renderAll();                 // 首屏：不等能力接口、不等本地视频、不等余额（页头那一格也跟着刷）
   /* 14.1-6：老工程 refMeta 没 id 的条目按 label 反查库里补 id（幂等，已有 id 的不动）。 */
   try { Panel.backfillRefMetaIds && Panel.backfillRefMetaIds(allShots()); } catch (e) { /* 补不上不影响启动 */ }
+  /* 素材库改过图（上次会话 / 引擎没挂载的窗口期）：id 回填完就对一次账，
+     把绑定的参考图地址跟上库里的现值 —— 换过的话它自己会补一次重画。 */
+  try { Panel.refreshLibRefs && Panel.refreshLibRefs(); } catch (e) { /* 对不上账不影响启动 */ }
   setTimeout(() => Gen.announceDoneCandidates(), 0);   // 已经出画面但还没镜像的候选：投一次事件（不阻塞首屏）
   Gen.pollKick();             // 首屏立刻问一次在途候选，不等第一轮间隔
   Gen.resumeKeyframes().catch(() => {});   // 上次没跑完的画面切片：认回任务或如实标失败

@@ -190,6 +190,11 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ## 文案
 - 只写按钮自明之外的信息；说明句 ≤15 字；title 补充动作名之外的信息。
+- 组件自述：数量 / 大小限制写在**素材磁贴**上（「已有 N / max · 单位 · 大小」），全部现读能力
+  声明（`rule` / `ruleText` / `inputTemplate`，与提交拦截同一把尺）；组件能自述的（档位收哪些素材、
+  上限是多少）不另配组件外的说明行。硬约束 `tests/copy-guard.mjs`（npm run test）：
+  已删句式（「这一档收：」「放哪一批素材就是哪一种请求」「换模式只改」）与 `comboScopeNote` /
+  `modeHead` 标识符不回归、磁贴数量不两头写死、磁贴渲染层（panel.js / studio.js）字符串里不写死大小。
 - 空状态用名词短语（「还没有产物」）。
 - 加载中统一「加载中…」；错误提示写「原因 + 怎么办」。
 - 同一能力同一词（取消收藏、重试、已选 N 项、型号）；同一句只维护一份。
@@ -299,7 +304,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 提示 / 弹窗 / 确认 | `Toast` / `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
 | AI 挑几条 / 润色 / 提示词表单 | `AiFind.run` / `InlinePolish` / `PromptForm` |
-| 提示词 @素材 | `createAssetMention` / `insertToken` / `mentionAt` / `libraryPicChoices` / `libraryTokenOf` |
+| 提示词 @素材 | `createAssetMention` / `insertToken` / `mentionAt` / `libraryPicChoices` / `libraryTokenOf` / `libraryRefSrcOf` |
 | 拆分片段选项 | `SplitPlan` |
 | AI 动作按钮外壳 | `aiBtnHTML` / `aiBtnState`（名字在 `InlinePolish` / `AiFind` 各自家族） |
 | 页面尺寸 / 跳页 | `pageModeOf` / `pageSizeOf` / `PAGE_TARGETS`；`GoPage.go` |
