@@ -120,8 +120,9 @@ const h = require('./harness.cjs');
     if (put.status !== 200) throw new Error('保存搜索设置失败：' + put.status + ' ' + put.text);
     if (!put.json.settings.hasKey) throw new Error('保存后 hasKey 应为 true');
     if (put.json.settings.key !== undefined) throw new Error('保存响应回显了密钥');
-    const disk = require('fs').readFileSync(require('path').join(proxy.dataDir, 'search.json'), 'utf8');
-    if (!/"key": "tvly-e2e"/.test(disk)) throw new Error('搜索密钥没有落到代理那一边的 search.json');
+    const stateRaw = JSON.parse(require('fs').readFileSync(require('path').join(proxy.dataDir, 'state.json'), 'utf8'));
+    const disk = String((stateRaw.keys && stateRaw.keys.search && stateRaw.keys.search.body) || '');
+    if (!/"key": "tvly-e2e"/.test(disk)) throw new Error('搜索密钥没有落到代理那一边的状态仓（search 键）');
 
     if (hits !== 0) throw new Error('保存设置不应该打搜索上游');
 

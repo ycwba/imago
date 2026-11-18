@@ -206,16 +206,11 @@ const StudioView = {
       let TYPE = '';
       /* 原始请求折叠块：跟着当前类型换标签。面板里只有**将要发出的那一份请求**，
          随表单实时变（预览与提交同一份拼装逻辑；素材槽位在预览里是占位说明）。
-         下面再单列一块「润色的原始请求」：掩码 / 随附素材只走文字 AI 那一路，
-         生成请求里本来就没有 —— 不单列，用户画完掩码在这里永远找不到它。 */
+         发出去的那一份不回看：完整提示词有 PromptLog 归档。 */
       function paintRawHost() {
         const host = pageEl.value && pageEl.value.querySelector('[data-raw-host]');
         if (!host || !window.RawRequest || !TYPE) return;
-        host.innerHTML = RawRequest.liveHTML('studio:' + TYPE)
-          + RawRequest.html('studio:' + TYPE + ':polish', {
-            title: '润色的原始请求',
-            waiting: '润色一次后这里显示实际发出的请求体；掩码随图附上，原图紧跟一张彩色掩码图。',
-          });
+        host.innerHTML = RawRequest.liveHTML('studio:' + TYPE);
         RawRequest.bind(host);
         refreshPreview();
       }
@@ -247,7 +242,7 @@ const StudioView = {
         if ($('prompt')) $('prompt').value = s.prompt || '';
         syncPromptBack();
         if ($('style')) $('style').value = s.style || '';
-        if (fromUser) paintLeft();
+        if (fromUser) paintLeft(true);
       }
       $('typeSeg').innerHTML = TYPE_LIST.map(k => '<button type="button" data-t="' + k + '"'
         + (k === (TYPE || 'video') ? ' class="on"' : '') + '>' + TYPES[k].zh + '</button>').join('');
@@ -1675,11 +1670,11 @@ const StudioView = {
         };
         /* 润色那一发也留原始请求快照（掩码随图附上，只有这一路带）——tag 单独一段，
            面板在生成预览下面单列一块，两份不打架。 */
-        const POLISH_TAG = 'studio:' + TYPE + ':polish';
+
         const call = (sys, user, ctl) => ctl
           ? TextAI.chatStream(REG, sys, user,
-            { media, signal: ctl.signal, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord }, ctl.push)
-          : TextAI.chat(REG, sys, user, { media, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord });
+            { media, signal: ctl.signal }, ctl.push)
+          : TextAI.chat(REG, sys, user, { media });
         const prep = async () => { const p = await TextAI.prepareMedia(REG, mediaList()); media = p.media; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
         /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
@@ -1718,7 +1713,7 @@ const StudioView = {
           const picked = await prep();
           const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ media, materials: extraMaterials(), stage: 'ask' }));
           return await TextAI.askPolish(REG, sys, TextAI.askUser(taskWord, original, { tail: '素材清单见系统提示' }),
-            { media, snapTag: POLISH_TAG, snapLabel: '润色 · ' + taskWord });
+            { media });
         };
         const follow = async (askText, current, ctl, ctx) => {
           const picked = await prep();
@@ -2086,7 +2081,7 @@ const StudioView = {
         const ex = advExtras(bools);
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
-          snapTag: 'studio:video', snapLabel: modelId,
+
           log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
             输入模式: cb ? comboLabel(cb) : '',
             顶层参数: ex.summary,
@@ -2125,7 +2120,7 @@ const StudioView = {
         std.shape = plan ? (plan.shape || {}) : topBoolCtx();
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
-          snapTag: 'studio:image', snapLabel: model.id || '',
+
           log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
             本批张数: n > 1 ? n + ' 张' : '', 参考图: refList.length ? refList.length + ' 张' : '',
             顶层参数: ex.summary } },
@@ -2187,7 +2182,7 @@ const StudioView = {
         const useRef = mode === 'clone';
         const voiceValue = useRef ? (await audioRefBase64()) : (mode === 'design' ? '' : t.voice);
         const r = await AiGen.synthTts(prov, { model: t.model, text: t.text, style: t.style || '',
-          snapTag: 'studio:audio', snapLabel: t.model || '',
+
           voice: voiceValue, format: t.format, bools: t.bools || {},
           meta: { voice: useRef ? '参考音频复刻' : t.voice } });
         return { assetId: r.assetId, url: r.url, format: r.format, bytes: r.bytes,
@@ -2687,15 +2682,33 @@ const StudioView = {
         upsertItem(it);
         videoFill.resolveByTask(it.taskId, it);
       }
+      /* 产物地址被平台收走之后，轮询回来的形状是「成功、但没有地址」。
+         以前这里直接把它当成已完成（kind:'asset'），于是生成了一张没有 media 的空卡，
+         另一头又停在「已完成 · 正在同步列表…」不动。现在按同一把尺子（30 分钟宽限期，
+         与 AssetLib 的 OUTPUT_GONE_MS 一份）判三档： */
+      const OUTPUT_GONE_MS = 30 * 60 * 1000;
       function itemFromPoll(prov, p) {
-        const done = p.done || p.status === 'succeeded' || p.status === 'done' || p.status === 'completed';
         const aid = p.assetId || '';
+        const hasOut = !!(aid || p.url);
+        /* 平台说「做完了」：p.done 是 parseItem 的通用成功判定，status 原话是第二份证据。 */
+        const succeeded = !!(p.done || p.status === 'succeeded' || p.status === 'done' || p.status === 'completed');
+        /* 「完成」得先有产物可指：没有地址的那一条不算出完的产物（否则就是一张空卡）。 */
+        const done = hasOut && succeeded;
+        /* 有完成时刻、且早过宽限期 → 产物地址多半已被平台清掉：写「已过期」，别再骗人说在生成。
+           没有完成时刻就继续等（宁可多等一轮，也不能把刚出结果的算成过期）。 */
+        const doneAt = Date.parse(String(p.completed || '')) || 0;
+        const stale = !hasOut && succeeded && doneAt && (Date.now() - doneAt > OUTPUT_GONE_MS);
+        /* 状态：出完了照平台原话；「说完成却没地址」过了宽限期 = 已过期，还在宽限期内 = 继续等（按生成中）；
+           其余状态（排队 / 在跑 / 失败）一律照平台原话 —— 别把失败说成生成中（那会让它一直轮询下去）。 */
+        const status = done ? (p.status || 'done')
+          : (stale ? 'expired' : (succeeded ? 'running' : (p.status || 'running')));
         /* 平台不返回提示词时用本机归档索引兜底 —— 索引里只有前 300 字。
            标上 promptLocal，详情面板才知道要回源取全文（不然「完整提示词」只到 300 字）。 */
         const archP = p.prompt ? '' : (Api.promptFor(prov.id, p.id) || '');
         return {
           mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, p) : '',
-          provider: prov.id, model: p.model || '', status: p.status, kind: done ? 'asset' : 'task', prompt: p.prompt || archP || '',
+          provider: prov.id, model: p.model || '', status,
+          kind: done ? 'asset' : 'task', prompt: p.prompt || archP || '',
           promptLocal: !p.prompt && !!archP,
           raw: p.url || '', media: done ? (aid ? Api.assetSrc(aid) : Api.mediaSrc(p.url)) : '',
           dl: aid ? Api.assetDl(aid) : (p.url ? '/fetch?url=' + encodeURIComponent(p.url) : ''),
@@ -3791,7 +3804,9 @@ const StudioView = {
          提示词框自己按内容长高），而左栏正文是一只滚动容器：用户在下面打字，切一次类型
          不该把视线甩回顶。要稳住的是**当下真正在滚的那一只**（宽窗是 `#leftCol` 里的 `.wb-body`，
          ≤1100px 那一档 CSS 把它放开成 overflow:visible、改由整块布局滚），所以现问 host。 */
-      function paintLeft() {
+      /* 切类型（absolute）整栏换成另一套表单：两边没有同一行可认，按像素位还；
+         换型号 / 能力补画仍按锚点还（见 Wb.viewport.keep 的 opts.absolute）。 */
+      function paintLeft(absolute) {
         Wb.viewport.keep(Wb.viewport.host($('leftCol')) || $('leftCol'), () => {
           renderModelOptions();
           slots = modelSlots();
@@ -3807,7 +3822,7 @@ const StudioView = {
           updateGoState();
           refreshEst();
           syncStyleRow();
-        });
+        }, absolute ? { absolute: true } : undefined);
       }
 
       /* ============================ ⑪ 启动 ============================ */

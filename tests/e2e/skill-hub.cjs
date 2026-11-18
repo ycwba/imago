@@ -140,7 +140,7 @@ const h = require('./harness.cjs');
       return { disabled: !!b.disabled, title: b.title || '' };
     });
     if (!lastState.disabled) throw new Error('场景里最后一份在用的停用按钮应当被压住：' + JSON.stringify(lastState));
-    if (lastState.title.indexOf('至少要有一份') < 0) throw new Error('压住的停用按钮没有说明原因：' + lastState.title);
+    if (lastState.title.indexOf('先启用另一份') < 0) throw new Error('压住的停用按钮没有说明原因：' + lastState.title);
     /* 换用 = 启用另一份：启内置那份 → e2e-skill 自动让位（按钮文字变回「启用」） */
     await page.eval(() => document.querySelector('.sk-toggle[data-skill-id="image-prompt"]').click());
     await page.waitFor(() => /启用/.test((document.querySelector('.sk-toggle[data-skill-id="e2e-skill"]') || {}).textContent || ''), 12000);

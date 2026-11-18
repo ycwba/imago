@@ -994,20 +994,6 @@ function topBoolValue(decl, on) {
          其它请求保持默认（「设置 → 网络与刷新」可调）。代理侧对 create 也放宽到 120 秒（见 proxy.js）。 */
       const timeout = opts.timeout != null ? opts.timeout
         : (method === 'POST' && name === 'create' ? 150000 : undefined);
-      /* 发出去之前先留一份「实际请求」给页面上的折叠面板（`window.RawRequest`）：
-         这是全站唯一出口，所以导演台 / 工作台 / 画布 / 素材库不用各自再拼一份。
-         只投带请求体的（创建 / 检索）；路径去掉查询串（有些家的签名参数在 query 里）。 */
-      if (opts.body != null) {
-        try {
-          const p = this.url(prov, name, opts.id);
-          window.dispatchEvent(new CustomEvent('wb:raw-request', { detail: {
-            tag: opts.snapTag || '', label: opts.snapLabel || '',
-            provider: (prov && prov.id) || '', providerName: (prov && (prov.displayName || prov.name)) || '',
-            endpoint: name, method, path: String(p).replace(/^https?:\/\/[^/]+/i, ''),
-            body: this.snapOf(opts.body), at: Date.now(),
-          } }));
-        } catch (e) { /* 展示快照失败不能影响真正要发的那一次请求 */ }
-      }
       let d;
       try {
         d = await rawFetch(this.url(prov, name, opts.id) + q, {
@@ -1431,8 +1417,7 @@ function topBoolValue(decl, on) {
         ...(fields.log && typeof fields.log === 'object' ? fields.log : {}),
         prompt: (fields.log && fields.log.prompt) || fields.prompt || fields.text || body.prompt || '',
       };
-      return await this.request(prov, spec.endpoint || 'create', { method: 'POST', body, log,
-        snapTag: fields.snapTag || '', snapLabel: fields.snapLabel || '' });
+      return await this.request(prov, spec.endpoint || 'create', { method: 'POST', body, log });
     },
     /* 弹系统自带的文件夹选择框，让用户点着挑一个目录回来。
        浏览器自己给不了真实路径（`<input webkitdirectory>` 只给文件夹名、File System Access

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* 导演台「项目文件」判据：完整工程往返、格式闸门（含零写入）、校验和、导入归一化。
+/* 导演台「项目文件」判据：v2 完整工程往返、格式闸门（含零写入）、校验和、导入归一化。
    纯件在 web/director/project-pack.js；engine 那一侧只负责下载 / 取文件 / 放回工作区，
    这里的每一条都不需要浏览器。 */
 import assert from 'node:assert/strict';
@@ -13,8 +13,9 @@ let n = 0;
 const ok = (cond, msg) => { n++; assert.ok(cond, msg); };
 const throws = (fn, re, msg) => { n++; assert.throws(fn, e => re.test(String(e && e.message)), msg); };
 
-/* 一份「什么都有」的短片：没选用的 / 失败的 / 草稿占位 / 在途的候选，提示词、台词、
-   参考图、首尾帧、裁剪与锁定、成片轨（画面 / 配音 / 字幕 / 标记 / 轨道状态）、画幅、视口游标。 */
+/* 一份「什么都有」的短片：没选用的 / 失败的 / 草稿占位 / 在途的候选，每条候选自带
+   完整的一份拍摄配置与一句自己的描述；台词、画面说明、参考图、首尾帧、裁剪与锁定、
+   成片轨（画面 / 配音 / 字幕 / 标记 / 轨道状态）、画幅、视口游标。 */
 function richProject() {
   return {
     id: 'p-src', name: '湖畔短片', groupId: 'g1',
@@ -35,25 +36,27 @@ function richProject() {
         id: 'sc1', name: '场景 1', img: 'data:image/png;base64,AAA', noPic: false,
         shots: [
           {
-            id: 'sh1', name: '新镜头', prompt: '晨雾中的木栈道，逆光', line: '我们走吧', lineWho: '小雅',
-            note: 'AI 给的画面说明', ar: '16:9', res: '768p', tier: 'fast', draw: 2, combo: 'img2v',
-            firstFrame: 'data:image/png;base64,BBB', lastFrame: 'data:image/png;base64,CCC',
-            refImages: ['data:image/png;base64,DDD'], refMeta: [{ label: '角色' }],
-            keyframes: [{ t: 1.2, desc: '起手', status: 'done', assetId: 'a1' }],
-            refVideo: { asset_id: 'rv1', name: '参考.mp4' }, refAudio: null,
-            linkPrev: 'tail', modelAuto: 'chain',
-            selId: 'v1',
+            id: 'sh1', name: '新镜头', line: '我们走吧', lineWho: '小雅',
+            note: 'AI 给的画面说明', draw: 2, selId: 'v1',
             candidates: [
               { vid: 'v1', provider: 'p1', status: 'succeeded', progress: 100, url: '/asset/vid-1',
-                prompt: '晨雾中的木栈道，逆光', selected: true, locked: true, trimS: 0.4, trimE: 4.6,
-                duration: 5, priceMicros: 1200, shotId: 'sh1', _mirrorAnnounced: true },
+                prompt: '晨雾中的木栈道，逆光', origin: 'auto', selected: true, locked: true,
+                trimS: 0.4, trimE: 4.6, duration: 5, priceMicros: 1200, shotId: 'sh1',
+                model: 'm1', modelAuto: 'chain', tier: 'fast', res: '768p', ar: '16:9', size: '1K',
+                dur: 5, combo: 'img2v', linkPrev: 'tail',
+                refImages: ['data:image/png;base64,DDD'], refMeta: [{ label: '角色' }],
+                keyframes: [{ t: 1.2, desc: '起手', status: 'done', assetId: 'a1' }],
+                refVideo: { asset_id: 'rv1', name: '参考.mp4' }, refAudio: null,
+                firstFrame: 'data:image/png;base64,BBB', lastFrame: 'data:image/png;base64,CCC',
+                _mirrorAnnounced: true },
               { vid: 'v2', provider: 'p2', status: 'failed', progress: 0, url: '',
-                prompt: '同一句的另一种说法', error: '额度不足', shotId: 'sh1' },
-              { vid: 'v3', provider: '', status: 'draft', progress: 0, url: null, prompt: '晨雾中的木栈道，逆光' },
+                prompt: '同一句的另一种说法', origin: 'manual', error: '额度不足', shotId: 'sh1' },
+              { vid: 'v3', provider: '', status: 'draft', progress: 0, url: null,
+                prompt: '晨雾中的木栈道，逆光', origin: 'manual' },
               { vid: 'v4', provider: 'p1', status: 'creating', progress: 23, url: 'https://cdn/签名地址',
-                prompt: '待生成', queue_position: 2 },
+                prompt: '待生成', origin: 'manual', queue_position: 2 },
               { vid: 'v5', provider: 'local', status: 'succeeded', progress: 100,
-                url: 'blob:http://localhost/abc', _objUrl: true, local: true, prompt: '' },
+                url: 'blob:http://localhost/abc', _objUrl: true, local: true, prompt: '', origin: 'manual' },
             ],
           },
         ],
@@ -61,9 +64,9 @@ function richProject() {
       {
         id: 'sc2', name: '场景 2', img: '', noPic: true,
         shots: [
-          { id: 'sh2', name: '第二镜', prompt: '', line: '', note: '', candidates: [
-            { vid: 'v6', status: 'succeeded', url: '/asset/vid-2', prompt: '' },
-          ], selId: 'v6' },
+          { id: 'sh2', name: '第二镜', line: '', note: '', draw: 1, selId: 'v6', candidates: [
+            { vid: 'v6', status: 'succeeded', url: '/asset/vid-2', prompt: '', origin: 'auto' },
+          ] },
         ],
       },
     ],
@@ -77,6 +80,7 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
 {
   const pack = mkPack();
   ok(pack.type === PROJECT_PACK_TYPE && pack.version === PROJECT_PACK_VERSION, '包类型 / 版本不对');
+  ok(PROJECT_PACK_VERSION === 2, '当前格式版本是 v2');
   ok(pack.app === 'director' && pack.ts === '2026-11-07T10:00:00.000Z', '没记来源与时间');
   ok(pack.checksum === projectPackChecksum(JSON.stringify(pack.projects)), 'checksum 不是按 projects 算的');
   const p = pack.projects[0];
@@ -89,11 +93,11 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   ok(cs.map(c => c.status).join(',') === 'succeeded,failed,draft,creating,succeeded',
     '没选用 / 失败 / 草稿 / 在途的候选都要原样带出去');
   ok(cs[0].prompt === '晨雾中的木栈道，逆光' && p.scenes[0].shots[0].line === '我们走吧'
-    && p.scenes[0].shots[0].note === 'AI 给的画面说明', '提示词 / 台词 / 画面说明丢了');
+    && p.scenes[0].shots[0].note === 'AI 给的画面说明', '描述 / 台词 / 画面说明丢了');
   ok(cs[0].selected === true && cs[0].locked === true && cs[0].trimS === 0.4 && cs[0].trimE === 4.6,
     '选用 / 锁定 / 裁剪状态丢了');
-  ok(p.scenes[0].shots[0].selId === 'v1' && p.scenes[0].shots[0].firstFrame.startsWith('data:')
-    && p.scenes[0].shots[0].refImages.length === 1, '选用指针对不上 / 参考图丢了');
+  ok(p.scenes[0].shots[0].selId === 'v1' && cs[0].firstFrame.startsWith('data:')
+    && cs[0].refImages.length === 1, '选用指针对不上 / 参考图丢了');
   ok(p.film.clips.length === 2 && p.film.voices.length === 1 && p.film.captions.length === 1
     && p.film.markers.length === 1 && p.film.tracks.locks.video === true, '剪辑状态（成片轨）丢了');
   ok(p.film.clips[0].transition.kind === 'fade' && p.film.clips[0].shotId === 'sh1', '剪辑段里的引用被改了');
@@ -106,6 +110,27 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   n++;
 }
 
+/* ①-2 候选自带**完整的一份拍摄配置**：型号 / 档位 / 画幅 / 时长 / 参考文件 / 关键帧 /
+   接续标记 / 描述 / 来源，缺的那几样补空值 —— 导入那边拿到的是一份完整的候选，不是半份。 */
+{
+  const cs = mkPack().projects[0].scenes[0].shots[0].candidates;
+  ok(cs[0].model === 'm1' && cs[0].modelAuto === 'chain' && cs[0].tier === 'fast' && cs[0].res === '768p'
+    && cs[0].ar === '16:9' && cs[0].size === '1K' && cs[0].dur === 5 && cs[0].combo === 'img2v'
+    && cs[0].linkPrev === 'tail', '候选自己那份拍摄配置没带全：' + JSON.stringify(cs[0]));
+  ok(Array.isArray(cs[0].refImages) && cs[0].refImages.length === 1
+    && Array.isArray(cs[0].refMeta) && cs[0].refMeta.length === 1
+    && Array.isArray(cs[0].keyframes) && cs[0].keyframes.length === 1
+    && cs[0].keyframes[0].assetId === 'a1', '参考文件 / 关键帧没带全');
+  ok(cs[0].refVideo && cs[0].refVideo.asset_id === 'rv1' && cs[0].refAudio === null,
+    '参考视频 / 参考音频没带全');
+  ok(cs[0].origin === 'auto' && cs[1].origin === 'manual', '候选的来源没带');
+  /* 缺键的那一条：补空值，不留 undefined —— 包里一条候选就是一份完整配置。 */
+  ok(cs[1].model === '' && cs[1].dur === '' && Array.isArray(cs[1].refImages) && cs[1].refImages.length === 0
+    && Array.isArray(cs[1].keyframes) && cs[1].keyframes.length === 0,
+    '缺键的候选没有补齐配置：' + JSON.stringify(cs[1]));
+  ok(cs.every(c => typeof c.prompt === 'string'), '每条候选的描述都得是字符串');
+}
+
 /* ② 摘要：每个数字都能从包里数出来，且把「视频字节带不走」说清楚。 */
 {
   const pack = mkPack();
@@ -115,12 +140,15 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
     '未归组的短片不该数出项目组');
   ok(buildProjectPack({ projects: [richProject(), { ...richProject(), id: 'p2' }], groupNameOf }).stats.groups === 1,
     '同组两部短片只算一个项目组');
+  /* 「写了描述的镜头数」现在数的是这一镜的**默认候选**（主描述那一条）——
+     镜头级不再有提示词（描述都在候选上）。提示词总数由候选那几项给出。 */
   ok(s.promptShots === 1 && s.promptCandidates === 4 && s.lines === 1 && s.notes === 1, '提示词计数不对');
   ok(s.selected === 2 && s.trimmed === 1 && s.locked === 1, '选用 / 裁剪 / 锁定计数不对');
   ok(s.clips === 2 && s.voices === 1 && s.captions === 1 && s.markers === 1, '剪辑计数不对');
   ok(s.localAssets === 2 && s.remoteUrls === 1 && s.blobUrls === 0, '媒体地址分类不对');
   const d = describeProjectPack(roundTrip(pack));
   ok(d.prompts === s.promptShots + s.promptCandidates + s.lines + s.notes, '摘要里的提示词数不对');
+  ok(/项目文件 v2/.test(d.text), '确认框没报出格式版本：' + d.text.slice(0, 40));
   ok(/6 条候选/.test(d.text) && /不覆盖现有项目/.test(d.text) && /视频字节不在包里/.test(d.text),
     '确认框没说清带什么、不动什么、什么带不走');
   ok(/2 条指向本机资产库/.test(d.text), '没提示本机素材换机器要一起搬');
@@ -145,13 +173,34 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   throws(() => assertProjectPack({ ...raw, projects: [{ id: '', name: 'x', scenes: [{ shots: [{}] }] }] }),
     /没有 id/, '没 id 要拒');
   const tampered = roundTrip(raw);
-  tampered.projects[0].scenes[0].shots[0].prompt = '被人手改过';
+  tampered.projects[0].scenes[0].shots[0].candidates[0].prompt = '被人手改过';
   throws(() => assertProjectPack(tampered), /校验和对不上/, '内容被改但 checksum 没跟上要拒');
   throws(() => assertProjectPack({ ...raw, checksum: 'deadbeef' }), /校验和对不上/, '校验和字段被换要拒');
   const before = JSON.stringify(raw);
   const bad = roundTrip(raw); bad.version = 9;
   assert.throws(() => assertProjectPack(bad));
   ok(JSON.stringify(raw) === before, '闸门自己不许改动包（纯校验）');
+  n++;
+}
+
+/* ③-2 v1 的包：只吃 v2，旧版本单独说清怎么办（照做就能改：在旧版本里重新导出）。 */
+{
+  const raw = mkPack();
+  const v1 = roundTrip(raw);
+  v1.version = 1;
+  /* v1 的形状：镜头级一份「画面」，候选的描述可写 null（当年「沿用画面」）。 */
+  v1.projects[0].scenes[0].shots[0].prompt = '晨雾中的木栈道，逆光';
+  v1.projects[0].scenes[0].shots[0].candidates[1].prompt = null;
+  v1.checksum = projectPackChecksum(JSON.stringify(v1.projects));
+  throws(() => assertProjectPack(v1), /旧版本（v1）/, 'v1 的包要单独拒：' );
+  throws(() => assertProjectPack(v1), /重新导出/, 'v1 的包要说清照做就能改的话');
+  throws(() => prepareProjectPackImport(v1, { uid: () => 'x' }), /旧版本（v1）/, '导入那条路也要拒 v1');
+  throws(() => describeProjectPack(v1), /旧版本（v1）/,
+    '确认框那一路也要拒 v1');
+  /* 零写入：被拒的包一个字节都没被改。 */
+  const snap = JSON.stringify(v1);
+  try { assertProjectPack(v1); } catch (e) { /* 上面已经断言过 */ }
+  ok(JSON.stringify(v1) === snap, '拒掉的包自己被改了');
   n++;
 }
 
@@ -191,6 +240,11 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   ok(cs[0].status === 'succeeded' && cs[1].status === 'failed' && cs[2].status === 'draft',
     '已完成的 / 失败的 / 草稿候选状态不许被改');
   ok(it.project.curScene === undefined, '视口游标不该被带回来');
+  /* 导入后每条候选的描述都得是字符串（当年「沿用画面」的 null 已经不是合法形状）。 */
+  const allC = it.project.scenes.flatMap(sc => sc.shots.flatMap(sh => sh.candidates || []));
+  ok(allC.every(c => typeof c.prompt === 'string'), '导入后有候选的描述不是字符串');
+  ok(allC.every(c => c.model !== undefined && c.dur !== undefined && Array.isArray(c.refImages)),
+    '导入后候选的配置缺键没补齐');
 
   /* 手改过 / 老版本的包里还可能留着 groupId：闸门只盖 checksum，这种包照样能过；
      导入侧必须自己抹掉 —— 否则短片会挂到本地另一拨巧合同 id 的组上。 */
@@ -200,6 +254,17 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   const fp = prepareProjectPackImport(foreign, { uid: () => 'fresh' });
   ok(fp.items[0].project.groupId === undefined, '带 groupId 的老包也要把组 id 抹掉');
   ok(fp.items[0].groupName === '校园篇', '抹组 id 时不该把组名一起丢掉');
+}
+
+/* ⑤-2 手改过的包：候选的描述写成 null（老形状），导入侧收口成空串，不留 null。 */
+{
+  const bad = roundTrip(mkPack());
+  bad.projects[0].scenes[0].shots[0].candidates[1].prompt = null;
+  bad.checksum = projectPackChecksum(JSON.stringify(bad.projects));
+  const prep = prepareProjectPackImport(bad, { uid: () => 'x' });
+  const cs = prep.items[0].project.scenes[0].shots[0].candidates;
+  ok(cs[1].prompt === '', '导入后描述还是 null：' + JSON.stringify(cs[1].prompt));
+  ok(typeof cs[1].prompt === 'string', '导入后描述不是字符串');
 }
 
 /* ⑥ 多短片包：组名各归各的，名字冲突只在真撞时加后缀。 */
@@ -318,7 +383,7 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
     '没撞名却改了名字：' + clean.items[0].project.name);
 }
 
-/* ⑨ 冲突扫描与两种导入策略：组名撞车怎么落位、内容完全一致要不要再导一份。 */
+/* ⑨-2 冲突扫描与两种导入策略：组名撞车怎么落位、内容完全一致要不要再导一份。 */
 {
   const pack = mkPack();
   const local = richProject();
@@ -334,15 +399,23 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
   withBlob.scenes[0].shots[0].candidates[4]._objUrl = true;
   ok(fp === projPackFingerprint(withBlob), '临时 blob 地址不该让同一部短片变成「另一部」');
   const changed = roundTrip(local);
-  changed.scenes[0].shots[0].prompt += '（改过）';
+  changed.scenes[0].shots[0].candidates[0].prompt += '（改过）';
   ok(fp !== projPackFingerprint(changed), '内容真变了，指纹却没变（会把两部不同的短片当成同一部）');
-  /* 面板渲染时自己补上的那几样：同一部短片隔一会儿看就多出这些，指纹不该跟着变。 */
+  /* 面板渲染时自己补上的那几样：同一部短片隔一会儿看就多出这些，指纹不该跟着变。
+     拍摄配置现在在候选上 —— 候选那一层也要摘同样的几样，否则每次导出都算出不同的指纹。 */
   const withDefaults = roundTrip(local);
   withDefaults.scenes[0].shots[0].adv = { bools: {}, topBools: {}, shape: { upscale: '' } };
   withDefaults.scenes[0].shots[0].combo = 'smart:fl2va+ref2va';
   withDefaults.scenes[0].shots[0].duration = 5;
+  withDefaults.scenes[0].shots[0].candidates[0].adv = { bools: {} };
+  withDefaults.scenes[0].shots[0].candidates[0].combo = 'smart:fl2va+ref2va';
+  withDefaults.scenes[0].shots[0].candidates[0].duration = 5;
   ok(fp === projPackFingerprint(withDefaults),
     '面板补的 combo / adv / duration 不该让同一部短片变成「另一部」');
+  /* 但候选自己的拍摄配置真变了，指纹就该变 —— 那不是面板算的，是作品内容。 */
+  const cfgChanged = roundTrip(local);
+  cfgChanged.scenes[0].shots[0].candidates[0].model = 'm2';
+  ok(fp !== projPackFingerprint(cfgChanged), '候选的拍摄配置变了，指纹却没变');
   /* 但成片轨里的时长要照比：那才是「这部作品剪成什么样」。 */
   const durChanged = roundTrip(local);
   durChanged.film.clips[0].duration += 1;
@@ -402,6 +475,29 @@ const roundTrip = pack => JSON.parse(JSON.stringify(pack));
     '跳过的短片还被算进了导入列表：' + skipped.items.length);
   ok(skipped.notes.skippedNames[0] === '湖畔短片', '跳过的那部没记名字：' + skipped.notes.skippedNames.join('、'));
   ok(skipped.items.length === 0 && skipped.notes.renamed === 0, '跳过的那部连名字都占掉了');
+}
+
+/* ⑩ v2 往返：导出的包解回来，作品内容一个字节不少（描述恒为字符串，配置齐全）。 */
+{
+  const pack = roundTrip(mkPack());
+  const prep = prepareProjectPackImport(pack, { uid: () => 'round', existingIds: [], nameTaken: () => false });
+  const back = prep.items[0].project;
+  const src = pack.projects[0];
+  const flat = p => p.scenes.flatMap(sc => sc.shots.flatMap(sh => sh.candidates || []));
+  const a = flat(src), b = flat(back);
+  ok(a.length === b.length && b.length === 6, '往返后候选条数不对');
+  ok(b.every(c => typeof c.prompt === 'string'), '往返后有候选的描述不是字符串');
+  ok(b.map(c => c.vid).join(',') === a.map(c => c.vid).join(','), '往返后候选的 vid 变了');
+  ok(b[0].prompt === a[0].prompt && b[0].model === a[0].model && b[0].dur === a[0].dur
+    && b[0].ar === a[0].ar && b[0].tier === a[0].tier && b[0].size === a[0].size
+    && b[0].linkPrev === a[0].linkPrev && b[0].origin === a[0].origin,
+    '往返后候选自己那份配置变了');
+  ok(JSON.stringify(b[0].keyframes) === JSON.stringify(a[0].keyframes)
+    && JSON.stringify(b[0].refImages) === JSON.stringify(a[0].refImages),
+    '往返后参考文件 / 关键帧变了');
+  ok(back.scenes[0].shots[0].selId === 'v1' && back.film.clips[0].shotId === 'sh1',
+    '往返后引用断了');
+  ok(prep.notes.inFlight === 1 && b[3].status === 'failed', '往返后仍在途的候选没落地成可重试');
 }
 
 console.log('  ✓ 导演台项目文件：' + n + ' 项，0 项未通过');

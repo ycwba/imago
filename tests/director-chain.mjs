@@ -14,17 +14,22 @@ assert.equal(places[1].prev, a);
 assert.equal(places[2].prev, b, '场景边界不影响接续：上一场最后一镜就是下一场第一镜的上一镜');
 assert.equal(places[1].next, c);
 
-/* ---------- 上一镜有没有可用画面 ---------- */
+/* ---------- 上一镜有没有可用画面（尾帧与切片都住在候选上） ---------- */
 assert.equal(hasTailFrame({}), false);
-assert.equal(hasTailFrame({ lastFrame: 'data:image/png;base64,x' }), true);
-assert.equal(hasTailFrame({ keyframes: [{ assetId: 'la_k' }] }), true);
+assert.equal(hasTailFrame({ candidates: [{ lastFrame: 'data:image/png;base64,x' }] }), true);
+assert.equal(hasTailFrame({ candidates: [{ keyframes: [{ assetId: 'la_k' }] }] }), true);
+assert.equal(hasTailFrame({ candidates: [{ keyframes: [{ assetId: 'la_k', deleted: true }] }] }), false,
+  '删除中的画面切片不算可用画面（生成循环结束才移除，shotKeyframes 同一口径）');
+assert.equal(hasTailFrame({ candidates: [{ keyframes: [{ assetId: 'la_k', deleted: true }, { assetId: 'la_j' }] }] }), true,
+  '其余切片还在就照旧能接');
 assert.equal(hasTailFrame({ candidates: [{ status: 'succeeded' }] }), false, '成功但没有地址不算可用画面');
 assert.equal(hasTailFrame({ candidates: [{ status: 'succeeded', url: '/asset/la_x' }] }), true);
 assert.equal(isRunning({ candidates: [{ status: 'running' }] }), true);
 assert.equal(isRunning({ candidates: [{ status: 'succeeded' }] }), false);
 
 /* ---------- 依赖：谁在等上一镜 / 为什么等不到 ---------- */
-const chained = (extra) => Object.assign({ id: 's', linkPrev: 'tail', candidates: [] }, extra || {});
+/* 接续标记挂在**候选**上：这一镜哪条候选挂着接续，就算这一镜接上一镜。 */
+const chained = (extra) => ({ id: 's', candidates: [Object.assign({ vid: 'c1', linkPrev: 'tail' }, extra || {})] });
 const first = chained({});
 const second = chained({});
 const deps = chainDeps([first, second], { pending: new Set([first]) });
@@ -126,7 +131,7 @@ assert.equal(already.items[0].chain, 'tail', '原镜头本来接上一镜，第�
 assert.equal(already.items[1].chain, 'tail');
 
 /* ---------- 报价键：同规格可合并，影响价钱的输入变了就不合并 ---------- */
-const sh = { duration: 5, res: '1080p', tier: 'pro', ar: '16:9', size: '', draw: 3 };
+const sh = { dur: 5, res: '1080p', tier: 'pro', ar: '16:9', size: '', draw: 3 };
 const qctx = { provider: 'p', model: 'm', intent: 'i', mode: 'v',
   topBools: { b: true, a: false }, shapeFields: { s: 1 }, caps: ['x'], combo: '' };
 const k1 = quoteKeyOf(sh, qctx);
@@ -134,7 +139,7 @@ assert.equal(k1, quoteKeyOf(Object.assign({}, sh, { draw: 9 }), qctx), 'count/dr
 assert.equal(k1, quoteKeyOf(sh, Object.assign({}, qctx, { topBools: { a: false, b: true } })),
   '对象键顺序不影响');
 assert.notEqual(k1, quoteKeyOf(sh, Object.assign({}, qctx, { model: 'm2' })));
-assert.notEqual(k1, quoteKeyOf(Object.assign({}, sh, { duration: 6 }), qctx));
+assert.notEqual(k1, quoteKeyOf(Object.assign({}, sh, { dur: 6 }), qctx));
 
 /* ---------- 报价合计：缺金额绝不当 0；多币种不合计 ---------- */
 const usd = sumQuotes([

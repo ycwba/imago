@@ -8,8 +8,6 @@
    旧模型那套「源秒 ↔ 本镜轴秒 ↔ 成片秒」的折算层已整族删除。 */
 import { round1, round2, num } from './util.js';
 import { normalizeMarkers, markerSpanEnd } from './tl-markers.js';
-import { normalizeStickers } from './sticker.js';
-
 export const TL_FPS = 30;
 export const MIN_CLIP_SECONDS = 0.05;
 export const IMAGE_SEGMENT_SECONDS = 2;
@@ -254,7 +252,6 @@ export function normalizeFilm(raw) {
   const tracks = (f.tracks && typeof f.tracks === 'object') ? f.tracks : {};
   return {
     clips, voices, captions, markers,
-    stickers: normalizeStickers(f.stickers),
     tracks: {
       visibility: (tracks.visibility && typeof tracks.visibility === 'object') ? { ...tracks.visibility } : {},
       locks: (tracks.locks && typeof tracks.locks === 'object') ? { ...tracks.locks } : {},

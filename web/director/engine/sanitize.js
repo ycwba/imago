@@ -3,10 +3,12 @@
    WS / proj 是 engine 继续持有的可变状态，经访问器读写，document / window 用参数名遮蔽全局。 */
 
 import { normalizeFilm } from '../film.js';
+import { sanitizeTakes } from '../takes.js';
 
 export function createSanitize(E, document, window) {
   'use strict';
   const {
+    mkDraftCandidate,
     newShot,
     projOf,
     setProj,
@@ -58,12 +60,7 @@ function sanitize() {
       sc.shots.forEach(sh => {
         sh.id = sh.id || uid();
         sh.name = sh.name || '新镜头';
-        sh.prompt = sh.prompt || '';
-        sh.ar = sh.ar || '16:9'; sh.res = sh.res || '768p'; sh.tier = sh.tier || 'fast'; sh.draw = sh.draw || 1;
-        sh.refImages = Array.isArray(sh.refImages) ? sh.refImages : [];
-        sh.refMeta = Array.isArray(sh.refMeta) ? sh.refMeta : [];
-        while (sh.refMeta.length < sh.refImages.length) sh.refMeta.push({ label: null });
-        sh.refMeta.length = sh.refImages.length;   // 素材标签与素材图一一对应
+        sh.draw = sh.draw || 1;
         sh.candidates = Array.isArray(sh.candidates) ? sh.candidates : [];
         /* 提交中途刷新页面：占位候选（tmp_*）拿不到任务号、轮询也明确跳过它，
            以前会永远显示「创建中」（video-gen 有对应自愈，导演台没有）。这里按中断结掉，卡上写明可重试。 */
@@ -77,12 +74,29 @@ function sanitize() {
             c.error = c.error || '页面刷新导致创建中断（未拿到任务号），可重新生成这一镜';
           }
         });
-        if (sh.model === 'auto') delete sh.model;   // 「自动」模型已下线，回落到默认模型
-        /* 接续两个字段只认这两种值：旧工程没有就现算成空串，不迁移、也不留第三种状态。
-           `modelAuto` 只在接续还挂着时才有意义（用户取消接续后那一枚自动选的型号照旧留着，
-           只是不再需要标「这是程序挑的」）。 */
-        sh.linkPrev = sh.linkPrev === 'tail' ? 'tail' : '';
-        sh.modelAuto = sh.linkPrev === 'tail' && sh.modelAuto === 'chain' ? 'chain' : '';
+        /* 旧形状 → 新形状（**一次性**，不是兼容分支）：描述与拍摄配置下沉到候选，
+           「画面」层就此退役 —— 这一镜的主描述落在默认候选（origin 'auto'）身上。
+           一条候选都没有的镜头补一条默认候选（带上原来那份描述与配置）。 */
+        sanitizeTakes(sh, { makeDefault: s => mkDraftCandidate(s, 'auto') });
+        /* 每条候选各自的默认形状与收紧。 */
+        sh.candidates.forEach(c => {
+          if (!c || typeof c !== 'object') return;
+          c.prompt = String(c.prompt == null ? '' : c.prompt);
+          /* 拍摄配置不在这里替平台编默认值：空着由右栏按当前型号的声明补齐
+             （补出来的值才算「程序填的」，填之前不能先假装存过 'fast' / '768p'）。 */
+          c.tier = c.tier == null ? '' : String(c.tier);
+          c.res = c.res == null ? '' : String(c.res);
+          c.ar = c.ar == null ? '' : String(c.ar);
+          c.size = c.size == null ? '' : String(c.size);
+          c.dur = Number(c.dur) > 0 ? Number(c.dur) : '';
+          c.combo = c.combo || '';
+          /* 接续两个字段只认这两种值：旧工程没有就现算成空串，不迁移、也不留第三种状态。
+             `modelAuto` 只在接续还挂着时才有意义（用户取消接续后那一枚自动选的型号照旧留着，
+             只是不再需要标「这是程序挑的」）。 */
+          c.linkPrev = c.linkPrev === 'tail' ? 'tail' : '';
+          c.modelAuto = c.linkPrev === 'tail' && c.modelAuto === 'chain' ? 'chain' : '';
+          if (c.model === 'auto') delete c.model;   // 「自动」模型已下线，回落到默认模型
+        });
       });
     });
   });

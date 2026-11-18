@@ -7,9 +7,7 @@
    云端用只监听 127.0.0.1 的假 WebDAV 顶替：cloudCfg 明写了回环 http 例外，
    数据只写 harness 起的隔离实例（探针目录在系统临时目录），跑完连目录一起删。 */
 'use strict';
-const fs = require('fs');
 const http = require('http');
-const path = require('path');
 const h = require('./harness.cjs');
 
 const MUST_UP = ['ai_chat', 'fav_items'];
@@ -57,12 +55,18 @@ function startDav() {
       body: '{}',
     });
 
-    /* 一次同步要覆盖到的六份键：四份该被拦、两份该上去，再加一份密钥形状的文件。 */
+    /* 一次同步要覆盖到的六份键：四份该被拦、两份该上去，再加一份密钥形状的文件。
+       业务键只活在代理的状态仓（`state.json`）里，盘上不再有 `<key>.json` —— 走 `/data/<key>`
+       这条唯一写入口，别直接往探针目录里丢旧格式文件（那样键根本不存在）。 */
     const seed = {};
     for (const k of MUST_UP.concat(MUST_NOT)) seed[k] = { revision: 1, probe: k, updatedAt: new Date().toISOString() };
     seed.sk_key_probe = { v: 1, value: 'sk-probe-not-a-real-key' };
     for (const [k, v] of Object.entries(seed)) {
-      fs.writeFileSync(path.join(proxy.dataDir, k + '.json'), JSON.stringify(v), 'utf8');
+      const r = await fetch(proxy.base + '/data/' + k, {
+        method: 'PUT', headers: { cookie: proxy.cookie, 'content-type': 'application/json' },
+        body: JSON.stringify(v),
+      });
+      if (r.status !== 200) throw new Error('种子键没写进状态仓：' + k + ' HTTP ' + r.status + ' ' + await r.text());
     }
 
     const mark = dav.puts.length;

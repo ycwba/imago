@@ -5,9 +5,13 @@
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { parseJsonLoose, reEscape } from '../util.js';
 import { splitLongShots } from '../chain.js';
+import { picsIdxOf } from '../board.js';
+import { splitScriptGate } from '../split-form.js';
+import { defaultTakeOf, setShotPrompt } from '../takes.js';
 
 export function createApply(E, document, window) {
   const {
+  cfg,
     $,
     WSOf,
     projOf,
@@ -42,9 +46,11 @@ export function createApply(E, document, window) {
     placeScenesInto,
     reportScenePics,
     boardEstimate,
+    compressImg,
     renderAll,
     switchProject,
     setStatus,
+    toDataURL,
   } = E;
 
 /* AI 拆分镜 / 改分镜带回台词时那句「出路」只有一份：两处报数共用同一个串。
@@ -59,32 +65,114 @@ function lineLandedNote(n) {
 function userNoteLine(v) {
   return v.note ? '\n\n用户备注：' + v.note : '';
 }
+/* 拆分镜随附图 → 喂给文字 AI 的多模态输入（三档共用一份准备）。
+   能力闸按「图片」整档放行或整档挡下（prepareMedia 逐条记原因进 note），所以「能不能用」
+   按张数对账：非 mask 的张数 ≠ 输入张数 = 这次一张都没带上（型号不识图 / 图读不出来，
+   两者由 caps.image.ok 分开报）—— media 与 pics 都交空：
+   media 空 = AI 看不到也没号可引，pics 空 = 它若仍写 图N 会照实进「图号没对上」的报数，
+   一张都不挂比挂一半诚实。图N 的编号数的是非 mask 的素材图，与输入顺序一一对应
+   （这一路不带掩码，所以就是 list 的下标）。 */
+async function prepareRefPics(pics) {
+  const list = (pics || []).filter(p => p && p.src);
+  if (!list.length) return { pics: [], media: [], usable: true, canSee: true, note: '', n: 0 };
+  const m = await TextAI.prepareMedia(REGOf(), list.map(p => ({ kind: 'image', label: p.label || '参考图', src: p.src })));
+  const seen = m.media.filter(x => !x.isMask).length;
+  const usable = seen === list.length;
+  /* 「一张都没带上」有两种原因，报数时要分开：型号不识图（能力闸挡的）与图读不出来
+     （链接 / dataURL 坏了）。混成一句会把「型号设置得好好的」说成「型号不识图」——
+     用户去把 图 / 音 / 视 重新点一遍也修不好，因为问题根本不在那里。 */
+  const canSee = !!(m.caps && m.caps.image && m.caps.image.ok);
+  return { pics: usable ? list : [], media: usable ? m.media : [], usable, canSee, note: m.note || '', n: list.length };
+}
+/* 审查弹窗 sub 里「这次附图是什么状态」那一句（拆新 / 改稿两条链共用）：
+   usable 说「由 AI 决定挂到哪几镜」，不识图照实说没给 AI 看、这次不挂；unknown 是
+   AI 写了但没对上的图号数；unused 是 AI 一张都没挂上的输入图 —— 哪些图当了参考、
+   哪些这次没用上，行上缩略图之外整表还要有这么一句总览。 */
+function picsInfoOf(mediaPrep, unknown, unused) {
+  if (mediaPrep.usable && mediaPrep.pics.length) {
+    let s = '随附参考图 ' + mediaPrep.pics.length + ' 张，由 AI 决定挂到哪几镜';
+    if (unused && unused.length) s += '；图' + unused.map(i => i + 1).join('、图') + ' 没挂到任何镜头';
+    if (unknown) s += '；有 ' + unknown + ' 个图号没对上，没挂';
+    return s;
+  }
+  if (!mediaPrep.usable && mediaPrep.n) {
+    const tail = (mediaPrep.note ? '（' + mediaPrep.note + '）' : '');
+    return (mediaPrep.canSee === false
+      ? '当前文字型号不识图，附的 ' + mediaPrep.n + ' 张图没能给 AI 看，这次不自动挂参考图'
+      : '附的 ' + mediaPrep.n + ' 张图没能读出来，这次不自动挂参考图')
+      + tail;
+  }
+  return '';
+}
+/* 这一次随附的图里，AI 一张都没挂到任何镜头的是哪几张（下标表）。
+   lists 是各行认领的图号下标（拆新行在 row.pics，改稿行在 row.patch.pics —— 两者形状不同，
+   调用方各自取好列进来）。 */
+function unusedPicsOf(pics, lists) {
+  const used = new Set();
+  lists.forEach(l => (l || []).forEach(i => used.add(i)));
+  return (pics || []).map((p, i) => used.has(i) ? null : i).filter(x => x != null);
+}
 
 /* ---------- 拆分镜 / 改分镜的「AI 反问」那一轮（与润色同一套两段式）----------
-   过程状态存 splitUI：编辑器整列会被反复重画（任务轮询 3 秒一次），面板内容由重画钩子
-   renderSplitPanel 按这份状态拼回来 —— 与 engine 的 polishUI 同一个理由、同一套机制。
+   过程状态存 splitUI；转圈 / 反问 / 流式都画在**一张居中弹窗**里（PromptReview.openProcess），
+   拆完原地换成审阅（openList 传 shell，mount 只换标题接着用）—— 从头到尾只看见一张卡，
+   屏幕中间不关不闪。弹窗不在任何整片重画的栏里，编辑器 3 秒一次的重画冲不到它；
+   renderSplitPanel 仍跟着重画被叫，但只负责状态过渡（loading → ask）：
      · phase 'loading'：转圈占位（挑素材 / 判断要不要反问 / 新素材判定那些段）；
      · phase 'ask'：问答面板（每题候选 + 自由输入框，InlinePolish.ask）；
-     · phase 'stream'：流式那段**不插手** —— AiStream 每次 push 前自己确认面板还在宿主里、
-       不在就重画一块并把已收到的字补回去（见 gen-forms.js 的 panel()）。
+     · phase 'stream'：流式那段宿主直接交给 AiStream —— 它每次 push 前自己确认面板
+       还在宿主里、不在就重画一块并把已收到的字补回去（见 gen-forms.js 的 panel()）。
+   取消只有一处：弹窗 foot 那颗「取消」（Esc 同一路）→ onAbort 把这趟标死、收掉等着的
+   问答 Promise、关弹窗；此后每个 await 回来都先问 splitAlive，死掉的这趟一个字都不再画。
    busy 只在「真在跑」的段为真：问答摆出来等人回答时不算忙 —— 用户这时再点一次「拆分镜」
    是正当操作（上一趟他可能已经不想管了），新一轮照常开，旧的那份等答 Promise 由
    splitUI 换人作废（闭包里多等一个引用，不占资源）。 */
 let splitUI = null;
-function renderSplitPanel() {
-  if (!splitUI) return;        // 没在跑：宿主归润色面板管（renderPolishPanel 已 clear 过），也不必补宿主
-  let host = $('polishInline');
-  if (!host) {
-    /* 空项目（还没有任何镜头）时镜头编辑器整栏是空的、连宿主都没有 —— 而「拆一份新的」
-       恰恰常从空项目发起。这里补一块空档当宿主；有镜头时宿主由编辑器自己画，这里不插手
-       （剪辑态的右栏是另一套，也不该塞）。 */
-    const col = $('edCol');
-    if (!col || allShots().length) return;
-    col.innerHTML = '<div id="polishInline" hidden></div>';
-    host = $('polishInline');
+let splitDlg = null;        // 这一趟的过程弹窗：审阅接手时它作为 openList 的 shell 继续用
+let splitDlgRun = null;     // 这张弹窗属于哪一趟（新一轮要开时旧弹窗先收掉）
+let splitDlgReview = false; // 已经交给审阅：过程性的加载态不再往它的清单上盖
+let splitRun = null;        // 最近一趟的身份（对象比较）：被顶掉或取消后，旧的这趟不再往下跑
+function splitHost(run) {
+  if (splitDlg && (!splitDlg.isConnected || splitDlgRun !== run)) {
+    const old = splitDlg;
+    splitDlg = null; splitDlgRun = null; splitDlgReview = false;
+    PromptReview.closeProcess(old);
   }
+  if (splitDlg) return splitDlg.querySelector('#prBody');
+  splitDlgRun = run;
+  /* 拆分常从空项目发起：弹窗挂在 body 上，谁重画都摘不掉它。 */
+  splitDlg = PromptReview.openProcess({
+    title: 'AI 正在' + (run && run.kind === 'edit' ? '修改分镜' : '拆分镜') + '…',
+    onAbort() {
+      if (run) run.dead = true;
+      splitDlg = null; splitDlgRun = null; splitDlgReview = false;
+      const u = splitUI;
+      splitUI = null;
+      setStatus('已取消');
+      if (u && typeof u.resolve === 'function') u.resolve('');
+    },
+  });
+  return splitDlg.querySelector('#prBody');
+}
+function splitAlive(run) { return !!run && splitRun === run && !run.dead; }
+function splitEnd(run) {
+  if (run) run.dead = true;
+  splitUI = null;
+  const d = splitDlg;
+  splitDlg = null; splitDlgRun = null; splitDlgReview = false;
+  if (d) PromptReview.closeProcess(d);
+}
+function renderSplitPanel() {
+  if (!splitUI) return;
+  if (splitUI.phase === 'stream') return;    // 面板本体归 AiStream 管（宿主已交给它），这里不插手
+  if (splitDlgReview) return;                // 审阅已经接手这张弹窗：加载态不再盖它的清单
+  const host = splitHost(splitRun);
   if (splitUI.phase === 'loading') { InlinePolish.loading(host, splitUI.note || '正在准备…'); return; }
-  if (splitUI.phase !== 'ask' || !splitUI.questions || !splitUI.questions.length) return;
+  if (!splitUI.questions || !splitUI.questions.length) { splitEnd(splitRun); return; }
+  /* 问答题已在屏上就不重画：这枚钩子跟着编辑器整列重画一起被叫（3 秒一次），
+     重画会把用户正在输入的自由框清掉。 */
+  if (splitUI.painted && host.firstElementChild) return;
+  splitUI.painted = true;
   const mine = splitUI;
   InlinePolish.ask(host, {
     title: mine.title || '拆分镜前，AI 想先问几个问题',
@@ -95,8 +183,8 @@ function renderSplitPanel() {
     onChange: st => { if (splitUI === mine) mine.state = st; },
     submitLabel: mine.submitLabel || '按这些回答开始',
     skipLabel: mine.skipLabel || '跳过，直接开始',
-    onSubmit: t => { if (splitUI === mine) { splitUI = null; InlinePolish.clear(host); mine.resolve(t); } },
-    onSkip: () => { if (splitUI === mine) { splitUI = null; InlinePolish.clear(host); mine.resolve(''); } },
+    onSubmit: t => { if (splitUI === mine) { splitUI = null; mine.resolve(t); } },
+    onSkip: () => { if (splitUI === mine) { splitUI = null; mine.resolve(''); } },
   });
 }
 /* 反问那一轮：AI 自己判断这段料值不值得先问（need=false 直接往下走）；问了就把面板摆出来
@@ -106,20 +194,26 @@ function renderSplitPanel() {
    一趟只调一次（调用方把返回值记住），审查弹窗里点「重新规划」按同一份回答重跑。 */
 async function askRound(o) {
   const kind = o.kind || 'split';
-  if (!TextAI.shouldAsk()) return '';                    // 设置选「从不问」：整轮不发
-  splitUI = { phase: 'loading', busy: true, kind,
+  const run = splitRun;
+  if (!TextAI.shouldAsk()) { splitUI = null; return ''; }   // 设置选「从不问」：整轮不发
+  const mine = { phase: 'loading', busy: true, kind,
     note: '正在读' + (kind === 'edit' ? '这份修改要求' : '剧本') + '，判断要不要先问你几个问题…' };
+  splitUI = mine;
   renderSplitPanel();
   let r = { need: false, questions: [] };
-  try { r = await TextAI.askPolish(REGOf(), o.sys, o.user, { focus: o.focus }); }
+  try { r = await TextAI.askPolish(REGOf(), o.sys, o.user, { focus: o.focus, media: o.media }); }
   catch (e) { /* 问不成不拦这一趟：照旧直接拆，与润色「跳过问答直接润色」同一个立场 */ }
+  /* 这一趟被取消 / 被新一轮顶掉：这一格已经不是我们的了，一个字都不往上写 */
+  if (!splitAlive(run) || splitUI !== mine) {
+    if (splitUI === mine) splitUI = null;
+    return '';
+  }
   const qs = (r && r.need && Array.isArray(r.questions)) ? r.questions : [];
-  if (!qs.length || !splitUI) {
-    splitUI = null; InlinePolish.clear($('polishInline'));
+  if (!qs.length) {
+    splitUI = null;
     return '';
   }
   setStatus('AI 有几个问题想先问清楚（也可以跳过）');
-  const mine = splitUI;
   mine.phase = 'ask'; mine.busy = false;
   mine.questions = qs; mine.state = [];
   mine.title = kind === 'edit' ? '改分镜前，AI 想先问几个问题' : '拆分镜前，AI 想先问几个问题';
@@ -218,9 +312,9 @@ function markPendingTokens(shots, list) {
     + '|(?<![^' + EDGE + '])(?:' + alt + ')(?![^' + EDGE + '])', 'g');
   let n = 0;
   (shots || []).forEach(sh => {
-    const p = String((sh && sh.prompt) || '');
+    const p = String((sh && cfg(sh).prompt) || '');
     if (!p) return;
-    sh.prompt = p.replace(re, m => {
+    cfg(sh).prompt = p.replace(re, m => {
       if (m.charAt(0) === '@') return m;
       n++;
       return '@' + PENDING_PREFIX + ':' + m;
@@ -245,13 +339,32 @@ async function aiStoryboard() {
      Skill 声明的组**排在前面**（不排除其它组）。 */
   const scopes = SplitAssets.scopes(refRule.assetGroups);
   const fields = [
-    { key: 'task', type: 'select', label: '要做什么', value: 'new', options: [
-      { v: 'new', t: '拆一份新的（贴剧本 → 新建短片）' },
-      { v: 'edit', t: '修改现有分镜（改提示词 / 名字 / 时长、加镜头）' },
+    { key: 'task', type: 'select', label: '要做什么', value: 'append', options: [
       { v: 'append', t: '接着往下拆（在现有分镜后面继续加）' },
+      { v: 'edit', t: '修改现有分镜（改提示词 / 名字 / 时长、加镜头）' },
     ] },
     { key: 'script', type: 'textarea', label: '剧本 / 文案', placeholder: '把故事、旁白或分镜草稿粘进来…', hint: '' },
     { key: 'instruct', type: 'textarea', label: '修改要求（说给 AI 的一句话）', placeholder: '例：把河岸那两镜的提示词写得更具体、光偏黄昏；第 3 镜后面加一个特写', hint: '不填就是整体优化一遍现有提示词', hidden: true },
+    /* 随附参考图：三档共用一格。挑图时就地转 dataURL（blob: 地址必须当场定型，对齐 ref.js
+       那条 applyFrameEntry 的做法）；读不出来的照实报数，不带残条。
+       粘贴 / 拖进来的图片走同一道压缩（onFile）：公共层不认识 compressImg，字节口径由这一格给。 */
+    { key: 'pics', type: 'pics', label: '参考图（给 AI 看）', value: [],
+      hint: '挑图、把图片粘贴进剧本框、或直接拖进这一格（光标处会留下［图N］占位）；AI 判断哪些贴题，挂进对应镜头的参考图槽（文字型号需支持识图）',
+      onFile: async f => AssetTransfer.toDataURL(await compressImg(f)),
+      pick: async api => {
+        const got = await AssetPicker.open({ types: ['图片'], multiple: true, title: '挑拆分镜要用的参考图' });
+        if (!got || !got.length) return;
+        const cur = (api.values().pics || []).slice();
+        let fail = 0;
+        for (const e of got) {
+          try {
+            const src = e.file ? await AssetTransfer.toDataURL(await compressImg(e.file)) : await toDataURL(e.src);
+            cur.push({ label: e.name || (e.file && e.file.name) || '', src });
+          } catch (err) { fail++; }
+        }
+        if (fail) Toast.warn(fail + ' 张图读不出来，没带上');
+        if (cur.length) api.set('pics', cur);
+      } },
   ];
   if (scopes.length) fields.push({ key: 'assetSrc', type: 'select', label: '素材范围',
     value: SplitAssets.last(), options: scopes,
@@ -259,8 +372,8 @@ async function aiStoryboard() {
   fields.push({ key: 'note', type: 'text', label: '发给 AI 的备注（可选）',
     placeholder: '例：整体偏冷色 · 节奏快一点', hint: '只给 AI 看，不进提示词' });
   const v = await PromptForm.open({
-    title: 'AI 分镜（拆新 / 改现有 / 加镜头）',
-    sub: '贴一段剧本拆一份新的；或者对着现有分镜说一句话让它改 / 接着往下拆',
+    title: 'AI 分镜（改现有 / 接着往下拆）',
+    sub: '对着现有分镜说一句话让它改；或贴一段文案连着上面往下拆',
     okLabel: '开始',
     fields: fields,
     onChange: (key, api) => {
@@ -270,10 +383,10 @@ async function aiStoryboard() {
          它既不截断也不禁用「开始」。 */
       const t = cur.task;
       api.set('script', {
-        label: t === 'append' ? '接着往下拆的文案' : '剧本 / 文案',
+        label: t === 'append' ? '接着往下拆的文案' : '修改要求',
         hint: (t === 'append'
-          ? '会连着上面已有分镜往下拆：沿用合适的场景名与画风、不重复已有的镜头。'
-          : '越长越好用；会优先保持你的原意，只补足画面细节。') + softShotsNote(cur.script),
+          ? '会连着上面已有分镜往下拆：沿用清单里已有的场景名与画风、不重复已有的镜头。'
+          : '对着现有分镜说一句话；只改你要改的那几处。') + softShotsNote(cur.script),
         hidden: t === 'edit',
       });
       /* 「改现有分镜」这一档同样能带素材（改提示词时把库里的角色名认回来），所以整块不收；
@@ -282,10 +395,10 @@ async function aiStoryboard() {
       api.set('instruct', { hidden: t !== 'edit' });
     },
     validate: o => {
-      if (o.task !== 'new' && !hasBoard) return '当前短片还没有分镜，这一档用不了；先选「拆一份新的」';
-      if (o.task === 'edit') return '';
-      if ((o.script || '').length < 20) return o.task === 'append' ? '要接着拆的文案太短了（至少 20 个字）' : '剧本太短了（至少 20 个字）';
-      return '';
+      if (!hasBoard) return '当前短片还没有分镜，两档都用不了；先在生成态造几个镜头（或导入素材）';
+      /* 两档都只挡空：短要求（例：再加一个特写）也是有效要求，
+         以前两档共用一条 20 字下限，短要求根本发不出去。判据在公共层 split-form.js。 */
+      return splitScriptGate(o.task, o.script);
     },
   });
   if (!v) return;
@@ -313,16 +426,25 @@ function boardListOfItems(items) {
         name: t.name || '', prompt: String(t.text || '').trim(),
         line: String(t.line || '').trim(), who: String(t.who || '').trim(),
         dur: Number(t.dur) > 0 ? Number(t.dur) : 0,
-        chain: t.chain === 'tail' ? 'tail' : '' })) });
+        chain: t.chain === 'tail' ? 'tail' : '',
+        /* 挂图跟着行走（「按这句再改」的快照把图号原样带回来）：AI 要看得见「这一镜挂了哪几张」
+           才能在改这一镜时说清图是留是换（图N 对照消息末尾的【随附素材】清单）。 */
+        pics: Array.isArray(t.pics) ? t.pics : [] })) });
   });
   return boardListText(scenes);
 }
 
-/* 「拆新 / 往下拆」这一档（老路 + 给 AI 附一份现有分镜）：
-   往下拆时把现有分镜的清单一起喂过去 —— 它才能沿用场景名与画风、也不重复已有的镜头，
-   这正是「拿原有分镜上的提示词来加新镜头」那条要求的落点。 */
+/* 「接着往下拆」这一档：现有分镜的清单一起喂过去 —— 它才能沿用场景名与画风、
+   也不重复已有的镜头，这正是「拿原有分镜上的提示词来加新镜头」那条要求的落点。 */
 async function aiBoardSplit(v) {
-  const append = v.task === 'append';
+  /* 这一趟的身份：用户点取消 / 新一轮顶掉它之后，每个 await 回来都靠它认出「这趟已经不作数」 */
+  const run = { dead: false, kind: 'split' };
+  splitRun = run;
+  /* 随附参考图 → 多模态输入（挑图时已定型 dataURL，这里只过能力闸）。 */
+  const mediaPrep = await prepareRefPics(v.pics);
+  if (!splitAlive(run)) return;
+  /* AI 写了但没对上的图号数（itemsOfDraft 每轮重算）：弹窗 sub 照实报数。 */
+  let draftPicUnknown = 0;
   let draft = null;
   /* 素材只问一次：审查弹窗里点「重新规划」重跑这一趟时复用同一份挑中名单，
      不然每次重试都多问一遍文字 AI（多扣一次 tokens，而挑出来的还是那几条）。 */
@@ -340,10 +462,11 @@ async function aiBoardSplit(v) {
      干等没有下文看起来就像卡死了。同一趟只挑一次（staged 记住）。 */
   const ensureStaged = async () => {
     if (staged) return staged;
-    splitUI = { phase: 'loading', busy: true, kind: 'split', note: '正在按素材范围挑这一次要用的素材…' };
+    const mine = { phase: 'loading', busy: true, kind: 'split', note: '正在按素材范围挑这一次要用的素材…' };
+    splitUI = mine;
     renderSplitPanel();
-    try { staged = await SplitAssets.stage(REGOf(), v.script, v.assetSrc, v.refRule); }
-    finally { splitUI = null; InlinePolish.clear($('polishInline')); }
+    staged = await SplitAssets.stage(REGOf(), v.script, v.assetSrc, v.refRule);
+    if (splitUI === mine) splitUI = null;
     if (staged.warn) Toast.warn(staged.warn);
     return staged;
   };
@@ -365,7 +488,8 @@ async function aiBoardSplit(v) {
   /* 第 4 段：问「这份方案里有哪些主体要新建素材」。ask() 首趟与
      「重新规划（新素材）」那颗共用 —— 后者只调它，不重跑拆分那一段。 */
   const stageAssetsOf = async (out) => {
-    splitUI = { phase: 'loading', busy: true, kind: 'split', note: '正在看这份方案里有哪些要新建的素材…' };
+    const mine = { phase: 'loading', busy: true, kind: 'split', note: '正在看这份方案里有哪些要新建的素材…' };
+    splitUI = mine;
     renderSplitPanel();
     try {
       setStatus('<span class="meta">正在看这份方案里有哪些要新建的素材…</span>');
@@ -380,8 +504,7 @@ async function aiBoardSplit(v) {
       newAssets = { raw: [], plan: [], skipped: [], warn: '没问成新素材（' + errText(e) + '），这一次不建新素材' };
       Toast.warn(newAssets.warn);
     }
-    /* 收尾把宿主让出来：接下来是审查弹窗（开着时面板就在它底下，弹窗关了不能留一块旧的转圈）。 */
-    splitUI = null; InlinePolish.clear($('polishInline'));
+    if (splitUI === mine) splitUI = null;
   };
   /* 用户在审查弹窗里**最终认下的**那几条（可逐条改 / 可删）—— 落盘按这一份建档。 */
   let chosenAssets = null;
@@ -390,20 +513,27 @@ async function aiBoardSplit(v) {
   /* 系统提示词与正文这一趟只有一份拼法：反问轮与生成轮各取一次 —— 同源，
      问出来的问题才贴着这一次的料（时长区间、已有分镜、角色名单都看得见），不会问系统提示里已经写明的事。 */
   const sysOfRun = () => `${TL_SYS_COMMON}
-${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().scenes)) : ''))}
+${fillSkillVars(splitSysOf(), varsOf(boardListText(snapBoard(projOf().scenes))))}
 约束：由你决定拆几个镜头、每一镜多长。${boardDurNote()}${staged.rule}`;
   const userOfRun = () => `剧本/文案：\n${v.script}` + userNoteLine(v)
-    + (append ? ('\n\n当前已有分镜（接着往下拆：沿用合适的场景名与画风、别重复已有的镜头）:\n'
-      + boardListText(snapBoard(projOf().scenes))) : '');
+    + ('\n\n当前已有分镜（接着往下拆：新镜头的 scene **照抄**下面清单里已有的场景名，'
+      + '不要加编号、不要改写；确要新开剧情段落才另起新名。别重复已有的镜头）:\n'
+      + boardListText(snapBoard(projOf().scenes)));
   /* AI 回的那份 JSON → 审阅条目（生成轮与「按这句再改」两路共用同一份解析）：
-     平的 {"shots":[…]} 折成一层无名场景、场名缺省、秒数原样带、长说明不砍。 */
+     平的 {"shots":[…]} 折成一层无名场景、场名缺省、秒数原样带、长说明不砍。
+     场名缺省 = **现有最后一个场景的名字**（接着往下拆就是继续讲当前故事的结尾；
+     AI 没给场名时落盘按同名归并进末场，而不是造一个「场景 1」另起一场）。 */
   const itemsOfDraft = j => {
     if (j && Array.isArray(j.shots) && !Array.isArray(j.scenes)) {
       j.scenes = [{ shots: j.shots }];
     }
+    /* 每轮重算：AI 这一次写了多少个没对上的图号（弹窗 sub 照实报数）。 */
+    draftPicUnknown = 0;
+    const scenesNow = projOf().scenes || [];
+    const lastSceneName = scenesNow.length ? String(scenesNow[scenesNow.length - 1].name || '').trim() : '';
     const items = [];
     ((j && j.scenes) || []).forEach((sc, si) => {
-      const scName = String(sc.name || '').trim() || ('场景 ' + (si + 1));
+      const scName = String(sc.name || '').trim() || lastSceneName || ('场景 ' + (si + 1));
       (sc.shots || []).forEach((s, shi) => {
         /* AI 给多少镜就列多少镜（这里的 slice 已删）：以前超上限的那几条**默默不列出来**，
            用户以为拆了 12 镜、剧本后面那半段就这样没了。秒数原样带着，越界由落盘后那一夹处理。
@@ -415,6 +545,10 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
         const ds = Math.round(Number(s.duration));
         const dur = durWritable() && Number.isFinite(ds) && ds > 0 ? ds : null;
         const no = shi + 1;
+        /* AI 点的随附图在这里解析成下标（board.js 的 picsIdxOf 全站唯一一份）：
+           对不上号的照实计数，下标带进弹窗后由用户就地增删。 */
+        const pp = picsIdxOf(s.pics, mediaPrep.pics);
+        draftPicUnknown += pp.unknown.length;
         /* 镜头名与画面说明**分家**。以前这里写 `s.note.slice(0, 12)` ——
            长的那一句说明被砍成 12 字当标题，原文两头都没留（既不在名字里也不在别处）。
            现在 `name` 只取 AI 给的短名（没有就空着，落盘时退回「镜头 N」），`note` 整条原样存进 `sh.note`。
@@ -428,8 +562,10 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
           who: String(s.speaker != null ? s.speaker : (s.who == null ? '' : s.who)).trim(),
           note: String(s.note || '').trim(),
           text: s.prompt || s.note || '',
+          /* AI 给这一镜点的随附图（下标；弹窗行上可就地摘）。 */
+          pics: pp.idxs.slice(),
           /* AI 只在「必须紧接着上一镜落幅」时标 tail（见 split 的指令）；长镜头的第 2 段起
-             由下面的 splitLongShots 自动补上。落盘写 `sh.linkPrev`，生成时取上一镜尾帧当首帧。 */
+             由下面的 splitLongShots 自动补上。落盘写默认候选的 `linkPrev`，生成时取上一镜尾帧当首帧。 */
           chain: String(s.chain || '').trim() === 'tail' ? 'tail' : '',
           label: scName + ' · 镜头 ' + no + (dur ? '（' + dur + 's）' : '')
             + (String(s.line || '').trim() ? ' · 有台词' : ''),
@@ -440,16 +576,27 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
   };
   const ask = async () => {
     await ensureStaged();
+    if (!splitAlive(run)) return null;
     const sys = sysOfRun();
     /* 反问那一轮用户答过的东西随正文一起交上去（TextAI.answersNote 是唯一一份拼法）：
        每条答案都是硬约束 —— Skill 正文的要求清单里也写了这一条。 */
     const an = TextAI.answersNote(answers || '');
-    /* 长剧本动辄十几二十秒：这里同样边收边显（面板挂在右栏提示词块下面，
-       与「AI 润色」共用那一块地方；两边都是用户手点的，不会同时开着）。 */
-    splitUI = { phase: 'stream', busy: true, kind: 'split' };   // busy 档住「拆分镜」重入；面板本体归 AiStream 管
-    const txt = await AiStream.text(REGOf(), sys, userOfRun() + (an ? '\n\n' + an : ''),
-      { host: $('polishInline'), title: append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…' });
-    splitUI = null;
+    /* 长剧本动辄十几二十秒：这里同样边收边显 —— 宿主就是那张过程弹窗的正文格，
+       流式面板由 AiStream 自管，拆分过程从头到尾不碰右栏编辑器。 */
+    /* busy 档住「拆分镜」重入；面板本体归 AiStream 管。这一份状态对象带回执：
+       流回来时若 splitUI 已经换人（重开 / 取消），旧的这一趟不碰新的。 */
+    const mineUI = { phase: 'stream', busy: true, kind: 'split' };
+    splitUI = mineUI;
+    let txt;
+    try {
+      txt = await AiStream.text(REGOf(), sys, userOfRun() + (an ? '\n\n' + an : ''),
+        { host: splitHost(run), title: 'AI 正在往下拆分镜…',
+          media: mediaPrep.media });
+    } finally {
+      /* 流断了 / 用户停了也让 busy 归零：留着它下一次点「拆分镜」会被自己挡在门外 */
+      if (splitUI === mineUI) splitUI = null;
+    }
+    if (!splitAlive(run)) return null;   // 取消：这一趟的结果不再用（弹窗已收，面板不在屏幕上）
     draft = parseJsonLoose(txt);
     const items = itemsOfDraft(draft);
     if (!items.length) throw new Error(draft ? 'AI 输出里没有镜头' : 'AI 没有给出可用的分镜结构');
@@ -460,10 +607,6 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
       models: chainModelList(), canDur: durWritable(), maxName: 12,
     });
     const out = splitInfo.items;
-    /* 全新短片的第一镜没有上一镜可接：AI 标了也接不上，抹掉，不留一条永远在等的标记。 */
-    if (!append && out.length && out[0].chain === 'tail') {
-      out[0] = Object.assign({}, out[0], { chain: '', chainModel: '' });
-    }
     lastOut = out;
     /* ---- 第 4 段：这份方案里有没有「该新建一条素材」的主体 ----
        问的是**这一份方案本身**（不是原剧本）—— 判据是「在几个镜头里反复出现」，
@@ -476,21 +619,35 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
        问失败**不拦**这一趟拆分：照实报一句，按「不建新素材」继续 ——
        与 SplitAssets.stage 现有的语义一致（没问成 ≠ AI 说不要）。 */
     if (!newAssets) await stageAssetsOf(out);
+    if (!splitAlive(run)) return null;
     return out;
   };
   let items;
   try {
-    setStatus(append ? 'AI 正在往下拆分镜…' : 'AI 正在拆解分镜…（长剧本可能需要十几秒）');
+    setStatus('AI 正在往下拆分镜…（长剧本可能需要十几秒）');
     /* 反问那一轮（与「AI 润色」同一套两段式）：AI 自己判断这段剧本值不值得先问；
-       问答面板摆在 #polishInline（splitUI 托管，整列重画不丢），回答当硬约束带进生成轮。
+       问答面板摆在过程弹窗上（splitUI 托管，整列重画冲不到它），回答当硬约束带进生成轮。
        问与拆共用同一份 sys（sysOfRun），所以素材挑选先做。 */
     await ensureStaged();
-    answers = await askRound({ kind: 'split', sys: sysOfRun(), user: userOfRun(), focus: SPLIT_ASK_FOCUS });
+    if (!splitAlive(run)) return;
+    answers = await askRound({ kind: 'split', sys: sysOfRun(), user: userOfRun(), focus: SPLIT_ASK_FOCUS,
+      media: mediaPrep.media });
+    if (!splitAlive(run)) return;
     items = await ask();
+    if (!splitAlive(run)) return;
   }
-  catch (e) { splitUI = null; setStatus('<span class="err">' + e.message + '</span>'); return; }
+  /* 按停止（面板上那颗「停止」）与真失败分开收尾：停止是主动收尾，不摆红条 */
+  catch (e) {
+    splitEnd(run);
+    setStatus(e && e.name === 'AbortError' ? '<span class="meta">已停止</span>'
+      : '<span class="err">' + e.message + '</span>');
+    return;
+  }
+  /* 审阅就地接手这张弹窗（shell）：不关不重开，屏幕中间只换一层内容。 */
+  splitDlgReview = true;
   const reviewed = await PromptReview.openList({
     title: 'AI 分镜方案（确认后写入项目）',
+    shell: splitDlg,
     /* 三句都写在这里：短片名、镜数与软上限那一档（和表单 hint 同一算式同一句）、
        时长区间以及它「按本机当前可用的几个型号共同支持范围」是怎么来的。
        区间来源不写明，「时长 5–10 秒」看着就像替某一家编的。 */
@@ -500,8 +657,12 @@ ${fillSkillVars(splitSysOf(), varsOf(append ? boardListText(snapBoard(projOf().s
         splitInfo && splitInfo.impossible.length
           ? '其中 ' + splitInfo.impossible.length + ' 个长镜头没有能拆成合法接续片段的型号，已原样保留（写入后按各自型号上限夹回）'
           : '',
-        staged.sub, '按场景分组，可逐条改名字、秒数、提示词与台词'])).filter(Boolean).join(' · '),
-    items, applyLabel: append ? '追加到当前短片' : '新建短片',
+        picsInfoOf(mediaPrep, draftPicUnknown, unusedPicsOf(mediaPrep.pics, items.map(it => it.pics))),
+        staged.sub, '按场景分组，可逐条改名字、秒数、提示词与台词',
+        '行上的场景名与现有清单对不上会另起一场；要并进已有场景，就把那一格改成它的原名'])).filter(Boolean).join(' · '),
+    items, applyLabel: '追加到当前短片',
+    /* 行上挂图缩略图要从这张表里取（src）—— AI 点的图按这一格渲染、可就地摘。 */
+    pics: mediaPrep.pics,
     /* 这句不是把 sub 里那句「可逐条改」再说一遍：sub 说的是**这个弹窗里**能做什么，
        hint 说的是**写入之后**能做什么。删掉它会退回 web/ui/ui.js 里那句通用兜底
        （「可以逐条修改或删掉不想生成的画面」）—— 那才是和 sub 重复的一句。 */
@@ -528,18 +689,18 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
         + userNoteLine(v)
         + (answers ? '\n\n' + TextAI.answersNote(answers) : '');
       const txt = await TextAI.chatStream(REGOf(), sys, msg,
-        { signal: ctl.signal }, ctl.push);
+        { signal: ctl.signal, media: mediaPrep.media }, ctl.push);
       draft = parseJsonLoose(txt);
       let next = itemsOfDraft(draft);
       if (!next.length) throw new Error('AI 的调整结果里没有镜头');
       /* 长镜头拆分与「第一镜不接」的抹平走与生成轮同一条路：splitInfo 换新，落盘口径不变。 */
       splitInfo = splitLongShots(next, { models: chainModelList(), canDur: durWritable(), maxName: 12 });
       next = splitInfo.items;
-      if (!append && next.length && next[0].chain === 'tail') {
-        next[0] = Object.assign({}, next[0], { chain: '', chainModel: '' });
-      }
       lastOut = next;
       newAssets = null;
+      /* follow 轮里还要再问一轮「哪些主体要新建」——慢的那一步在弹窗里说一声（ctl.note），
+         不让用户盯着一动不动的清单猜它在干嘛。 */
+      if (typeof ctl.note === 'function') ctl.note('正在看这份方案里有哪些要新建的素材…');
       await stageAssetsOf(next);
       return { items: next, assets: (newAssets && newAssets.plan) || [] };
     },
@@ -553,25 +714,32 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       return (newAssets && newAssets.plan) || [];
     },
   });
+  /* 弹窗在确认 / 取消那一下已经自己关了：这一趟的句柄一起清掉（留着的只是过期节点） */
+  splitDlg = null; splitDlgRun = null; splitDlgReview = false; splitUI = null;
   /* 空数组也要当「没采纳」接住：openList 的确认会把正文为空的条目滤掉，
      全部被滤掉时它给的是一份空表而不是 null（只看 !reviewed 会带着空表往下走）。 */
   if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
   /* 按交回来的**场名**归组重建。条目在这一场里的先后就是用户在弹窗里拖出来的先后 ——
      `shotNo` 只给报告与标签用，这里一律按数组顺序落盘（更早是拿标签正则回查序号）。 */
   const newScenes = [];
+  /* AI 点的随附图先收对儿、最后统一挂（bindPics 走 panel.js 那套有闸的挂图）：
+     报数也聚成一份，不混进素材图那笔账。 */
+  const picPairs = [];
   reviewed.forEach(row => {
     const scName = String(row.scene || '').trim() || ('场景 ' + (newScenes.length + 1));
     let sc = newScenes.find(s => s.name === scName);
     if (!sc) { sc = { id: uid(), name: scName, shots: [] }; newScenes.push(sc); }
     const sh3 = newShot();
+    /* 描述与配置都落在**默认候选**上（这一镜的第一条候选镜头）。 */
+    const def3 = defaultTakeOf(sh3);
     sh3.name = String(row.name || '').trim().slice(0, 12) || ('镜头 ' + (sc.shots.length + 1));
-    sh3.prompt = String(row.text || '');
+    setShotPrompt(sh3, String(row.text || ''));
     /* 时长原样接 AI 那一个（或用户在弹窗里改的那一个）：现在已经没有「用户填的目标时长」可兜底，
        也没有一份全站通用的秒数能洗。AI 没给、或本机没有能判合法的声明时**不写这一项** ——
        镜头上没有 duration 等于「交给平台默认」，与右栏那句「这一家没声明区间就不碰」同一个立场；
        给了但越界的由下面那一夹按型号收进区间并报数。 */
     setShotDur(sh3, row.dur);
-    /* 台词与画面说明两个字段各归各位：台词只写在 `sh.line`（不进 `sh.prompt`、不进配音轨），
+    /* 台词与画面说明两个字段各归各位：台词只写在 `sh.line`（不进候选的描述、不进配音轨），
        画面说明整条留在 `sh.note`（不再被压成名字）。两者都按用户可能在弹窗里改过的那一份落。 */
     sh3.line = String(row.line || '').trim();
     sh3.lineWho = String(row.who || '').trim();
@@ -579,15 +747,18 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
     /* 接上一镜（拆分长镜头的第 2 段起 / AI 明确标了的镜头）：拆的时候挑好的接续型号一起落下，
        没带型号的（AI 手写 `chain`）由 `ensureChainModel` 现挑一个能接首帧的。
        显式首帧永远优先 —— 这一路还没有首帧，等生成时解析上一镜尾帧。 */
-    sh3.linkPrev = row.chain === 'tail' ? 'tail' : '';
+    if (def3) def3.linkPrev = row.chain === 'tail' ? 'tail' : '';
     /* 拆分长镜头的每一段（包括第 1 段）都按拆的时候挑的型号落：那几段的秒数就是照它的区间分的，
        第 1 段若退回别的型号，落盘后的夹取会把「总秒数守恒」拆掉。 */
-    if (row.chainModel) { sh3.model = String(row.chainModel); sh3.modelAuto = 'chain'; }
-    if (sh3.linkPrev) ensureChainModel(sh3);
+    if (row.chainModel && def3) { def3.model = String(row.chainModel); def3.modelAuto = 'chain'; }
+    if (def3 && def3.linkPrev) ensureChainModel(sh3, def3);
     sc.shots.push(sh3);
+    if (mediaPrep.usable && Array.isArray(row.pics) && row.pics.length) {
+      picPairs.push({ sh: sh3, idxs: row.pics });
+    }
   });
-  /* 写入期兜底：批量生成走 genAll → submitCandidate，提交体发的是
-     `sh.duration` 原值，而「按型号回写」那一句只在**打开这一镜右栏**时执行 —— 这条链一次都不跑。
+  /* 写入期兜底：批量生成走 genAll → submitCandidate，提交体发的是候选的请求时长
+     （`c.dur`）原值，而「按型号回写」那一句只在**打开这一镜右栏**时执行 —— 这条链一次都不跑。
      用户不逐镜点开、直接点「生成全部分镜」，平台收到的就是越界时长。
      镜头对象是活引用（追加那一支里 placeScenesInto 也只是把它们挪进已有场景），夹在这里就等于夹在账上。 */
   const clamped = clampShotDurations(newScenes.flatMap(sc => sc.shots || []));
@@ -597,7 +768,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
   const lineNote = linedN ? lineLandedNote(linedN) : '';
   /* 接续镜的报数与「首帧从哪来」写在同一句里：用户看见「接上一镜」这四个字，
      但真正要告诉他的下一句是「你不用手动填首帧，生成时自动取」。 */
-  const chainN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => x.linkPrev === 'tail').length, 0);
+  const chainN = newScenes.reduce((n, sc) => n + (sc.shots || []).filter(x => cfg(x).linkPrev === 'tail').length, 0);
   const chainNote = chainN ? '，其中 ' + chainN + ' 镜接上一镜尾帧（生成时自动取首帧）' : '';
   /* 素材图挂在场景图**之后**：两者抢的是同一批参考图名额，先让「这一场的图」占位，
      素材那几张带不上时会照实报「参考图最多 N 张」，而不是静默少带几张。 */
@@ -626,29 +797,18 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
     Toast.warn('有素材没建出来：' + landed.failed.map(f => f.name + '（' + f.why + '）').join('、'));
   }
   if (landed.why) Toast.warn(landed.why);
-  if (append) {
-    /* 追加要保住场景划分（判据在 placeScenesInto 那一份，探针问的就是它）：
-       以前是 `newScenes.forEach(sc => cur.shots.push(...sc.shots))` —— AI 拆出来的几个场景
-       全被压进「当前那一场」，左栏既看不出分过场，场景图也失去了归属。 */
-    const r0 = placeScenesInto(projOf().scenes, newScenes);
-    projOf().curScene = r0.at; projOf().curShot = 0;
-    reportScenePics(r0.pics,
-      `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : '')
-      + chainNote + lineNote + assetNote + clampNote(clamped),
-      SplitAssets.bind(allShots, staged.picked));
-  } else {
-    let added = 0, why = '';
-    newScenes.forEach(sc => {                        // 新短片：场景本身还没有图，于是认素材库里同名那条
-      const r = feedScenePics(sc, sc.shots);
-      added += r.added; if (r.why && !why) why = r.why;
-    });
-    const np = { id: uid(), name: (draft && draft.title) || ('AI 短片 ' + window.dayKey(Date.now())), scenes: newScenes };
-    WSOf().projects.push(np);
-    switchProject(np.id);
-    reportScenePics({ added: added, why: why },
-      `已新建短片「${np.name}」：${newScenes.length} 个场景 / ${reviewed.length} 个镜头` + chainNote + lineNote + assetNote + clampNote(clamped),
-      SplitAssets.bind(allShots, staged.picked));
-  }
+  /* 追加要保住场景划分（判据在 placeScenesInto 那一份，探针问的就是它）：
+     以前是 `newScenes.forEach(sc => cur.shots.push(...sc.shots))` —— AI 拆出来的几个场景
+     全被压进「当前那一场」，左栏既看不出分过场，场景图也失去了归属。 */
+  const r0 = placeScenesInto(projOf().scenes, newScenes, { append: true });
+  projOf().curScene = r0.at; projOf().curShot = 0;
+  /* 挂图顺序：场景图（placeScenesInto）→ AI 随附图 → 素材图（bind 在 reportScenePics 里跑）。
+     三路抢同一批参考图名额，AI 点的图是用户亲手挑的，排在素材图前面。 */
+  const picRes = SplitAssets.bindPics(picPairs, mediaPrep.pics);
+  reportScenePics(r0.pics,
+    `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : '')
+    + chainNote + lineNote + assetNote + clampNote(clamped),
+    SplitAssets.bind(allShots, staged.picked), picRes);
   renderAll(); scheduleSave();
   /* 14.2-1：新素材可以顺便出预览图（确认框勾了才排队 —— 花钱任务不自动发）。
      不等出图结果：拆分镜本身已经落盘，出图是后面几步，用户可以先去干别的。 */
@@ -659,7 +819,13 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
 async function aiBoardEdit(v) {
   const snap = snapBoard(projOf().scenes);
   const want = String(v.instruct || '').trim();
+  /* 这一趟的身份（与拆新那一路同一套）：取消 / 被新一轮顶掉后不再往下画 */
+  const run = { dead: false, kind: 'edit' };
+  splitRun = run;
   let staged = null;
+  /* 随附参考图 → 多模态输入（与拆新那一路同一套准备与能力闸）。 */
+  const mediaPrep = await prepareRefPics(v.pics);
+  if (!splitAlive(run)) return;
   /* 反问那一轮的回答：与拆新那一路同一套（askRound），一趟只问一次。 */
   let answers = null;
   /* 素材挑选收进过程面板（同 aiBoardSplit 的 ensureStaged）。这一档没有剧本，
@@ -667,10 +833,11 @@ async function aiBoardEdit(v) {
      「没给出用来挑素材的话，这一次没问」，而不是假装挑了 0 条。 */
   const ensureStaged = async () => {
     if (staged) return staged;
-    splitUI = { phase: 'loading', busy: true, kind: 'edit', note: '正在按素材范围挑这一次要用的素材…' };
+    const mine = { phase: 'loading', busy: true, kind: 'edit', note: '正在按素材范围挑这一次要用的素材…' };
+    splitUI = mine;
     renderSplitPanel();
-    try { staged = await SplitAssets.stage(REGOf(), want, v.assetSrc, v.refRule); }
-    finally { splitUI = null; InlinePolish.clear($('polishInline')); }
+    staged = await SplitAssets.stage(REGOf(), want, v.assetSrc, v.refRule);
+    if (splitUI === mine) splitUI = null;
     if (staged.warn) Toast.warn(staged.warn);
     return staged;
   };
@@ -698,22 +865,31 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     + userNoteLine(v);
   const ask = async (ctl, extraAsk) => {
     await ensureStaged();
+    if (!splitAlive(run)) return null;
     const wt = wantAll(extraAsk);
     const sys = sysOfRun(wt);
     /* 反问那一轮用户答过的东西随正文一起交上去：每条答案都是硬约束。 */
     const an = TextAI.answersNote(answers || '');
     const body = userOfRun(wt) + (an ? '\n\n' + an : '');
-    splitUI = { phase: 'stream', busy: true, kind: 'edit' };
     /* 带 ctl = 审查弹窗里「按这句再改」那一轮：流式画进弹窗（ctl.push，可中止）；
-       不带 = 首轮与「重新规划」：还是右栏那块流式面板。 */
-    const txt = await (ctl
-      ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal }, ctl.push)
-      : AiStream.text(REGOf(), sys, body, { host: $('polishInline'), title: 'AI 正在修改分镜…' }));
-    splitUI = null;
+       不带 = 首轮与「重新规划」：流式画在过程弹窗的正文格里（与拆新同一张）。 */
+    const mineUI = { phase: 'stream', busy: true, kind: 'edit' };
+    splitUI = mineUI;
+    let txt;
+    try {
+      txt = await (ctl
+        ? TextAI.chatStream(REGOf(), sys, body, { signal: ctl.signal, media: mediaPrep.media }, ctl.push)
+        : AiStream.text(REGOf(), sys, body, { host: splitHost(run), title: 'AI 正在修改分镜…', media: mediaPrep.media }));
+    } finally {
+      if (splitUI === mineUI) splitUI = null;
+    }
+    if (!splitAlive(run)) return null;   // 取消：这一趟的结果不再用（弹窗已收）
     const j = parseJsonLoose(txt);
     const changes = (j && (j.changes || j.edits)) || null;
     if (!changes || !changes.length) throw new Error('AI 没有给出可用的修改');
-    const plan = boardPlanOf(changes, snap);
+    /* pics 传的是下标表本体：型号不识图时 prepareRefPics 给空表，AI 写来的任何图号都会落进
+       unknown、一张也挂不上 —— 与「没给 AI 看」的口径一致。 */
+    const plan = boardPlanOf(changes, snap, mediaPrep.pics);
     if (!plan.items.length) throw new Error(plan.skipped
       ? 'AI 给的修改对不上现有镜头（对不上的有 ' + plan.skipped + ' 条）'
       : 'AI 给的修改和现状一样，没有可改的');
@@ -724,19 +900,36 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     setStatus('AI 正在读现有分镜并改…');
     /* 反问那一轮（与拆新同源）：AI 看着这份修改要求判断要不要先问几句再动刀。 */
     await ensureStaged();
+    if (!splitAlive(run)) return;
     const wt0 = wantAll();
-    answers = await askRound({ kind: 'edit', sys: sysOfRun(wt0), user: userOfRun(wt0), focus: EDIT_ASK_FOCUS });
+    answers = await askRound({ kind: 'edit', sys: sysOfRun(wt0), user: userOfRun(wt0), focus: EDIT_ASK_FOCUS,
+      media: mediaPrep.media });
+    if (!splitAlive(run)) return;
     plan = await ask();
+    if (!splitAlive(run)) return;
   }
-  catch (e) { splitUI = null; setStatus('<span class="err">' + e.message + '</span>'); return; }
+  /* 与拆新那一路同一副收尾：停止不摆红条 */
+  catch (e) {
+    splitEnd(run);
+    setStatus(e && e.name === 'AbortError' ? '<span class="meta">已停止</span>'
+      : '<span class="err">' + e.message + '</span>');
+    return;
+  }
   const bits = ['共 ' + plan.items.length + ' 处改动'];
   if (plan.noop) bits.push(plan.noop + ' 条与现状相同已忽略');
   if (plan.skipped) bits.push(plan.skipped + ' 条对不上已丢掉');
+  bits.push(picsInfoOf(mediaPrep, plan.picUnknown,
+    unusedPicsOf(mediaPrep.pics, plan.items.map(it => (it.patch && it.patch.pics) || []))));
   if (staged.sub) bits.push(staged.sub);
+  /* 审阅就地接手这张弹窗（shell）：与拆新那一路同一条交接。 */
+  splitDlgReview = true;
   const reviewed = await PromptReview.openList({
     title: 'AI 分镜修改（确认后写入项目）',
+    shell: splitDlg,
     sub: bits.join(' · ') + '；' + boardDurSub() + '；可逐条改提示词或删掉不想要的',
     items: plan.items, applyLabel: '写入这些改动',
+    /* 行上挂图缩略图要从这张表里取（src）。 */
+    pics: mediaPrep.pics,
     hint: '写入后每个镜头都能单独生成、多条生成、剪辑',
     retry: async () => (await ask()).items,
     empty: 'AI 没有给出能对得上的修改，请点「重新规划」或取消',
@@ -749,8 +942,9 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     },
     followPlaceholder: '还要怎么改？例：第 3 镜那条改短一点 / 只改画面别动台词',
   });
+  splitDlg = null; splitDlgRun = null; splitDlgReview = false; splitUI = null;
   if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
-  const r = applyBoardPlan(reviewed, projOf().scenes);
+  const r = applyBoardPlan(reviewed, projOf().scenes, mediaPrep.pics);
   /* 「接上一镜」写入后落到一个支持首帧的型号上：`applyBoardPlan` 只管数据，
      型号是对着能力声明挑的（`chainModelList`），属于页面这一层。 */
   r.touched.forEach(sh => ensureChainModel(sh));
@@ -768,7 +962,9 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     + (r.lined ? lineLandedNote(r.lined) : '')
     + (r.busy ? '；' + r.busy + ' 镜还在生成，没删（等它跑完再删）' : '')
     + (r.skipped ? '（' + r.skipped + ' 条在写入时没找到目标，已跳过）' : '')
-    + clampNote(r.clamped), SplitAssets.bind(r.touched, staged.picked));
+    + clampNote(r.clamped), SplitAssets.bind(r.touched, staged.picked),
+    /* AI 随附图那笔账单列一项（不混进素材图）：unknown 在弹窗 sub 里已报过，这里不重复。 */
+    { n: r.picN, shots: r.picShots, dup: r.picDup, why: r.picWhy });
 }
 
   return {

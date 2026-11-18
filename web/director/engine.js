@@ -35,6 +35,7 @@ import { createShots } from './engine/shots.js';
 import { parseJsonLoose, round1, pct, num, BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from './util.js';
 
 import { scriptTextOf, parseScript, applyScript } from './script.js';
+import { cfgOf } from './takes.js';
 
 import { createBoardTools } from './board.js';
 
@@ -97,6 +98,10 @@ let wsLoaded = false;
 let REG = null;         // /registry：API 注册路由（提供商/模型/能力）
 let saveTimer = null;
 const uid = () => crypto.randomUUID().slice(0, 8);
+/* 配置持有者：**候选本身**。「画面」层退役后，一镜下面是一排候选镜头，每条自带描述与配置；
+   给到镜头时按当前查看的那条候选算（批量那条路直接递候选，cfgOf 原样返回）。
+   读配置一律经它 —— 读镜头身份（id / 名字 / 台词 / 候选表）才问镜头本身。 */
+const cfg = x => cfgOf(x, (proj && proj.curCand) || 0);
 
 /* 项目组（分组 / 改名 / 删组 / 归组 / 树）—— 判据全在 web/director/groups.js，
    engine 只调用。组名即素材组名（见那个模块开头的说明）。 */
@@ -133,7 +138,7 @@ function fillSkillVars(tpl, vals) {
    搬进模块，这里只留接线。proj 走访问器；resolvedModel 是 Panel 的解构结果，
    建包时还没值，包成箭头避开 TDZ。 */
 const Shots = createShots({
-  projOf: () => proj, resolvedOf: (...a) => resolvedModel(...a), uid,
+  projOf: () => proj, uid,
 }, document, window);
 const {
   allShots, curScene, curShot, ensureFilm, filmClipName, fmtDur, mkCandidateBase,
@@ -480,7 +485,8 @@ document.addEventListener('keydown', e => {
 });
 
 /* 候选时长（镜头行 / 总时长 / 各域共用的退路）：候选自带时长优先，退镜头声明，再退 5 秒。 */
-const candDur = (c, sh) => Math.max(0.1, Number(c && c.duration) || Number(sh && sh.duration) || 5);
+const candDur = (c, sh) => Math.max(0.1, Number(c && c.duration) || Number(c && c.dur)
+  || Number(sh && cfg(sh).dur) || 5);
 /* 按镜头 + 候选 id 找候选（切片流水线解地址用）：先按 vid，退回选用那条。 */
 const tlCandidateOf = (sh, candId) =>
   ((sh && sh.candidates) || []).find(c => c.vid === candId) || ((sh && sh.candidates) || []).find(c => c.vid === sh.selId) || null;
@@ -632,10 +638,13 @@ const {
    搬进模块，这里只留接线。E 里那四位是 Panel 的解构结果（右栏建包之后才有值），包成箭头避开 TDZ；
    其余几位在建包这一刻都已就绪，直接递。 */
 const Split = createSplit({
+  cfg,
   PENDING_PREFIX, allShots, assetToDataURL: (...a) => assetToDataURL(...a), clampShotDurations, durWritable,
   feedScenePics: (...a) => feedScenePics(...a), freshUrl: (...a) => freshUrl(...a),
   newShot, removeShot: (...a) => removeShot(...a), setShotDur, uid,
   addLibPicToShot: (...a) => addLibPicToShot(...a), libPicChoices: (...a) => libPicChoices(...a),
+  /* Panel 的解构结果，包成箭头避 TDZ：拆分镜 / 改稿落盘挂图（有闸的那套）走它。 */
+  bindShotPics: (...a) => bindShotPics(...a),
   resolvedModel: (...a) => resolvedModel(...a), shotModels: (...a) => shotModels(...a),
 }, document, window);
 const {
@@ -648,6 +657,7 @@ const {
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
 const Apply = createApply({
+  cfg,
   $: $,
   WSOf: () => WS,
   projOf: () => proj,
@@ -682,9 +692,11 @@ const Apply = createApply({
   placeScenesInto: (...a) => placeScenesInto(...a),
   reportScenePics: (...a) => reportScenePics(...a),
   boardEstimate: (...a) => boardEstimate(...a),
+  compressImg: (...a) => compressImg(...a),
   renderAll: (...a) => renderAll(...a),
   switchProject: (...a) => switchProject(...a),
   setStatus: (...a) => setStatus(...a),
+  toDataURL: (...a) => toDataURL(...a),
 }, document, window);
 const {
   aiStoryboard,
@@ -818,6 +830,7 @@ function armSaveTimer() {
    E 里 resolvedModel 是 Panel 的解构结果，建包时还没值，包成箭头避开 TDZ；
    REG / proj 走访问器，engine 继续持有这两枚可变状态。 */
 const ApiDomain = createApi({
+  cfg,
   ST_ZH, setStatus,
   regOf: () => REG, projOf: () => proj,
   resolvedModel: (...a) => resolvedModel(...a),
@@ -830,6 +843,7 @@ const {
    E 里带箭头的每一位都是建包之后才有值的（Panel / Mid / Voice 的解构结果），直接引用会撞 TDZ；
    proj / REG / WS / voiceDraft / vcTab 那几枚可变状态走访问器，engine 继续持有它们。 */
 const Render = createRender({
+  cfg,
   $, NO_PROMPT_WHY: (...a) => NO_PROMPT_WHY(...a), ST_ZH,
   addLibPicToShot: (...a) => addLibPicToShot(...a), addShotToScene,
   beginEdit, candDur, compressImg, curShot, ensureFilm, filmClipName, filmEdited, fmtDur,
@@ -859,10 +873,14 @@ const {
   scrollCurThumbIntoView, selectCandidate, setTrimMode, shotStatusOf, sortCandidates, toolAction,
   transitionSet, updateMidLive,
 } = Render;
+/* Mid 建包早于 Gen（等待文案的判定归 Gen）：先占一枚可变的转发口，建完 Gen 再接上。
+   包成箭头是为了建包这一刻不求值，避开 TDZ（临时死区）。 */
+let genAllWaitOf = () => '';
 /* Mid域（engine/mid.js）：中间栏整列（预览甲板 + 候选条 + 动作行 + 总长）与剪辑 / 生成两态的切换
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
 const Mid = createMid({
+  cfg,
   $: (...a) => $(...a),
   playSafe: (...a) => playSafe(...a),
   Play: Play,
@@ -910,6 +928,7 @@ const Mid = createMid({
   renderEditor: (...a) => renderEditor(...a),
   renderAll: (...a) => renderAll(...a),
   setStatus: (...a) => setStatus(...a),
+  genAllWaitOf: sh => genAllWaitOf(sh),
 }, document, window);
 const {
   promptTextOf,
@@ -944,6 +963,7 @@ let vcTab = 'voice';
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
 const Voice = createVoice({
+  cfg,
   projOf: () => proj,
   REGOf: () => REG,
   /* 成片那一本账与「改一步」的唯一出口：配音的增删改读写 `proj.film.voices`，
@@ -993,6 +1013,7 @@ const {
 /* 成片媒体域（engine/media.js）：签名地址刷新 / 成片尺寸 / 素材编号计划 / 下载转发
    搬进模块，这里只留接线。proj 走访问器；面板与拆分镜装配时拿到的是一枚枚箭头。 */
 const Media = createMedia({
+  cfg,
   allShots, projOf: () => proj, saveScheduleSoft, shotReady,
 }, document, window);
 const { applyRefSyntax, chainSlotOf, compositionOf, filmSize, freshUrl, refTokenize, saveBlob } = Media;
@@ -1001,6 +1022,7 @@ const { applyRefSyntax, chainSlotOf, compositionOf, filmSize, freshUrl, refToken
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，
    因为建包时后面的 const 还没初始化，直接引用会撞 TDZ（临时死区）。 */
 const Panel = createPanel({
+  cfg,
   $: (...a) => $(...a),
   projOf: () => proj,
   REGOf: () => REG,
@@ -1104,6 +1126,7 @@ const {
   syncAtBack,
   libPicChoices,
   addLibPicToShot,
+  bindShotPics,
   linePanelRows,
   lineWhoDatalistHTML,
   lineRowsHTML,
@@ -1116,6 +1139,7 @@ const {
    资产库 / 收藏导入、参考视频 / 参考音频槽位）搬进模块，这里只留接线。
    REG / proj 走访问器；其余几位在建包这一刻都已就绪，直接递。 */
 const Import = createImport({
+  cfg,
   assetProvFor, assetStoreId, curShot, dlStage, filmEdited, mkImportedCandidate, provOf,
   renderAll: (...a) => renderAll(...a), renderEditor, resolvedModel, sameAssetSpace, scheduleSave, setSelectedCandidate,
   setStatus, shotInputCaps, uid,
@@ -1129,20 +1153,22 @@ const {
    搬进模块，这里只留接线。REG / WS 走访问器；polishUI 归模块，对外只给 setPolishUI。
    其余几位在建包这一刻都已就绪，直接递。 */
 const Ref = createRef({
+  cfg,
   $, ROLE_ZH, SLOT_ROLE, addRefImage, allShots, assetStoreId, canAddSlot, chainSlotOf, comboLabel,
-  compressImg, curDraftCand, curShot, renderEditor, renderScenes, resolveChainFrame, resolvedModel,
+  compressImg, curShot, renderEditor, renderScenes, resolveChainFrame, resolvedModel,
   scheduleSave, setStatus, shotCombo, shotInputCaps, shotRefPlanOf, shotUsedRoles, wsKv,
-  regOf: () => REG, wsOf: () => WS,
+  regOf: () => REG, wsOf: () => WS, projOf: () => proj,
 }, document, window);
 const {
   openPickDlg, polishPrompt, releaseCandUrl, releaseSceneUrls, releaseShotUrls,
-  renderPolishPanel, restoreLocalBlobs, setPolishUI, toDataURL, uploadImageDataUrl,
+  renderPolishPanel, restoreLocalBlobs, setPolishUI, shotPolishOf, toDataURL, uploadImageDataUrl,
 } = Ref;
 
 /* Estimate域（engine/estimate.js）：费用预估与画面生成（时间切片）那一整段搬进模块，
    这里只留接线。REG 走访问器；kf* 那批选择值归模块，Panel 经下面那几对读写。
    其余几位在建包这一刻都已就绪，直接递。 */
 const Estimate = createEstimate({
+  cfg,
   $, addRefImage, allShots, curShot, ensureChainModel, loadCredits, newShot, provOf,
   renderEditor, renderSoft: (...a) => renderSoft(...a), resolvedModel, scheduleSave, setShotDur, setStatus,
   shotAdvCtx, shotAdvExtras, shotInputCaps, shotKeyframes,
@@ -1239,7 +1265,7 @@ function setStatus(t) {
 /* 工具栏事件域（engine/toolbar.js）：加场景 / 剧本查看与粘贴 / 拆分入口搬进模块，
    这里只留接线（这一域不交名字回来）。proj / REG 走访问器。 */
 createToolbar({
-  $, REGOf: () => REG, aiStoryboard, allShots, beginEdit, feedScenePics, filmEdited, newShot,
+  $, REGOf: () => REG, aiStoryboard, allShots, beginEdit, cfg, feedScenePics, filmEdited, newShot,
   placeScenesInto, projOf: () => proj, renderAll, reportScenePics, scheduleSave, setStatus, uid,
 }, document, window);
 /* 批量生成：所有「还没真正生成过」的镜头一起提交（并发，不再一镜一镜排队等）
@@ -1251,6 +1277,7 @@ const hasRealCandidate = sh => (sh.candidates || []).some(c => c && c.status !==
    放在这一段（而不是原来 4359 那个位置）是因为访问器要读的 const 到这里才全部初始化完，
    早一步建包就撞上 TDZ（临时死区）—— 建包时读到的 const 还没值。 */
 const Gen = createGen({
+  cfg,
   videoPlanOf: (...a) => videoPlanOf(...a),
   $, canStatus, uid, mkCandidateBase, allShots, curScene, ensureChainModel, chainWaitWhy,
   resolveChainFrame, scheduleSave, dlStage, assetStoreId, sameAssetSpace, loadCredits,
@@ -1258,10 +1285,14 @@ const Gen = createGen({
   applyRefSyntax, refTokenize, resolvedModel, ROLE_ZH, comboLabel, shotUsedRoles, shotCombo,
   shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
   shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
+  /* 润色全部文案：按镜构造与单镜润色同一份（Ref 域在它之前建包，直接递名字） */
+  shotPolishOf,
   updateBanner, setStatus, hasRealCandidate, projOf: () => proj, wsOf: () => WS, regOf: () => REG,
   setForceMid: v => setForceMid(v), setSelectedCandidate,
   renderSoft, addKeyframeToRefs, kfModelOf, Panel, BoardAssetsOf: () => BoardAssets,
 });
+/* Gen 建好了：把 Mid 用的等待文案转发口接到它上面。 */
+genAllWaitOf = Gen.genAllWaitOf;
 
 $('genAll').onclick = async () => {
   const runProj = proj;
@@ -1289,6 +1320,41 @@ $('genAll').onclick = async () => {
     Gen.refreshGenAllBtn();
   }
 };
+/* 批量动作只有一颗分裂按钮：主钮跑生成全部分镜，尾钮的浮层里收「润色全部文案」。
+   浮层是 fixed 坐标（左栏 overflow:hidden 会裁掉 absolute），打开时按尾钮的盒子现算：
+   右缘与尾钮对齐、底边贴在尾钮上沿，左缘夹进视口。点外面 / Esc / 尺寸变 / 任何滚动都关。 */
+{
+  const genMenu = $('genAllMenu');
+  const genMore = $('genMore');
+  const closeGenMenu = () => {
+    if (genMenu.hidden) return;
+    genMenu.hidden = true;
+    genMore.setAttribute('aria-expanded', 'false');
+  };
+  const openGenMenu = () => {
+    genMenu.hidden = false;
+    genMore.setAttribute('aria-expanded', 'true');
+    const r = genMore.getBoundingClientRect();
+    const w = genMenu.offsetWidth || 190;
+    genMenu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
+    genMenu.style.bottom = Math.max(8, window.innerHeight - r.top + 4) + 'px';
+  };
+  genMore.onclick = e => {
+    e.stopPropagation();
+    if (genMenu.hidden) openGenMenu(); else closeGenMenu();
+  };
+  genMenu.addEventListener('click', e => {
+    e.stopPropagation();
+    if (e.target.closest('button')) closeGenMenu();
+  });
+  document.addEventListener('click', closeGenMenu);
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGenMenu(); });
+  window.addEventListener('resize', closeGenMenu);
+  document.addEventListener('scroll', closeGenMenu, true);
+}
+/* 「润色全部文案」：分裂按钮尾项里的批量入口（gen.js 的 runPolishAll）。
+   运行中再点 = 停止（那一行的换面归 refreshPolishAllBtn 管，这里只转一手）。 */
+$('polishAll').onclick = () => { Gen.runPolishAll(); };
 /* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 工程目录。
    这里只把引擎的读写口递进去；导出状态（渲染中 / 取消）由那一份自己持有。
    时间线不再从这里递：`filmOf` 给出唯一的那份成片模型，段表由导出域自己按 `deriveTimeline` 现算，
@@ -1304,7 +1370,7 @@ createExportWire({ $, Export, ExportFormats, importMediaFile }, document, window
 /* 数据消毒域（engine/sanitize.js）：整份工作区进内存前的修复搬进模块，这里只留接线。
    WS / proj 走访问器；上面 ProjectFile 装配时拿到的 sanitize 是一枚箭头，运行到这里才求值。 */
 const Sanitize = createSanitize({
-  newShot, projOf: () => proj, setProj: v => { proj = v; }, uid, wsOf: () => WS,
+  mkDraftCandidate, newShot, projOf: () => proj, setProj: v => { proj = v; }, uid, wsOf: () => WS,
 }, document, window);
 const { sanitize } = Sanitize;
 

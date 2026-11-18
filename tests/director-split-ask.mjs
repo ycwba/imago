@@ -99,7 +99,7 @@ assert.ok(/renderPolishPanel\(sh\);[\s\S]{0,400}?renderSplitPanel\(\);/.test(pan
 /* 空态分支只认「没有镜头那一条路里调了 renderSplitPanel」：
    那一行外层现在套的是公共件（重画不吃滚动位），把写法钉死就变成盯着壳子测接线。 */
 assert.ok(/if \(!sh\) \{[\s\S]{0,400}?renderSplitPanel\(\);/.test(panelSrc),
-  'renderEditor 的空态分支（空项目）没接 renderSplitPanel —— 拆一份新的从空项目发起时问答面板没有落点');
+  'renderEditor 的空态分支（空项目）没接 renderSplitPanel —— 从空项目发起拆分镜时状态过渡钩子没有落点');
 
 /* ---- 那一档还在，且与读取端同一个键 ----
    行的声明住在 ui.js 的 UI_PREFS.setRows（设置页按它渲染）。要守的是**接线**：

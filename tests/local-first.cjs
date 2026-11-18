@@ -93,6 +93,16 @@ function boot(opts) {
     CustomEvent: class { constructor(t, x) { this.type = t; this.detail = x && x.detail; } },
     /* 浏览器里这条文案来自 web/ui/net.js；镜像失败那条路会念它（本 VM 不装 net.js） */
     errText: e => String((e && e.message) || e || ''),
+    /* 扩展名与音频类型这两个判据在浏览器里是 web/ui/ui.js 的 fileExtOf / isAudioType
+       （assetlib.js 的 normalizeRaw 要用）。本 VM 不装 ui.js，这里照那一份抄同样的算法 ——
+       抄的是判据本身，不是结论：先认条目自己带的 format，认不出才按类型猜。 */
+    isAudioType: t => t === '音频' || t === '音乐',
+    fileExtOf: it => {
+      const t = String((it && (it.mtype || it.type)) || '');
+      const fmt = String((it && it.format) || '').toLowerCase().replace(/^[.\s]+|[.\s]+$/g, '');
+      if (/^[a-z0-9]+$/.test(fmt)) return fmt === 'jpeg' ? 'jpg' : fmt;
+      return t === '视频' ? 'mp4' : (t === '音频' || t === '音乐') ? 'wav' : 'png';
+    },
     /* 名字怎么洗在浏览器里是 ui.js 的 fileSafe；落盘前给文件起名会用到（本 VM 不装 ui.js） */
     fileSafe: (s, max) => String(s == null ? '' : s).replace(/[\\/:*?"<>|]/g, '-').slice(0, max || 60),
   };
@@ -568,7 +578,86 @@ const g20 = (async () => {
   ok('不再把 _mirrorAnnounced 写回候选对象', !/c\._mirrorAnnounced\s*=\s*true/.test(src), '');
 })();
 
-Promise.all([g11, g12, g13, g15, g16, g17, g18, g19, g20]).then(() => {
+/* ㉑ 云端说成功、却没给产物地址（平台把过期产物清掉之后就是这个形状：VGENV 实测 output:null）。
+     这一族以前一律写成「生成中」，于是永远生成中、刷新也不自愈。现在分三档：
+       ① 本机账里有这条任务唯一的一份视频 → 当场当本机资产，卡片直接播本地文件；
+       ② 早就完成（超过 30 分钟宽限期）→ 已过期；
+       ③ 刚完成 → 仍按生成中等一轮（接口竞态的容忍不变）。 */
+const g21 = (async () => {
+  const REG = { providers: [{
+    id: 'vgenv', name: 'VGENV 视频', displayName: 'VGENV', kind: 'video', relay: '/vgenv',
+    endpoints: { list: '/v2/videos' },
+    list: { dataField: 'data', limit: 100,
+      map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+        created: 'created_at', completed: 'completed_at', outputUrl: 'output.url',
+        duration: 'duration', tier: 'tier', res: 'resolution', ar: 'aspect_ratio' },
+      statusMap: { succeeded: 'done' }, media: { fixed: '视频' } },
+  }] };
+  const HOUR = 60 * 60 * 1000;
+  /* 一条「成功但没有产物地址」的任务：output 整段是 null（平台清掉过期产物后的形状） */
+  const jobRows = (agoMs) => ({ data: [{
+    id: 'job_x', status: 'succeeded', prompt: '把猫换成狮子', model: 'cinematic',
+    created_at: new Date(Date.now() - 2 * HOUR).toISOString(),
+    completed_at: new Date(Date.now() - agoMs).toISOString(),
+    output: null, duration: 5,
+  }] });
+  const loadJob = async (rows, opts) => {
+    const b = boot(opts || {});
+    b.ctx.Api.request = async () => rows;
+    b.ctx.Api.listCursor = () => '';
+    const r = await b.Lib.load({ pages: 1, reg: REG, prompts: false });
+    return { b, entries: r.entries || [] };
+  };
+
+  /* ① 本机有唯一一份副本 → 当场当本机资产（不再显示生成中，直接播本地文件） */
+  const one = await loadJob(jobRows(2 * HOUR), { rows: [rowOf('la_x', { taskId: 'job_x', format: 'mp4',
+    name: '王八.mp4', byte_length: 1024, file: '视频/王八.mp4' })] });
+  const e1 = one.entries[0] || {};
+  ok('云端成功但没地址、本机有唯一副本 → 条目就是本机资产',
+    e1.kind === 'asset' && e1.assetId === 'la_x' && e1.status === 'done', JSON.stringify(e1).slice(0, 220));
+  ok('地址换成本机文件（卡片直接播它）', e1.src === '/asset/la_x?v=2', e1.src);
+  ok('下载名用账里的规范名（不补两次尾缀）',
+    String(e1.dl || '').endsWith(encodeURIComponent('王八.mp4')) && !/王八\.mp4\.mp4/.test(String(e1.dl || '')),
+    String(e1.dl));
+  ok('本机那一行的落点与字节数也记着', e1.mirror && e1.mirror.a === 'la_x'
+    && e1.mirror.b === 1024 && e1.mirror.fp === '视频/王八.mp4', JSON.stringify(e1.mirror));
+
+  /* ② 没有本机副本、早就完成 → 已过期（不是 running），并且说得出原因 */
+  const two = await loadJob(jobRows(2 * HOUR), {});
+  const e2 = two.entries[0] || {};
+  ok('没有本机副本、早过了宽限期 → 已过期（不再是 running）',
+    e2.kind === 'task' && e2.status === 'expired', JSON.stringify(e2).slice(0, 220));
+  ok('过期那一条说得出原因', !!e2.failMsg, String(e2.failMsg));
+
+  /* ③ 刚完成 → 仍按生成中等一轮（接口竞态的容忍不变） */
+  const three = await loadJob(jobRows(60 * 1000), {});
+  const e3 = three.entries[0] || {};
+  ok('刚完成的那一条仍是生成中（竞态容忍不变）',
+    e3.kind === 'task' && e3.status === 'running', JSON.stringify(e3).slice(0, 220));
+})();
+
+/* ㉒ 同一份东西只留一张卡：本机那条认得平台任务号 → 「生成中任务卡 + 本机视频卡」不再同时出现 */
+{
+  const { Lib } = boot({});
+  const task = { kind: 'task', provider: 'vgenv', id: 'job_x', genId: 'job_x', taskId: 'job_x', status: 'running' };
+  const localRow = { kind: 'asset', provider: 'vgenv', id: 'la_x', assetId: 'la_x', genId: 'la_x',
+    taskId: 'job_x', localAsset: true, status: 'done', src: '/asset/la_x?v=2' };
+  const merged = Lib.mergeEntries([task, localRow], []);
+  ok('任务卡与本机那一份合成一张', merged.length === 1 && merged[0].kind === 'asset',
+    'len=' + merged.length + ' ' + JSON.stringify(merged.map(x => [x.kind, x.id])));
+}
+
+/* ㉓ 「不显示云端任务」：已结束的（已取消 / 已过期 / 无效）也藏掉；在跑的与失败的仍留着 */
+{
+  const { AL } = boot({ prefs: { sk_media_cloud_hide: '1', sk_media_local: 'on', sk_media_prefer: 'on' } });
+  const task = st => ({ kind: 'task', provider: 'vgenv', id: 'job_x', genId: 'job_x', status: st });
+  ok('已过期的那一条也藏掉', AL.hideAsCloud(task('expired')) === true);
+  ok('已取消的那一条也藏掉', AL.hideAsCloud(task('cancelled')) === true);
+  ok('在跑的不藏（刚点了生成不能让它消失）', AL.hideAsCloud(task('running')) === false);
+  ok('失败的仍保留（原因要看得见）', AL.hideAsCloud(task('failed')) === false);
+}
+
+Promise.all([g11, g12, g13, g15, g16, g17, g18, g19, g20, g21]).then(() => {
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');
   process.exit(bad ? 1 : 0);
 }).catch(e => { console.error('✗ ' + (e && e.stack || e)); process.exit(1); });

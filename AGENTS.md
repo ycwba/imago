@@ -259,6 +259,10 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - `'wasm-unsafe-eval'` 只放开 WebAssembly 编译（mediabunny 与浏览器内 ASR 走它）；`eval` / `new Function` 不在放行范围。
 - `script-src 'self'`：脚本与事件处理器只从同源外部文件加载。
 - `style-src 'unsafe-inline'`：覆盖现有的 `style=` 与动态样式元素。
+- `connect-src 'self'` **不含 `data:` / `blob:`**：页面代码不许 `fetch('data:…')` / `fetch('blob:…')`
+  去读一张图 —— 浏览器会当场判成「连不上」，而 `Net.fetch` 还会把它说成「与本地代理的连接断了」。
+  dataURL 一律就地解码（`TextAI._blob`：base64 → `Blob`），图片 / 掩码 / 语音都走这一条；
+  `img-src` / `media-src` 放行这两档，所以 `<img>` / `<video>` 显示不受影响。
 
 ## 启动器
 
@@ -568,7 +572,8 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
    `Wb.viewport.keep(el, fn)` 里 —— `el` 是那块要重画的外层（不是按钮），公共件按锚点在重画后
    把容器里的滚动位还回去。keep **不自动向上找**（重画路径里常挂着故意滚的那一路，无条件罩祖先会把它们抹掉）：
    要稳住哪只容器，就把那一只、或它的任一个祖先当 `el` 传进来；「这一页在窄窗里改由外层滚」的
-   加 `opts.outer` 连外面那只在滚的祖先一起稳住。故意的滚动（翻页回页首、会话贴底、跳到某一组）
+   加 `opts.outer` 连外面那只在滚的祖先一起稳住；整栏内容被**换掉**（工作台切视频 / 图像 / 语音，
+   两边没有同一行可认）时加 `opts.absolute`，按像素位还而不是按锚点。故意的滚动（翻页回页首、会话贴底、跳到某一组）
    写在 `keep(...)` **返回之后**。列表刷新不用页面操心：`Wb.cards.paint` 内部已经套了；
    `Wb.filterBar` / `Wb.kindFilter` 是就地改文本、不整片重画。
 3. **它就地展开吗**：展开一块嵌在滚动容器里的东西（型号面板、详情块）而**不**整片重画时，
@@ -732,8 +737,14 @@ ESM 公共件只从 `web/ui/index.js` 取；经典脚本那一族（`window.*` �
     （`.capcell`：强调描边 = 主位 / 淡底 = 在用 / 白底 = 备用 / 压暗 = 停用），一档一行
     （`.crow`：能力名 · 状态牌 · 型号 n/m 就地展开清单；文字档另有型号下拉 + 测试）。
   · 等高竖排：列宽 `--sz-acct-w`（`auto-fill` 铺满），卡高 `--sz-acct`，卡内 `.acct-mid` 自己滚 ——
-    展开密钥行、展开型号面板都不改卡的外形。型号面板摊开时钉住点中的那一行
-    （`Wb.viewport.reveal(面板, { pin: 行 })`），多出的高度由 `.acct-mid` 内滚消化。
+    展开密钥行不改卡的外形。**型号面板是例外**：表头 + 清单（限高 264）+「添加型号」比卡内
+    那段滚区还高，等高只会把清单裁成一条缝（看得见表头、看不见行 —— 正在用的那个型号
+    与它的 图 / 音 / 视 都露不出来），所以摊开面板时这一张卡按内容长高（`.acct.panel-open`，
+    上限 78vh；`.acct-grid` 是 `align-items: start`，同一行别的卡不动），仍钉住点中的那一行
+    （`Wb.viewport.reveal(面板, { pin: 行 })`）。清单打开时还会滚到「正在用」那一行：
+    文字供应商动辄几百个型号，它按 id 排往往在很后面。清单行上的选中态叫 **`.picked`**，
+    不叫 `.pick` —— `.pick` 是资产卡上那颗多选勾选框，全局 `.card .pick { position:absolute;
+    width/height:18px }` 会把整行压成一个方块，「选中的型号在清单里消失」就是这么来的。
   · 密钥默认收着，开关是名字右边那颗 `.keytoggle`；名字本身链官网（↗）；
     接口地址不在卡上改（预设那几家一律走官方地址，中转站 / 网关加成自定义供应商）。
   · 型号偏好按**账号 + 能力档**分槽（`sk_model_prefs` 的键是 `<keyId>:<kind>`，`typed` / `off` /
@@ -863,6 +874,15 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   同组那一条若留着，下一轮又自成一张卡或留下一个「文件已不在」的空条 —— 用户看见「删了又回来」。
   文件删不掉就不裁索引（回 500 照实说）。
 - 「本机 / 云端」的读法只有 `AssetLocal.stateOf(entry)`。
+- **云端说成功、却没有产物地址**（平台把过期产物清掉之后的形状，VGENV 实测 `status:succeeded` +
+  `progress:100` 但 `output` 整段是 `null`）：列表层不再一律当「接口竞态」写成「生成中」——
+  那一支以前让这批任务永远转圈、刷新也不自愈。三档（`web/domain/assetlib.js` 的 `normalizeRaw` 与
+  `web/pages/studio.js` 的 `itemFromPoll` 共用一把尺子，宽限期 30 分钟）：① 本机账里有这条任务**唯一一份**
+  视频 → 当场当本机资产、卡片直接播本地文件（只对视频；多图任务镜像一张不能代表整条任务）；
+  ② 早就完成（过宽限期）→ `expired`（已过期）；③ 刚完成 → 仍按「生成中」等一轮（真竞态）。
+  本机镜像行的**平台任务号在 `taskId` 上**（`genId` 是本机号 `la_xxx`）：合卡那一把尺
+  （`mergeEntries` 的 `doneGens`）两边都要比，否则同一份东西会同时留着一张「生成中」任务卡和一张本机
+  视频卡。判据 `tests/local-first.cjs`。
 - 自动镜像由应用级事件触发：`wb:asset-done`；`AssetLocal.watch` 统一接住并 scan。
   字节由代理流式落盘：`Api.saveLocalFromUrl` → `POST /local-assets/from-url`（大文件不走 base64）。
 - **浏览器只留当前会话的别名表（内存），代理那一份账说了算**（`web/domain/local.js`，判据 `tests/local-first.cjs`）：
@@ -965,7 +985,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 能力 | 唯一实现 |
 | --- | --- |
 | 下拉 / 浮层 | `web/ui/ui.js` 的 `Dropdowns`（程序化改完 options 后 `Dropdowns.sync(select)`） |
-| 网络 | `web/ui/net.js` 的 `Net`（超时 / 重试 / `NUMS` / `num` / `storedNum` / `setNum`） |
+| 网络 | `web/ui/net.js` 的 `Net`（超时 / 重试 / `NUMS` / `num` / `storedNum` / `setNum`）。外部 signal 的中止监听在**返回 Response 之后仍然保留** —— 流式响应的正文是返回之后才读的，摘掉监听等于全站「停止」按钮失效；取消不重试（哪怕幂等方法）。判据 `tests/e2e/net-abort.cjs` |
 | 本地存储 | `web/ui/store.js` 的 `Store`（信封 / 上限 / `sweep`） |
 | IndexedDB | `web/ui/kv.js` 的 `Kv.at(登记名)`（登记表只有一份） |
 | 提示 | `web/ui/toast.js` 的 `Toast`（`Toast.after` 只用于刷新后那一句） |
@@ -973,7 +993,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 数据同步 | `web/ui/datasync.js` 的 `DataSync` |
 | 弹窗 / 确认 | `UiDialog` / `Confirm.ask` / `Confirm.arm` / `Confirm.choose` |
 | 分段 / 芯片 | `ui-seg` / `Chips.render` / `AiChip.paint` |
-| AI 挑几条 / 就地润色 / 提示词表单 | `AiFind.run` / `InlinePolish` / `PromptForm`（正文六句只在 `TextAI`）；`AiFind.run` 先 **await 页面的重画**再写回执 —— 素材库 / 收藏的 render 是异步的，反过来的话失败 / 没挑到那一句会被「N 项」覆盖，看起来像点了没反应 |
+| AI 挑几条 / 就地润色 / 提示词表单 | `AiFind.run` / `InlinePolish` / `PromptForm`（正文六句只在 `TextAI`）；提示词表单的「参考图」格（`type:'pics'`：多选就地转 dataURL 存 JSON、缩略行可就地摘、`pick` 回调由调用方给）与「复制粘贴图片 → 正文里插『［图N］』文字占位」也在这一份；**拖图文件进弹窗与粘贴同一副落点**，入图字节走字段定义的 `onFile: async file => src`（调用方在此做压缩，公共层不认识它；没给就原样 dataURL）；`AiFind.run` 先 **await 页面的重画**再写回执 —— 素材库 / 收藏的 render 是异步的，反过来的话失败 / 没挑到那一句会被「N 项」覆盖，看起来像点了没反应 |
 | 提示词里的 @素材 | `web/ui/asset-mention.js` 的 `createAssetMention` / `insertToken` / `mentionAt` / `libraryPicChoices` / `libraryTokenOf`：候选浮层、镜像高亮、悬停小卡、角色资产二级菜单与光标处插入都在这一份；导演台与工作台只经上下文给「候选从哪来、选中之后做什么」 |
 | 「拆成几张 / 按什么维度拆」那一排选项 | `SplitPlan`（`web/ui/forms.js`）：工作台图像栏「拆分片段生成」与导演台右栏「按描述生成这一镜的画面」共用这一份 —— 张数档与维度档（`FAM[家]`）、那一排的 HTML（`html`）、读 DOM（`read`，节点取手由页面交进来，件内不查 `document`）、发给文字 AI 的「张数：…／拆分维度：…」那两行（`userLines`）都只在这里。两家的契约仍然分开（工作台 `img_split.json`、导演台 `story.json`），共享的是控制面与那两行的写法；当前值由调用方拿着（导演台右栏每 3 秒整片重画，存 DOM 会被抹掉），「自动」那句报的张数范围必须与各家契约正文里的兜底那一条一致（判据 `tests/split-plan.mjs`） |
 | 「让 AI 干一件事」那颗按钮的外观 | `aiBtnHTML` / `aiBtnState`（`web/ui/ui.js`）：页面里的动作按钮外壳只有 `.tool.acc` + `.ic` 图标 + `.tx` 一行字这一种；忙与闲只换 `.tx`，那两句话挂在节点的 `data-idle` / `data-busy` 上，整栏重画（导演台右栏每 3 秒一次）也不会丢当前状态。**名字与说明句在各家族那一份里**：润色类 `InlinePolish.btnHTML`（作用域只写进 title，按钮上那行字全站同一句「AI 润色」）、AI 搜索类 `AiFind.btnHTML`（`LABEL` / `BUSY` / `TITLE` / `failText` 只在那一处；外壳按**搜索组件**画成 `.fb-ai`，与输入框同高、同档小圆角（`--radius-6`，与「多选 / 刷新」一致）、不带图标，不是紫色动作按钮）；页面直接调这两枚生成外壳，忙与闲都经 `aiBtnState` 换字（判据 `tests/selfcheck.cjs` §5b） |
@@ -1003,7 +1023,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 时间线编辑纯件 | `web/director/tl-cut.js` / `tl-resize.js` / `tl-ripple.js` / `tl-reorder.js` / `tl-snap.js` / `tl-scale.js` / `tl-peaks.js` / `tl-markers.js` / `tl-autoscroll.js`（切刀融合 / 裁剪滑移滑动 / 波纹 / 重排跨行 / 吸附 / 比例尺刻度 / 波形 / 标记；判据 `tests/director-tl-edit.mjs`） |
 | 胶片条与取帧 | `web/director/tl-filmstrip.js`（显示层帧计划）+ `web/director/slice.js`（数据层帧索引预算）+ `engine/frames.js`（解码 / 缓存 / 退避）；判据 `tests/director-strip.mjs`、`tests/director-slice.mjs` |
 | 切片帧打包 / 编码 | `web/director/slice-pack.js`（`SLICES02` 打包 / 解包）+ `web/director/slice-worker.js`（JPEG 编码 worker，只编码不 seek / 解码）；判据 `tests/director-slice-pack.mjs` |
-| 导演台拆分镜 / 请求预览 / 候选地址 / 小纯函数 | `web/director/board.js` / `split-assets.js` / `board-preview.js` / `media.js` / `util.js`（拆分镜、这一镜将要发出的请求体、候选身份 → 预览 / 导出地址、导演台小纯函数） |
+| 导演台拆分镜 / 请求预览 / 候选地址 / 小纯函数 | `web/director/board.js` / `split-assets.js` / `board-preview.js` / `media.js` / `util.js`（拆分镜、这一镜将要发出的请求体、候选身份 → 预览 / 导出地址、导演台小纯函数；随附图号只有 `board.js` 的 `picsIdxOf` 一份解析 —— AI 写的「图N」翻成 `prepareMedia` 素材表的下标；挂图闸只有 `panel.js` 的 `bindShotPics` 一份（能力闸 / 去重 / 上限与 `addLibPicToShot` 同一套），拆分落盘经 `split-assets.js` 的 `bindPics` 转一手，改稿落盘 `applyBoardPlan` 直调。**场景认回只有 `board.js` 的 `matchSceneOf` 一份**：nameKey 精确之外剥「场景1 xxx」这类编号前缀 —— 接着往下拆的落盘归并（`placeScenesInto` 带 `opts.append`）只用它，AI 给现有场景名加编号不再另起一场；无名场景缺省沿用现有末场名） |
 | FCPXML 拼装 | `web/director/fcpxml.js`（单文件 / 媒体包 zip / 持久工程目录三档共用 `buildFCPXML`；转场按 FCPXML 1.10 的居中重叠写 `<transition>`，字幕样式写 `text-style`，不绑定任何剪辑软件） |
 | 浏览器内 ASR worker | `web/director/asr-worker.js`（module worker，Whisper q8；模型只走同源 `/models/`，`allowRemoteModels` 关死；取消 = `terminate()`，识别全程留在 worker 里） |
 | 用户目录根 | `server/user-dirs.js`（`systemDownloadsDir` / `downloadsRoot` / `AUTOSAVE_TOP_DIR` / `PROMPTS_DIR_NAME`；系统下载文件夹按注册表 KNOWNFOLDERID 取，不猜 `HOME\Downloads`） |
@@ -1026,16 +1046,18 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 语义检索 | `web/domain/semantic.js` 的 `SemanticSearch.rank` |
 | 导演台台词面板 | `web/director/film.js` 的 `speakerOf` / `lineTimeOf` / `lineRowHTML`（剪辑右栏「台词」那一档与配音列表共用） |
 | 导演台导出格式 | `web/domain/export-formats.js`（页头按钮 / `export_start` 分派 / 助手枚举与文案都读这一张表） |
-| 导演台项目文件（完整工程导出 / 导入） | `web/director/project-pack.js` 的 `buildProjectPack` / `assertProjectPack` / `describeProjectPack` / `prepareProjectPackImport`（`PROJECT_PACK_VERSION` 现为 1）：包里带每一镜的**全部候选**（含未选用 / 失败 / 草稿）、提示词与台词、参考图与首尾帧、选用 / 裁剪 / 锁定、成片轨、画幅与项目组名；只认当前一版且带 `projects` 校验和，旧版 / 高版本 / 校验和对不上一律零写入拒绝。导出只清 `blob:` 临时地址 / `_objUrl` / 视口游标并记下清了几条，**项目组只带组名、`groupId` 抹掉**（组 id 是那台机器的身份，跨机器会认错组）；导入追加为新短片，撞 id 换一枚、撞名按「（导入）」→「（导入 2）」→「（导入 3）」往后编号（本机已有同名短片、以及同一批里刚分出去的名字都算，同一个包连导多次不会出现两部同名）、在途生成标成可重试，绝不覆盖现有作品；组按名字认领：本机没有同名组就新建；已有同名组**先问**「并入那个组 / 给导入的组改名（加「（导入）」后缀，本机原有的组不动）」。导入前还会用**内容指纹**（`projPackFingerprint`：id / 名字 / 组 / 面板算出来的 `combo`·`adv`·`duration`·空默认值都不进指纹，成片轨照比）扫一遍本机，内容完全一致的短片**先问**「跳过 / 照导并重命名」，全跳过时工作区一个字节都不写（`scanProjectPackConflicts` 只报事实，问不问、怎么落由 engine 决定）。视频字节不进包（本机素材走「导出媒体包」）。入口画在页头短片下拉（`#projMenu`）底部：默认折叠成一行「项目文件 · 导入 / 导出」（小字、次级色，是这一组的**头**），摊开后是一颗**导出拆分按钮**（主钮「导出当前短片」、尾钮摊开「导出当前项目组短片 / 导出全部短片」，窄范围在前）加一行「导入项目文件」；摊开的内容整组缩进在 `.pm-io-body` 的一条竖线里、行内文字用正文色（不用强调色），一眼看得出它们长在那行标题下面而不是与短片行同级；每次重开菜单都回到折叠态。选择器 `#projPackFile` 放菜单外（菜单整栏重画会把它冲掉）。判据 `tests/director-project-pack.mjs` / `tests/e2e/director-project-pack.cjs` |
+| 导演台项目文件（完整工程导出 / 导入） | `web/director/project-pack.js` 的 `buildProjectPack` / `assertProjectPack` / `describeProjectPack` / `prepareProjectPackImport`（`PROJECT_PACK_VERSION` 现为 **2**）：包里带每一镜的**全部候选**（含未选用 / 失败 / 草稿）与**每条候选各自的配置**（描述 / 型号 / 档位 / 画幅 / 时长 / 参考文件 / 关键帧 / 接续标记）、台词、选用 / 裁剪 / 锁定、成片轨、画幅与项目组名；只认当前一版（v2）且带 `projects` 校验和，**v1 旧包明确拒绝**（旧格式的「画面」层已经退役）、高版本 / 校验和对不上一律零写入拒绝。导出只清 `blob:` 临时地址 / `_objUrl` / 视口游标并记下清了几条，**项目组只带组名、`groupId` 抹掉**（组 id 是那台机器的身份，跨机器会认错组）；导入追加为新短片，撞 id 换一枚、撞名按「（导入）」→「（导入 2）」→「（导入 3）」往后编号（本机已有同名短片、以及同一批里刚分出去的名字都算，同一个包连导多次不会出现两部同名）、在途生成标成可重试，绝不覆盖现有作品；组按名字认领：本机没有同名组就新建；已有同名组**先问**「并入那个组 / 给导入的组改名（加「（导入）」后缀，本机原有的组不动）」。导入前还会用**内容指纹**（`projPackFingerprint`：id / 名字 / 组 / 面板算出来的 `combo`·`adv`·`duration`·空默认值都不进指纹，成片轨照比）扫一遍本机，内容完全一致的短片**先问**「跳过 / 照导并重命名」，全跳过时工作区一个字节都不写（`scanProjectPackConflicts` 只报事实，问不问、怎么落由 engine 决定）。视频字节不进包（本机素材走「导出媒体包」）。入口画在页头短片下拉（`#projMenu`）底部：默认折叠成一行「项目文件 · 导入 / 导出」（小字、次级色，是这一组的**头**），摊开后是一颗**导出拆分按钮**（主钮「导出当前短片」、尾钮摊开「导出当前项目组短片 / 导出全部短片」，窄范围在前）加一行「导入项目文件」；摊开的内容整组缩进在 `.pm-io-body` 的一条竖线里、行内文字用正文色（不用强调色），一眼看得出它们长在那行标题下面而不是与短片行同级；每次重开菜单都回到折叠态。选择器 `#projPackFile` 放菜单外（菜单整栏重画会把它冲掉）。判据 `tests/director-project-pack.mjs` / `tests/e2e/director-project-pack.cjs` |
 | 字幕 SRT | `web/director/srt.js`（`srtParse` / `srtSerialize` / `resegment`；时间一律成片秒） |
-| 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算，写入只落 `sh.prompt`） |
-| 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `chainModelRepick` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用） |
+| 导演台剧本视图 | `web/director/script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`（按分镜现算；画面写回只落 `sh.prompt`，候选行按 vid 顺序写回各自描述、`auto` 行跳过并计数） |
+| 一镜描述与候选镜头语义（描述与配置都在候选身上） | `web/director/takes.js` 的 `cfgOf` / `defaultTakeOf` / `takePromptOf` / `setTakePrompt` / `shotPromptOf` / `setShotPrompt` / `promptTextsOf` / `anyPromptOf` / `draftTakesOf` / `shotHasVideo` / `shotVideoDone` / `takeBatchOf` / `cloneTakeOf` / `takeStatusZh` / `sanitizeTakes`（「画面」层已退役：每条候选自带描述与拍摄配置，`c.prompt == null` 沿用画面那种回落没有了；`cfgOf` 是「读配置」与「读镜头身份」的分界 —— 配置问它，身份问镜头；判据 `tests/director-takes.mjs`） |
+| 拆分镜那一档的文案闸门（接着往下拆只挡空） | `web/director/split-form.js` 的 `splitScriptGate`（短要求也是有效要求；判据 `tests/director-split-form.mjs`）。拆分镜表单只有「修改现有分镜 / 接着往下拆」两档——「拆一份新的」已删，两档都落在当前短片上 |
+| 导演台接续与批量调度 | `web/director/chain.js` 的 `shotPlacement` / `chainDeps` / `splitLongShots` / `pickChainModel` / `chainModelRepick` / `quoteKeyOf` / `sumQuotes` / `runWithDeps`（engine 只调用）。尾帧判定只认**没被删掉的**画面切片（`hasTailFrame` 滤 `k.deleted`，与 `panel.js` 的 `shotKeyframes` 同一口径）—— 删了的切片生成循环结束才移除，判定不滤就会拿用户刚删的那张当首帧 |
 | 场景镜头命名 | `web/director/naming.js` 的 `sceneShotBase` / `candidateBase` / `voiceBase` / `clipLabel` / `stripExt` / `withExt` / `uniqueName` |
 | 导演台项目组 | `web/director/groups.js` 的 `list` / `groupOf` / `assetGroupName` / `ensure` / `rename` / `remove` / `assign` / `tree`（组名即素材组名） |
 | 拆分镜的新素材 | `web/director/board-assets.js` 的 `plan` / `stage` / `repeatCounts` / `pendingIn` / `resolve` / `shotsPending` / `libSpec` |
 | 一镜素材的编号与引用语法 | `web/director/ref-plan.js` 的 `shotRefPlanOf` / `tokenizeRefPrompt` / `applyProviderRefSyntax`（首帧 → 尾帧 → 画面切片 → 参考图 → 参考视频 → 参考音频；芯片 / 润色附图 / 预览 / 提交体同源；平台语法由 registry 的 `refSyntax` 声明） |
 | 发送前的请求预览 | `web/domain/api.js` 的 `buildBody` / `preview`（与 `create` 同源，预览 = 纯算，不发网络请求） |
-| 原始请求面板 | `window.RawRequest`（`web/ui/raw-request.js`；按需补载；一栏预览、一栏实发并排，标题一枚状态标；不含 headers / 密钥，只在页面会话内存） |
+| 原始请求面板 | `window.RawRequest`（`web/ui/raw-request.js`；按需补载；**只有一栏——本次将要发出的预览**，随输入实时变，标题一枚状态标；发出后的实发不另存、不回看（完整提示词有 PromptLog 归档），`wb:raw-request` 事件与 `html` / `htmlList` 已删；不含 headers / 密钥，只在页面会话内存） |
 | Skill 正文里的变量占位符 | `web/domain/gen-forms.js` 的 `window.TplVars`（`fill` / `names`；「项目引用规则」就是它） |
 | 导演台的变量填料 | `web/director/board-vars.js` 的 `castOf` / `assetsOf` / `vars`（角色表 / 选中素材 / 现有分镜 / 时长区间） |
 | Skill | `web/ui/skills.js` 的 `WbSkills`（含 `refRule`：素材范围优先） |
@@ -1127,9 +1149,20 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   都看不见 —— 新增域模块时，engine 里那份 E 名单要与模块顶部解构逐名对着改，`tests/director-e-deps.cjs`
   当场数这两份名单）：
   - `gen.js`：分镜提交、平台任务轮询、自动镜像投递与「生成全部分镜」的依赖式批量调度
+    （接续链逐级自动生成：上一镜出画面才提交下一镜、提交体带上一镜尾帧；上一镜失败 → 级联不发且
+    收尾把「另有几镜没提交」说清；等待期间中栏的等待文案由 `genWaitIds` / `genAllWaitOf` 给，
+    只认点按钮那一刻计划里的镜头，批量的候选模式见「候选与描述」；判据 `tests/e2e/director-chain-auto.cjs`）。
+    同栏的「润色全部文案」也在这份：范围弹窗（芯片 + 逐条勾选）→ 4 路并发的居中过程弹窗（固定不反问、
+    可停止）→ 同一张弹窗换审阅清单、确认按条目写回（画面进 `sh.prompt`、候选走 `setTakePrompt`）；
+    按条构造与单镜润色是同一份（`ref.js` 的 `shotPolishOf`），这里不再拼第二套；判据
+    `tests/e2e/director-polish-all.cjs`
   - `shots.js`：候选占位（草稿 / 导入）、新镜头默认形状、本镜时长与选用 / 取消选用的唯一入口
   - `frames.js`：取帧、帧缓存与退避重试（`sliceKey` 稳定键 / `SLICE_FAIL_TTL` / `sliceRetryIn` /
-    `fillSlices` / `sliceForgetFail`）；数据层帧索引来自 `slice.js`，显示层格数来自 `tl-filmstrip.js`
+    `fillSlices` / `sliceForgetFail`）；数据层帧索引来自 `slice.js`，显示层格数来自 `tl-filmstrip.js`。
+    「就近顶上」的容差只有一份算式（`tl-filmstrip.js` 的 `spanTolOf`）—— strip 渐进重画与
+    ensureFrames 回执同一把尺；单格解码回执 30 秒没回来时 `paintClip` 的 busy 由看门狗放开并重问，
+    卡死的回执真回来时照常贴帧（applyCells 幂等）。判据 `tests/e2e/director-strip-paint.cjs`
+    （不拖动也要出图）
   - `timeline.js`：时间轴板的渲染与比例尺 —— `#tlTools` 工具条就地刷、`#tlRuler*` 刻度、
     `#tlPlayhead` 针层、`#tlScroll > #tlContent` 视口与内容层、`.tl-lane` / `.tl-track` / `.tl-strip` /
     `.tl-clip` / `.tl-junction` / `.tl-marker` / `.tl-voice` / `.tl-cap` 的排布、缩放与三秒重建的滚动还原
@@ -1154,7 +1187,9 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   - `split.js`：接续生成（上一镜尾帧当首帧）与拆分镜前「这次带哪些素材」的素材范围 / 两段式清单
   - `apply.js`：AI 拆分镜与改稿的落盘（新素材建档 + `@待建:` 占位符 + 分镜写入）；
     拆分镜 / 改稿前的「AI 反问」与过程面板也在这里（`askRound` + `splitUI` 状态 + `renderSplitPanel`
-    重画钩子，宿主与润色面板同为 `#polishInline`）
+    过渡钩子；转圈 / 反问 / 流式与随后的审阅是**同一张居中弹窗** —— 过程用 `PromptReview.openProcess`，
+    审阅用 `openList` 传同一个 `shell` 就地换标题接手，屏幕中间不关不闪）；三档表单的「参考图」格与随附图管线
+    （`prepareRefPics` 能力闸 → media 编号给 AI → AI 点图号 → 审查弹窗行上缩略图 + 整表报「哪些图没挂」）在这里
   - `estimate.js`：费用预估与「画面生成（时间切片）」—— 六档高参 / 三排声明驱动控件 / 拆分选项、
     关键帧的规划与出图、参考图补挂；`kfSplit*` 三枚选择值归模块自己并随高级参数同一枚键落盘
   - `api.js`：平台调用小件（图片压缩、上传阶段文案、素材转存落点、资产空间判据、余额、任务详情、缩略图缓存键）
@@ -1166,18 +1201,19 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
     `Export.project` 持久工程目录 + 打开文件夹）；三档与助手 `export_start` 共用 `fcpCtx()`；服务端没有渲染任务账
   - `shell.js`：整屏重画的三个入口（`renderSoft` 让路打字中的栏 / `renderAll` 立刻 / `updateProjUI` 只刷页头）
     与页头项目菜单（按项目组分树、就地改名 / 移组 / 新建组 / 删短片 / 展开折叠 / 项目文件那一组）
-  - `toolbar.js`：左栏「加场景」、剧本查看 / 改稿（按分镜现算、写回只落 `sh.prompt`）、
+  - `toolbar.js`：左栏「加场景」、剧本查看 / 改稿（按分镜现算、候选各自一行、写回画面只落 `sh.prompt`）、
     手动拆分弹窗与 AI 拆分入口这几颗按钮的接线
   - `projectfile.js`：完整工程导出（当前 / 当前项目组 / 全部）与导入（格式闸门、重复内容与重名组两问、
     追加为新短片、按旧 `la_` 号重绑本机素材、按组名认领项目组）
   - `modelhandoff.js`：建模台回传的白膜挂进这一镜（图走参考图、视频走参考槽位，不新造第三条写入口）
   - `exportwire.js`：页头导出拆分按钮（按格式表现画现绑）、导入媒体选择器、轨道坞把手与灯箱声明
-  - `sanitize.js`：整份工作区进内存前的消毒（项目 / 组 / 场景 / 镜头 / 候选 / 成片模型 / 画幅 / 接续字段）
+  - `sanitize.js`：整份工作区进内存前的消毒（项目 / 组 / 场景 / 镜头 / 候选 / 成片模型 / 画幅 / 接续字段）；
+    候选的形状转换（描述与配置下沉到候选、默认候选补齐）由 `takes.js` 的 `sanitizeTakes` 收口
   - `boot.js`：三栏比例把手、注册表与本地工作区读回（IndexedDB + 关标签兜底 + 数据文件对账）、
     首屏渲染与首屏之后的后台补齐（能力重画 / 本机视频 blob / 余额 / 轮询 / 白膜回传）
   - `bridge.js`：`WBBridge.director` 的 `check` / `run`（助手写入桥，按身份对账）
 - 纯算法按域拆开，engine 只调用；每一份的落点、函数与判据在「公共层：唯一实现清单」的导演台各行
-  （`film` / `slice` / `tl-*` / `srt` / `script` / `board*` / `groups` / `chain` / `naming` / `media` /
+  （`film` / `takes` / `slice` / `tl-*` / `srt` / `script` / `board*` / `groups` / `chain` / `naming` / `media` /
   `fcpxml` / `asr-text` / `asr-worker` / `util`）。改算法先改模块，engine 只留调用与状态。
 - **一镜素材的编号与发送顺序只有一份**（`ref-plan.js` 的 `shotRefPlanOf`）：首帧 → 尾帧 → 画面切片 →
   参考图 → 参考视频 → 参考音频；画面切片同时也在 `refImages` 里时按地址去重。界面芯片、@ 候选、
@@ -1185,6 +1221,43 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
   `@视频1` 由 `tokenizeRefPrompt` 换成规范的 `@参考图N` / `@视频N` / `@音频N`，再由
   `applyProviderRefSyntax` 换成平台声明的写法（registry 的 `refSyntax`：H3 一族是
   `<Picture N>` / `<Video N>` / `<Audio N>`）。页面直接读这一份编号。
+
+### 候选与描述
+
+- **「画面」层已退役：一镜 = 一组候选镜头**（`web/director/takes.js` 是这一族语义的唯一实现）。
+  镜头（`sh`）只留这一镜的公共信息：`id` / `name` / `draw`（张数）/ `line` / `lineWho` / `note` /
+  `candidates` / `selId`。**描述与拍摄配置都住在候选身上**：`c.prompt`（这一条自己的描述，恒为字符串，
+  没有「沿用画面」那种 null 回落）、`c.origin`（`auto` = 这一镜的第一条 / 主描述的落点；
+  `manual` = 用户「＋ 候选」克隆来的；`imported` = 导入的成品）、以及 `model` / `modelAuto` / `tier` /
+  `res` / `ar` / `size` / `dur`（**请求**时长）/ `refImages` / `refMeta` / `refVideo` / `refAudio` /
+  `keyframes` / `combo` / `firstFrame` / `lastFrame` / `linkPrev`。
+  `c.duration` 是**产物**的实际时长，与 `c.dur` 不是一回事（以前占位把请求时长塞进 `duration`，那处混用已拆开）。
+- **读配置与读镜头身份分两路**：配置一律经 `cfg(x)`（`takes.js` 的 `cfgOf`；给到镜头时按**当前查看那条候选**算，
+  给到候选时就是它自己 —— 批量那条路直接递候选）。镜头身份（`id` / 名字 / 台词 / 候选表 / `selId`）才问镜头本身。
+  各域里凡是 `sh.model` / `sh.tier` / `sh.duration` 那类读取，一律改成 `cfg(sh).…`；
+  右栏那一栏的**作用域是当前候选**（切候选要整栏换，不是只换提示词框）。
+- **＋候选 = 克隆当前那条**（`render.js` 的 `addCandidateDraft` → `cloneTakeOf`）：提示词与全套配置一起复制，
+  新增的是一条**完整的候选镜头**，不是空壳。
+- **「生成全部分镜」就地更新已有候选**：每一镜的提交单元 = 该镜**已有的待生成候选**（草稿 + 描述非空）
+  **就地**从 `draft` 改成 `creating`；张数不够（`draw` 大于已有草稿数）才**补建克隆**
+  （克隆自默认候选，带全套配置，不是替代品）。口径在 `takes.js` 的 `takeBatchOf`；
+  计划快照（`takes` / `fresh` / `counts`）在报价、确认、执行三处共用；执行时数量对不上
+  （用户刚删 / 改过）由这一镜报原因，不拿别的候选顶替。
+- **润色全部文案 = 「生成全部分镜」分裂按钮的尾项**（`.gen-split` 的 `#genMore` → `#genAllMenu`）：
+  先出范围弹窗（全部 / 视频已生成 / 还没视频三档芯片 + 逐镜、逐条勾选，勾选跨芯片保留），
+  再走与拆分镜同一张居中过程弹窗 —— 4 路并发、逐行流式、固定不反问；停止只掐在途请求、弹窗不关，
+  收尾把已有结果（含部分）换进同一张弹窗的审阅清单，确认才写回：**目标只有候选**
+  （没有「画面」这一类了，默认候选也是一条普通目标），按 vid 走 `setTakePrompt`（已删除的跳过），
+  写回条数与跳过数进状态行；一条都没润出来时收起弹窗并报「文案没有动」。
+- **接续链按候选**：接续标记 `c.linkPrev` 在候选上；「上一镜」仍按**镜头顺序**（稳定，不随生成结果漂）；
+  上一镜的尾帧取它的**参考候选**（`chain.js` 的 `tailCandOf`：选中的那条 → 最早创建的成功候选 →
+  最早创建的那条）—— 确定规则，不随候选数组排序漂。
+- **剧本视图按分镜现算，候选各自一行**（`script.js` 的 `scriptTextOf` / `parseScript` / `applyScript`）：
+  每条候选一行 `候选 N（状态）：…`；**不再有「画面：」那一行**，旧稿不再解析。写回按打开那一刻的
+  vid 顺序表定位，已删除的候选跳过并计数。
+- **旧工程一次性转形状**（`sanitize.js` → `takes.js` 的 `sanitizeTakes`）：镜头级那份描述与配置下沉到每一条候选，
+  旧的「沿用画面」（`c.prompt == null`）冻结成当时那一句，默认候选（`origin:'auto'`）承担当年画面基准的角色，
+  一条候选都没有的镜头补一条默认候选。**已生成的画面、状态、选用、裁剪一个字节都不动**。
 
 ### 时间线
 
@@ -1395,7 +1468,9 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
     范围 = `Wb.multi.selected()` 过 `AssetLocal.pullPlan`（本机已有 / 没地址 / 本地上传的都剔掉）。
   · 素材库：仍是那一档（当前档）的整批，因为那页没有多选条。
   判据在 `AssetLocal.pullPlan` 一份；按钮上的数与 title 走 `AssetLocal.pullBar` / `pullBtnTitle`。
-- 「不显示云端任务」由 `AssetLocal.hideAsCloud` 一张闸控制。
+- 「不显示云端任务」由 `AssetLocal.hideAsCloud` 一张闸控制：云端资产、已结束的那一族
+  （已取消 / 已过期 / 无效）、本机又没有字节的条目都藏掉；**失败的仍保留**（卡片上那句失败原因是唯一的
+  凭据，藏起来人就再也看不到为什么没成），在跑的也不藏（刚点了生成不能让它消失）。
 - 卡片徽标只有 `web/ui/badge-state.js` 一份（`badgeOf` / `badgeHTML`），五页同读 `AssetLocal.stateOf`。
 - 选择器来源档位只有 `AssetPicker` 的 `inView` 一处；音频条目按 `noMedia` 走自己的调度，
   不对音频生成 `<img>`。
@@ -1491,7 +1566,7 @@ vendored 依赖（`web/vendor/`）、内置 Skill 与判据基线（`skills/` `t
 | 合并 | `npm run test` | 批末回归 / 提交与推送前 | ~3s |
 | 全量 | `npm run test:all` | 想连浏览器冒烟一起跑时（按需，不挡提交） | 常驻 ~3s + e2e 冒烟 6 条（4 路并发）~70s，合计 ~75s |
 | 剪辑核 | `npm run test:director` | 改剪辑核时 | 纯件 5 条 + `director-core` 一次装配的冒烟（约 35s） |
-| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 58 项：56 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 5 条先独跑，其余 53 条 4 路并发，实测约 10 分钟 |
+| 浏览器 | `npm run test:e2e` | 按需手动跑（不是提交与推送的前置条件） | 59 项：57 条 e2e 判据 + `perf/boot` + `static-encoding --live`；读数型 5 条先独跑，其余 54 条 4 路并发，实测约 10 分钟 |
 | 观察 | `npm run test:watch` | 连续改码时 | 常驻前台；800ms 防抖 + 在途合并，触发 `map.cjs --changed --run` |
 | 写入型 | `node tests/data-snapshot.cjs` | 动了写盘路径时手工 | ~0.4s |
 

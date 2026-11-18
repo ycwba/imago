@@ -335,8 +335,6 @@ run('tests/director-strip.mjs', process.execPath, ['tests/director-strip.mjs']);
 run('tests/director-tl-edit.mjs', process.execPath, ['tests/director-tl-edit.mjs']);
 /* fileSafe 双份的边界：Windows 保留设备名两份同解除 / 各自文档化行为不漂。 */
 run('tests/file-safe.mjs', process.execPath, ['tests/file-safe.mjs']);
-/* 贴纸纯件：归一化 / 片长收紧 / 取活排序 / 一份画法。 */
-run('tests/director-sticker.mjs', process.execPath, ['tests/director-sticker.mjs']);
 /* 切片持久格式：写与读同一张排布表（错位时盘上有二十张、读出来两张，且写入一路 200）。 */
 run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pack.mjs']);
 /* 模板样式的挂根：每条选择器加零权重 `:where(.director-page)` 前缀（@scope 会被强制夜间扩展整块跳过），
@@ -346,6 +344,10 @@ run('tests/director-style-scope.mjs', process.execPath, ['tests/director-style-s
 run('tests/asset-ref.mjs', process.execPath, ['tests/asset-ref.mjs']);
 /* 任务详情：号反查 / 六种原因码 / 批量共用一轮；平台用桩替，不发一个真请求。 */
 run('tests/task-detail.mjs', process.execPath, ['tests/task-detail.mjs']);
+/* 候选镜头语义：一镜 = 一组候选镜头，每条自带描述与拍摄配置；克隆、批量口径与旧形状的一次性转换。 */
+run('tests/director-takes.mjs', process.execPath, ['tests/director-takes.mjs']);
+/* 拆分镜那一档的文案闸门：两档都只挡空（短要求也是有效要求）。 */
+run('tests/director-split-form.mjs', process.execPath, ['tests/director-split-form.mjs']);
 /* 剧本视图：分镜现算成稿、改稿只写回镜头上的画面（台词不在稿子里，也不跟着画面动）。 */
 run('tests/director-script.mjs', process.execPath, ['tests/director-script.mjs']);
 /* 导出格式只有一张表：页头按钮 / engine 分派 / 助手枚举都从它派生。 */
@@ -424,7 +426,27 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/boot-heavy.cjs', process.execPath, ['tests/e2e/boot-heavy.cjs'], { tier: 'browser' });
   run('tests/e2e/asr.cjs', process.execPath, ['tests/e2e/asr.cjs'], { tier: 'browser' });
   run('tests/e2e/search.cjs', process.execPath, ['tests/e2e/search.cjs'], { tier: 'browser' });
+  /* Net 层停止传播：正文读到一半按停止 2 秒内断流（AbortError）、响应头前取消不重试 ——
+     全站 AI 停止按钮的根因回归位（Net.fetch 返回 Response 后外部 signal 监听必须保留）。 */
+  /* Net 层停止传播：正文读到一半按停止 2 秒内断流（AbortError）、响应头前取消不重试 ——
+     全站 AI 停止按钮的根因回归位（Net.fetch 返回 Response 后外部 signal 监听必须保留）。 */
+  run('tests/e2e/net-abort.cjs', process.execPath, ['tests/e2e/net-abort.cjs'], { tier: 'browser' });
+  /* 剪辑态胶片格：不拖动也要出图（用户点名的「后半段要拖一下才出现」的守卫档）——
+     进剪辑态 6 秒内全部格子非斜纹、缩放一档后同样；容差合一 + busy 看门狗的回归闸。 */
+  run('tests/e2e/director-strip-paint.cjs', process.execPath, ['tests/e2e/director-strip-paint.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-actions.cjs', process.execPath, ['tests/e2e/chat-actions.cjs'], { tier: 'browser' });
+  /* 接续链逐级自动生成：镜 1 出画面后接上一镜尾帧的镜 2 才提交、镜 2 成了镜 3 跟上；
+     提交体带上一镜尾帧（dataURL）；上一镜失败 → 级联不发且收尾说清「另有几镜没提交」。 */
+  run('tests/e2e/director-chain-auto.cjs', process.execPath, ['tests/e2e/director-chain-auto.cjs'], { tier: 'browser' });
+  /* 润色全部文案：批量入口的编排（确认弹窗 / 固定不反问 / 每镜一次 / 审阅清单写回 / 取消不动）。 */
+  run('tests/e2e/director-polish-all.cjs', process.execPath, ['tests/e2e/director-polish-all.cjs'], { tier: 'browser' });
+  /* 「按这句再改」的真实链（打桩文字 AI 走 aiBoardSplit 全链）：流式面板就地出现且可见、
+     current 带弹窗此刻那份（含手改）、清单被返回值换新；「拆一份新的」档已删的守卫。 */
+  run('tests/e2e/split-follow-live.cjs', process.execPath, ['tests/e2e/split-follow-live.cjs'], { tier: 'browser' });
+  /* 拆分镜图片栏：粘贴 / 拖入同走 onFile（压缩钩子）、占位插入、× 摘、表单与审阅两处缩略同 44px。 */
+  run('tests/e2e/split-pics-form.cjs', process.execPath, ['tests/e2e/split-pics-form.cjs'], { tier: 'browser' });
+  /* 剪辑后导出成片用新剪的那一版：裁边 commit → 指纹失效 → 重合成时长变短 → 同内容快捷命中。 */
+  run('tests/e2e/director-export-after-edit.cjs', process.execPath, ['tests/e2e/director-export-after-edit.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-receipt.cjs', process.execPath, ['tests/e2e/chat-receipt.cjs'], { tier: 'browser' });
   run('tests/e2e/assistant-dock.cjs', process.execPath, ['tests/e2e/assistant-dock.cjs'], { tier: 'browser' });
   /* 拖素材卡到球 = 引用（真实拖放：载荷有号、输入框高亮、外部文件仍走上传、球不动）。 */
@@ -437,6 +459,8 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/chat-context.cjs', process.execPath, ['tests/e2e/chat-context.cjs'], { tier: 'browser' });
   run('tests/e2e/chat-search-cite.cjs', process.execPath, ['tests/e2e/chat-search-cite.cjs'], { tier: 'browser' });
   run('tests/e2e/director-perf.cjs', process.execPath, ['tests/e2e/director-perf.cjs'], { tier: 'browser' });
+  /* 「生成全部分镜」就地更新已有候选：一镜已有的候选状态自己跑起来，不新建第二张卡。 */
+  run('tests/e2e/director-genall-takes.cjs', process.execPath, ['tests/e2e/director-genall-takes.cjs'], { tier: 'browser' });
   /* 剪辑核冒烟（一次装配）：板 / 切一刀 / 撤销 / 转场 / 标记 / 字幕 / 缩放 / 就地刷 / 历史。
      日常验证走 `npm run test:director`（纯件 4 条 + 这一条，约 35 秒）；重交互仍靠 director-edit。 */
   run('tests/e2e/director-core.cjs', process.execPath, ['tests/e2e/director-core.cjs'], { tier: 'browser' });

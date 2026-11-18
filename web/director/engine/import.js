@@ -7,6 +7,7 @@
 export function createImport(E, document, window) {
   'use strict';
   const {
+  cfg,
     projOf,
     regOf,
     assetProvFor,
@@ -236,7 +237,7 @@ async function pickRefMedia(sh, kind, preset) {
      体积上限在上传那一步统一校验（AssetTransfer → Capabilities.providerLimit）。 */
   const cap = shotInputCaps(sh);
   const rule = (window.Capabilities && Capabilities.rule)
-    ? Capabilities.rule(rm, role, sh.combo) : { max: 1, accept: '' };
+    ? Capabilities.rule(rm, role, cfg(sh).combo) : { max: 1, accept: '' };
   const types = (window.Capabilities && Capabilities.slotTypes) ? Capabilities.slotTypes(rm, role) : (isAudio ? ['音乐', '音频'] : ['视频']);
   const note = cap.slotNote(role);
   const list = preset ? [preset] : await AssetPicker.open({
@@ -255,13 +256,13 @@ async function pickRefMedia(sh, kind, preset) {
     const ext = isAudio ? ((it.format || 'wav') === 'wav' ? '.wav' : '.mp3') : '.mp4';
     const name = ((it.prompt || label).replace(/\s+/g, ' ').trim().slice(0, 20) || 'ref') + ext;
     const aid = await libEntryToAssetId(it, name, isAudio ? ((it.format || 'wav') === 'wav' ? 'audio/wav' : 'audio/mpeg') : 'video/mp4', assetProvFor(sh), isAudio ? 'reference_audio' : 'reference_video');
-    if (isAudio) sh.refAudio = { asset_id: aid, name, src: it.src };
+    if (isAudio) cfg(sh).refAudio = { asset_id: aid, name, src: it.src };
     else {
       const ref = { asset_id: aid, name, src: it.src, duration: it.duration || null, provider: assetProvFor(sh), preparedFor: assetProvFor(sh) };
       /* 本地上传的文件没有长期地址（blob: 刷新即失效）：顺手在本机取一帧小图存进镜头，
          否则刷新后这个槽位只剩一个文件名。 */
       if (it.file) { try { ref.thumb = await Wb.vframe.dataURLFromFile(it.file, 'first', 320); } catch { /* 抽帧失败就没有缩略图，素材照样挂得上 */ } }
-      sh.refVideo = ref;
+      cfg(sh).refVideo = ref;
     }
     renderEditor(); scheduleSave();
     setStatus('<span class="ok">✓ 已设为这一镜的' + label + '</span>');

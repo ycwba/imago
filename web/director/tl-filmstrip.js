@@ -54,6 +54,19 @@ export function frameAtTime(frames, sourceTime, tol = FRAME_MERGE_TOL) {
   return best;
 }
 
+/* 这一排格子的「就近顶上」容差：相邻两格跨多远的一半多 —— 解码回来的帧落在**真实包时刻**
+   上，与计划的采样点对不齐（差零点几秒是常态），按它容差取最近的一张。
+   渐进上屏（strip.js 的步骤①）与解码回执（frames.js 的 ensureFrames）**必须同一份**：
+   各写一份的话，一边顶得上、一边顶不上，表现就是「后半段的格子要拖一下轨道才出现」。
+   单格（或一格）时退 0.5：磁贴跨不到一整格，固定半秒已经盖住常见的帧距。 */
+export function spanTolOf(times) {
+  const list = Array.isArray(times) ? times : [];
+  const n = list.length;
+  if (n < 2) return 0.5;
+  const span = (num(list[n - 1]) - num(list[0])) / (n - 1);
+  return Math.max(0.041, Number.isFinite(span) ? span * 0.55 : 0.5);
+}
+
 /* 合并进已有格子：新到的按 t 排序插入，±容差内取新（新解码的更干净）。 */
 export function mergeFrames(existing, incoming, tol = FRAME_MERGE_TOL) {
   const out = (Array.isArray(existing) ? existing : []).filter(f => f && Number.isFinite(Number(f.t)));

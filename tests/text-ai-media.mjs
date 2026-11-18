@@ -188,4 +188,22 @@ ok(pl.note.includes('图1 = 参考图1（它的下一张图是彩色掩码') && 
 ok(/按颜色点名/.test(pl.note), '编号说明点明「用户会按颜色点名」：' + pl.note);
 ok(!pl.note.includes('图3'), '掩码不占 编号');
 
+/* ---- ⑦ data: 就地解码（页面的 CSP 不放行 fetch('data:…')）----
+   拆分镜挑图时每张都定型成 dataURL；`_blob` 若拿它去 fetch，浏览器当场判「连不上」，
+   于是每张图都「读不出来」、界面还把原因说成「型号不识图」。这里钉住：dataURL 必须
+   在本地解成 Blob，一次网络都不发。 */
+{
+  ctx.Blob = Blob;
+  ctx.atob = atob;
+  ctx.netFetch = () => { throw new Error('dataURL 不该走网络'); };
+  const raw = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const blob = await TextAI._blob('data:image/png;base64,' + raw.toString('base64'));
+  ok(blob && blob.size === raw.length && blob.type === 'image/png',
+    'dataURL 就地解成 Blob（不走 fetch）：' + (blob && blob.size) + ' 字节 / ' + (blob && blob.type));
+  ok(Buffer.from(await blob.arrayBuffer()).equals(raw), 'dataURL 解出来的字节要与原文一致');
+  let bad = '';
+  try { await TextAI._blob('data:image/png;base64,@@@'); } catch (e) { bad = String(e && e.message || e); }
+  ok(/不该走网络/.test(bad), '坏 base64 落回取字节那条路（这里被判成「读不出来」）：' + bad);
+}
+
 console.log('文字 AI 多模态判定与随附素材：' + n + ' 条断言通过');

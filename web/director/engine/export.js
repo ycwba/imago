@@ -8,6 +8,7 @@ import {
   clipDurationOf, rateOf, gainOf, TL_FPS, voiceLaneMap, captionLaneMap,
 } from '../film.js';
 import { round2 } from '../util.js';
+import { promptTextsOf } from '../takes.js';
 
 export function createExport(E) {
   const {
@@ -25,7 +26,7 @@ function pendingAssetNote() {
   const seen = new Set();
   let shots = 0;
   (allShots() || []).forEach(sh => {
-    const p = BA.pendingIn(String((sh && sh.prompt) || ''));
+    const p = sh ? promptTextsOf(sh).flatMap(t => BA.pendingIn(t)) : [];
     if (p.length) {
       shots++;
       p.forEach(n => seen.add(String(n).toLowerCase()));
@@ -216,7 +217,6 @@ async function exportFilm(opts) {
     if (o.onStarted) { try { o.onStarted({ clips: plan.clips.length, subtitles: plan.captions.length }); } catch (e) { /* 回调是调用方给的，它抛错不该把已经提交的导出带崩 */ } }
     const r = await ME.exportFilm({
       clips: plan.clips, transitions: plan.transitions, voices: plan.voices, captions: plan.captions,
-      stickers: (filmOf().stickers || []),
       width: size.w, height: size.h, fps: TL_FPS, duration: plan.duration,
       signal: abortCtl.signal,
       onProgress: j => {

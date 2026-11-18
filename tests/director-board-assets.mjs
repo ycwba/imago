@@ -7,9 +7,9 @@ const nameKey = s => String(s == null ? '' : s).trim().toLowerCase();
 const BA = createBoardAssets({ nameKey, MIN_REPEAT: 2, PREFIX: '待建' });
 
 const shots = [
-  { prompt: '@待建:小雅 撑伞走过河岸', line: '你来了。', lineWho: '小雅' },
-  { prompt: '小雅回头看了一眼', line: '', lineWho: '' },
-  { prompt: '灯亮起来', line: '', lineWho: '' },
+  { candidates: [{ vid: 'a', status: 'draft', origin: 'auto', prompt: '@待建:小雅 撑伞走过河岸' }], line: '你来了。', lineWho: '小雅' },
+  { candidates: [{ vid: 'b', status: 'draft', origin: 'auto', prompt: '小雅回头看了一眼' }], line: '', lineWho: '' },
+  { candidates: [{ vid: 'c', status: 'draft', origin: 'auto', prompt: '灯亮起来' }], line: '', lineWho: '' },
 ];
 
 /* ① 重复出现才建：只出现一次的不建，并照实说为什么。 */
@@ -44,10 +44,11 @@ const shots = [
 /* ④ 短名不误命中：中文没有词边界，所以按**最长优先**统计 ——
       「小雅丽」先吃掉那处，「小雅」就只在自己真正出现的地方被数到。 */
 {
-  const n = BA.repeatCounts([{ prompt: '小雅丽在门口' }], ['小雅', '小雅丽']);
+  /* 描述在候选身上：一镜下面的候选各自的描述都参与「重复出现」的判定。 */
+  const n = BA.repeatCounts([{ candidates: [{ prompt: '小雅丽在门口' }] }], ['小雅', '小雅丽']);
   assert.equal(n.get('小雅丽'), 1, '「小雅丽」自己算一次');
   assert.equal(n.get('小雅'), 0, '「小雅」不该从「小雅丽」那处数到：' + n.get('小雅'));
-  const n2 = BA.repeatCount([{ prompt: '小雅在门口' }], '小雅');
+  const n2 = BA.repeatCount([{ candidates: [{ prompt: '小雅在门口' }] }], '小雅');
   assert.equal(n2, 1, '「小雅在门口」里的「小雅」要算到：' + n2);
 }
 

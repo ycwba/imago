@@ -2,7 +2,7 @@
 /* 导演台「装配窗口里的关标签保存」判据。
    boot() 把读回来的工作区挂到界面上之前，有一个网络往返的窗口（`await DataSync.workspaceFromServer`）。
    以前在这个窗口里跑 `__spaFlush`（关标签 / 刷新 / `__spaReload` 走的就是它）会照 WS 的**空默认值**
-   写一份「一个工程都没有」的工作区 —— 同时盖掉 IndexedDB 与 `.data/workspace.json`，
+   写一份「一个工程都没有」的工作区 —— 同时盖掉 IndexedDB 与 `.data` 状态仓里的 workspace 键，
    用户那份真工作区就地消失。现在两份落盘都先问 `wsLoaded`：没装配完一个字节都不许写。
    探针做法：把 `/data` 清单那一次 GET 拖慢，把窗口拉宽到 2 秒以上，好精确复现那一次 flush。 */
 'use strict';
@@ -87,17 +87,25 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(!saved.err, saved.err);
     must(saved.ids.includes('p-bootflush'), '真保存之后 IndexedDB 里的种子工程不见了：' + JSON.stringify(saved.ids));
 
-    const file = path.join(proxy.dataDir, 'workspace.json');
+    const file = path.join(proxy.dataDir, 'state.json');
     let mirror = null;
     for (let i = 0; i < 70 && !mirror; i++) {
       if (fs.existsSync(file)) {
-        try { mirror = JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { await h.sleep(200); }
-      } else await h.sleep(200);
+        try {
+          const st = JSON.parse(fs.readFileSync(file, 'utf8'));
+          const hit = st && st.keys && st.keys.workspace;
+          if (hit && hit.body) {
+            const ws = JSON.parse(hit.body);
+            if (ws && ws.data && (ws.data.projects || []).some(p => p && p.id === 'p-bootflush')) mirror = ws;
+          }
+        } catch (e) { /* 落盘中途读到半份：下一拍再试 */ }
+      }
+      if (!mirror) await h.sleep(200);
     }
-    must(!!mirror, '改过一笔之后 .data/workspace.json 一直没落盘（镜像那一条路断了）');
+    must(!!mirror, '改过一笔之后 .data/state.json 的 workspace 键一直没落盘（镜像那一条路断了）');
     const mp = (mirror.data && mirror.data.projects) || [];
     must(mp.length > 0 && mp.some(p => p && p.id === 'p-bootflush'),
-      '.data/workspace.json 不是带着种子工程的那一份：' + JSON.stringify(mp.map(p => p && p.id)));
+      '.data/state.json 的 workspace 不是带着种子工程的那一份：' + JSON.stringify(mp.map(p => p && p.id)));
 
     const faults = h.logFaults(proxy.log);
     must(!faults.length, '代理日志里有请求处理异常：' + faults.join(' | '));

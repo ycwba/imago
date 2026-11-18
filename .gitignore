@@ -33,6 +33,7 @@ coverage/
 # 编辑器与 IDE 的临时物：这些是「谁在这台机器上干活」的痕迹，不是产品的一部分。
 .vscode/
 .idea/
+.zcode/
 *.swp
 *.swo
 *~

@@ -1,4 +1,4 @@
-/* 导演台工具栏事件域：左栏「加场景」、剧本查看 / 改稿（按分镜现算、写回只落 sh.prompt）、
+/* 导演台工具栏事件域：左栏「加场景」、剧本查看 / 改稿（按分镜现算、写回只落候选的描述）、
    手动拆分弹窗与 AI 拆分入口这几颗按钮的接线。区间内的代码由 engine.js 逐字搬出；
    proj / REG 是 engine 继续持有的可变状态，走访问器，document / window 用参数名遮蔽全局。 */
 
@@ -7,6 +7,7 @@ import { scriptTextOf, parseScript, applyScript } from '../script.js';
 export function createToolbar(E, document, window) {
   'use strict';
   const {
+  cfg,
     $,
     REGOf,
     aiStoryboard,
@@ -32,18 +33,23 @@ $('addScene').onclick = () => {
   renderAll(); scheduleSave();
 };
 /* 「剧本」这一档不是第二份数据：打开时按当前分镜现算（scriptTextOf），保存时只把解析结果写回
-   `sh.prompt`（applyScript）。稿子里只有画面那一项 —— 台词另有自己的面板（剪辑右栏「台词」那一档），
-   一份稿子同时握着画面与台词，改画面就会连着改台词，那是两件事。 */
+   `cfg(sh).prompt` 与候选自己的描述（applyScript）。稿子里只有候选描述 —— 台词另有自己的面板
+   （剪辑右栏「台词」那一档），一份稿子同时握着描述与台词，改描述就会连着改台词，那是两件事。
+   打开那一刻的候选顺序收进 `order`：候选行按它对号，编辑期间候选增删不会让第 N 行写到别人身上。 */
 function editScript() {
   if (!allShots().length) {
     setStatus('<span class="err">还没有镜头：先在左侧加一场，或用「拆分镜」写一份分镜</span>');
     return;
   }
   let ta = null, errEl = null;
+  const order = new Map();
+  projOf().scenes.forEach(sc => (sc.shots || []).forEach(sh => {
+    order.set(sh.id, (sh.candidates || []).filter(Boolean).map(c => c.vid));
+  }));
   UiDialog.open({
     id: 'scriptEditDlg',
     title: '剧本',
-    sub: '逐镜一段「画面」；台词在剪辑右栏「台词」那一档改。',
+    sub: '候选镜头各一行「候选 N（状态）：…」（每条带自己那句描述）；台词在剪辑右栏「台词」那一档改。',
     body(el) {
       el.innerHTML = '<textarea class="ui-ta" spellcheck="false" aria-label="剧本正文"'
         + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-13);line-height:1.65"></textarea>'
@@ -58,21 +64,29 @@ function editScript() {
         const parsed = parseScript(ta.value);
         if (!parsed.blocks.length) {
           errEl.style.display = '';
-          errEl.textContent = '没认出任何「## 镜头 N」：请保留每段的镜头标题，只改它下面那段「画面：」。';
+          errEl.textContent = '没认出任何「## 镜头 N」：请保留每段的镜头标题，只改它下面那几行「候选 N（状态）：」。';
           return false;
         }
-        /* 先在镜头副本上试跑一次：一个字都没变时不该压一份撤销快照、也不该让撤销键凭空多一步。 */
-        const probe = applyScript(projOf().scenes.map(sc => ({ ...sc, shots: (sc.shots || []).map(sh => ({ ...sh })) })), parsed);
+        /* 先在镜头副本上试跑一次（候选数组也深拷贝，探针不碰真数据）：一个字都没变时
+           不该压一份撤销快照、也不该让撤销键凭空多一步。 */
+        const probe = applyScript(projOf().scenes.map(sc => ({ ...sc,
+          shots: (sc.shots || []).map(sh => ({ ...sh, candidates: (sh.candidates || []).map(c => (c ? { ...c } : c)) })),
+        })), parsed, { order });
         if (!probe.upd) {
-          setStatus(probe.skipped ? '剧本里没有可写入的改动（' + probe.skipped + ' 个镜头号对不上）' : '剧本没有改动');
+          setStatus(probe.skipped || probe.takeSkipped
+            ? '剧本里没有可写入的改动（' + (probe.skipped ? probe.skipped + ' 个镜头号对不上' : '')
+              + (probe.skipped && probe.takeSkipped ? '，' : '') + (probe.takeSkipped ? probe.takeSkipped + ' 条候选行不可改写' : '') + '）'
+            : '剧本没有改动');
           return;
         }
         beginEdit('改剧本');
-        const r = applyScript(projOf().scenes, parsed);
+        const r = applyScript(projOf().scenes, parsed, { order });
         filmEdited();
-        setStatus('<span class="ok">✓ 剧本已写回分镜：画面 ' + r.promptUpd + ' 处'
-          + (r.skipped ? '；' + r.skipped + ' 个镜头号对不上，已跳过' : '') + '</span>');
+        setStatus('<span class="ok">✓ 剧本已写回分镜：主描述 ' + r.promptUpd + ' 处；候选 ' + r.takeUpd + ' 处'
+          + (r.skipped ? '；' + r.skipped + ' 个镜头号对不上，已跳过' : '')
+          + (r.takeSkipped ? '；' + r.takeSkipped + ' 条候选行没写（对应的候选被删掉了）' : '') + '</span>');
         if (r.skipped) Toast.warn(r.skipped + ' 个镜头号在分镜里不存在，那几段没有写入');
+        if (r.takeSkipped) Toast.warn(r.takeSkipped + ' 条候选行没写：对应的候选已经被删掉了');
       } },
     ],
   });

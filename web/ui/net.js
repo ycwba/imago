@@ -134,12 +134,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
           }
           return r;
         } catch (e) {
-          lastErr = cancelled ? new Error('请求已取消') : readable(e, timeout);
-          if (attempt < retry) { await sleep(RETRY_DELAY * (attempt + 1)); continue; }
+          /* 保留 AbortError 名字：调用方「已停止」分支靠它认出按了停止（不是网络错误）。 */
+          if (cancelled) { lastErr = new Error('请求已取消'); lastErr.name = 'AbortError'; }
+          else lastErr = readable(e, timeout);
+          if (attempt < retry && !cancelled) continue;   // 停止后不再重试
           break;      // 重试也用完了：跳出循环，交给循环外的统一收尾（在那里判断「代理是否还活着」并富化文案）
         } finally {
           if (timer) clearTimeout(timer);
-          if (ext) ext.removeEventListener('abort', onExt);
+          /* ext→ctl 的中止监听**不能摘**：fetch() 在响应头到手时就 resolve，流式正文（readSseStream）
+             是返回之后才读的 —— 摘了它，正文读到一半按「停止」传不进 ctl，全站停止按钮失效。
+             ext 是每轮现建的短命 AbortController，多挂一个 once 监听不会泄漏。 */
         }
       }
       /* 走到这里说明重试也用完了。若是网络层失败，先探一下代理：

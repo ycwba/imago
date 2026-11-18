@@ -351,6 +351,8 @@
   .tl-drag-ghost .tl-strip i { flex: 0 0 var(--cell); height: 100%; background-size: cover; background-position: center; }
   .tl-drag-ghost .tl-strip i.gap { background-color: var(--panel2); }
   .tl-drag-ghost i.ph { display: block; height: 100%; background: var(--panel2); }
+  /* 拆分镜 / 改分镜的过程（AI 反问、流式）与随后的审阅是同一张居中弹窗（PromptReview 那一份），
+     页面里不再有自己的浮动卡样式。 */
   .shot-item.flash { animation: shotFlash var(--dur-1200) ease-out 2; }
   .shot-item.dragging { opacity: .92; background: var(--panel);
     box-shadow: 0 0 0 var(--hair) var(--acc), 0 10px 26px color-mix(in srgb, var(--media-bg) var(--a-18), transparent); position: relative; z-index: 5; }
@@ -402,7 +404,15 @@
   .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-8) var(--sp-2); line-height: 1.6; }
   #editLeft .hint { margin-top: 0; }
   .gen-all { margin-top: auto; padding: var(--sp-12); border-top: var(--hair) solid var(--line); }
+  /* 批量动作是一颗分裂按钮：主钮吃满整行，尾钮只占 chevron 那一格
+     （`.gen-all button { width:100% }` 会把两半都拉满，所以尾钮按 id 收回来）。 */
+  .gen-all .gen-split { display: flex; width: 100%; }
+  .gen-all .gen-split > #genAll { flex: 1 1 auto; width: auto; }
+  .gen-all .gen-split > #genMore { flex: 0 0 auto; width: auto; padding: 0 var(--sp-8); }
   .gen-all button { width: 100%; padding: var(--sp-12); font-size: var(--fs-14); }
+  /* 浮层用 fixed 坐标：左栏是 overflow:hidden，绝对定位的浮层会被裁掉。
+     left / bottom 由 engine 打开时按尾钮的盒子现算（摆在按钮上方、夹进视口）。 */
+  .gen-all #genAllMenu { position: fixed; right: auto; top: auto; }
   /* 状态区只有一条进度条（填充 = 已完成 / 全部），不写文案；空态与常态的面板高度同一份。
      flex 收住子项的 margin：否则条收起时 9px 外边距跟着消失，面板会矮一截。 */
   .gen-all .gen-all-status { display: flex; align-items: flex-end; height: calc(var(--sp-8) + var(--sp-16)); }
@@ -412,7 +422,6 @@
     background: var(--panel2); border: var(--hair) solid var(--line); overflow: hidden; }
   .gen-all .gen-all-prog > i > b { display: block; height: 100%; width: 0; background: var(--acc);
     transition: width var(--dur-280); }
-
   /* 中栏 */
   .mid-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); flex-wrap: wrap; }
   .mid-head .no { font-size: var(--fs-16); font-weight: 700; color: var(--acc); flex: 0 0 auto; }
@@ -1085,19 +1094,6 @@
     font-size: var(--fs-11); color: var(--txt); pointer-events: none; }
 
   /* ---------------- 字幕 ---------------- */
-  /* 贴纸块与预览层（B16-3）：块是 button（点开编辑），预览层 DOM 序在字幕之下 */
-  .tl-board .tl-sticker { position: absolute; top: var(--sp-2); bottom: var(--sp-2); display: flex; align-items: center;
-    padding: 0 var(--sp-8); border: var(--hair-1-5) solid var(--acc-line-32); border-radius: var(--radius-4);
-    background: color-mix(in srgb, var(--acc-tint-18) var(--a-30), transparent); color: var(--txt);
-    font-size: var(--fs-11); overflow: hidden; cursor: pointer; text-align: left; }
-  .tl-board .tl-sticker:hover { border-color: var(--acc); }
-  .tl-board .tl-sticker .tl-sticker-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .stk-wrap { position: absolute; inset: 0; z-index: 2; pointer-events: none; overflow: hidden; border-radius: var(--radius-4); }
-  .stk-ov { position: absolute; }
-  .tl-stk-form { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 300px; }
-  .tl-stk-row { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-13); }
-  .tl-stk-row > span { flex: 0 0 110px; color: var(--sub); }
-  .tl-stk-row input { flex: 1; }
   .tl-board .tl-cap { position: absolute; top: var(--sp-2); bottom: var(--sp-2);
     border: var(--hair) solid color-mix(in srgb, var(--ok) var(--a-34), transparent);
     border-radius: var(--radius-6); overflow: hidden; cursor: grab; user-select: none;
@@ -1313,14 +1309,23 @@
     <div id="editLeft" hidden></div>
     <button class="add-scene" id="addScene">＋ 加一个场景</button>
     <div class="gen-all">
-      <button class="pri" id="genAll">生成全部分镜</button>
+      <!-- 批量动作只有一颗分裂按钮：主钮跑生成全部分镜，尾部 chevron 的浮层里收
+           「润色全部文案」—— 同一批镜头不用平铺两颗通栏按钮。
+           浮层是 position:fixed：左栏 overflow:hidden 会裁掉绝对定位的浮层，
+           位置由 engine 按按钮的 getBoundingClientRect 现算并摆在上方。 -->
+      <span class="gen-split exp-split">
+        <button type="button" class="pri" id="genAll">生成全部分镜</button>
+        <button type="button" class="pri exp-more" id="genMore" aria-expanded="false" title="更多生成动作"><span data-icon="chevronDown" data-size="12"></span></button>
+        <span class="exp-menu" id="genAllMenu" role="menu" hidden>
+          <button type="button" id="polishAll" role="menuitem" title="按范围把写好提示词的画面 / 候选各润一遍（不反问）；润完先审阅，确认才写回">润色全部文案</button>
+        </span>
+      </span>
       <!-- 左栏状态区只有一条进度条：完成量看条的填充，不写文案。
            按钮的文案与可用状态跟生成计划**同一份**（genAllPlan）—— 计划一变，两处一起变，
            不会出现「写着可生成 2 镜，按钮却说是全部」。 -->
       <div class="gen-all-status">
         <div class="gen-all-prog" id="genAllProg" hidden><i><b></b></i></div>
       </div>
-      <div id="genAllRaw" hidden></div>
     </div>
   </div>
 

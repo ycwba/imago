@@ -30,14 +30,14 @@ const h = require('./harness.cjs');
     scenes: [{
       id: 'sc1', name: '场景 1',
       shots: [{
-        id: 'sh1', name: '镜头 A', prompt: '晨雾里的木栈道', line: '我们走吧', note: '画面说明',
-        ar: '16:9', res: '768p', tier: 'fast', draw: 1, selId: 'v1',
-        refImages: [], keyframes: [],
+        id: 'sh1', name: '镜头 A', line: '我们走吧', note: '画面说明', draw: 1, selId: 'v1',
         candidates: [
           { vid: 'v1', status: 'succeeded', url: '/asset/vid-1', prompt: '晨雾里的木栈道',
+            origin: 'auto', ar: '16:9', res: '768p', tier: 'fast', dur: 5,
+            refImages: [], keyframes: [],
             selected: true, locked: true, trimS: 0.3, trimE: 4.5 },
-          { vid: 'v2', status: 'failed', url: '', prompt: '另一种写法', error: '额度不足' },
-          { vid: 'v3', status: 'draft', url: null, prompt: '' },
+          { vid: 'v2', status: 'failed', url: '', prompt: '另一种写法', origin: 'manual', error: '额度不足' },
+          { vid: 'v3', status: 'draft', url: null, prompt: '', origin: 'manual' },
         ],
       }],
     }],
@@ -191,7 +191,7 @@ const h = require('./harness.cjs');
     ok(!!got && /\.json$/.test(got.name || ''), '导出交出了一份 .json：' + (got && got.name));
     let pack = null;
     try { pack = JSON.parse(got.json); } catch (e) { /* 下面统一报 */ }
-    ok(!!pack && pack.type === 'ai-workbench-director-project' && pack.version === 1,
+    ok(!!pack && pack.type === 'ai-workbench-director-project' && pack.version === 2,
       '包类型 / 格式版本对得上');
     const p = pack && pack.projects && pack.projects[0];
     ok(!!p && p.scenes[0].shots[0].candidates.length === 3, '没选用 / 失败 / 草稿三条候选全在包里');
@@ -199,9 +199,10 @@ const h = require('./harness.cjs');
     /* 中栏的 sortCandidates 会把候选排成「有画面 / 草稿 / 失败」，导出带的是排好序的当前状态，
        所以按 vid 认人，不按下标认。 */
     const byVid = vid => cs.find(c => c && c.vid === vid) || {};
-    ok(p && p.scenes[0].shots[0].prompt === '晨雾里的木栈道'
-      && p.scenes[0].shots[0].line === '我们走吧' && byVid('v2').prompt === '另一种写法',
-      '镜头提示词 / 台词 / 候选提示词都在包里：' + (p ? JSON.stringify({
+    ok(p && p.scenes[0].shots[0].prompt === undefined
+      && p.scenes[0].shots[0].line === '我们走吧'
+      && byVid('v1').prompt === '晨雾里的木栈道' && byVid('v2').prompt === '另一种写法',
+      '台词 / 候选各自的提示词都在包里（镜头本身不再有画面层）：' + (p ? JSON.stringify({
         prompt: p.scenes[0].shots[0].prompt, line: p.scenes[0].shots[0].line,
         cands: cs.map(c => c.prompt) }) : 'no project'));
     ok(p && byVid('v1').selected === true && byVid('v1').trimS === 0.3 && byVid('v1').locked === true,
@@ -323,7 +324,7 @@ const h = require('./harness.cjs');
     ok(/有内容完全一致/.test(first.seen.dup) && /项目文件探针/.test(first.seen.dup),
       '导入前先问「内容完全一致的那部要不要再来一份」：'
       + first.seen.dup.replace(/\s+/g, ' ').slice(0, 110));
-    ok(/项目文件 v1/.test(first.seen.confirm) && /3 条候选/.test(first.seen.confirm)
+    ok(/项目文件 v2/.test(first.seen.confirm) && /3 条候选/.test(first.seen.confirm)
       && /不覆盖现有项目/.test(first.seen.confirm),
       '确认框说清了带什么、不动什么：' + first.seen.confirm.replace(/\s+/g, ' ').slice(0, 90));
     ok(first.afterN === before.length + 1, '选「照导」之后多了一部短片：' + before.length + ' → ' + first.afterN);

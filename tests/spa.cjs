@@ -378,8 +378,40 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
         「第一次写完才加载」漏掉那一笔镜像。实跑 30 枚 / 872614 字节（登记上限 874000）。
      ·  +1.5KB（2026-11-12，完善清单机械债）：`web/ui/forms.js` / `web/ui/ui.js` / `web/ui/command.js`
         等常驻件里几十颗 <button> 补上 type 属性（规范要求，弹窗内误提交隐患一并掐掉）、
-        命令面板上下键选中行 scrollIntoView —— 都是常驻件的字节。实跑 30 枚 / 874139 字节（登记上限 876000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 876000;
+        命令面板上下键选中行 scrollIntoView —— 都是常驻件的字节。实跑 30 枚 / 874139 字节（登记上限 876000）。
+     ·  +7.6KB（2026-11-16，拆分镜图片输入）：`web/ui/forms.js` —— PromptForm 新 'pics' 多图栏
+        （隐藏 input 存 JSON、缩略行逐张 × 摘、AssetPicker 多选接线）＋ 弹窗级「粘贴图片进输入框」
+        （剪贴板图转 dataURL 落进多图栏、textarea 光标处插［图N］占位）＋ PromptReview 分镜行上的
+        挂图缩略格（AI 分配、就地摘、列位不挪）。这两只弹窗是全站公共件，导演台拆分镜三档之外
+        别处也在用，按需拆载没有意义。实跑 30 枚 / 883754 字节（登记上限 886000）。
+     ·  +0.3KB（2026-11-17，拆分镜过程面板与审阅合成同一张弹窗）：`web/ui/forms.js` ——
+        PromptReview 长出 `openProcess`（foot 只留「取消」，Esc 同一路）与 `mount` 的 shell 接手
+        （审阅换标题接着用同一张弹窗，屏幕中间不关不闪）；`keepBodyScroll` 每次落笔前把正文格
+        亮回来（InlinePolish 收面板时会把宿主藏掉，流式结束后审阅的清单要画在同一格）。
+        这两只弹窗是全站公共件，按需拆载没有落点。实跑 30 枚 / 886198 字节（登记上限 887000）。
+     ·  +1.5KB（2026-11-17，润色全部文案的过程可中途停）：`web/ui/forms.js` —— PromptReview
+        `openProcess` 增加 `keepOpenOnAbort` 与 `cancelLabel`（停止只中止在途请求、弹窗留在原地等
+        收尾转审阅），`mount` 复用时复位取消按钮的文案与 disabled。同一只公共弹窗，按需拆载没有落点。
+        实跑 30 枚 / 887739 字节（登记上限 890000）。
+     ·  +4.4KB（2026-11-17，云端产物地址被收走的那一族不再永远「生成中」）：`web/domain/assetlib.js` ——
+        normalizeRaw 里「成功却没有产物地址」那一支分成三档（① 本机账里有这条任务唯一的一份视频 → 当场
+        当本机资产、卡片直接播本地文件；② 超过 30 分钟宽限期 → 已过期；③ 刚完成 → 仍按生成中等一轮），
+        另有两个小件跟着：localVideoOfTask 按任务号认本机那一份、localAssetEntryOf 把那条换成本机资产
+        （本机号当唯一身份，mirror 记着账里的格式 / 规范名 / 字节 / 落点）；`web/domain/local.js` ——
+        hideAsCloud 把「已取消 / 已过期 / 无效」这一族也藏掉（它们本机没有字节、又不是刚点了生成，
+        留在列表里只是占位置；真正的失败仍保留 —— 原因要看得见）。
+        两份都是首屏取数底座（条目只在这一处产出、本机判据只在这一处），没有按需的落点。
+        实跑 30 枚 / 892248 字节（登记上限 893000）。
+     ·  +0.9KB（2026-11-17，候选镜头接管描述与拍摄配置）：`web/domain/assetlib.js` 的 usages 与
+       `web/domain/chars.js` 的 renameShotRefs 改为逐候选读 `refVideo` / `refAudio` / `keyframes` /
+       首尾帧 / 输出身份与 `refMeta`（镜头级那份只作旧数据的兜底）；素材引用扫描与改名都要在
+       首屏取数之前就位，两枚都是常驻底座。实跑 30 枚 / 893181 字节（登记上限 896000）。
+     ·  +4.5KB（2026-11-17，拆分镜图片栏收粘贴 / 拖图 / 统一缩略）：`web/ui/forms.js` —— PromptForm
+       的 pics 多图栏长出拖图文件进弹窗（dragover 高亮 + drop 落图）与 `onFile` 字节钩子（调用方
+       在这里做压缩；粘贴 / 拖入同走它）、空态文案与「按这句再改」的 note 通道 / 空底稿拦截 /
+       面板滚进视野。这只公共弹窗全站处处在用，按需拆载没有落点。
+       实跑 30 枚 / 896821 字节（登记上限 897500）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 897500;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

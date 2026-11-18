@@ -1,9 +1,10 @@
 /* SplitAssets — 拆分镜「喂哪几条素材」：范围解析 / 目录清单 / AI 挑选 / 落盘挂图。
    从 web/director/engine.js 拆出；库、图片槽位与提示词常量由 createSplitAssets 注入。 */
 import { parseJsonLoose, ctxClip } from './util.js';
+import { shotPromptOf } from './takes.js';
 
 export function createSplitAssets(ctx) {
-  const { BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL, libIdx, libPicChoices, addLibPicToShot, nameKey, TextAI } = ctx;
+  const { BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL, libIdx, libPicChoices, addLibPicToShot, bindShotPics, nameKey, TextAI } = ctx;
   /* 占位符 `@待建:名字` 的前缀（与 board-assets.js 的 PREFIX 同一个）——
      前缀由 engine 注入，两边不会各写一份而对不上。 */
   const PREFIX = ctx.PLACEHOLDER_PREFIX || '待建';
@@ -163,7 +164,8 @@ const SplitAssets = {
     if (!list.length) return r;
     const byKey = libIdx(list);
     (shots || []).forEach(sh => {
-      const p = String((sh && sh.prompt) || '');
+      /* 描述在**默认候选**身上（这一镜的主描述）：镜头本身不再留 prompt。 */
+      const p = shotPromptOf(sh);
       if (!p) return;
       const done = new Set();
       let got = 0;
@@ -192,6 +194,21 @@ const SplitAssets = {
         if (!r.why) r.why = one.why || '';
       });
       if (got) r.shots++;
+    });
+    return r;
+  },
+  /* 落盘：AI 点的那几张随附图（图号已翻成下标）挂进对应镜头的参考图槽。
+     与 `bind` 是并列的两层，不是一回事 —— `bind` 认提示词里的 `@名字`（素材库条目），
+     这里认 AI 挑的「图N」（这次拆分镜随附的原始图）；同一个镜头两层各挂各的，
+     闸门都在 panel.js 那一份（`bindShotPics`）。 */
+  bindPics(pairs, pics) {
+    const r = { n: 0, shots: 0, dup: 0, why: '', unknown: 0 };
+    (pairs || []).forEach(pr => {
+      if (!pr || !pr.sh) return;
+      const x = bindShotPics(pr.sh, pr.idxs, pics);
+      if (x.n) { r.n += x.n; r.shots++; }
+      r.dup += x.dup || 0; r.unknown += x.unknown || 0;
+      if (x.why && !r.why) r.why = x.why;
     });
     return r;
   },

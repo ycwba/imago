@@ -3,13 +3,16 @@
    区间内的代码由 engine.js 逐字搬出；REG / WS 走访问器（engine 继续持有这两枚可变状态），
    其余 E 名单在建包这一刻都已就绪；document / window 用参数名遮蔽全局。 */
 
+import { setTakePrompt } from '../takes.js';
 
 export function createRef(E, document, window) {
   'use strict';
   const {
+  cfg,
     $,
     regOf,
     wsOf,
+    projOf,
     ROLE_ZH,
     SLOT_ROLE,
     addRefImage,
@@ -19,7 +22,6 @@ export function createRef(E, document, window) {
     chainSlotOf,
     comboLabel,
     compressImg,
-    curDraftCand,
     curShot,
     renderEditor,
     renderScenes,
@@ -39,7 +41,7 @@ export function createRef(E, document, window) {
    图片合成「参考图N」的标签，是为了让文字 AI 在正文里写的 @参考图N 与平台收到的第 N 项对得上；
    参考视频 / 参考音频同样带自己的 @视频N / @音频N（能力判定与字节由 TextAI.prepareMedia 管）。 */
 function polishImageList(sh) {
-  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
+  const plan = shotRefPlanOf(cfg(sh), shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
   return plan.pictures
     .filter(p => p.src || p.assetId)
     .map(p => ({
@@ -50,7 +52,7 @@ function polishImageList(sh) {
     }));
 }
 function polishMediaList(sh) {
-  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
+  const plan = shotRefPlanOf(cfg(sh), shotInputCaps(sh), { chainPending: chainSlotOf(sh) }, id => Api.assetSrc(id));
   const out = polishImageList(sh).map(x => ({ kind: 'image', ...x }));
   plan.videos.forEach(v => {
     const src = v.src || (v.assetId ? Api.assetSrc(v.assetId) : '');
@@ -95,8 +97,17 @@ function renderPolishPanel(sh) {
     after: polishUI.text, note: polishUI.note, before: ta ? ta.value : '',
     onEdit: v => { polishUI.text = v; },                       // 用户改过的版本也存住，重渲染不丢
     onApply: v => {
-      const d4 = curDraftCand();
-      if (d4) d4.prompt = v; else sh.prompt = v;
+      /* 按开始润色时记下的 vid 找候选：找不到（被删掉 / 换了工程）就不写 ——
+         绝不能把一条候选的句子落到整镜基准上。开始时没有候选（vid 为空）才写基准。 */
+      const vid = polishUI ? polishUI.candVid : '';
+      const c = vid ? (sh.candidates || []).find(x => x.vid === vid) : null;
+      if (vid && !c) {
+        polishUI = null;
+        renderEditor(); renderScenes(); scheduleSave();
+        setStatus('<span class="err">这条候选已经不在了，润色结果没有写回</span>');
+        return;
+      }
+      setTakePrompt(sh, c, v);
       polishUI = null;
       renderEditor(); renderScenes(); scheduleSave();
       setStatus('<span class="ok">✓ 已替换这一镜的提示词</span>');
@@ -150,25 +161,12 @@ async function polishRun(answers) {
     renderPolishPanel(curShot());
   }
 }
-async function polishPrompt() {
-  const ta = $('edPrompt');
-  if (!ta) { setStatus('<span class="err">先在左侧选一个镜头</span>'); return; }
-  const sh = curShot();
-  const original = (ta.value || '').trim();
-  if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
-  if (!TextAI.prov(regOf())) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
-  if (!(await TextAI.canRun(regOf()))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
+/* 单镜润色的「按镜构造」—— 单镜面板（polishPrompt）与批量「润色全部文案」（gen.js 的
+   runPolishAll）共用这一份：素材清单 / 变量 / 系统提示词 / prep 只有这一处算。
+   `original` 是这一轮润的原文（单镜是输入框里那句，批量是那条候选自己的描述）。
+   run 与流式落点不在这里：单镜要摆面板、批量自己收字，两家的出口不一样。 */
+function shotPolishOf(sh, original) {
   let media = [];
-  /* 流式有两个落点，取决于这一轮是谁发起的：
-     · 带着 ctl（「重新润色」与「按这句再改」—— 结果面板此刻就在屏幕上）→ 片段灌进 ctl.push，
-       边写边显示在结果框里。这时**不能**再往 `#polishInline` 摆流式面板：那块宿主就是结果面板本身。
-     · 不带 ctl（第一次点「AI 润色」，宿主里只有一句转圈）→ 用 AiStream 的面板，这一轮动辄十几秒，
-       看得见它写到哪里比只挂一句「正在润色…」有用得多。 */
-  const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(regOf(), sys, user, { media, signal: ctl.signal }, ctl.push)
-    : AiStream.text(regOf(), sys, user, {
-        media: media, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
-      });
   /* 素材清单：图片之外还有参考视频 / 参考音频 —— 文字型号支持哪一类就附哪一类
      （能力判定与读字节在 TextAI.prepareMedia，附不上的那一类照实说清数量与用途）。 */
   const materials = () => {
@@ -185,10 +183,10 @@ async function polishPrompt() {
        它才知道这一镜的第 1 张图是上一镜的落幅、正文该从哪里起笔。 */
     const ic = shotInputCaps(sh);
     if (chainSlotOf(sh)) items.unshift({ label: '接上一镜尾帧', token: '@参考图1', role: 'first_frame', kind: '图片', sent: false, hint: '提交时自动取上一镜结尾当首帧' });
-    if (ic.refVideo && sh.refVideo && !items.some(x => x.mk === 'video')) {
+    if (ic.refVideo && cfg(sh).refVideo && !items.some(x => x.mk === 'video')) {
       items.push({ label: '参考视频', token: '@视频1', role: 'reference_video', kind: '视频', sent: false, hint: '这一镜沿用它的运镜和节奏' });
     }
-    if (ic.refAudio && sh.refAudio && !items.some(x => x.mk === 'audio')) {
+    if (ic.refAudio && cfg(sh).refAudio && !items.some(x => x.mk === 'audio')) {
       items.push({ label: '参考音频', token: '@音频1', role: 'reference_audio', kind: '音频', sent: false, hint: '这一镜沿用它的节奏' });
     }
     return items;
@@ -201,10 +199,10 @@ async function polishPrompt() {
     const items = materials();
     const mode = (cb && comboLabel(cb)) || (shotUsedRoles(sh).length ? '参考素材' : '纯文字');
     return {
-      duration: sh.duration ? sh.duration + ' 秒' : '按型号声明的默认时长',
+      duration: cfg(sh).dur ? cfg(sh).dur + ' 秒' : '按型号声明的默认时长',
       mode: mode,
       model: rm.id ? String(rm.id) + (rm.name && rm.name !== rm.id ? '（' + rm.name + '）' : '') : '未选型号',
-      ar: sh.ar || '按型号声明的默认画幅',
+      ar: cfg(sh).ar || '按型号声明的默认画幅',
       assets: items.length ? TextAI.materialNote(items) : '这一镜没有参考素材',
     };
   };
@@ -217,37 +215,74 @@ async function polishPrompt() {
     media = picked.media;
     return picked;
   };
-  /* 一次润色 = 准备素材（能力支持的那几类才带）→ 组装提示词 → 调用文字 AI；返回 { after, note }。
-     answers 是用户对「AI 先前的追问」的回答（没有追问时是空串）。
-     素材清单与时长已经由 `shotVarsNow` 填进 Skill 正文的 `{}` 变量；`TextAI.polishExtra` 只补
-     随附素材怎么用、@标记要保留、用户的回答 —— 这几句与工作台同一套。 */
-  const run = async (answers, ctl) => {
+  /* 一轮润色的完整出口：准备素材 → 组系统提示词 → 调用文字 AI。
+     单镜与批量润色各挑自己的流式落点，但 sys / user / 素材准备只走这一份：
+     `text` 是这一轮要润的那一句（批量时每条候选各一句）；`ctl` 有就流式灌进它的 push，
+     没有就把流式面板摆在 host 里。 */
+  const callFor = async (text, opt = {}) => {
+    const answers = opt.answers || '';
+    const ctl = opt.ctl || null;
     const picked = await prep();
     if (ctl && ctl.note && picked.note) ctl.note(picked.note);
     else if (picked.note) setStatus('<span class="meta">' + window.esc(picked.note) + '</span>');
     const sys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
-      media: media, text: original, answers: answers,
+      media: media, text: text, answers: answers,
     }));
-    return { after: await call(sys, TextAI.polishUser(POLISH_SHOT_WORD, original), ctl), note: picked.note };
+    const user = TextAI.polishUser(POLISH_SHOT_WORD, text);
+    const after = ctl
+      ? await TextAI.chatStream(regOf(), sys, user, { media: media, signal: ctl.signal }, ctl.push)
+      : await AiStream.text(regOf(), sys, user, {
+          media: media, host: opt.host || $('polishInline'),
+          title: opt.title || 'AI 正在润色这一镜的提示词…',
+        });
+    return { after: after, note: picked.note };
   };
+  return { word: POLISH_SHOT_WORD, media: () => media, materials, shotSysNow, prep, callFor };
+}
+
+async function polishPrompt() {
+  const ta = $('edPrompt');
+  if (!ta) { setStatus('<span class="err">先在左侧选一个镜头</span>'); return; }
+  const sh = curShot();
+  const original = (ta.value || '').trim();
+  if (!original) { setStatus('<span class="err">先写要润色的提示词</span>'); return; }
+  if (!TextAI.prov(regOf())) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
+  if (!(await TextAI.canRun(regOf()))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
+  const P = shotPolishOf(sh, original);
+  /* 「按这句再改」的调用：带着 ctl（结果面板此刻就在屏幕上）就把片段灌进 ctl.push，
+     边写边显示在结果框里，不能再往 `#polishInline` 摆流式面板 —— 那块宿主就是结果面板本身；
+     没有 ctl 时退回 AiStream 面板。 */
+  const call = (sys, user, ctl) => ctl
+    ? TextAI.chatStream(regOf(), sys, user, { media: P.media(), signal: ctl.signal }, ctl.push)
+    : AiStream.text(regOf(), sys, user, {
+        media: P.media(), host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
+      });
+  /* 这一轮润的是输入框里那句（当前查看候选的有效描述）；素材准备、系统提示词与流式落点
+     都在 callFor 里，单镜与批量只有这一份构造。answers 是用户对追问的回答（没有时是空串）。 */
+  const run = (answers, ctl) => P.callFor(original, {
+    answers, ctl, host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
+  });
   /* 结果出来之后接着对话：改的是**屏幕上这一版**（用户可能刚在面板里手改过），
      素材与素材清单照旧重算 —— 换的只是用户那一句要求。
      `text: current` 让「@参考图1 这类标记要原样保留」那一句跟着新版走（第一版里可能没有、改完又有了）。 */
   const follow = async (askText, current, ctl, ctx) => {
-    const picked = await prep();
+    const picked = await P.prep();
     if (ctl && ctl.note && picked.note) ctl.note(picked.note);
     else if (picked.note) setStatus('<span class="meta">' + window.esc(picked.note) + '</span>');
     const p = TextAI.followPrompt({
       what: POLISH_SHOT_WORD, ask: askText, current: current,
       extra: TextAI.polishExtra({
-        media: media, text: current, materials: materials(), answers: (ctx && ctx.answers) || '',
+        media: P.media(), text: current, materials: P.materials(), answers: (ctx && ctx.answers) || '',
       }),
     });
     return { after: await call(p.sys, p.user, ctl), note: picked.note };
   };
   const btn = $('polishBtn');
   const wantAsk = TextAI.shouldAsk();        // 设置选「从不问」时不发起这一轮
-  polishUI = { shotId: sh.id, phase: 'ask', loading: true, loadingText: '正在读这一镜，想想到底要先问什么…',
+  /* 这一次润色写回哪条候选：开始时把 vid 记下来。中途切候选不换目标 ——
+     用户点「替换」时指的一定是发起那一刻看着的那条。 */
+  const c0 = (sh.candidates || [])[projOf().curCand] || null;
+  polishUI = { shotId: sh.id, candVid: c0 ? c0.vid : '', phase: 'ask', loading: true, loadingText: '正在读这一镜，想想到底要先问什么…',
     run: run, follow: follow, answersText: '', talk: [], note0: '', questions: [], answers: [] };
   window.aiBtnState(btn, true);
   /* 先反问：**由 AI 自己判断**值不值得问（need=false 就直接润色）。这一轮同样带素材图与清单 ——
@@ -257,12 +292,12 @@ async function polishPrompt() {
     InlinePolish.loading($('polishInline'), '正在读这一镜，判断还缺什么…');
     let r = { need: false, questions: [] };
     try {
-      const picked = await prep();
-      const askSys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
+      const picked = await P.prep();
+      const askSys = TextAI.polishSys(P.shotSysNow(), TextAI.polishExtra({
         media: picked.media, stage: 'ask',
       }));
       r = await TextAI.askPolish(regOf(), askSys,
-        TextAI.askUser(POLISH_SHOT_WORD, original, { count: '2–4', tail: '这一镜挂了哪些素材见系统提示' }), { media });
+        TextAI.askUser(POLISH_SHOT_WORD, original, { count: '2–4', tail: '这一镜挂了哪些素材见系统提示' }), { media: picked.media });
     }
     catch (e) { r = { need: false, questions: [] }; }
     questions = (r && r.need) ? (r.questions || []) : [];
@@ -333,12 +368,12 @@ function openPickDlg(sh, kind) {
   const prev = isFirst ? prevShotTail(sh) : null;
   const role = isFirst ? 'first_frame' : kind === 'last' ? 'last_frame' : 'reference_image';
   const rm = resolvedModel(sh) || {};
-  /* 参考图是**能放好几张**的槽位（sh.refImages 是数组，右栏就写着「已有 N / maxRef 张」），
+  /* 参考图是**能放好几张**的槽位（cfg(sh).refImages 是数组，右栏就写着「已有 N / maxRef 张」），
      选择器必须按「本槽位还剩几个位置」开成多选。以前三个槽位一律 multiple:false, limit:1，
      表现就是「槽位写着还能加 9 张，弹窗却说『还能加 1 个』，选一张以后就选不了第二张」。
      首帧 / 尾帧各只有一格，固定单选；参考图只剩一格时也自动退回单选。 */
   const ic = shotInputCaps(sh);
-  const room = isRef ? Math.max(0, ic.maxRef - (sh.refImages || []).length) : 1;
+  const room = isRef ? Math.max(0, ic.maxRef - (cfg(sh).refImages || []).length) : 1;
   if (isRef && room <= 0) { setStatus('<span class="err">参考图最多 ' + ic.maxRef + ' 张（首帧/尾帧不计入）</span>'); return; }
   AssetPicker.open({
     types: isFirst ? ['图片', '视频'] : ['图片'],
@@ -347,7 +382,7 @@ function openPickDlg(sh, kind) {
     /* 这个槽位收什么类型、单文件多大、**这一档收几张**：都现读能力声明（首帧槽也收视频，声明里写了就照它显示）。
        combo 必须递进去 —— 「视频换人」里人物图必须恰好 1 张，递型号总表那份 ≤9 就会画出
        「标题说还能加 1 张、弹窗里写着上限 9」的两张口（limit 与 rule 得同一个口径）。 */
-    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role, sh.combo) : null,
+    rule: (window.Capabilities && Capabilities.rule) ? Capabilities.rule(rm, role, cfg(sh).combo) : null,
     title: isFirst ? '选一张开头画面' : kind === 'last' ? '选一张结尾画面' : '选参考图（还能加 ' + room + ' 张）',
     note: isFirst ? '图片直接用；选视频则取它的<b>最后一帧</b>当开头画面' : '',
     aiSearch: true,
@@ -362,7 +397,7 @@ function prevShotTail(sh) {
   const i = all.indexOf(sh);
   const prev = i > 0 ? all[i - 1] : null;
   if (!prev) return null;
-  const lastKf = prev.lastFrame || ((prev.keyframes || []).filter(k => k.assetId).pop() || {}).assetId;
+  const lastKf = prev.lastFrame || ((prev.keyframes || []).filter(k => k.assetId && !k.deleted).pop() || {}).assetId;
   if (lastKf) return { prev, lastKf, label: '接上一镜结尾（「' + prev.name + '」）' };
   /* 选用的那条不在 / 没成时退到第一条成功候选：与 `hasTailFrame` 同一判据，
      否则「接上一镜」的入口时有时无，用户只能自己去找视频截帧。 */
@@ -376,7 +411,7 @@ async function usePrevTail(sh) {
     setStatus('正在截取上一镜尾帧…');
     /* 与自动接续走同一个解析（静态尾帧 → 画面切片 → 视频末帧），不在这里再写一份顺序。 */
     const f = await resolveChainFrame(sh);
-    sh.firstFrame = f.src;
+    cfg(sh).firstFrame = f.src;
     renderEditor(); scheduleSave();
     setStatus('<span class="ok">✓ 已把' + f.from + '作为开头画面</span>');
   } catch (e) { setStatus('<span class="err">' + e.message + '</span>'); }
@@ -386,7 +421,7 @@ async function applyFrameEntry(sh, kind, e) {
   try {
     if (e.type === '视频') {
       setStatus('正在从视频取最后一帧…');
-      sh.firstFrame = await (e.file ? Wb.vframe.dataURLFromFile(e.file, 'last') : Wb.vframe.dataURL(e.dl || e.src, 'last'));
+      cfg(sh).firstFrame = await (e.file ? Wb.vframe.dataURLFromFile(e.file, 'last') : Wb.vframe.dataURL(e.dl || e.src, 'last'));
       setStatus('<span class="ok">✓ 已取该视频的最后一帧作为开头画面</span>');
     } else {
       /* 单文件多大由模型对这个槽位的声明决定（rule.maxBytes），不再写死 5 MiB：
@@ -401,12 +436,12 @@ async function applyFrameEntry(sh, kind, e) {
         return;
       }
       const src = e.file ? await AssetTransfer.toDataURL(await compressImg(e.file)) : await toDataURL(e.src);
-      if (kind === 'first') sh.firstFrame = src;
-      else if (kind === 'last') sh.lastFrame = src;
+      if (kind === 'first') cfg(sh).firstFrame = src;
+      else if (kind === 'last') cfg(sh).lastFrame = src;
       else {
         if (!canAddSlot(sh, 'ref')) { setStatus('<span class="err">已选开头/结尾画面，本镜不能再加参考图（清空后才能换）</span>'); return; }
         const lim = shotInputCaps(sh).maxRef;   // 模型声明几张就是几张，不猜 9
-        if (sh.refImages.length >= lim) { setStatus('<span class="err">参考图最多 ' + lim + ' 张（首帧/尾帧不计入）</span>'); return; }
+        if (cfg(sh).refImages.length >= lim) { setStatus('<span class="err">参考图最多 ' + lim + ' 张（首帧/尾帧不计入）</span>'); return; }
         addRefImage(sh, src, (e.fromLocal || e.localFav) ? '收藏' : null);
       }
       setStatus('<span class="ok">✓ 已加入</span>');
@@ -427,6 +462,7 @@ async function applyFrameEntry(sh, kind, e) {
     renderPolishPanel,
     restoreLocalBlobs,
     setPolishUI,
+    shotPolishOf,
     toDataURL,
     uploadImageDataUrl,
   };

@@ -124,7 +124,11 @@
   background: var(--acc); flex: 0 0 auto; }
 /* ---------- 账号卡流：一家账号一张卡，卡里列着它能开通的每一档 ----------
    设计口径：等高竖排（卡高 --sz-acct），卡内中段自己滚 ——
-   展开密钥行、展开某一档的型号面板都不改卡的外形（外形一变，整片重画后手指底下的位置就跳）。 */
+   展开密钥行不改卡的外形（外形一变，整片重画后手指底下的位置就跳）。
+   型号面板是例外：它有表头 + 清单（限高 264）+「添加型号」那一行，比「320 − 卡头 − 卡底」
+   还高，塞在卡内那段滚区里只剩一条缝（看得见表头、看不见行 —— 润色型号选中的那一个
+   与它的 图 / 音 / 视 都露不出来）。所以摊开面板时这一张卡按内容长高（.panel-open），
+   同一行里别的卡不动（.acct-grid 是 align-items: start），超高部分仍由 .acct-mid 内滚。 */
 /* 芯片（按档筛，数字是账号数）+ 摘要条。 */
 .settings-page .acct-tools { margin-bottom: var(--sp-12); }
 .settings-page .filters { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
@@ -154,6 +158,9 @@
   padding: var(--sp-16); border: var(--hair) solid var(--line); border-radius: var(--radius-10); background: var(--panel); }
 .settings-page .fcard:hover { border-color: var(--acc-line-32); }
 .settings-page .acct { height: var(--sz-acct); box-sizing: border-box; }
+/* 摊开型号面板的这一张卡按内容长高：面板本就比卡内那段滚区高，等高只会把清单裁成一条缝。
+   上限兜住「几档面板一起摊开」的极端情形 —— 超过上限的部分照旧由 .acct-mid 内滚。 */
+.settings-page .acct.panel-open { height: auto; max-height: 78vh; }
 .settings-page .acct-off { opacity: .62; }
 .settings-page .add-tile { border-style: dashed; }
 /* 自定义那一家展开时**卡片尺寸不变**（等高是一整页的规矩：一变，整片重画后手指底下的位置就跳）。

@@ -4,9 +4,11 @@
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { filmOf, filmTotal, candidateWindow, srcHeadOf, srcUsedOf } from '../film.js';
+import { takePromptOf, anyPromptOf } from '../takes.js';
 
 export function createMid(E, document, window) {
   const {
+  cfg,
     $,
     playSafe,
     Play,
@@ -49,18 +51,15 @@ export function createMid(E, document, window) {
     renderEditor,
     renderAll,
     setStatus,
+    genAllWaitOf,
   } = E;
 
-/* 「这一条候选是用哪句话生成的」—— 当前查看的那条候选自己的描述优先，没有才回落到这一镜的描述。
-   为什么必须按**候选**取：每条候选都记着生成它时用的那句（`c.prompt`，submitCandidate 里写的），
-   而提示词框原来写死读 `sh.prompt`，于是：
-     · 用 A 生成第一条、改成 B 生成第二条，回头点第一条 —— 框里还是 B（那一条的描述再也看不见）；
-     · 换一条候选看，框里的字**一个字都不动**（selectCandidate 只换播放器与操作行）。
-   用户的说法是「应该保留生成候选镜头时的提示词在输入框」，就是这么一件事。 */
+/* 「这一条候选是用哪句话生成的」—— 当前查看的那条候选自己的描述（候选各自一份，没有回落）。
+   为什么必须按**候选**取：一条候选镜头一份自己的描述（`c.prompt` 恒为字符串），
+   提示词框、生成闸、润色原文都读这一份。 */
 function promptTextOf(sh) {
   const c = sh && (sh.candidates || [])[projOf().curCand];
-  if (c && c.prompt != null && c.prompt !== '') return c.prompt;
-  return (sh && sh.prompt) || '';
+  return takePromptOf(sh, c);
 }
 /* 把提示词框按**当前查看的候选**刷一遍（字数、@ 高亮镜像、按钮状态一起）。
    selectCandidate 走的就是它 —— 那一条路刻意不重画整栏（重画会重建候选缩略图）。 */
@@ -75,15 +74,24 @@ function paintPromptBox(sh) {
 }
 /* 中栏空态：按这一镜的实际情况给出文案（不再写死「点右侧生成这一镜」） */
 function playerEmptyText(sh) {
-  if (curDraftCand()) return ['这条候选还没有描述', '在右侧「提示词」里写一句，再点「生成这条」'];
+  /* 生成全部分镜的接续链里，这一镜正在等上一镜出画面：先说清在等什么，
+     不摆「这条候选还没有描述」那种要用户动手的指路。等待集合只在点按钮那一刻装配，
+     之后新加的镜头永远不在里面（它没参与这一次批量）。 */
+  const wait = genAllWaitOf(sh);
+  if (wait) return [wait, ''];
+  if (curDraftCand()) {
+    if (!promptTextOf(sh).trim()) return ['这条候选还没有描述', '在右侧「提示词」里写一句，再点「生成这条」'];
+    return ['这条候选还没有画面', '点右侧「生成这条」开始生成'];
+  }
   /* 还没写提示词时**不要**推荐「AI 润色提示词」：那道润色入口的守卫是
-     「提示词不能为空」（见 polish 那一支的 if (!sh.prompt.trim())），
+     「提示词不能为空」（见 polish 那一支的 if (!cfg(sh).prompt.trim())），
      而新工作区默认只有一个空镜头 —— 于是这句话推荐的那个按钮，
      对第一次打开的人**必定失败**。
      也不能说「直接点生成，平台会自己编」：空提示词会被 shotBlockReason 拦下（NO_PROMPT_WHY），
      生成按钮压根不发起请求 —— 那是另一句兑现不了的承诺。
-     只说一件照做就能成的事：先写一句。（引号里给出可照抄的句式，省掉「该写什么」的猜测。） */
-  if (!sh.prompt.trim()) return ['这一镜还没有画面描述',
+     只说一件照做就能成的事：先写一句。（引号里给出可照抄的句式，省掉「该写什么」的猜测。）
+     候选自己的描述也算这一镜有文字：只有基准与候选全空时才是「还没有画面描述」。 */
+  if (!anyPromptOf(sh)) return ['这一镜还没有画面描述',
     '先在右边写一句就能生成 —— 例：「她站在天台栏杆边，风把头发吹起来，背影」'];
   if (!sh.candidates.length) return ['画面还没生成', '点右侧「生成这一镜（' + (sh.draw || 1) + ' 条）」开始生成'];
   if (sh.candidates.some(c => Wb.stLive(c.status))) return ['正在生成这一镜…', ''];
@@ -399,7 +407,7 @@ function renderShotStrip(col) {
       const c = sh.candidates.find(x => x.vid === sh.selId);
       const it = document.createElement('div');
       const prev = k > 0 ? all[k - 1] : null;
-      const chained = sh.linkPrev === 'tail';
+      const chained = cfg(sh).linkPrev === 'tail';
       const depOk = chained && prev && shotReady(prev);
       const depText = chained
         ? (prev
@@ -409,10 +417,10 @@ function renderShotStrip(col) {
       it.className = 'strip-item' + (sh === curShot() ? ' sel' : '') + (shotReady(sh) ? ' ready' : '') + (chained ? ' chained' : '');
       it.dataset.sid = sh.id;
       it.draggable = true;
-      const stripRaw = c?.url || sh.firstFrame || '';
+      const stripRaw = c?.url || cfg(sh).firstFrame || '';
       const stripKey = c?.url ? thumbKey(c) : Wb.thumbs.keyOf(stripRaw);
       const thumb = c?.url ? Wb.thumbs.mediaHTML(c.url, { key: stripKey })
-        : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
+        : cfg(sh).firstFrame ? Wb.thumbs.mediaHTML(cfg(sh).firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
         : `<div class="ph"></div>`;
       it.innerHTML = `${thumb}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
         <span class="st">${shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text}</span>`

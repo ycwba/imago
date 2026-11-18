@@ -132,8 +132,9 @@ function wav(seconds = 0.2) {
     if (!put.json.settings.service.hasKey) throw new Error('保存后 hasKey 应为 true');
     if (put.json.settings.service.key !== undefined) throw new Error('保存响应回显了密钥');
 
-    const onDisk = require('fs').readFileSync(require('path').join(proxy.dataDir, 'asr.json'), 'utf8');
-    if (!/"key": "sk-asr-e2e"/.test(onDisk)) throw new Error('密钥没有落到代理那一边的 asr.json');
+    const stateRaw = JSON.parse(require('fs').readFileSync(require('path').join(proxy.dataDir, 'state.json'), 'utf8'));
+    const onDisk = String((stateRaw.keys && stateRaw.keys.asr && stateRaw.keys.asr.body) || '');
+    if (!/"key": "sk-asr-e2e"/.test(onDisk)) throw new Error('密钥没有落到代理那一边的状态仓（asr 键）');
 
     const noMedia = await call('/asr/transcribe', {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ route: 'service' }),

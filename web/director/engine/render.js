@@ -5,11 +5,14 @@
 
 import { createMarker } from '../tl-markers.js';
 import { chosenCandOf, deriveTimeline, normalizeTransition, transitionNameOf } from '../film.js';
+import { cloneTakeOf, defaultTakeOf, takePromptOf, anyPromptOf } from '../takes.js';
+import { matchSceneOf } from '../board.js';
 import { num, debounce } from '../util.js';
 
 export function createRender(E, document, window) {
   'use strict';
   const {
+  cfg,
     $,
     NO_PROMPT_WHY,
     ST_ZH,
@@ -88,7 +91,7 @@ function shotStatusOf(sh) {
     : runC ? candStatusText(runC)
     : allBad ? '生成失败'
     : cands.length ? '待选用'
-    : (String(sh.prompt || '').trim() ? '未生成' : '待写描述');
+    : (anyPromptOf(sh) ? '未生成' : '待写描述');
   const cls = shotReady(sh) ? 'okc' : runC ? 'runc' : allBad ? 'errc' : '';
   return { runC, text, html: cls ? '<span class="' + cls + '">● ' + text + '</span>' : text };
 }
@@ -97,9 +100,11 @@ function candMediaHTML(c) {
   const cls = (c.status === 'draft' ? ' draft' : '') + (c.status === 'failed' || c.status === 'cancelled' ? ' fail' : '');
   return `<div class="pending${cls}">${candStatusText(c)}</div>`;
 }
-function candTitle(c) {
+/* 一条候选的悬停说明：状态 + 它**实际会用哪句话**（这一条自己的描述） */
+function candTitle(sh, c) {
   const bits = [c.status === 'draft' ? '待写描述' : (ST_ZH[c.status] || c.status)];
-  if (c.prompt) bits.push('描述：' + String(c.prompt).slice(0, 60));
+  const txt = takePromptOf(sh, c).trim();
+  if (txt) bits.push('描述：' + txt.slice(0, 60));
   if (c.status === 'running' && c.progress) bits.push(c.progress + '%');
   if (c.queue_position) bits.push('队列#' + c.queue_position);
   if (c.created) bits.push('提交 ' + window.fmtHM(c.created));
@@ -118,7 +123,7 @@ function candBadgeHTML(c) {
 function candThumbInner(c, isCur, i) {
   const list = (curShot() || { candidates: [] }).candidates || [];
   if (i === undefined) i = list.indexOf(c);
-  return `<div class="cand-thumb${isCur ? ' cur' : ''}${c.vid === (curShot() || {}).selId ? ' sel' : ''}${c.locked ? ' lock' : ''}${c.status === 'succeeded' && c.url ? ' has' : ''}" data-vid="${esc(String(c.vid))}" data-i="${i}" title="${esc(candTitle(c))}">
+  return `<div class="cand-thumb${isCur ? ' cur' : ''}${c.vid === (curShot() || {}).selId ? ' sel' : ''}${c.locked ? ' lock' : ''}${c.status === 'succeeded' && c.url ? ' has' : ''}" data-vid="${esc(String(c.vid))}" data-i="${i}" title="${esc(candTitle(curShot(), c))}">
     <span class="candno">${i + 1}</span>${c.locked ? `<span class="lockbadge">${icon('lock', 11)}</span>` : ''}${candMediaHTML(c)}${candBadgeHTML(c)}</div>`;
 }
 /* 没有候选时的占位卡：点了就按这一镜的配置生成一条 */
@@ -290,12 +295,15 @@ function selectCandidate(at) {
   if (at < 0 || at >= cands.length || at === projOf().curCand) return;
   projOf().curCand = at;
   /* 提示词框跟着换到**当前查看的候选**当年那句（promptTextOf 读的就是它），
-    但**不回写 sh.prompt**：翻看是纯预览，这一镜的描述（左栏卡片 / 批量生成读的那份）
+    但**不回写候选**：翻看是纯预览，这一镜的描述（左栏卡片 / 批量生成读的那份）
     只能由用户输入或 AI 拆分镜改 —— 以前顺手 `sh.prompt = picked.prompt`，
     用户刚写的新描述会被一条旧候选的旧描述顶掉，而且这一下还被当成一次编辑压进撤销栈。
     「生成这一镜」按屏幕上这句发（drawShot 收 promptTextOf(sh)），不会出现
     「屏幕上写着 B、生成出来的却是 A」。 */
   paintPromptBox(sh);
+  /* 配置在候选身上：切候选要把右栏那一栏（型号 / 档位 / 画幅 / 时长 / 参考文件 / 关键帧）一起换掉 ——
+     只换提示词框的话，用户看着 A 的型号却在改 B 的参数。 */
+  renderEditor();
   col.querySelectorAll('.cand-thumb[data-vid]').forEach(t => {
     const c = cands.find(x => String(x.vid) === t.dataset.vid);
     t.classList.toggle('cur', c === cands[at]);
@@ -338,7 +346,7 @@ function updateMidLive() {
     const want = 'cand-thumb' + (curC === c ? ' cur' : '') + (c.vid === sh.selId ? ' sel' : '')
       + (c.locked ? ' lock' : '') + (c.status === 'succeeded' && c.url ? ' has' : '');
     if (t.className !== want) t.className = want;
-    const title = candTitle(c);
+    const title = candTitle(sh, c);
     if (t.title !== title) t.title = title;
     const media = t.querySelector('video, img');
     if (c.url && !media) {                                  // 刚出片：占位换成媒体（只动这一块）
@@ -365,9 +373,14 @@ function updateMidLive() {
   if (curC && curC.url && !col.querySelector('#player')) { renderMid(); return; }
   const pl = col.querySelector('#player');
   if (pl && curC && curC.url && pl.getAttribute('src') !== Api.mediaSrc(curC.url)) { pl.setAttribute('src', Api.mediaSrc(curC.url)); }
-  // ③ 空态里的任务详情：只更新文字
+  // ③ 空态：抬头 / 说明按当前状态重写（等待接续结束后要能立刻换回来），任务详情只换那一块
   const host = col.querySelector('.player-empty');
   if (host) {
+    const [t, d] = playerEmptyText(sh);
+    const te = host.querySelector('.pe-t');
+    if (te && te.textContent !== t) te.textContent = t;
+    const de = host.querySelector('.pe-d');
+    if (de && de.textContent !== d) de.textContent = d;
     const html = playerTaskDetails(sh);
     const old = host.querySelector('.pe-task');
     if (old && !html) old.remove();
@@ -417,11 +430,15 @@ function bindCandidateStrip(col) {
   };
 }
 /* 新增候选 = 建一个空的候选占位：给它写一条自己的描述，再点「生成这条」
-   （占位字段归 mkDraftCandidate 那一份，这里只管「加进去并选中它」） */
+   （占位字段归 mkDraftCandidate 那一份，这里只管「加进去并选中它」）。
+   克隆出来的是 manual：写进框里的句子只属于它自己，不碰别的候选。 */
 function addCandidateDraft() {
   const sh = curShot();
   if (!sh) return;
-  const ph = mkDraftCandidate(sh);
+  /* ＋候选 = 克隆**当前查看的那条**：提示词与全套配置（型号 / 画幅 / 时长 / 参考文件 / 关键帧）
+     一起复制过来 —— 新增的就是一条完整的候选镜头，不是空壳。 */
+  const src = (sh.candidates || [])[projOf().curCand] || defaultTakeOf(sh);
+  const ph = cloneTakeOf(sh, src, uid);
   sh.candidates.push(ph);
   projOf().curCand = sh.candidates.length - 1;         // 新占位直接选中，马上就能写描述
   renderAll(); scheduleSave();
@@ -431,14 +448,16 @@ function addCandidateDraft() {
 async function generateCandidate(ph) {
   const sh = curShot();
   if (!sh || !ph) return;
-  const txt = String(ph.prompt == null ? sh.prompt : ph.prompt).trim();
+  /* 这里只判「这句能不能发」，不在草稿上抄一份文字：
+     每条候选只管自己那句（prompt 恒为字符串），提交那一刻由 submitCandidate 把要发的那句
+     把本次要发的文字冻结成自己的描述 —— 提前写回会让「没提交成功」也改掉这条候选。 */
+  const txt = String(takePromptOf(sh, ph)).trim();
   if (!txt) {
     setStatus('<span class="err">' + NO_PROMPT_WHY + '（可以先复制当前镜头的描述再改）</span>');
     const ta = $('edPrompt');
     if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); }
     return;
   }
-  ph.prompt = txt;
   ph.status = 'creating';
   renderAll();
   try {
@@ -624,12 +643,15 @@ function applyScenePic(sh, sc) {
       把这段就地写在页面里最容易漏掉这一半。
    `at` = 最后落笔的那一场在哪，调用方据此放光标：全部并进球场时 `scenes.length-1` 指的是
    一个与本次毫无关系的老场景，光标跳过去会让人以为追加错了地方。 */
-function placeScenesInto(scenes, newScenes) {
+function placeScenesInto(scenes, newScenes, opts) {
   const list = scenes || [];
+  const append = !!(opts && opts.append);
   let merged = 0, created = 0, added = 0, why = '', at = Math.max(0, list.length - 1);
   (newScenes || []).forEach(sc => {
-    const k = nameKey(sc.name);
-    const dst = k ? list.find(x => nameKey(x.name) === k) : null;
+    /* 接着往下拆的归并走 `matchSceneOf`（board.js 那一份）：nameKey 精确之外再剥
+       「场景1 xxx」这类编号前缀 —— AI 爱给现有场景名加编号，直接同名匹配就会
+       另起一场（用户点名）。非 append 的调用方保持严格同名。 */
+    const dst = append ? matchSceneOf(sc.name, list) : null;
     const host = dst || sc;
     if (dst) { dst.shots.push(...sc.shots); merged++; }
     else { list.push(sc); created++; }
@@ -645,16 +667,21 @@ function placeScenesInto(scenes, newScenes) {
    分两次 setStatus 等于后一句把前一句顶掉，界面上就只剩一半。
    `assets` 是同一批镜头上的**素材图**账（`SplitAssets.bind` 那份）：它和场景图抢同一批参考图名额，
    所以两笔一起报才有意义 —— 只报场景图那一句，用户会以为新镜头都带上图了。
+   `pics` 是**AI 随附图**账（用户亲手挑、AI 点到镜头上的那批），账目口径与 assets 同形但单列：
+   合并进 assets 会把它说成「素材图」，而那批图的来历（AI 决定挂到哪几镜）正是用户要核对的事。
    两句的「为什么带不上」合成一条 Toast：两条浮层叠着弹，读的人只会当成同一件事。 */
-function reportScenePics(res, tail, assets) {
+function reportScenePics(res, tail, assets, pics) {
   const bits = [];
   if (tail) bits.push(tail);
   if (res && res.added) bits.push('场景图已自动带进 ' + res.added + ' 个新镜头的参考图');
+  if (pics && pics.n) bits.push('AI 随附图挂进 ' + pics.n + ' 张（' + pics.shots + ' 个镜头）');
   if (assets && assets.n) bits.push('素材图带进 ' + assets.n + ' 张（' + assets.shots + ' 个镜头）');
+  if (pics && pics.dup) bits.push('随附图 ' + pics.dup + ' 张原本就在参考图里');
   if (assets && assets.dup) bits.push(assets.dup + ' 张原本就在参考图里');
   if (bits.length) setStatus('<span class="ok">✓ ' + esc(bits.join(' · ')) + '</span>');
   const why = [];
   if (res && res.why) why.push('场景图：' + res.why);
+  if (pics && pics.why) why.push('随附图：' + pics.why);
   if (assets && assets.why) why.push('素材图：' + assets.why);
   if (why.length) Toast.warn('没能带进参考图 —— ' + why.join('；'));
 }
@@ -821,10 +848,10 @@ function renderScenes() {
         it.dataset.sid = sh.id;
         it.draggable = false;   // 默认不可拖，按住 ⠿ 抓手才开启拖动
         const cur = sh.candidates.find(c => c.vid === sh.selId);
-        const rawSrc = cur?.url || sh.firstFrame || '';
+        const rawSrc = cur?.url || cfg(sh).firstFrame || '';
         const sKey = cur?.url ? thumbKey(cur) : Wb.thumbs.keyOf(rawSrc);
         const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
-          : sh.firstFrame ? Wb.thumbs.mediaHTML(sh.firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
+          : cfg(sh).firstFrame ? Wb.thumbs.mediaHTML(cfg(sh).firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
           : `<div class="sthumb empty"></div>`;
         // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述
         const st = shotStatusOf(sh);

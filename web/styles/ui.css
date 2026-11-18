@@ -736,8 +736,12 @@ button.armed { min-width: 4.6em; }
      · `.mlist`      限高自滚的容器（**数量不限**，滚动不是靠限制条数实现的）
      · `.mlist-row`  一行：勾选 + 名字 + id + 来源小字
      · `.off`        藏起来的那一条（仍在清单里、随时勾回来，只是不进工作台下拉）
-     · `.pick`       单选档（文字 AI）当前选中的那一个
-   生成三类多选（勾选 = 出现在工作台型号下拉里）；文字 AI 单选（选中的那个就是全局润色模型）。 */
+     · `.picked`     单选档（文字 AI）当前选中的那一个
+   生成三类多选（勾选 = 出现在工作台型号下拉里）；文字 AI 单选（选中的那个就是全局润色模型）。
+   ⚠ 选中态**不能叫 `.pick`**：资产卡上那颗多选勾选框就是 `.pick`，全局那条
+   `.task .pick, .card .pick { position:absolute; width/height:18px }` 会把清单一行的
+   选中态整行压成一个 18×18 的绝对定位方块（设置页每组卡片的外层正是 `.card`）——
+   表现就是「润色型号选中的那一个在清单里不见了」，连带它的 图 / 音 / 视 也点不到。 */
 .mlist { display: flex; flex-direction: column; gap: var(--sp-2); max-height: 264px; overflow-y: auto;
   /* 滚到尽头要把滚动交还给外面那一层（设置页的文档列）：contain 会让触控板在清单上用不了 ——
      清单滚到底之后整页再也不动了。 */
@@ -760,8 +764,8 @@ button.armed { min-width: 4.6em; }
    原来这里给一道紫色竖条（inset shadow）+ 淡紫底，是照 .cus-mine-i.on 抄来的 ——
    那一条是「正在编辑这一家」的操作态，不是「正在用它」的选择态，放在一屏几十行里
    就是一列刺眼的紫。选中态只用底色与字重说，不抢颜色。 */
-.mlist-row.pick { background: var(--panel2); font-weight: 600; }
-.mlist-row.pick code { font-weight: 600; }
+.mlist-row.picked { background: var(--panel2); font-weight: 600; }
+.mlist-row.picked code { font-weight: 600; }
 .mlist-row .mlist-src { margin-left: auto; flex: 0 0 auto; color: var(--sub);
   font-size: var(--fs-11); white-space: nowrap; }
 .mlist-empty { padding: var(--sp-8) var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
@@ -1067,6 +1071,28 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #prDlg .pr-foot .hint { font-size: var(--fs-12); color: var(--sub); }
 #prDlg .pr-loading { display: flex; align-items: center; justify-content: center; gap: var(--sp-8); padding: var(--sp-32) 0;
   color: var(--sub); font-size: var(--fs-13); }
+/* ---------- 润色全部文案：过程清单（与审阅同用 .pr-* 外壳） ----------
+   逐行「镜头名 · 画面 / 候选 N」+ 状态 + 流式正文；正文格自己滚，行数多也不把弹窗撑高。 */
+#prDlg .pr-proc { display: flex; flex-direction: column; gap: var(--sp-8); }
+#prDlg .pr-proc-row { border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); }
+#prDlg .pr-proc-h { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); }
+#prDlg .pr-proc-h .nm { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  color: var(--acc); }
+#prDlg .pr-proc-h .st { flex: 0 0 auto; color: var(--sub); }
+#prDlg .pr-proc-h .st.bad { color: var(--err); }
+#prDlg .pr-proc-tx { margin-top: var(--sp-4); max-height: 84px; overflow-y: auto; white-space: pre-wrap;
+  word-break: break-word; font-size: var(--fs-12); line-height: 1.6; color: var(--sub); }
+/* 范围选择弹窗：芯片只切镜头列表的显示，勾选集合跨芯片保留；
+   镜头行管名下全部目标（不定态 = 勾了一部分），目标行各自可勾。 */
+.pl-scope .pl-scope-chips { display: flex; gap: var(--sp-4); }
+.pl-scope-list { margin-top: var(--sp-8); max-height: 52vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-4); }
+.pl-shot { border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); }
+.pl-shot-head { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); cursor: pointer; }
+.pl-shot-head b { color: var(--txt); font-weight: 600; }
+.pl-shot-head .meta { color: var(--sub); font-size: var(--fs-11); }
+.pl-takes { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) 0 0 var(--sp-16); }
+.pl-take { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); color: var(--sub); cursor: pointer; }
 /* ---------- 「按这句再改」那一行（openList 的 onFollow；分组 / 平铺两种审阅共用） ----------
    润色结果面板 .pinl-chat 的同款搬进弹窗：对话记录、就地流式面板、输入行。 */
 #prDlg .pr-follow { padding: var(--sp-8) var(--sp-16) 0; border-top: var(--hair) solid var(--line); }
@@ -1144,6 +1170,19 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #prDlg .pr-row.brow .bline .pb-who { flex: 0 0 104px; min-width: 0; height: var(--sz-ctl-sm); font-size: var(--fs-12); }
 #prDlg .pr-row.brow .bline .pb-line { flex: 1 1 auto; min-width: 0; height: var(--sz-ctl-sm); min-height: var(--sz-ctl-sm); padding: var(--sp-4) var(--sp-8);
   font-size: var(--fs-12); line-height: 1.5; resize: vertical; }
+/* 行上挂图缩略（AI 分配的随附图）：整行摊在正文格内部顶上，小格横排、多了才换行 ——
+   行上左右各列（序号 / 名字 / 时长）的位置因此不随张数挪动。× 角标浮在图上：
+   实底强调色 + 反白字（压在任意画面上都要读得出，与大卡实心档同一副画法）。
+   缩略格与表单那一份（#pfDlg .pf-picit 44px）同一档 —— 同一批图在表单里 44px、
+   进了审阅清单变 32px，看着就像两套东西。 */
+#prDlg .pr-pics { flex: 0 0 auto; width: 100%; display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+#prDlg .pr-pic { position: relative; width: 44px; height: 44px; border-radius: var(--radius-6); overflow: hidden;
+  background: var(--thumbbg); border: var(--hair) solid var(--line); }
+#prDlg .pr-pic img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#prDlg .pr-picrm { position: absolute; top: 0; right: 0; width: 14px; height: 14px; padding: 0; border: none;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--pri); color: var(--on-acc); border-radius: var(--radius-999); }
+#prDlg .pr-picrm:hover { background: var(--acc); }
 /* 拖动：手里那一格压暗，落点画在**格子自己身上**（inset 阴影，不改高度也不挤走邻居）。
    负偏移必须写 `calc(-1 * var(--accent-bar))` —— `-var(--x)` 代入后是「减号 + 一个长度」，
    整条声明作废（原来那两条 dropaft 就是这么静默画不出来的，拖到下一格没有任何反馈）。 */
@@ -1188,6 +1227,22 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #pfDlg .pf-pic-t img { width: 100%; height: 100%; object-fit: cover; display: block; }
 #pfDlg .pf-pic-t .none { font-size: var(--fs-11); color: var(--sub); }
 #pfDlg .pf-pic button { flex: 0 0 auto; }
+/* 多图栏（`type:'pics'`）：缩略小格横排摆一行，多了才换行；× 摘一张、粘贴进来也落在这一行。
+   × 角标与审查行同一副画法（实底强调 + 反白）。 */
+#pfDlg .pf-pics { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); }
+#pfDlg .pf-pics-t { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-4); min-width: 0; }
+/* 拖图进来时的落点亮起：松手就落这一行（drop 监听在 forms.js 的 PromptForm 里） */
+#pfDlg .pf-pics-t.hot { border: var(--hair-2) solid var(--acc); border-radius: var(--radius-6);
+  background: var(--acc-tint-10); }
+#pfDlg .pf-picit { position: relative; width: 44px; height: 44px; border-radius: var(--radius-6); overflow: hidden;
+  background: var(--thumbbg); border: var(--hair) solid var(--line); }
+#pfDlg .pf-picit img { width: 100%; height: 100%; object-fit: cover; display: block; }
+#pfDlg .pf-picrm { position: absolute; top: 0; right: 0; width: 14px; height: 14px; padding: 0; border: none;
+  display: flex; align-items: center; justify-content: center; cursor: pointer;
+  background: var(--pri); color: var(--on-acc); border-radius: var(--radius-999); }
+#pfDlg .pf-picrm:hover { background: var(--acc); }
+#pfDlg .pf-pics .none { font-size: var(--fs-11); color: var(--sub); }
+#pfDlg .pf-pics > button { flex: 0 0 auto; }
 
 /* ---------- 自定义日期选择弹层 DatePicker ---------- */
 .dp-pop { position: absolute; z-index: 60; top: calc(100% + var(--sp-8)); left: 0; width: 246px;
@@ -1475,7 +1530,8 @@ button.phead-chip:hover b { color: var(--acc); }
 .empty.sm { font-size: var(--fs-13); padding: var(--sp-12) var(--sp-8); }
 
 /* ============================================================
-   原始请求折叠条（web/ui/raw-request.js）：默认收起，点开看请求体。
+   原始请求折叠条（web/ui/raw-request.js）：默认收起，点开看**本次将要发出的**请求体。
+   只有一栏预览 —— 发出去的那一份不另存、不回看（完整提示词有 PromptLog 归档）。
    每一处生成按钮旁边都画这一块；导演台整栏重画时展开状态由 RawRequest 记着。
    按钮是**一小颗药丸**（收在内容宽度里），正文吃满整宽 —— 以前按钮是一条通栏的条子，
    展开后正文又并排挤成半宽，最该读全的地方反而最窄。 */
@@ -1484,15 +1540,11 @@ button.phead-chip:hover b { color: var(--acc); }
   align-items: center; gap: var(--sp-8); list-style: none; user-select: none;
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); background: var(--panel2); }
 .raw-req[open] > summary { margin-bottom: var(--sp-8); }
-/* 标题这一行：标题永远是「原始请求」，右边一枚状态标说清现在是什么状态 */
+/* 标题这一行：标题永远是「原始请求」，右边一枚状态标说清「预览 · 哪一家 / 尚未算出」 */
 .raw-req > summary .raw-title { font-weight: 600; color: var(--txt); }
 .raw-req > summary .raw-chip { font-size: var(--fs-11); color: var(--sub); background: var(--panel);
   border: var(--hair) solid var(--line); border-radius: var(--radius-999); padding: var(--sp-2) var(--sp-8); }
 .raw-req > summary .raw-chip.ok { color: var(--ok); border-color: color-mix(in srgb, var(--ok) var(--a-30), transparent); }
-.raw-req > summary .raw-warn { font-size: var(--fs-11); color: var(--warn);
-  background: var(--warn-tint);
-  border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-30), transparent);
-  border-radius: var(--radius-999); padding: var(--sp-2) var(--sp-8); }
 .raw-req > summary::-webkit-details-marker { display: none; }
 .raw-req > summary::before { content: '▸'; color: var(--acc); flex: 0 0 auto; }
 .raw-req[open] > summary::before { content: '▾'; }
@@ -1503,7 +1555,6 @@ button.phead-chip:hover b { color: var(--acc); }
   border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--input); white-space: pre-wrap;
   word-break: break-word; font-family: ui-monospace, SFMono-Regular, Consolas, "Courier New", monospace;
   font-size: var(--fs-12); line-height: 1.5; color: var(--txt); }
-.raw-req-list { display: grid; gap: var(--sp-8); margin-top: var(--sp-8); text-align: left; }
 
 /* 预览块（live）：按钮是**一小颗**（收在内容宽度里），正文吃满整宽 ——
    以前这里并排两栏，正文各占半宽，最该读全的请求体反而最窄。 */

@@ -419,6 +419,8 @@
        · opts.outer：连**外面那一层在滚的祖先**一起稳住（只它一只，不展开它的子树）。
          用在「这一页在窄窗里改由外层滚」的那一种：外层不是重画的那一块，它自己的子节点
          不会被换掉，所以按锚点还回来就是「外层一格不动」。
+       · opts.absolute：整栏内容被**换掉**（工作台切视频 / 图像 / 语音那种，两边没有同一件事），
+         按锚点还原会把位还到结构上同名的邻块身上；这一档直接还原来的像素位。
      为什么按**锚点**而不是像素偏移：锚点以上的内容高度变了，按偏移还原会漂。
      为什么**不**自动往上罩祖先：调用点里常挂着「重画完故意滚一次」的那一路（翻页回页首、
      会话贴底、设置页跳到某一组），keep 一无条件还原祖先的滚动位就把它们抹掉了；
@@ -604,25 +606,27 @@
       });
       return map;
     },
-    _putAxis(el, a, axis) {
+    _putAxis(el, a, axis, absolute) {
       if (!a) return;
       const horiz = axis === 'x';
       const readPos = () => (horiz ? el.scrollLeft : el.scrollTop);
       const writePos = v => { if (horiz) el.scrollLeft = v; else el.scrollTop = v; };
+      /* 整栏内容被换掉（切类型那种）：锚点两边的节点不是同一件事，按像素位还才不会漂。 */
+      if (absolute) { writePos(a.cur); return; }
       const node = a.path ? this._byPath(el, a.path, a.key) : null;
       if (!node) { writePos(a.cur); return; }        /* 锚点整段没了：退回原来的像素位 */
       const er = el.getBoundingClientRect(), nr = node.getBoundingClientRect();
       writePos(readPos() + ((horiz ? nr.left : nr.top) - (horiz ? er.left : er.top)) - a.delta);
     },
-    _put(root, keep) {
+    _put(root, keep, absolute) {
       let map = null;
       const keyed = () => map || (map = this._keyMap(root, keep));
       for (const k of keep) {
         try {
           const el = (k.skey && keyed().get(k.skey)) || this._byPath(root, k.path);
           if (!el || !el.isConnected) continue;
-          this._putAxis(el, k.y, 'y');
-          this._putAxis(el, k.x, 'x');
+          this._putAxis(el, k.y, 'y', absolute);
+          this._putAxis(el, k.x, 'x', absolute);
         } catch (e) { /* 放不回去就算了：这一处不许把重画带崩 */ }
       }
     },
@@ -634,6 +638,7 @@
       const o = opts || {};
       /* 从 el 的**上一层**起找：el 自己要是就在滚，_grab 那一趟已经把它算进去了。 */
       const outer = o.outer ? this.host(el && el.parentElement) : null;
+      const absolute = !!o.absolute;
       let keep = null, oy = null, ox = null;
       try { keep = this._grab(el); } catch (e) { keep = null; }
       if (outer) {
@@ -642,7 +647,7 @@
       }
       let out;
       try { out = fn(); } finally {
-        try { if (keep && keep.length) this._put(el, keep); } catch (e) {}
+        try { if (keep && keep.length) this._put(el, keep, absolute); } catch (e) {}
         try {
           if (outer && outer.isConnected) { this._putAxis(outer, oy, 'y'); this._putAxis(outer, ox, 'x'); }
         } catch (e) {}

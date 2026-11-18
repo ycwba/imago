@@ -5,16 +5,19 @@
 
 import { createBoardTools } from '../board.js';
 import { createSplitAssets } from '../split-assets.js';
-import { chainModelRepick, hasTailFrame, isRunning } from '../chain.js';
+import { chainModelRepick, hasTailFrame, isRunning, tailCandOf } from '../chain.js';
+import { byCreated } from '../takes.js';
 import { BOARD_CTX_PROMPT, BOARD_CTX_SHORT } from '../util.js';
 
 export function createSplit(E, document, window) {
   'use strict';
   const {
+  cfg,
     PENDING_PREFIX,
     addLibPicToShot,
     allShots,
     assetToDataURL,
+    bindShotPics,
     clampShotDurations,
     durWritable,
     feedScenePics,
@@ -48,31 +51,34 @@ function chainModelList() {
   }));
   return out;
 }
-function ensureChainModel(sh) {
+function ensureChainModel(sh, c) {
   if (!sh) return null;
-  if (sh.linkPrev !== 'tail' || sh.firstFrame) return resolvedModel(sh);
+  const cc = c || cfg(sh);
+  if (cc.linkPrev !== 'tail' || cc.firstFrame) return resolvedModel(cc);
   /* 动不动、换成谁都在 chain.js 的 chainModelRepick（纯判定，判据 tests/director-chain.mjs）；
      这里只照判定落盘。Capabilities 缺位时清单只剩 registry 声明那一份静态的，
      没有「还没到货」可言，按落定算。 */
   const settled = !window.Capabilities || window.Capabilities.settled !== false;
-  const pick = chainModelRepick(sh, chainModelList(), settled);
-  if (pick && pick.id !== sh.model) { sh.model = pick.id; sh.modelAuto = 'chain'; }
-  return resolvedModel(sh);
+  const pick = chainModelRepick(cc, chainModelList(), settled);
+  if (pick && pick.id !== cc.model) { cc.model = pick.id; cc.modelAuto = 'chain'; }
+  return resolvedModel(cc);
 }
 /* 手选型号接不了首帧时那一句（空串 = 没有这回事）。
    与 `ensureChainModel` 配对：程序只替「没得选」的镜头挑型号，用户明确挑过的那一型只拦不改。 */
-function chainModelWhy(sh) {
-  if (!sh || sh.linkPrev !== 'tail' || sh.firstFrame) return '';
-  if (!sh.model || sh.model === 'auto' || sh.modelAuto === 'chain') return '';
-  const m = chainModelList().find(x => x.id === sh.model);
+function chainModelWhy(sh, c) {
+  const cc = c || cfg(sh);
+  if (!sh || cc.linkPrev !== 'tail' || cc.firstFrame) return '';
+  if (!cc.model || cc.model === 'auto' || cc.modelAuto === 'chain') return '';
+  const m = chainModelList().find(x => x.id === cc.model);
   return m && !m.first
     ? '「' + (m.name || m.id) + '」不支持首帧，接不了上一镜的尾帧；换一个支持首帧的型号，或取消「接上一镜」'
     : '';
 }
 /* 这一镜为什么还不能生成里「等上一镜」那一句。能接就是空串。
    与 chain.js 的 chainDeps 返回同一套原因码，只是这里说给人听。 */
-function chainWaitWhy(sh) {
-  if (!sh || sh.linkPrev !== 'tail' || sh.firstFrame) return '';
+function chainWaitWhy(sh, c) {
+  const cc = c || cfg(sh);
+  if (!sh || cc.linkPrev !== 'tail' || cc.firstFrame) return '';
   const all = allShots();
   const i = all.indexOf(sh);
   if (i <= 0) return '这是第一个镜头，没有上一镜可接';
@@ -86,16 +92,21 @@ function chainWaitWhy(sh) {
    ⚠ 不把 dataURL 写进工程、不落盘 —— 它可能是一张几 MB 的图，而完整提示词已有 PromptLog 归档。 */
 const chainFrameCache = new Map();
 const CHAIN_FRAME_CACHE_MAX = 8;
-async function resolveChainFrame(sh) {
+async function resolveChainFrame(sh, c) {
   const all = allShots();
   const i = all.indexOf(sh);
   if (i <= 0) throw new Error('这是第一个镜头，没有上一镜可接');
   const prev = all[i - 1];
-  if (prev.lastFrame) return { src: prev.lastFrame, from: '上一镜的结尾画面' };
-  const kf = (prev.keyframes || []).filter(k => k && k.assetId).pop();
+  /* 上一镜的尾帧取它**参考候选**那一份（选中的 → 最早创建的成功候选 → 最早创建的那条）：
+     确定规则，不随候选数组的排序漂。 */
+  const pc = tailCandOf(prev);
+  if (pc && pc.lastFrame) return { src: pc.lastFrame, from: '上一镜的结尾画面' };
+  /* 删除中的切片不接（k.deleted 与 panel.js 的 shotKeyframes 同一口径）：用户刚删掉的那张,
+     生成循环结束才从数组移除 —— 这几天窗里接它等于把「删了」当「没删」 */
+  const kf = ((pc && pc.keyframes) || []).filter(k => k && k.assetId && !k.deleted).pop();
   if (kf) return { src: await assetToDataURL(kf.assetId), from: '上一镜的画面切片' };
-  const cand = (prev.candidates || []).find(c => c && c.vid === prev.selId && c.status === 'succeeded' && c.url)
-    || (prev.candidates || []).find(c => c && c.status === 'succeeded' && c.url);
+  const cand = (prev.candidates || []).find(x => x && x.vid === prev.selId && x.status === 'succeeded' && x.url)
+    || (prev.candidates || []).filter(x => x && x.status === 'succeeded' && x.url).sort(byCreated)[0];
   if (!cand) {
     throw new Error(isRunning(prev) ? '上一镜还在生成，等它出画面后才能接它的尾帧'
       : '上一镜还没有可用画面，先单独生成它');
@@ -120,6 +131,8 @@ async function resolveChainFrame(sh) {
 const BoardTools = createBoardTools({
   durWritable: () => durWritable(), nameKey: window.nameKey,
   newShot, setShotDur, removeShot, uid, Wb, feedScenePics, clampShotDurations,
+  /* E 里来的是箭头（Panel 那一位，避开 TDZ），改稿落盘挂图走它。 */
+  bindShotPics,
 });
 const { snapBoard, boardListText, boardPlanOf, applyBoardPlan } = BoardTools;
 
@@ -131,7 +144,7 @@ const { snapBoard, boardListText, boardPlanOf, applyBoardPlan } = BoardTools;
    ② 两段式（`catalog` → `pick` → `fullText`）—— 第一段只给「谁是谁」的目录（每条 30 字），
       第二段只喂被挑中那几条的完整描述（每条截到 300 字）。整库直接倒过去会把上下文撑爆，
       一条都不喂又让 AI 认不出用户库里的角色名 —— 拆出来的镜头与素材对不上号正是这一条要治的。
-   ③ 落盘（`bind`）—— 按提示词里的 `@名字` 把素材库那一张挂进 `sh.refImages`，
+   ③ 落盘（`bind`）—— 按提示词里的 `@名字` 把素材库那一张挂进这一条候选的 `refImages`，
       判据全走 `addLibPicToShot`（能力声明 / 互斥 / 上限 / 去重 全站只那一份），这里不重写。
       **不改写提示词**：`@名字` 原样留着 —— 归档、`refTokenize`、芯片读的都是这一份原始写法，
       在这里换成 `@参考图1` 等于把同一件事拆成两份账，还会把「第几张」数错。
@@ -169,9 +182,11 @@ const SplitAssets = createSplitAssets({
   BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL,
   libIdx, nameKey: window.nameKey, TextAI: window.TextAI,
   /* 这两位搬进了 panel.js，本层要到 6504 行才把名字接回来；这里直接引用会在建包那一下撞 TDZ
-     （导演台整页挂不起来），所以照别处一样包成箭头，等真被调用时再读。 */
+     （导演台整页挂不起来），所以照别处一样包成箭头，等真被调用时再读。
+     bindShotPics 同理（E 里已经是箭头，直接递下去即可）。 */
   libPicChoices: (...a) => libPicChoices(...a),
   addLibPicToShot: (...a) => addLibPicToShot(...a),
+  bindShotPics,
   PLACEHOLDER_PREFIX: PENDING_PREFIX,
 });
 window.SplitAssets = SplitAssets;

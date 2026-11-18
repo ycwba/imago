@@ -4,6 +4,7 @@
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { speakerOf, lineTimeOf, lineRowHTML, deriveTimeline, estimateSpeechSeconds } from '../film.js';
+import { setTakePrompt } from '../takes.js';
 import { num } from '../util.js';
 import { createBoardPreview } from '../board-preview.js';
 import { shotRefPlanOf } from '../ref-plan.js';
@@ -11,6 +12,7 @@ import { createAssetMention, insertToken, libraryPicChoices as libPicChoices, li
 
 export function createPanel(E, document, window) {
   const {
+  cfg,
     $,
     projOf,
     REGOf,
@@ -124,8 +126,8 @@ function shotModels(sh) {
 function resolvedModel(sh) {
   const groups = shotModels(sh);
   if (!sh) return groups[0] ? { ...groups[0].models[0], provider: groups[0].id, keyId: groups[0].keyId, options: groups[0].models[0].options || groups[0].options } : null;
-  if (sh.model && sh.model !== 'auto') {
-    for (const g of groups) { const m = g.models.find(m => m.id === sh.model); if (m) return { ...m, provider: g.id, keyId: g.keyId, options: m.options || g.options }; }
+  if (cfg(sh).model && cfg(sh).model !== 'auto') {
+    for (const g of groups) { const m = g.models.find(m => m.id === cfg(sh).model); if (m) return { ...m, provider: g.id, keyId: g.keyId, options: m.options || g.options }; }
   }
   const g0 = groups[0]; if (!g0) return null;
   const m0 = g0.models[0];
@@ -172,11 +174,13 @@ function refVideoThumbSrc(ref) {
 function shotUsedRoles(sh) {
   if (!sh) return [];
   const used = [];
-  if (sh.firstFrame || sh.linkPrev === 'tail') used.push('first_frame');
-  if (sh.lastFrame) used.push('last_frame');
-  if ((sh.refImages || []).length || (sh.keyframes || []).some(k => k.assetId)) used.push('reference_image');
-  if (sh.refVideo) used.push('reference_video');
-  if (sh.refAudio) used.push('reference_audio');
+  if (cfg(sh).firstFrame || cfg(sh).linkPrev === 'tail') used.push('first_frame');
+  if (cfg(sh).lastFrame) used.push('last_frame');
+  /* 删除中的切片不占槽（k.deleted：生成循环结束才移除，shotKeyframes 同一口径）——
+     占了它就会把型号档筛成「参考图已用」，删完切片的镜头却提交不出该有的形状 */
+  if ((cfg(sh).refImages || []).length || (cfg(sh).keyframes || []).some(k => k.assetId && !k.deleted)) used.push('reference_image');
+  if (cfg(sh).refVideo) used.push('reference_video');
+  if (cfg(sh).refAudio) used.push('reference_audio');
   return used;
 }
 
@@ -192,21 +196,21 @@ function shotCombos(sh) {
 }
 function shotCombo(sh) {
   if (!sh) return null;
-  return shotCombos(sh).find(c => c.id === sh.combo) || null;
+  return shotCombos(sh).find(c => c.id === cfg(sh).combo) || null;
 }
 /* 选中的那一档还成立吗（换型号、能力刷新之后 id 会变）：回落判据只在公共层那一份。
    先退到**收得下当前这批素材**的那一档，再退到排在最前的那一档；退档不删素材。 */
 function ensureShotCombo(sh) {
   if (!sh) return '';
-  if (!window.Capabilities || !Capabilities.fallbackCombo) { if (!shotCombos(sh).length) sh.combo = ''; return sh.combo; }
-  const want = Capabilities.fallbackCombo(resolvedModel(sh) || {}, sh.combo, shotUsedRoles(sh));
-  if (sh.combo !== want) sh.combo = want;
-  return sh.combo;
+  if (!window.Capabilities || !Capabilities.fallbackCombo) { if (!shotCombos(sh).length) cfg(sh).combo = ''; return cfg(sh).combo; }
+  const want = Capabilities.fallbackCombo(resolvedModel(sh) || {}, cfg(sh).combo, shotUsedRoles(sh));
+  if (cfg(sh).combo !== want) cfg(sh).combo = want;
+  return cfg(sh).combo;
 }
 function setShotCombo(sh, id) {
-  if (!sh || !id || sh.combo === id) return;
+  if (!sh || !id || cfg(sh).combo === id) return;
   if (!shotCombos(sh).some(c => c.id === id)) return;
-  sh.combo = id;
+  cfg(sh).combo = id;
   /* 换档要重画整块编辑器：槽位（哪些出现、各收几张）、高级设置那三排（Turbo / 超分在这一档给不给）、
      摘要与报价都跟着这一档的声明变，只重画那一排芯片会留下半旧的状态。 */
   renderEditor(); updateBanner(); scheduleSave();
@@ -219,17 +223,17 @@ function shotRoleCounts(sh) {
   return {
     /* 隐式首帧（接上一镜尾帧）计 1：模式判据与提交体必须读同一份数，
        否则「视频换人」这类要求首帧的档会被判成缺料，按钮怎么点都不亮。 */
-    first_frame: (sh.firstFrame || sh.linkPrev === 'tail') ? 1 : 0,
-    last_frame: sh.lastFrame ? 1 : 0,
+    first_frame: (cfg(sh).firstFrame || cfg(sh).linkPrev === 'tail') ? 1 : 0,
+    last_frame: cfg(sh).lastFrame ? 1 : 0,
     /* 画面切片的图也会被加进 refImages（生成画面那一步）；同一张只算一次，
        否则「切片 3 张 + 参考图 3 张」在限 1 张的那一档会被虚报成 6。 */
     reference_image: (() => {
-      const refs = (sh.refImages || []).filter(Boolean);
+      const refs = (cfg(sh).refImages || []).filter(Boolean);
       const kfSrc = new Set(shotKeyframes(sh).map(k => Api.assetSrc(k.assetId)));
       return shotKeyframes(sh).length + refs.filter(src => !kfSrc.has(src)).length;
     })(),
-    reference_video: sh.refVideo ? 1 : 0,
-    reference_audio: sh.refAudio ? 1 : 0,
+    reference_video: cfg(sh).refVideo ? 1 : 0,
+    reference_audio: cfg(sh).refAudio ? 1 : 0,
   };
 }
 /* 「手上的这批素材，在当前这一档下哪里说不通」：缺料 / 超料 / 这一档不收 / 互斥两组同时用上，
@@ -239,7 +243,7 @@ function shotGaps(sh) {
   const rm = resolvedModel(sh) || {};
   const empty = { missing: [], over: [], rejected: [], conflicts: [], lines: [], ok: true };
   if (!sh || !rm.id || !window.Capabilities || !Capabilities.comboGaps) return empty;
-  return Capabilities.comboGaps(rm, sh.combo, shotRoleCounts(sh));
+  return Capabilities.comboGaps(rm, cfg(sh).combo, shotRoleCounts(sh));
 }
 
 /* 这一镜所选模型支持哪些输入 role 与上限。
@@ -250,7 +254,7 @@ function shotGaps(sh) {
 function shotInputCaps(sh) {
   const rm = resolvedModel(sh) || {};
   ensureShotCombo(sh);                      // 选中的档还可能来自上一个型号：先回落到这一型号成立的档
-  const inCombo = (window.Capabilities && Capabilities.comboRoles) ? Capabilities.comboRoles(rm, sh.combo) : null;
+  const inCombo = (window.Capabilities && Capabilities.comboRoles) ? Capabilities.comboRoles(rm, cfg(sh).combo) : null;
   const specs = (window.Capabilities && Capabilities.specs) ? Capabilities.specs(rm)
     : (rm.options && rm.options.inputSpecs) || [];
   const roles = new Map(specs.map(sp => [sp.role, sp]));
@@ -264,7 +268,7 @@ function shotInputCaps(sh) {
   caps.refAudio = has('reference_audio');
   /* 上限按**当前这一档**的声明现取（没有模式声明时 `rule` 自己退回型号总表）。 */
   caps.maxRef = caps.ref && window.Capabilities && Capabilities.rule
-    ? (Capabilities.rule(rm, 'reference_image', sh.combo).max || 0)
+    ? (Capabilities.rule(rm, 'reference_image', cfg(sh).combo).max || 0)
     : (caps.ref ? Math.max(1, (roles.get('reference_image') || {}).max) : 0);
   /* 「这个槽位收什么样的文件」这句话也现算（inputRoles 的 accept / maxBytes + 提交模板的 requiresAudio），
      以前是写在模板里的死文案「MP4 ≤ 200MB 含音频」——平台改了限制它不会跟着变。 */
@@ -297,7 +301,7 @@ function shotInputCaps(sh) {
 
 /* 接上一镜尾帧：只有真的有上一镜、而且没有显式首帧时才占第 1 张图的位置。 */
 function chainPendingOf(sh) {
-  return !!(sh && sh.linkPrev === 'tail' && !sh.firstFrame && allShots().indexOf(sh) > 0);
+  return !!(sh && cfg(sh).linkPrev === 'tail' && !cfg(sh).firstFrame && allShots().indexOf(sh) > 0);
 }
 
 /* ==================== 发送前的请求预览（dry-run） ====================
@@ -315,16 +319,16 @@ function shotPreviewBody(sh) {
   const rm = resolvedModel(sh);
   if (!rm) throw new Error('这一镜还没有能用的型号');
   const prov = needProv(rm.provider, (rm.name || rm.id));
-  const p = String((sh && sh.prompt) || '').trim();
+  const p = promptTextOf(sh).trim();
   const ctxAdv = shotAdvCtx(sh);
   const ex = shotAdvExtras(sh);
   const ic = shotInputCaps(sh);
   /* 参考语法转换（`@小雅` → `@参考图N` → 平台认的写法）与真发那条链**同一份**：
      预览里显示的必须是转换之后的样子，否则用户看到的是一份平台压根不认的正文。 */
   const pApi = applyRefSyntax(refTokenize(sh, p, ic), prov);
-  return BoardPreview.shotPreview(sh, prov, {
-    model: rm.id, prompt: pApi, tier: sh.tier, duration: sh.duration || undefined,
-    res: sh.res, ar: sh.ar, size: sh.size,
+  return BoardPreview.shotPreview(cfg(sh), prov, {
+    model: rm.id, prompt: pApi, tier: cfg(sh).tier, duration: cfg(sh).dur || undefined,
+    res: cfg(sh).res, ar: cfg(sh).ar, size: cfg(sh).size,
     note: sh.name || '',
     creation_intent: ctxAdv.intent,
     shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps }, params: ex.params,
@@ -355,10 +359,10 @@ function refreshShotPreview(sh) {
      · 提交体**顶层**的非布尔字段（`create.shapeFields`，如成片超分档、随机种子）
    导演台以前整块没有这三排 —— 同一个平台在工作台上能勾的那些开关，在这一镜上连控件都不画、
    提交体里一个字都不发，用户以为两个页面走的是同一套参数。
-   状态挂在**这一镜**上（`sh.adv`）而不是模块变量：导演台一次编辑的是镜头，切镜头就要跟着换。 */
+   状态挂在**这一条候选**上（`cfg(sh).adv`）而不是模块变量：导演台一次编辑的是镜头，切镜头就要跟着换。 */
 function shotAdvState(sh) {
-  if (!sh.adv) sh.adv = { bools: {}, topBools: {}, shape: {} };
-  return sh.adv;
+  if (!cfg(sh).adv) cfg(sh).adv = { bools: {}, topBools: {}, shape: {} };
+  return cfg(sh).adv;
 }
 /* 「这一次的那一行能力」：按这一镜选中的**输入模式 + 已放的素材 + 档位**问公共层那一份逐行判据
    （如 Turbo 给不给、超分有哪些档）。以前这里 combo 传 null、mode / intent 是空串 ——
@@ -366,7 +370,7 @@ function shotAdvState(sh) {
 function shotShapeCaps(sh) {
   const rm = resolvedModel(sh) || {};
   if (!rm.id || !window.Capabilities || !Capabilities.shapeState) return null;
-  return Capabilities.shapeState(rm, sh.combo, shotUsedRoles(sh), sh.tier);
+  return Capabilities.shapeState(rm, cfg(sh).combo, shotUsedRoles(sh), cfg(sh).tier);
 }
 function shotAdvCtx(sh) {
   const cb = shotCombo(sh);
@@ -412,7 +416,7 @@ function paintShotAdv(sh, forceDef) {
 }
 /* 接线：每一块重绘后绑一次（编辑器整块重建，旧节点上的监听跟着没了，不会越攒越多）。
    磁贴那一路要 `renderEditor(true)` 之外的最小重画 —— 这里直接重画整块编辑器：
-   值落在 `sh.adv` 上，摘要与估价都跟着它，重画整块才是最不容易漏更新的画法。 */
+   值落在 `cfg(sh).adv` 上，摘要与估价都跟着它，重画整块才是最不容易漏更新的画法。 */
 function bindShotAdv(sh) {
   const tbBox = $('edTopBools');
   if (tbBox) {
@@ -454,14 +458,14 @@ function shotAdvExtras(sh) {
   const st = shotAdvState(sh);
   /* ⚠ 只有「正在编辑的这一镜」才从 DOM 读：批量生成时 `submitCandidate` 会在屏幕上还是另一镜的情况下提交
      （连拍、按段排队都是这样），那时 #edAdvBody 里挂着的是**别人那一镜**的控件 ——
-     读 DOM 就等于把 A 的参数发到 B 的任务上。非当前镜头一律 root:null，退回 `sh.adv` 那份状态。 */
+     读 DOM 就等于把 A 的参数发到 B 的任务上。非当前镜头一律 root:null，退回 `cfg(sh).adv` 那份状态。 */
   const live = sh === curShot() && !!$('edAdvBody');
   return window.AdvExtras.read({
     root: live ? $('edAdvBody') : null, prov: provOf(rm.provider), ctx: ctx, caps: ctx.caps,
     topBoolState: st.topBools, shapeState: st.shape, bools: shotAdvBools(sh),
   });
 }
-/* 型号布尔那一排：正在编辑的这一镜读控件，别的镜头读 `sh.adv.bools` 那本账（没记过的按声明默认）。 */
+/* 型号布尔那一排：正在编辑的这一条候选读控件，别的候选读 `cfg(sh).adv.bools` 那本账（没记过的按声明默认）。 */
 function shotAdvBools(sh) {
   const st = shotAdvState(sh);
   if (sh === curShot() && $('edBoolRows')) return window.AdvExtras.boolsFromDom($('edBoolRows'), st.bools);
@@ -482,16 +486,18 @@ function shotAdvBools(sh) {
    没有声明就当作「这一项不给选」：时长控件不渲染，条数按平台默认一次一条、下拉也不摆
    （只有一个可选项的下拉是假控件，这条与工作台同判据）。
    ⚠ 现取 `resolvedModel(sh)`：改完 edModel 之后摘要要跟着新型号，不能拿渲染时那一份。 */
-function videoPlanOf(sh) {
-  const mm = resolvedModel(sh) || {};
-  ensureShotCombo(sh);              // 档位清单要按**当前这一档**收窄，先保证 sh.combo 是这一型号成立的 id
+function videoPlanOf(sh, c) {
+  const cc = c || cfg(sh);
+  const mm = resolvedModel(cc) || {};
+  ensureShotCombo(cc);             // 档位清单要按**当前这一档**收窄，先保证 combo 是这一型号成立的 id
   return AdvParams.plan(mm, {
     kinds: ['tier', 'resolution', 'aspect_ratio', 'size', 'duration', 'count'],
     ids: { tier: 'edTier', resolution: 'edRes', aspect_ratio: 'edAr', size: 'edSize', duration: 'durRange', count: 'edDraw' },
-    cur: { tier: sh.tier, resolution: sh.res, aspect_ratio: sh.ar, size: sh.size, duration: sh.duration, count: sh.draw },
+    /* 时长 / 档位 / 画幅都是**这条候选**自己的；条数（张数）仍是镜头级的设置。 */
+    cur: { tier: cc.tier, resolution: cc.res, aspect_ratio: cc.ar, size: cc.size, duration: cc.dur, count: sh.draw },
     /* 取值范围与默认值跟着选中的输入模式（平台在「视频换人」那一档只给到 768p、没有 2x）：
        不递 combo 就等于在页面里替平台编一份「换了模式少哪几个档」，那是第二份判据。 */
-    scoped: true, combo: sh.combo,
+    scoped: true, combo: cc.combo,
     prefix: mm.name || '',
     units: { count: '条' },
   });
@@ -506,7 +512,7 @@ function advSumText(sh) {
 /* 这一镜能交出去的画面切片：只数「有资产号（= 出图真的成了）而且没被删掉」的那几张。
    判据在这里只有一份，提交体与归档文案都读它 —— 否则界面写「已带上 3 张关键帧」而请求里只有 1 张。 */
 function shotKeyframes(sh) {
-  return (sh.keyframes || []).filter(k => k && k.assetId && !k.deleted);
+  return (cfg(sh).keyframes || []).filter(k => k && k.assetId && !k.deleted);
 }
 /* 素材 → 能交给平台的地址。签名外链本来就是公网 https，原样给它；
    而 `data:`、`/asset/xx`、`/getv?url=` 是本机回环或浏览器内地址，平台根本访问不到
@@ -525,7 +531,7 @@ async function shotPlatformUrl(src) {
    于是接第三家（MiniMax 的 content[]）时拼出去的是上游不认的字段名，
    而且「界面按能力把素材画出来了、提交体却把它发错地方」这种问题只在扣费之后才暴露。
    形状交给声明，这一页只负责回答「这个槽位手上有什么」：
-     · 首尾帧 = `sh.firstFrame` / `sh.lastFrame`（选素材时就已经是 DataURL）
+     · 首尾帧 = `cfg(sh).firstFrame` / `cfg(sh).lastFrame`（选素材时就已经是 DataURL）
      · 参考图 = 画面切片 + 手动参考图**合并**后按型号声明的 maxRef 截断
      · 参考视频 / 参考音频 = 槽位上的那份素材（上面那段 `requiresAudio` 的重传逻辑已经把资产号备好）
    以前切片与手动参考图是 `else if` 二选一：有切片时用户手动加的参考图被整体丢弃、一个字都不说。
@@ -558,8 +564,8 @@ async function shotInputEntries(sh, prov, ic, chainFrame) {
   };
   /* 素材顺序与编号只有一份：与提示词里的 @参考图N、界面芯片、预览完全同源。 */
   const plan = shotRefPlanOf(sh, ic, {
-    firstFrame: sh.firstFrame || (chainFrame && chainFrame.src) || '',
-    lastFrame: sh.lastFrame || '',
+    firstFrame: cfg(sh).firstFrame || (chainFrame && chainFrame.src) || '',
+    lastFrame: cfg(sh).lastFrame || '',
     chainPending: false,
   }, id => Api.assetSrc(id));
   needSlot('first_frame', '首帧', plan.pictures.some(p => p.role === 'first_frame') ? 1 : 0);
@@ -567,7 +573,7 @@ async function shotInputEntries(sh, prov, ic, chainFrame) {
   /* 手上有没有参考素材与「计划里有没有」是两件事：能力把这一档的参考图收窄掉时，
      计划会为空，但请求里明明带着用户放进去的素材 —— 仍然要走 needSlot 把「这一家没声明怎么收」说出来。 */
   needSlot('reference_image', '参考图',
-    (shotKeyframes(sh).length || (sh.refImages || []).some(Boolean)) ? 1 : 0);
+    (shotKeyframes(sh).length || (cfg(sh).refImages || []).some(Boolean)) ? 1 : 0);
   /* 读不出字节 / 超上限的那几张不能闷着不发：提交前状态条会被「已提交」覆盖，所以要用 Toast 说。 */
   let failed = 0;
   for (const p of plan.pictures) {
@@ -592,8 +598,8 @@ async function shotInputEntries(sh, prov, ic, chainFrame) {
     Toast.warn('少了参考素材：' + why);
   }
   const medias = [];
-  if (ic.refVideo && sh.refVideo) medias.push(['reference_video', sh.refVideo, '参考视频']);
-  if (ic.refAudio && sh.refAudio) medias.push(['reference_audio', sh.refAudio, '参考音频']);
+  if (ic.refVideo && cfg(sh).refVideo) medias.push(['reference_video', cfg(sh).refVideo, '参考视频']);
+  if (ic.refAudio && cfg(sh).refAudio) medias.push(['reference_audio', cfg(sh).refAudio, '参考音频']);
   for (const [role, ref, name] of medias) {
     needSlot(role, name, 1);
     /* 以前这一条写的是「没有 asset_id 就整个跳过」—— 素材明明选了，提交体里一个字没有，
@@ -641,10 +647,13 @@ function promptLimitOf(sh) {
   const b = window.CharLimits.prompt(PL, '');
   return { min: b.min, max: b.max, who: (prov && (prov.displayName || prov.name)) || '这一家' };
 }
-function promptLimitWhy(sh) {
+/* 长度闸按**将要发出的那一句**判：每条候选按自己那一句算，
+   空串就是空串（不回落到谁），这里只收现成的文字。 */
+function promptLimitWhy(sh, text) {
   const PL = promptLimitOf(sh);
   if (!PL) return '';
-  return window.CharLimits.why((sh && sh.prompt) || '', PL, { who: PL.who, noun: '提示词' });
+  const t = text != null ? String(text) : promptTextOf(sh);
+  return window.CharLimits.why(t, PL, { who: PL.who, noun: '提示词' });
 }
 /* 提示词框旁边那截小字：只有声明了长度的一家才画（写出它的区间），没声明的家整块不出现 */
 function promptLimitNote(sh) {
@@ -662,30 +671,36 @@ let kfModelChanged = false;
    光在 onclick 里 disable 那颗旧元素没用 —— pushPlaceholders 里那次 renderAll 会把按钮换掉，
    新元素又是可点的；上传中再点一次就是第二条提交、第二笔钱（双击即重复扣费）。 */
 let genOneBusy = false;
-function shotBlockReason(sh, ic) {
-  const p = String((sh && sh.prompt) || '').trim();
+function shotBlockReason(sh, ic, promptText, c) {
+  /* 第三档 = 这一次将要提交/预览的那句话：批量按候选提交时由调用方点名，
+     单镜这里默认读当前查看的候选（promptTextOf）。
+     第四档 = 这一次的**候选**（配置都在候选身上）：批量那条路要按**被提交的那一条**判，
+     不能拿「当前查看那条」顶上。 */
+  const cc = c || cfg(sh);
+  const text = promptText != null ? String(promptText) : promptTextOf(sh);
+  const p = text.trim();
   if (!p) return NO_PROMPT_WHY;
   /* 长度闸在这一句之后：空提示词是初始态（标题栏那句就够），写过字才按这一家的区间判 */
-  const limWhy = promptLimitWhy(sh);
+  const limWhy = promptLimitWhy(cc, text);
   if (limWhy) return limWhy;
   /* 接续型号接不了首帧：比「素材说不通」更靠前，因为这一条是明确的手选冲突。 */
-  const chainModel = chainModelWhy(sh);
+  const chainModel = chainModelWhy(sh, cc);
   if (chainModel) return chainModel;
-  const caps = ic || shotInputCaps(sh);
+  const caps = ic || shotInputCaps(cc);
   /* 「这一档要求带却没带够 / 带超了 / 这一档不收 / 互斥两组都用了」四种说不通一次判全，
      判据与文案都在公共层那一份（与工作台同一个读数）。
      以前这里只查互斥与「型号不支持」两头，于是选了「视频换人」而手上只有 9 张参考图、
      一条参考视频都没放，按钮是亮的，点下去才拿到平台那句 422。 */
-  const g = caps.gaps || shotGaps(sh);
+  const g = caps.gaps || shotGaps(cc);
   if (g.lines && g.lines.length) return g.lines.join('；');
-  if (!resolvedModel(sh)) return '没有支持这组素材的型号';
+  if (!resolvedModel(cc)) return '没有支持这组素材的型号';
   /* 高级设置里越界或非数的那一项（种子、超分档那种）：与工作台同一个判据、同一处拦。
      不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
-  const bad = shotAdvExtras(sh).bad;
+  const bad = shotAdvExtras(cc).bad;
   if (bad.length) return bad.join('、');
   /* 接续的最后一道闸：上一镜还没出画面时这一镜不是「不能生成」，只是「还没轮到」。
      genAll 靠这句话单独归类成等待，不把它算成永久不可生成。 */
-  const chainWhy = chainWaitWhy(sh);
+  const chainWhy = chainWaitWhy(sh, cc);
   if (chainWhy) return chainWhy;
   return '';
 }
@@ -753,7 +768,7 @@ function modelOptionsFor(sh) {
   groups.forEach(g => {
     opts += `<optgroup label="${g.displayName || g.name}">`;
     // 选项文字用平台的原始调用名（model id），友好名放 title；分组标签就是 API 来源
-    g.models.forEach(m => opts += `<option value="${esc(m.id)}" title="${esc(m.name || '')}" ${sh.model === m.id ? 'selected' : ''}>${esc(m.id)}</option>`);
+    g.models.forEach(m => opts += `<option value="${esc(m.id)}" title="${esc(m.name || '')}" ${cfg(sh).model === m.id ? 'selected' : ''}>${esc(m.id)}</option>`);
     opts += '</optgroup>';
   });
   return opts;
@@ -803,31 +818,31 @@ function needProv(providerId, where) {
    同一位的两张资产拿到的是**两个不同的 token**，各指各的那一张，
    不会像以前那样「两张都叫 @小雅，只认第一张」。 */
 function addRefImage(sh, src, label, refId) {
-  sh.refImages.push(src);
-  sh.refMeta = Array.isArray(sh.refMeta) ? sh.refMeta : [];
+  cfg(sh).refImages.push(src);
+  cfg(sh).refMeta = Array.isArray(cfg(sh).refMeta) ? cfg(sh).refMeta : [];
   /* refMeta 扩成 { id, label }：id 是库条目主键（改名不断引用），label 是芯片上显示的 token。
      老数据没有 id 的条目按 label → nameKey 反查库里补 id（14.1-6）。 */
-  sh.refMeta.push({ id: refId || null, label: label || null });
+  cfg(sh).refMeta.push({ id: refId || null, label: label || null });
 }
 /* 点开一张已放的素材图（首帧 / 尾帧 / 画面 / 参考图）：灯箱是全站那一份，
    本页的 cfg 在导出接线那一块登记（srcOf / kindOf 现取）。读不出地址就当没反应。 */
 function viewShotMedia(sh, key) {
   const it = { src: '', label: '' };
-  if (key === 'first') { it.src = sh.firstFrame ? Api.mediaSrc(sh.firstFrame) : ''; it.label = '开头画面'; }
-  else if (key === 'last') { it.src = sh.lastFrame ? Api.mediaSrc(sh.lastFrame) : ''; it.label = '结尾画面'; }
+  if (key === 'first') { it.src = cfg(sh).firstFrame ? Api.mediaSrc(cfg(sh).firstFrame) : ''; it.label = '开头画面'; }
+  else if (key === 'last') { it.src = cfg(sh).lastFrame ? Api.mediaSrc(cfg(sh).lastFrame) : ''; it.label = '结尾画面'; }
   else if (key.startsWith('kf:')) {
-    const kf = (sh.keyframes || [])[Number(key.slice(3))];
+    const kf = (cfg(sh).keyframes || [])[Number(key.slice(3))];
     if (!kf || !kf.assetId) return;
     it.src = Api.assetSrc(kf.assetId); it.label = '画面 · 第 ' + kf.t + ' 秒';
   } else if (key.startsWith('ref:')) {
     const i = Number(key.slice(4));
-    const d2 = (sh.refImages || [])[i];
+    const d2 = (cfg(sh).refImages || [])[i];
     if (!d2) return;
     it.src = Api.mediaSrc(d2);
-    const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
+    const lb = (Array.isArray(cfg(sh).refMeta) && cfg(sh).refMeta[i] && cfg(sh).refMeta[i].label) || '';
     it.label = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
   } else if (key === 'refvideo' || key === 'refaudio') {
-    const rec = key === 'refvideo' ? sh.refVideo : sh.refAudio;
+    const rec = key === 'refvideo' ? cfg(sh).refVideo : cfg(sh).refAudio;
     if (!rec) return;
     it.src = rec.src ? Api.mediaSrc(rec.src) : '';
     it.label = key === 'refvideo' ? '参考视频' : '参考音频';
@@ -845,7 +860,7 @@ function backfillRefMetaIds(shots) {
   try {
     const lib = Chars.Lib.list() || [];
     (shots || []).forEach(sh => {
-      (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
+      (Array.isArray(cfg(sh).refMeta) ? cfg(sh).refMeta : []).forEach(rm => {
         if (!rm || rm.id) return;
         const lb = String(rm.label || '').replace(/^@/, '').split('·')[0].trim();
         if (!lb) return;
@@ -857,8 +872,8 @@ function backfillRefMetaIds(shots) {
   return n;
 }
 function removeRefImage(sh, i) {
-  sh.refImages.splice(i, 1);
-  if (Array.isArray(sh.refMeta)) sh.refMeta.splice(i, 1);
+  cfg(sh).refImages.splice(i, 1);
+  if (Array.isArray(cfg(sh).refMeta)) cfg(sh).refMeta.splice(i, 1);
 }
 
 /* ============================ 提示词里的 @ 引用（素材库 → 参考图） ============================
@@ -879,7 +894,7 @@ function mentionCands(sh, q) {
   const out = [];
   /* 本镜素材按**真实发送顺序**列出来：首帧 / 尾帧 / 画面切片 / 参考图 / 参考视频 / 参考音频。
      名字优先用给人看的那一个（`小雅` / `首帧`），没有来源标签的才退回 `参考图N`。 */
-  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
+  const plan = shotRefPlanOf(cfg(sh), shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
   const addRow = (name, meta, pic, extra) => {
     if (kw && name.toLowerCase().indexOf(kw) < 0 && meta.toLowerCase().indexOf(kw) < 0) return;
     out.push(Object.assign({ kind: 'ref', name, pic, meta }, extra));
@@ -894,7 +909,7 @@ function mentionCands(sh, q) {
     const pic = p.src || (p.assetId ? Api.assetSrc(p.assetId) : '');
     addRow(nm, '本镜素材 · ' + tok + (p.label ? ' · ' + p.label : ''), pic);
   });
-  plan.videos.forEach(v => addRow(v.token.replace(/^@/, ''), '本镜素材 · 参考视频', (sh.refVideo && sh.refVideo.thumb) || '', { ic: 'film' }));
+  plan.videos.forEach(v => addRow(v.token.replace(/^@/, ''), '本镜素材 · 参考视频', (cfg(sh).refVideo && cfg(sh).refVideo.thumb) || '', { ic: 'film' }));
   plan.audios.forEach(a => addRow(a.token.replace(/^@/, ''), '本镜素材 · 参考音频', '', { ic: 'mic' }));
   const lib = (D && D.Lib) ? (D.Lib.list() || []) : [];
   lib.forEach(c => {
@@ -917,7 +932,7 @@ function mentionCands(sh, q) {
    芯片上写的是提示词里能用的那个 token（`@小雅` / `@首帧` / `@参考图3` / `@视频1` / `@音频1`），
    与 refTokenize、提交体的编号同源；手动传的、切片生成的也在里面。 */
 function mentionedMats(sh, ic, chainPending) {
-  const plan = shotRefPlanOf(sh, ic, { chainPending: !!chainPending }, id => Api.assetSrc(id));
+  const plan = shotRefPlanOf(cfg(sh), ic, { chainPending: !!chainPending }, id => Api.assetSrc(id));
   const out = plan.pictures.map(p => {
     const tok = p.token.replace(/^@/, '');
     const display = p.kind === 'ref' && p.label ? p.label
@@ -936,7 +951,7 @@ function mentionedMats(sh, ic, chainPending) {
     kind: 'video', n: 1, token: v.token.replace(/^@/, ''), display: v.token.replace(/^@/, ''),
     /* 芯片画的是图片缩略图：只有选素材时顺手存下的那一帧小图能用；
        没有再退回图标，不能把视频地址塞进 <img>。 */
-    label: '参考视频', src: (sh.refVideo && sh.refVideo.thumb) || '', media: 'video', note: '参考视频',
+    label: '参考视频', src: (cfg(sh).refVideo && cfg(sh).refVideo.thumb) || '', media: 'video', note: '参考视频',
   }));
   plan.audios.forEach(a => out.push({
     kind: 'audio', n: 1, token: a.token.replace(/^@/, ''), display: a.token.replace(/^@/, ''),
@@ -976,7 +991,7 @@ function atNames(sh) {
   });
   /* 这一镜真实会发出去的素材：编号、首帧 / 尾帧、视频 / 音频的写法都要认。
      超出上限的参考图不在计划里，也就不高亮 —— 它本来就不会发给平台。 */
-  const plan = shotRefPlanOf(sh, shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
+  const plan = shotRefPlanOf(cfg(sh), shotInputCaps(sh), { chainPending: chainPendingOf(sh) }, id => Api.assetSrc(id));
   plan.pictures.forEach(p => {
     s.add(p.token.replace(/^@/, ''));
     s.add('图片' + p.n);
@@ -1054,11 +1069,39 @@ function addLibPicToShot(sh, entry, pick) {
   const ic = shotInputCaps(sh);
   if (!ic.ref) return { ok: false, why: '当前型号没有「参考图」这个入口' };
   if (ic.blockedRoles.has('reference_image')) return { ok: false, why: '这一镜已经选了开头 / 结尾画面，不能再加参考图（清空后才能换）' };
-  sh.refImages = Array.isArray(sh.refImages) ? sh.refImages : [];
-  if (sh.refImages.indexOf(pic) >= 0) return { ok: true, dup: true, label: label };
-  if (sh.refImages.length >= ic.maxRef) return { ok: false, why: '参考图最多 ' + ic.maxRef + ' 张，先删掉一张再加' };
+  cfg(sh).refImages = Array.isArray(cfg(sh).refImages) ? cfg(sh).refImages : [];
+  if (cfg(sh).refImages.indexOf(pic) >= 0) return { ok: true, dup: true, label: label };
+  if (cfg(sh).refImages.length >= ic.maxRef) return { ok: false, why: '参考图最多 ' + ic.maxRef + ' 张，先删掉一张再加' };
   addRefImage(sh, pic, label, entry && entry.id);
   return { ok: true, label: label };
+}
+
+/* ---- 拆分镜的「AI 点的随附图」挂进参考图槽 ----
+   闸与 addLibPicToShot 同一套（能力声明 + 互斥 + 去重 + 上限），差别只有两处：
+   图不来自素材库、也不登记 refId —— 它们是这次拆分镜随附的原始图（挑图时就地定型的
+   dataURL），与素材库条目没有身份关系。 */
+function addRawPicToShot(sh, src, label) {
+  if (!sh || !src) return '没有可挂的图';
+  const ic = shotInputCaps(sh);
+  if (!ic.ref) return '当前型号没有「参考图」这个入口';
+  if (ic.blockedRoles.has('reference_image')) return '这一镜已经选了开头 / 结尾画面，不能再加参考图';
+  cfg(sh).refImages = Array.isArray(cfg(sh).refImages) ? cfg(sh).refImages : [];
+  if (cfg(sh).refImages.indexOf(src) >= 0) return 'dup';
+  if (cfg(sh).refImages.length >= ic.maxRef) return '参考图最多 ' + ic.maxRef + ' 张，先删掉一张再加';
+  addRefImage(sh, src, label || null, null);
+  return '';
+}
+function bindShotPics(sh, idxs, pics) {
+  const r = { n: 0, dup: 0, why: '', unknown: 0 };
+  (idxs || []).forEach(i => {
+    const p = (pics || [])[i];
+    if (!p || !p.src) { r.unknown++; return; }
+    const why = addRawPicToShot(sh, p.src, p.label);
+    if (!why) { r.n++; return; }
+    if (why === 'dup') r.dup++;
+    else if (!r.why) r.why = why;
+  });
+  return r;
 }
 
 /* ---- 「素材出图了 → 自动补进引用它的镜头」 ----
@@ -1079,14 +1122,15 @@ window.addEventListener('wb:char-pic', e => {
   /* 找出引用了这条待建素材的镜头（占位符还在的那些）。 */
   const shots = BoardAssetsOf().shotsPending(allShots(), name);
   shots.forEach(sh => {
-    const resolved = BoardAssetsOf().resolve(String(sh.prompt || ''), name, name);
-    sh.prompt = resolved;
-    /* 提示词框显示的是「当前查看那条候选的 prompt 优先」（promptTextOf），
-       与手打同一份口径（ta.oninput 同时写两处）：只写 sh.prompt 的话，框里还是
-       旧的 @待建:写法，用户在框里动一下键盘就把替换结果覆盖回去了。
-       只动**当前镜头**正在看的那条候选 —— 别的镜头的 curCand 下标不是它们的。 */
-    /* 候选那份提示词也是给生成用的（框里显示的就是它）：含占位符的每一条都换 */
-    (sh.candidates || []).forEach(c => { if (c && c.prompt && BoardAssetsOf().isToken(c.prompt)) c.prompt = resolved; });
+    const resolved = BoardAssetsOf().resolve(String(cfg(sh).prompt || ''), name, name);
+    cfg(sh).prompt = resolved;
+    /* 候选自己的描述里带着占位符的也一起换（它同样会作为请求正文发出去）。
+       只动**自有描述**：auto 候选不存句子，继承本来就跟着基准走，不用另写。
+       换的是候选自己那句 —— 拿 resolved 写下去会把这一条的正文整段换掉。 */
+    (sh.candidates || []).forEach(c => {
+      if (!c || c.prompt == null || !BoardAssetsOf().isToken(c.prompt)) return;
+      setTakePrompt(sh, c, BoardAssetsOf().resolve(String(c.prompt), name, name));
+    });
     touched++;
     const one = addLibPicToShot(sh, item, null);
     if (one.ok) { if (!one.dup) pics++; }
@@ -1124,7 +1168,7 @@ function modeChipsHTML(sh) {
   const cb = shotCombo(sh);
   /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与工作台同一份）；
      这一页只负责把它们包进自己的容器（整块编辑器每次重绘都重建这一段）。 */
-  const chips = comboChips(list, sh.combo);
+  const chips = comboChips(list, cfg(sh).combo);
   return '<div class="ed-label" style="margin-top: var(--sp-12)"><span>输入模式</span><span class="cnt">'
     + esc(comboNote(cb)) + '</span></div>' + (chips ? '<div class="mode-row" id="modeRow">' + chips + '</div>' : '');
 }
@@ -1227,7 +1271,7 @@ function paintLineWhen(row, x) {
    与右边那个时间 + 两段表头读数，`change`（松手 / 失焦）才 `filmEdited()`：台词改了，
    （占位由 renderAll 现算），而字幕按台词派生、会烧进成片，所以这一改必须标脏成片并推进修订号。
    撤销快照在第一个字落下之前压（`beginEdit` 拍的是改**之前**那一份）。
-   改台词一个字节都不动 `sh.prompt`：提示词改了台词不动，台词改了提示词也不动。 */
+   改台词一个字节都不动 `cfg(sh).prompt`：提示词改了台词不动，台词改了提示词也不动。 */
 function bindLineEditors(root, curSh) {
   if (!root) return;
   /* 「生成语音」能不能点 / 说明句在打字时就要跟着走：只靠整栏重画的话，刚写完说话人它还是灰的。
@@ -1330,34 +1374,33 @@ function renderEditor() {
   mention.hidePeek();                             // 悬停小卡同理
   const sh = curShot();
   if (!sh) {
-    /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起（拆一份新的），
-       问答 / 过程面板的宿主由 renderSplitPanel 自己补一块（splitUI 在跑才有），重画后也在这里拼回来。
-       补宿主那一行和 innerHTML 同一次重画，所以一起圈在 keep 里。 */
+    /* 空项目（还没有任何镜头）时这一栏整个是空的：拆分镜恰恰常从这里发起。
+       过程面板与审阅是同一张居中弹窗（apply 域自己管，不在这一栏里），这一笔照旧喊一声。 */
     Wb.viewport.keep(col, () => { col.innerHTML = ''; renderSplitPanel(); });
     return;                                         // 没有镜头先退出，别去解析模型
   }
   /* 接续镜头先确保型号能收首帧：能力槽位、素材判据与报价都读 `resolvedModel`，
      晚一步换型号就会画出「没有首帧槽、按钮却要带首帧」的一屏。 */
-  const modelBefore = sh.model;
-  ensureChainModel(sh);
+  const modelBefore = cfg(sh).model;
+  ensureChainModel(sh, cfg(sh));
   /* 与下面的参数回写同一把尺子：原来没存过型号 = 程序第一次挑一个能收首帧的填上，静默落盘；
      原来是用户选的那一型号被换掉 = 真的动了他的数据，进撤销栈、推进修订号，标签写明为什么换。
      以前两种都走无标签的普通 scheduleSave：接续镜一打开就先欠一枚「编辑」，Ctrl+Z 退回去
      只是把型号变回从来没选过。 */
-  if (modelBefore !== sh.model) {
+  if (modelBefore !== cfg(sh).model) {
     if (modelBefore === undefined || modelBefore === null || modelBefore === '') scheduleSaveQuiet();
     else scheduleSave('接续型号按能力收正');
   }
   const idx = allShots().indexOf(sh) + 1;
-  const chainOn = sh.linkPrev === 'tail';
-  const chainSlot = chainOn && !sh.firstFrame;
+  const chainOn = cfg(sh).linkPrev === 'tail';
+  const chainSlot = chainOn && !cfg(sh).firstFrame;
   const hasPrevShot = allShots().indexOf(sh) > 0;
   const ic = shotInputCaps(sh);                      // 该模型支持的输入（决定素材/参考入口显不显示）
   const mats = mentionedMats(sh, ic, chainPendingOf(sh));   // 「提到素材」那排芯片（按真实发送顺序编号）
   const vp = videoPlanOf(sh);
   const vk = vp.kinds;
   /* 只回写**这一家声明了**的那些档（没声明时 value 是空串，写回去等于把用户存的值抹掉）。
-     duration 写成数字：`sh.duration` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。
+     duration 写成数字：`cfg(sh).dur` 进提交体、进关键帧秒点、进时间线，字符串会到处要比数。
      「存的值不在声明里、被 plan 的回落收正」与「这一档从来没存过值」是两件事，分开结算：
      · 收正（原来有值）——真的动了用户存过的数据：照旧落盘、进撤销栈、推进修订号，并报清收正了什么；
      · 补齐（原来是空）——程序第一次把型号声明的默认填进来，用户一个字节都没改过：
@@ -1367,20 +1410,23 @@ function renderEditor() {
   const drift = [];
   const fill = [];
   const empty = v => v === undefined || v === null || v === '';
-  const put = (key, next, name, asNumber) => {
-    const cur = sh[key];
+  /* 参数回写落在**这一条候选的配置**上（`cfg(sh)`）；条数是镜头级的设置，仍写镜头本身。 */
+  const ccPut = cfg(sh);
+  const put = (holder, key, next, name, asNumber) => {
+    if (!holder) return;
+    const cur = holder[key];
     if (cur === (asNumber ? Number(next) : next)) return;
     (empty(cur) ? fill : drift).push(name + ' ' + (cur === undefined ? '（没存过）' : cur) + ' → ' + next);
-    sh[key] = asNumber ? Number(next) : next;
+    holder[key] = asNumber ? Number(next) : next;
   };
-  if (vk.tier.list.length) put('tier', vk.tier.value, '档位');
-  if (vk.resolution.list.length) put('res', vk.resolution.value, '分辨率');
-  if (vk.aspect_ratio.list.length) put('ar', vk.aspect_ratio.value, '画幅');
+  if (vk.tier.list.length) put(ccPut, 'tier', vk.tier.value, '档位');
+  if (vk.resolution.list.length) put(ccPut, 'res', vk.resolution.value, '分辨率');
+  if (vk.aspect_ratio.list.length) put(ccPut, 'ar', vk.aspect_ratio.value, '画幅');
   /* size 是「宽x高」那一族平台用的画幅写法（SiliconFlow 的 image_size / OpenAI 兼容的 size），
      与 ar（比例）是两种字段 —— 声明了才回写、才发，没声明的这一档一个字都不带。 */
-  if (vk.size.list.length) put('size', vk.size.value, '尺寸');
-  if (vk.duration.list.length) put('duration', vk.duration.value, '时长', true);
-  put('draw', vk.count.list.length ? vk.count.value : 1, '条数', true);
+  if (vk.size.list.length) put(ccPut, 'size', vk.size.value, '尺寸');
+  if (vk.duration.list.length) put(ccPut, 'dur', vk.duration.value, '时长', true);
+  put(sh, 'draw', vk.count.list.length ? vk.count.value : 1, '条数', true);
   if (drift.length) {
     scheduleSave('参数按型号声明收正');
     setStatus('「' + (sh.name || '这一镜') + '」的部分参数不在当前型号的声明里，已收正：' + drift.join('；') + '（可 Ctrl+Z 退回）');
@@ -1405,7 +1451,7 @@ function renderEditor() {
   /* 「按描述生成画面」那一档的高参：选项与上限现读**图片模型**的声明（不是这一镜视频模型的）。
      放在模板外面算，是因为摘要那一行与下面的说明句要用同一份数（抄两遍就会各说各的）。 */
   const kp = kfImgParams(sh);
-  const kfRefN = (sh.refImages || []).filter(Boolean).length;
+  const kfRefN = (cfg(sh).refImages || []).filter(Boolean).length;
   const kfRefCap = kfRefMax(kp.model);
   const kfRefLine = kfRefCap
     ? (kfRefN
@@ -1440,7 +1486,7 @@ function renderEditor() {
   const edHtml = `
     <div class="ed-head"><b>编辑这一镜</b><span class="no">第 ${idx} 镜</span></div>
     <div class="ed-body">
-      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" data-at-btn title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${sh.prompt.trim().length} 字</span>${promptLimitNote(sh)}<button type="button" class="ghost mini" id="pClear">清空</button></span></div>
+      <div class="ed-label"><span>提示词</span><span><button class="at-btn" id="atBtn" type="button" data-at-btn title="也可以直接在框里打 @">@ 素材</button><span class="cnt" id="pCnt">${promptTextOf(sh).trim().length} 字</span>${promptLimitNote(sh)}<button type="button" class="ghost mini" id="pClear">清空</button></span></div>
       <div class="ta-wrap">
         <!-- 镜像层：textarea 没法给某几个字上色，所以在它下面铺一层同字号同内边距的副本，
              只给 @片段 画底（文字本身透明，看得见的还是 textarea 里那行字 ——
@@ -1483,7 +1529,7 @@ function renderEditor() {
            放在标签后面就读成了「画面素材的一种设置」（工作台也是这个顺序）。 */
         modeChipsHTML(sh)}
       <div class="ed-label" style="margin-top: var(--sp-16)"><span>画面素材</span><span class="cnt">顺序即参考顺序</span></div>
-      ${(sh.keyframes || []).some(k => k.status === 'failed') ? `<button type="button" class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-8)">清除失败的画面（${sh.keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
+      ${(cfg(sh).keyframes || []).some(k => k.status === 'failed') ? `<button type="button" class="ghost mini" id="kfClearFailed" style="margin: 0 0 var(--sp-8)">清除失败的画面（${cfg(sh).keyframes.filter(k => k.status === 'failed').length}）</button>` : ''}
       <div class="btn-row">
         ${window.aiBtnHTML({ id: 'kfGenBtn', label: '按描述生成这一镜的画面', busy: '生成中…', busyOn: kfRunOf() })}
       </div>
@@ -1512,7 +1558,7 @@ function renderEditor() {
         <div class="adv-body" id="kfAdvBody">
           <div class="adv-grid">
             ${advSel(kp.kinds.quality)}
-            ${advSel(kp.kinds.aspect_ratio, { first: sh.ar ? '跟随这一镜（' + sh.ar + '）' : '' })}
+            ${advSel(kp.kinds.aspect_ratio, { first: cfg(sh).ar ? '跟随这一镜（' + cfg(sh).ar + '）' : '' })}
             ${advSel(kp.kinds.size)}
             ${advSel(kp.kinds.output_format)}
           </div>
@@ -1529,12 +1575,12 @@ function renderEditor() {
       <label class="chain-row${chainOn ? ' on' : ''}"${hasPrevShot ? '' : ' title="这是第一个镜头，没有上一镜可接"'}>
         <input type="checkbox" id="chainPrev" ${chainOn ? 'checked' : ''} ${hasPrevShot ? '' : 'disabled'}>
         <span>接上一镜尾帧当首帧</span>
-        <em>${chainOn ? (sh.firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
+        <em>${chainOn ? (cfg(sh).firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
       </label>
       <div class="assets-grid">
-        ${(ic.first || sh.firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (sh.firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!sh.firstFrame, ROLE_ZH.first_frame)}${sh.firstFrame && !chainSlot ? ' data-view="first"' : ''}>${sh.firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.firstFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
-        ${(ic.last || sh.lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (sh.lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!sh.lastFrame, ROLE_ZH.last_frame)}${sh.lastFrame ? ' data-view="last"' : ''}>${sh.lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(sh.lastFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
-        ${(sh.keyframes || []).map((kf, i) => `
+        ${(ic.first || cfg(sh).firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (cfg(sh).firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!cfg(sh).firstFrame, ROLE_ZH.first_frame)}${cfg(sh).firstFrame && !chainSlot ? ' data-view="first"' : ''}>${cfg(sh).firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(cfg(sh).firstFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.last || cfg(sh).lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (cfg(sh).lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!cfg(sh).lastFrame, ROLE_ZH.last_frame)}${cfg(sh).lastFrame ? ' data-view="last"' : ''}>${cfg(sh).lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(cfg(sh).lastFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
+        ${(cfg(sh).keyframes || []).map((kf, i) => `
           <div class="asset-slot kf"${kf.status === 'done' && kf.assetId ? ` data-view="kf:${i}"` : ''}>
             ${kf.status === 'done' ? `${Wb.thumbs.mediaHTML(Api.assetSrc(kf.assetId), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}">${icon('close', 11)}</button>`
               : kf.status === 'generating' ? `<span class="spin-dot"></span><span class="sub">生成中</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="停止并删掉这一张">${icon('close', 11)}</button>`
@@ -1546,15 +1592,15 @@ function renderEditor() {
               : `<span class="ic">${icon('image', 16)}</span><button type="button" class="x iconbtn on-dark" data-k="keyframes" data-i="${i}" title="删掉这一张">${icon('close', 11)}</button>`}
             <span class="cap">画面 ${i + 1} · 第 ${kf.t} 秒</span>
           </div>`).join('')}
-        ${(ic.ref || sh.refImages.length) ? sh.refImages.map((d2, i) => {
+        ${(ic.ref || cfg(sh).refImages.length) ? cfg(sh).refImages.map((d2, i) => {
           /* 标签带上「这条参考图是哪来的」：用 @ 从素材库引来的会写 token（refMeta.label，
              挑角色资产时是 `小雅·三视图`），与提示词里那串一一对上；没有来源的（自己传的、
              切片生成的）只写序号。 */
-          const lb = (Array.isArray(sh.refMeta) && sh.refMeta[i] && sh.refMeta[i].label) || '';
+          const lb = (Array.isArray(cfg(sh).refMeta) && cfg(sh).refMeta[i] && cfg(sh).refMeta[i].label) || '';
           const cap = '参考图 ' + (i + 1) + (lb ? ' · ' + lb : '');
           return `<div class="asset-slot" data-view="ref:${i}" title="${esc(cap)}（点开查看）">${Wb.thumbs.mediaHTML(Api.mediaSrc(d2), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="refImages" data-i="${i}">${icon('close', 11)}</button><span class="cap">${esc(cap)}</span></div>`;
         }).join('') : ''}
-        ${ic.ref && sh.refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (sh.refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${sh.refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
+        ${ic.ref && cfg(sh).refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (cfg(sh).refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${cfg(sh).refImages.length} / ${ic.maxRef} 张</span></div>` : ''}
       </div>
       ${cNote ? `<div class="hint conflict-hint" id="conflictHint">${cNote}</div>` : ''}
       ${/* 「没有素材槽」有两种原因，得说清是哪一个：这个型号压根不收参考素材，
@@ -1563,11 +1609,11 @@ function renderEditor() {
         ic.none ? (shotCombo(sh)
           ? `<div class="hint">输入模式「${esc(comboLabel(shotCombo(sh)))}」不用参考素材</div>`
           : '<div class="hint">当前型号不支持参考素材</div>') : ''}
-      ${(ic.refVideo || sh.refVideo) ? `<div class="slot-wide asset-slot${sh.refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (sh.refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!sh.refVideo, ROLE_ZH.reference_video)}${sh.refVideo ? ` data-view="refvideo" title="${esc(sh.refVideo.name || '参考视频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
-        ${sh.refVideo ? `${refVideoThumbSrc(sh.refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(sh.refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(sh.refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${sh.refVideo.duration ? ' · ' + sh.refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
+      ${(ic.refVideo || cfg(sh).refVideo) ? `<div class="slot-wide asset-slot${cfg(sh).refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (cfg(sh).refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!cfg(sh).refVideo, ROLE_ZH.reference_video)}${cfg(sh).refVideo ? ` data-view="refvideo" title="${esc(cfg(sh).refVideo.name || '参考视频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
+        ${cfg(sh).refVideo ? `${refVideoThumbSrc(cfg(sh).refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(cfg(sh).refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(cfg(sh).refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${cfg(sh).refVideo.duration ? ' · ' + cfg(sh).refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
-      ${(ic.refAudio || sh.refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (sh.refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!sh.refAudio, ROLE_ZH.reference_audio)}${sh.refAudio ? ` data-view="refaudio" title="${esc(sh.refAudio.name || '参考音频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
-        ${sh.refAudio ? `<span>${esc(sh.refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
+      ${(ic.refAudio || cfg(sh).refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (cfg(sh).refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!cfg(sh).refAudio, ROLE_ZH.reference_audio)}${cfg(sh).refAudio ? ` data-view="refaudio" title="${esc(cfg(sh).refAudio.name || '参考音频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
+        ${cfg(sh).refAudio ? `<span>${esc(cfg(sh).refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
       <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top: var(--sp-16)">
         <div class="adv-head" id="advHead">
@@ -1584,12 +1630,12 @@ function renderEditor() {
             ${advSel(vk.count)}
           </div>
           ${/* 程序为接续换的那一型要写明「不是用户挑的」：不写的话，换镜头回来看到型号变了会以为是页面乱跳。 */ ''}
-          ${sh.modelAuto === 'chain' && !chainModelWhy(sh) ? `<div class="hint">已自动切到 ${esc((resolvedModel(sh) || {}).name || sh.model)}（${sh.linkPrev === 'tail' ? '接上一镜尾帧' : '按接续型号拆分长镜头'}）</div>` : ''}
+          ${cfg(sh).modelAuto === 'chain' && !chainModelWhy(sh) ? `<div class="hint">已自动切到 ${esc((resolvedModel(sh) || {}).name || cfg(sh).model)}（${cfg(sh).linkPrev === 'tail' ? '接上一镜尾帧' : '按接续型号拆分长镜头'}）</div>` : ''}
           ${hasDur ? `<label>${esc(vk.duration.label)}（${durMin}–${durMax} 秒，按型号支持范围限制）</label>
           <div class="row">
-            <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
+            <input type="range" class="dur-range" id="durRange" min="${durMin}" max="${durMax}" step="1" value="${cfg(sh).dur}">
             <div class="dur-num">
-              <input type="number" id="durNum" min="${durMin}" max="${durMax}" step="1" value="${sh.duration}">
+              <input type="number" id="durNum" min="${durMin}" max="${durMax}" step="1" value="${cfg(sh).dur}">
               <span>秒</span>
             </div>
           </div>` : ''}
@@ -1652,10 +1698,10 @@ function renderEditor() {
      不再有一个「全塞进去」的第二入口。 */
   refreshEst();   // 每次重渲染刷新费用预估
   // 事件
-  const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { sh.ar = e.target.value; renderMid(); scheduleSave('改画幅'); refreshShotPreview(sh); };
-  const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { sh.res = e.target.value; scheduleSave('改分辨率'); refreshShotPreview(sh); };
+  const edArEl = $('edAr'); if (edArEl) edArEl.onchange = e => { cfg(sh).ar = e.target.value; renderMid(); scheduleSave('改画幅'); refreshShotPreview(sh); };
+  const edResEl = $('edRes'); if (edResEl) edResEl.onchange = e => { cfg(sh).res = e.target.value; scheduleSave('改分辨率'); refreshShotPreview(sh); };
   /* 尺寸档只有这一家声明了才画出来（advSel 判 `k.on`），所以这里同样是「有节点才接线」。 */
-  const edSizeEl = $('edSize'); if (edSizeEl) edSizeEl.onchange = e => { sh.size = e.target.value; scheduleSave('改尺寸'); refreshShotPreview(sh); };
+  const edSizeEl = $('edSize'); if (edSizeEl) edSizeEl.onchange = e => { cfg(sh).size = e.target.value; scheduleSave('改尺寸'); refreshShotPreview(sh); };
   /* 条数下拉在「这个型号一次只能出一条」时根本不画（与工作台同一判据，见 AdvParams.plan 的 many），
      所以这里不能像以前那样裸用 `$('edDraw').onchange` —— 那是 TypeError。 */
   const edDrawEl = $('edDraw'); if (edDrawEl) edDrawEl.onchange = e => {
@@ -1665,7 +1711,7 @@ function renderEditor() {
     renderEditor();      // 让右下角「生成这一镜（N 条）」按钮同步条数
     updateBanner();      // 横幅提示同步
   };
-  const edTierEl = $('edTier'); if (edTierEl) edTierEl.onchange = e => { sh.tier = e.target.value; scheduleSave('改档位'); refreshShotPreview(sh); };
+  const edTierEl = $('edTier'); if (edTierEl) edTierEl.onchange = e => { cfg(sh).tier = e.target.value; scheduleSave('改档位'); refreshShotPreview(sh); };
   /* 分辨率 / 比例 / 尺寸改动后要重算报价（edTier、edDraw 上面各自已有 onchange，这里只管这几个） */
   ['edRes', 'edAr', 'edSize'].forEach(id2 => {
     const el2 = col.querySelector('#' + id2);
@@ -1688,10 +1734,10 @@ function renderEditor() {
     if (dn) dn.addEventListener('change', updateAdvSum);
   }
   $('edModel').onchange = async e => {
-    sh.model = e.target.value;
+    cfg(sh).model = e.target.value;
     /* 用户手选 = 这一型从今往后由用户负责：接续的自动切换不再覆盖它；
        它不支持首帧时由 `chainModelWhy` 明确拦住，不偷偷换回去。 */
-    sh.modelAuto = '';
+    cfg(sh).modelAuto = '';
     edModelChanged = true;                // 换型号那一次，型号布尔那一排按**新声明**的默认值重画
     /* 每次换模型都回源一次能力接口，再按拿到的最新能力纠正参数 —— 上层把模型
        的分辨率 / 时长 / 张数改了、或加了新的输入槽位，界面跟着变，不用改代码。 */
@@ -1706,17 +1752,13 @@ function renderEditor() {
   const ta = $('edPrompt');
   ta.oninput = () => {
     const d0 = curDraftCand();
-    const hadText = !!(d0 ? d0.prompt : sh.prompt).trim();
-    /* 三处一起写，各管各的事，**不是三份实现**：
-         · 当前查看的这条候选 —— 「这条是用哪句话生成的」，回头点它还能看见（本轮用户要的）；
-         · `sh.prompt` —— 这一镜的描述：左栏卡片、底部「为什么还不能生成」、批量生成都读它；
-         · 界面（字数 / 按钮 / 左栏卡片）—— 见下面那几行。
-       以前只写「草稿 or sh.prompt」其中之一：草稿分支不写 sh.prompt，
-       于是新建一镜写完描述、直接点「生成全部分镜」会报「这一镜还没有画面描述」；
-       真实候选分支不写候选，于是那条候选的描述一旦被改就再也回不去。 */
+    const hadText = !!promptTextOf(sh).trim();
+    /* 只写**当前查看那条候选**的目标（takes.js 的 setTakePrompt）：
+       每条候选只管自己那份描述（取消画面层之后没有「改基准」这一说）。
+       以前这里把 ta.value 同时盖到好几条候选上 —— 改第二条候选的句子
+       会连带改掉第一条与整镜基准。界面（字数 / 按钮 / 左栏卡片）见下面那几行。 */
     const c0 = (sh.candidates || [])[projOf().curCand];
-    if (c0) c0.prompt = ta.value;
-    sh.prompt = ta.value;
+    setTakePrompt(sh, c0, ta.value);
     $('pCnt').textContent = ta.value.trim().length + ' 字';
     edPromptTouched = true;                     // 用户开始动手，之后卡住的原因才实时显示在底部
     /* 按钮与底部那一行走公共判据（`syncGenGate` → `shotBlockReason`），不在这里只问「描述非空」：
@@ -1735,11 +1777,10 @@ function renderEditor() {
   /* @ 候选浮层：方向键 / 回车 / Esc、左右移动光标、悬停小卡与镜像层滚动都在公共件里。 */
   mention.bind(ta);
   $('pClear').onclick = () => {
-    /* 显示读的是「当前候选的 prompt 优先」（promptTextOf），只清草稿或只清 sh.prompt
-       都清不掉一条已提交候选的描述 —— 三处同口径一起清。 */
+    /* 只清当前查看那条候选的目标（与打字同一条写入口）：
+       清的是当前这条候选自己的描述 —— 另一条不会跟着空掉。 */
     const c = (sh.candidates || [])[projOf().curCand];
-    if (c) c.prompt = '';
-    sh.prompt = '';
+    setTakePrompt(sh, c, '');
     setPolishUI(null);                                   // 清空提示词同时也收起润色面板
     renderEditor(); renderScenes(); scheduleSave();
   };
@@ -1769,8 +1810,8 @@ function renderEditor() {
   const estSlide = debounce(() => { refreshEst(); refreshKfEst(); }, 200);
   const durRangeEl = $('durRange'), durNumEl = $('durNum');
   if (durRangeEl) durRangeEl.oninput = e => {
-    sh.duration = clampDur(e.target.value);
-    if (durNumEl) durNumEl.value = sh.duration;
+    cfg(sh).dur = clampDur(e.target.value);
+    if (durNumEl) durNumEl.value = cfg(sh).dur;
     scheduleSave('改时长'); refreshShotPreview(sh); estSlide(); updateBanner();
   };
   if (durRangeEl) durRangeEl.onchange = () => { renderMid(); };   // 松手后同步时间线（重建播放器）
@@ -1778,21 +1819,21 @@ function renderEditor() {
      以前这里裸用 $('durNum').oninput，$('durNum') 是 null → TypeError →
      renderEditor() 从这里中断，后面的「生成这一镜」、素材槽位、润色按钮全都没绑定，右栏瘫痪。 */
   if (durNumEl) durNumEl.oninput = e => {
-    sh.duration = clampDur(e.target.value);
-    if (durRangeEl) durRangeEl.value = sh.duration;
+    cfg(sh).dur = clampDur(e.target.value);
+    if (durRangeEl) durRangeEl.value = cfg(sh).dur;
     scheduleSave('改时长'); refreshShotPreview(sh); estSlide(); updateBanner();
   };
-  if (durNumEl) durNumEl.onchange = () => { durNumEl.value = sh.duration; renderMid(); };
+  if (durNumEl) durNumEl.onchange = () => { durNumEl.value = cfg(sh).dur; renderMid(); };
   $('polishBtn').onclick = polishPrompt;
   /* 带这一镜的提示词去建模台（写一枚一次性口袋 + 跳页；回来的路是引擎启动时消费同一枚口袋） */
   if ($('toModelBtn')) $('toModelBtn').onclick = () => {
     const sh = curShot();
     if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
-    const images = ((sh && sh.refImages) || []).map((url, i) => ({
-      label: (sh.refMeta && sh.refMeta[i] && sh.refMeta[i].label) || ('参考图 ' + (i + 1)),
+    const images = ((sh && cfg(sh).refImages) || []).map((url, i) => ({
+      label: (cfg(sh).refMeta && cfg(sh).refMeta[i] && cfg(sh).refMeta[i].label) || ('参考图 ' + (i + 1)),
       url,
     }));
-    window.Model3D.handoffTo('model', { prompt: (sh && sh.prompt) || '', from: 'director', shot: sh ? sh.id : '', images });
+    window.Model3D.handoffTo('model', { prompt: (sh && cfg(sh).prompt) || '', from: 'director', shot: sh ? sh.id : '', images });
     window.GoPage.go('model.html');
   };
   /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。
@@ -1816,15 +1857,15 @@ function renderEditor() {
   const clrFailed = $('kfClearFailed');
   if (clrFailed) clrFailed.onclick = () => {
     const keep = [];
-    (sh.keyframes || []).forEach(kf => {
+    (cfg(sh).keyframes || []).forEach(kf => {
       if (kf.status !== 'failed') { keep.push(kf); return; }
       if (kf.assetId) {
         const src = Api.assetSrc(kf.assetId);
-        const ri = (sh.refImages || []).indexOf(src);
+        const ri = (cfg(sh).refImages || []).indexOf(src);
         if (ri >= 0) removeRefImage(sh, ri);
       }
     });
-    sh.keyframes = keep;
+    cfg(sh).keyframes = keep;
     renderEditor(); scheduleSave();
     setStatus('<span class="ok">✓ 已清除失败的画面</span>');
   };
@@ -1893,13 +1934,13 @@ function renderEditor() {
      关掉时只清接续，不动型号与已放的显式首帧。 */
   const chainEl = $('chainPrev');
   if (chainEl) chainEl.onchange = () => {
-    sh.linkPrev = chainEl.checked ? 'tail' : '';
-    if (sh.linkPrev) {
-      const cur = chainModelList().find(m => m.id === sh.model);
-      if (cur && !cur.first) sh.model = '';      // 明确接不了 → 允许 ensureChainModel 重挑
-      ensureChainModel(sh);
+    cfg(sh).linkPrev = chainEl.checked ? 'tail' : '';
+    if (cfg(sh).linkPrev) {
+      const cur = chainModelList().find(m => m.id === cfg(sh).model);
+      if (cur && !cur.first) cfg(sh).model = '';      // 明确接不了 → 允许 ensureChainModel 重挑
+      ensureChainModel(sh, cfg(sh));
     } else {
-      sh.modelAuto = '';
+      cfg(sh).modelAuto = '';
     }
     renderEditor(); scheduleSave(); updateBanner();
   };
@@ -1910,8 +1951,8 @@ function renderEditor() {
     slot.querySelectorAll('[data-chain]').forEach(btn => btn.onclick = async e => {
       e.stopPropagation();
       if (btn.dataset.chain === 'off') {
-        sh.linkPrev = '';
-        sh.modelAuto = '';
+        cfg(sh).linkPrev = '';
+        cfg(sh).modelAuto = '';
         renderEditor(); scheduleSave(); updateBanner();
         return;
       }
@@ -1919,7 +1960,7 @@ function renderEditor() {
       try {
         setStatus('正在截取上一镜尾帧…');
         const f = await resolveChainFrame(sh);
-        sh.firstFrame = f.src;
+        cfg(sh).firstFrame = f.src;
         renderEditor(); scheduleSave();
         setStatus('<span class="ok">✓ 已把' + f.from + '作为开头画面</span>');
       } catch (err) {
@@ -1932,14 +1973,14 @@ function renderEditor() {
     slot.querySelectorAll('[data-retry]').forEach(btn => btn.onclick = async e => {
       e.stopPropagation();
       const i = +btn.dataset.retry;
-      const kf = (sh.keyframes || [])[i];
+      const kf = (cfg(sh).keyframes || [])[i];
       if (!kf) return;
       const pick = kfModelOf();
       if (!pick.prov || !pick.model) { setStatus('<span class="err">没有可用的图片型号</span>'); return; }
       btn.textContent = '…'; btn.disabled = true;
       kf.status = 'generating'; kf.err = null; renderEditor();
       try {
-        const prompt = (kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面'));
+        const prompt = (kf.imgPrompt || (cfg(sh).prompt + '，第 ' + kf.t + ' 秒的关键画面'));
         const notes = [];
         const refs = await kfRefEntries(sh, t => notes.push(t));
         if (notes.length) setStatus('<span class="err">' + esc(notes.join('；')) + '</span>');
@@ -1956,21 +1997,21 @@ function renderEditor() {
         e.stopPropagation();
         const kk = x.dataset.k, i = x.dataset.i;
         if (kk === 'refImages') removeRefImage(sh, +i);
-        else if (kk === 'refVideo') sh.refVideo = null;
-        else if (kk === 'refAudio') sh.refAudio = null;
+        else if (kk === 'refVideo') cfg(sh).refVideo = null;
+        else if (kk === 'refAudio') cfg(sh).refAudio = null;
         else if (kk === 'keyframes') {
-          const kf = (sh.keyframes || [])[+i];
+          const kf = (cfg(sh).keyframes || [])[+i];
           if (!kf) return;
           if (kf.assetId) {
             const src = Api.assetSrc(kf.assetId);
-            const ri = (sh.refImages || []).indexOf(src);
+            const ri = (cfg(sh).refImages || []).indexOf(src);
             if (ri >= 0) removeRefImage(sh, ri);
           }
           if (kfRunOf() && (kf.status === 'generating' || kf.status === 'queued')) {
             kf.deleted = true;   // 生成进行中：先标记，生成循环会跳过并在结束后移除
             setStatus('这一张已标记删除（正在生成，结束后自动移除）');
           } else {
-            (sh.keyframes || []).splice(+i, 1);
+            (cfg(sh).keyframes || []).splice(+i, 1);
           }
           renderEditor(); scheduleSave();
         }
@@ -1995,7 +2036,7 @@ function renderEditor() {
     // 所有槽位都只走同一份选择器（本地文件在它顶部的「本地上传」档位里）；
     // 已放好首帧 / 尾帧的那格本体留给「看灯箱」，换一张先 × 再选。
     if (k === 'first' || k === 'last' || k === 'ref') {
-      const filled = (k === 'first' && sh.firstFrame) || (k === 'last' && sh.lastFrame);
+      const filled = (k === 'first' && cfg(sh).firstFrame) || (k === 'last' && cfg(sh).lastFrame);
       slot.onclick = e => {
         if (filled && !e.target.closest('.x')) { viewShotMedia(sh, k); return; }
         openPickDlg(sh, k);
@@ -2049,6 +2090,7 @@ function installCapRepaint() {
     syncAtBack: () => mention.syncBack(),
     libPicChoices,
     addLibPicToShot,
+    bindShotPics,
     linePanelRows,
     lineWhoDatalistHTML,
     lineRowsHTML,

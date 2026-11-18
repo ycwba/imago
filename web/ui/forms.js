@@ -14,6 +14,9 @@
    这一份文件比 workbench.js 先加载，所以取的时候要判它有没有到位 ——
    没到位就照原样做，**不在这里自己写第二份**。 */
 function keepBodyScroll(el, fn) {
+  /* InlinePolish.clear 收场时会把宿主藏掉（它自己的面板要收起来）。过程弹窗的正文格
+     在流式结束后接着要给审阅画清单，所以每次落笔前先把宿主亮回来。 */
+  if (el) el.hidden = false;
   if (window.Wb && Wb.viewport && Wb.viewport.keep) return Wb.viewport.keep(el, fn);
   return fn();
 }
@@ -534,7 +537,26 @@ function keepBodyScroll(el, fn) {
            图像拆段都在那一边）。
    ========================================================================== */
 (function () {
-  function mount(title, sub) {
+  function mount(title, sub, shell) {
+    /* 过程面板 → 审阅是同一张弹窗：拆完换标题接着用（关掉再开屏幕中间会闪一下）。
+       接手时把过程期的取消出口摘掉，foot 恢复成调用方要画的样子。 */
+    if (shell && shell.isConnected && shell.open) {
+      shell.__prAbort = null;
+      const head = shell.querySelector('.pr-head');
+      const t = head && head.querySelector('b');
+      if (t) t.textContent = title || '';
+      const old = head && head.querySelector('.sub');
+      if (sub) {
+        if (old) old.textContent = sub;
+        else if (head) head.insertAdjacentHTML('beforeend', `<div class="sub">${window.esc(sub)}</div>`);
+      } else if (old) old.remove();
+      shell.querySelectorAll('.pr-foot > *').forEach(el => { el.style.display = ''; });
+      /* 取消按钮的文字 / 停用在过程期可能被换过面（「停止」→「正在停止…」并停用），
+         接手的一方一律从这一档起画。 */
+      const pc = shell.querySelector('#prCancel');
+      if (pc) { pc.textContent = '取消'; pc.disabled = false; }
+      return shell;
+    }
     /* 同一时刻只留一张（与 PromptForm 同一条）：连点两次会叠出两张模态，
        底下那张 getElementById 拿不到、也关不掉。 */
     document.querySelectorAll('dialog#prDlg').forEach(d => { try { d.close(); } catch (e) { /* 已经关掉了，接着摘节点 */ } d.remove(); });
@@ -552,6 +574,11 @@ function keepBodyScroll(el, fn) {
     return dlg;
   }
   function close(dlg, out, resolve) { try { dlg.close(); } catch {} dlg.remove(); resolve(out); }
+  function closeProcess(dlg) {
+    if (!dlg) return;
+    try { dlg.close(); } catch (e) { /* 已经关掉了，接着摘节点 */ }
+    dlg.remove();
+  }
 
   /* ---------- 「按这句再改」那一行（结果面板 InlinePolish.show 的同款，搬进审阅弹窗）----------
      生成完、确认写入之前，用户还能对着**当前这份**说一句要求，AI 在它上面再改一轮。
@@ -606,17 +633,29 @@ function keepBodyScroll(el, fn) {
       if (busy) { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经收尾的话再 abort 无害，兜住就好 */ } } return; }   // 跑着时这一颗是「停止」
       const askText = String(inp.value || '').trim();
       if (!askText) { fnote('先写一句要怎么改', true); window.focusQuiet(inp); return; }
+      /* 清单被删空之后这一行还能点（按钮不在 blocked 闸里）：对着一份空底稿改一轮，
+         AI 回什么都对不上号，当场拦下说清，而不是让用户等十几秒收一句报错。 */
+      if (blocked()) { fnote('清单已经空了：先删掉这条要求、或点「重新规划」重出一版', true); return; }
       if (typeof AbortController === 'function') ab = new AbortController();
       setBusy(true);
       fnote('', false);
       let lv = null;
+      const reveal = () => { try { liveHost.scrollIntoView({ block: 'nearest' }); } catch (e) { /* 弹窗刚换内容：滚不动就算了 */ } };
       const ctl = {
         push(piece, kind) {
           if (kind === 'reasoning' || !piece) return;
-          if (!lv) lv = window.InlinePolish.live(liveHost, { title: o.followTitle || 'AI 正在按这句话调整…',
-            onStop: () => { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经不在跑：再 abort 无害，兜住就好 */ } } } });
+          if (!lv) {
+            lv = window.InlinePolish.live(liveHost, { title: o.followTitle || 'AI 正在按这句话调整…',
+              onStop: () => { if (ab) { try { ab.abort(); } catch (e) { /* 请求已经不在跑：再 abort 无害，兜住就好 */ } } } });
+            /* 流式面板长在弹窗底部的 follow 行里：清单几十行时它在视野外，
+               用户盯着一动不动的清单以为点了没反应 —— 面板一出现就把它带进视野。 */
+            reveal();
+          }
           lv.push(piece, kind);
         },
+        /* 慢的那一步（如 follow 之后的待建素材判定）在弹窗里说一声：只动 fnote 行，
+           不往流式正文里混提示文字。 */
+        note(t) { fnote(String(t || ''), false); },
         get signal() { return ab && ab.signal; },
       };
       try {
@@ -653,6 +692,9 @@ function keepBodyScroll(el, fn) {
          不靠第几条 —— 组内拖过、删过几条之后序号就指错人了（调用方没给时按「场名 + 该场第几镜」现推）。
        · `scene` = **场名**（不是序号），相邻同名并成一组；拖动只许在本组内进行 ——
          跨场等于替用户把这一镜改到另一场去，那是拆分镜弹窗 `move` 的活，不是这里的一条手势。
+       · `pics` = AI 给这一镜点的随附图（`o.pics` 表里的 0 基下标数组）：图N → 下标的解析只在
+         producers 那一头做（board.js 的 `picsIdxOf`，全站唯一一份），进弹窗时已是下标；
+         行上能就地摘（摘了 = 不给这一镜挂那张）；没附图的调用方两样都不给，字段恒为空数组。
        · `dur` = 秒数或 null（未定）。这里**一律不夹区间**：夹取只有落盘后 `clampShotDurations`
          那一处。弹窗里夹一回、落盘再夹一回，界面上的数与发出去的数就是两回事。
        · 时长输入格、总时长读数、估价三处一起听 `o.durEditable`（调用方递 `durWritable()`）：
@@ -664,6 +706,7 @@ function keepBodyScroll(el, fn) {
     const canDur = !!o.durEditable, canEst = typeof o.estimate === 'function';
     function normAll(arr) {
       const seen = new Map();
+      const picsN = Array.isArray(o.pics) ? o.pics.length : 0;
       return (arr || []).map(x => {
         const src = x && typeof x === 'object' ? x : {};
         const scene = String(src.scene == null ? '' : src.scene).trim() || '未分组';
@@ -671,6 +714,10 @@ function keepBodyScroll(el, fn) {
         if (!key) { const n = (seen.get(scene) || 0) + 1; seen.set(scene, n); key = scene + '·' + n; }
         const raw = src.dur == null ? src.duration : src.dur;
         const d = Number(raw);
+        /* AI 点的随附图进弹窗时已是下标（producers 用 board.js 的 picsIdxOf 解析并丢过越界号）；
+           这里只按张数再夹一道，防调用方漂移。 */
+        const pr = Array.isArray(src.pics)
+          ? src.pics.filter(i => Number.isInteger(i) && i >= 0 && i < picsN) : null;
         return { u: ++uid, key, scene, name: String(src.name == null ? '' : src.name),
           dur: Number.isFinite(d) && d > 0 ? d : null,
           /* 接上一镜（`chain:'tail'`）由程序拆长镜头时标上，人也能在导演台里改；
@@ -682,7 +729,9 @@ function keepBodyScroll(el, fn) {
              平铺审阅不看它们，但原样存在这里，重新规划时「改过的那几条」才不会被新方案冲掉。 */
           line: String(src.line == null ? '' : src.line),
           who: String(src.who != null ? src.who : (src.speaker == null ? '' : src.speaker)),
-          text: String(src.text == null ? '' : src.text), raw: src, edited: false };
+          text: String(src.text == null ? '' : src.text), raw: src, edited: false,
+          /* AI 点的随附图：只存合法下标。 */
+          pics: pr ? pr.slice() : [] };
       });
     }
     rows = normAll(o.items);
@@ -717,15 +766,26 @@ function keepBodyScroll(el, fn) {
         ? `<span class="bdur"><input class="pb-dur" type="number" min="1" step="1" data-u="${r.u}" value="${r.dur == null ? '' : r.dur}" aria-label="这一镜几秒"><i>秒</i></span>`
         : '';
       const textCell = `<textarea class="pb-text" data-u="${r.u}">${esc(r.text)}</textarea>`;
+      /* AI 给这一镜点的随附图：缩略一格一枚，× 就地摘（摘了 = 不给这一镜挂那张）。
+         缩略格放进正文格内部 —— 行上左右各列的位置因此恒定，不随每行挂了几张而挪动；
+         挂图是「这一镜长什么样」的一部分，排在正文前头先看见。 */
+      const picThumbs = (Array.isArray(o.pics) && r.pics && r.pics.length)
+        ? `<span class="pr-pics">${r.pics.map(i => {
+            const p = (o.pics || [])[i];
+            if (!p || !p.src) return '';
+            return `<span class="pr-pic" title="图${i + 1}${p.label ? ' · ' + esc(p.label) : ''}">
+              <img src="${p.src}" alt=""><button type="button" class="pr-picrm" data-picrm="${i}" data-u="${r.u}"
+                title="这次不挂这张图">${icon('close', 10)}</button></span>`;
+          }).join('')}</span>` : '';
       /* 拆分镜这一路把台词一起列出来：AI 已经按剧本填了 `line` / `speaker`，
          不在这儿显示的话，用户点「新建短片」之前根本看不见它填了什么。
          说话的人只有这一件控件（与导演台右栏同一立场）；台词空着时人不留着。 */
       const bodyCell = o.lineEditable
-        ? `<div class="bcol">${textCell}<div class="bline">
+        ? `<div class="bcol">${picThumbs}${textCell}<div class="bline">
             <input class="pb-who" data-u="${r.u}" value="${esc(r.who)}" placeholder="说话的人" aria-label="说这句话的人">
             <textarea class="pb-line" data-u="${r.u}" placeholder="这一镜的台词">${esc(r.line)}</textarea>
           </div></div>`
-        : textCell;
+        : (picThumbs ? `<div class="bcol">${picThumbs}${textCell}</div>` : textCell);
       const chain = r.chain === 'tail'
         ? '<span class="bchain" title="尾帧接首帧">接上一镜</span>' : '';
       return `<div class="pr-row brow${r.edited ? ' pin' : ''}" data-u="${r.u}" data-scene="${esc(r.scene)}">
@@ -793,6 +853,15 @@ function keepBodyScroll(el, fn) {
       });
       body.querySelectorAll('[data-del]').forEach(b => {
         b.onclick = () => { const r = byU(+b.dataset.del); const i = rows.indexOf(r); if (i >= 0) rows.splice(i, 1); paint(); };
+      });
+      body.querySelectorAll('[data-picrm]').forEach(b => {
+        b.onclick = () => {
+          const r = byU(+b.dataset.u); if (!r) return;
+          r.pics = (r.pics || []).filter(x => x !== +b.dataset.picrm);
+          const cell = b.closest('.pr-pic');
+          if (cell) cell.remove();          // 就地摘一枚，不整行重画（与改格那一族同一立场）
+          markPin(r);
+        };
       });
       bindDrag();
     }
@@ -959,6 +1028,8 @@ function keepBodyScroll(el, fn) {
              没这两项，弹窗里看得见的「接上一镜」写进去就没了。 */
           chain: r.chain === 'tail' ? 'tail' : '',
           chainModel: r.chainModel,
+          /* AI 点的随附图（下标数组，可能已被人在弹窗里摘过几张）：落盘要按它挂参考图。 */
+          pics: (r.pics || []).slice(),
         };
         /* 只在真的露出台词那一档才覆盖这两项：没露出的调用方连一个字都没看见，
            交给它一份现推的空台词等于把原数据擦掉。 */
@@ -983,7 +1054,8 @@ function keepBodyScroll(el, fn) {
        那份新方案不认识用户的手改）。待建素材照旧保住手改的那几条（与重新规划同一立场）。 */
     const follow = mountFollow(dlg, o, okBtn, () => !rows.length, {
       snapshot: () => rows.map(r => ({ key: r.key, scene: r.scene, name: r.name, dur: r.dur,
-        text: r.text, line: r.line, who: r.who, chain: r.chain, chainModel: r.chainModel })),
+        text: r.text, line: r.line, who: r.who, chain: r.chain, chainModel: r.chainModel,
+        pics: (r.pics || []).slice() })),
       install: (freshItems, freshAssets) => {
         rows = normAll(freshItems || []);
         if (canAssets && Array.isArray(freshAssets)) {
@@ -1037,6 +1109,40 @@ function keepBodyScroll(el, fn) {
   }
 
   window.PromptReview = {
+    /* ---------- 过程面板（转圈 / AI 反问 / 流式都画在这张居中弹窗里）----------
+       与随后的审阅是**同一张**：调用方把返回的 dlg 作为 openList 的 `shell` 交回去，
+       那边的 mount(title, sub, shell) 只换标题接着用，屏幕中间不闪。
+       foot 只留一颗「取消」（Esc 同一路）：先调 onAbort（调用方收掉自己等着的 Promise），
+       再把弹窗收掉。审阅接手后 __prAbort 已摘掉，Esc 归审阅自己的出口。
+       `cancelLabel` 换那颗按钮的字；`keepOpenOnAbort` 让停止**只中止在途请求**、
+       弹窗留在原地等调用方收尾（要么把同一张弹窗换成审阅，要么自己 closeProcess）——
+       按钮当场换面并停用，连点不会重复中止。 */
+    openProcess(o) {
+      o = o || {};
+      const dlg = mount(o.title || 'AI 正在准备…', o.sub);
+      dlg.querySelector('#prOk').style.display = 'none';
+      dlg.querySelector('#prRetry').style.display = 'none';
+      dlg.__prAbort = typeof o.onAbort === 'function' ? o.onAbort : null;
+      const cancelBtn = dlg.querySelector('#prCancel');
+      cancelBtn.textContent = o.cancelLabel || '取消';
+      const abort = () => {
+        const fn = dlg.__prAbort;
+        if (typeof fn !== 'function') return;   // 审阅已经接手：Esc 让审阅自己的出口处理
+        dlg.__prAbort = null;
+        if (o.keepOpenOnAbort) {
+          cancelBtn.textContent = '正在停止…';
+          cancelBtn.disabled = true;
+        } else {
+          closeProcess(dlg);
+        }
+        fn();
+      };
+      cancelBtn.onclick = abort;
+      dlg.addEventListener('cancel', e => { e.preventDefault(); abort(); });
+      return dlg;
+    },
+    closeProcess(dlg) { closeProcess(dlg); },
+
     open(o) {
       return new Promise(resolve => {
         const dlg = mount(o.title || 'AI 润色结果', o.sub);
@@ -1074,7 +1180,7 @@ function keepBodyScroll(el, fn) {
 
     openList(o) {
       return new Promise(resolve => {
-        const dlg = mount(o.title || 'AI 规划结果', o.sub);
+        const dlg = mount(o.title || 'AI 规划结果', o.sub, o.shell);
         const body = dlg.querySelector('#prBody');
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用并开始生成';
@@ -1394,8 +1500,11 @@ function keepBodyScroll(el, fn) {
    PromptForm —— 通用表单弹窗（剧本分镜 / 新建素材 共用）
    const v = await PromptForm.open({
      title, sub, okLabel,
-     fields: [{ key, label, type:'textarea'|'text'|'number'|'select'|'pic', value, placeholder, hint,
+     fields: [{ key, label, type:'textarea'|'text'|'number'|'select'|'pic'|'pics', value, placeholder, hint,
                 options:[{v,t}], hidden:true, required:true }],
+     // `pic` 单图：值是图片地址，挑图动作在字段定义的 pick(api) 里（api.set(key,{value:地址}) 换图）。
+     // `pics` 多图：值是 [{label,src},…] 数组（隐藏 input 存 JSON），pick(api) 里追加后调
+     //   api.set(key, 数组) 就地重画缩略行；values() / 确定交回的都是数组。
      // required：这一栏留空就拦住「确定」并在下方说一句。不拦的话关窗本身就是回执，
      //   用户以为存好了、实际拿到一个空标题。单行输入框按 Enter 等于点「确定」（textarea 不管 Enter，它是换行）。
      // 要在弹窗里做「选了这一项，别几项跟着改口」才传 onChange —— 公共层不认识具体语义，
@@ -1421,6 +1530,24 @@ function keepBodyScroll(el, fn) {
         const pfPicHTML = v => (v
           ? '<img src="' + esc(window.Api && Api.mediaSrc ? Api.mediaSrc(v) : v) + '" alt="">'
           : '<span class="none">还没有图</span>');
+        /* 多图栏（`type:'pics'`）：值是 [{label,src},…] 数组，隐藏 input 里存它的 JSON 字符串 ——
+           取数口子照旧读 .value，这里只多一道解析（坏 JSON / 缺 src 的条目丢弃，按空数组算）。 */
+        const pfPicsVal = s => {
+          try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter(x => x && x.src) : []; }
+          catch (e) { return []; }
+        };
+        const pfPicsHTML = arr => ((arr || []).map((p, i) => (p && p.src
+          ? `<span class="pf-picit"><img src="${esc(p.src)}" alt="" title="${esc(p.label || '')}">`
+            + `<button type="button" class="pf-picrm" data-picrm="${i}" title="摘掉这张">${icon('close', 10)}</button></span>`
+          : '')).join('') || '<span class="none">还没有图：挑图 / 粘贴 / 拖进这里</span>');
+        /* 剪贴板里的图 → dataURL：粘贴走这一份。公共层不压缩、不认资产库，
+           原样读字节 —— 与挑图那一路「取消 = 不动」同一立场，读不出来就当没贴。 */
+        const pfBlobURL = file => new Promise(res => {
+          const r = new FileReader();
+          r.onload = () => res(String(r.result || ''));
+          r.onerror = () => res('');
+          r.readAsDataURL(file);
+        });
         const fields = o.fields || [];
         /* 图片那一栏（type:'pic'）的动作由调用方给（见下面 data-picpick 的接线）：
            公共层不认识资产库 / 我的收藏 / 本地上传，也不该认识。 */
@@ -1438,6 +1565,15 @@ function keepBodyScroll(el, fn) {
               ctl = `<input type="hidden" id="${id}" value="${esc(f.value || '')}">`
                 + `<div class="pf-pic"><span class="pf-pic-t" data-picbox="${id}">${pfPicHTML(f.value)}</span>`
                 + `<button type="button" class="ghost mini" data-picpick="${id}">${esc(f.pickLabel || '挑一张')}</button></div>`;
+            }
+            else if (f.type === 'pics') {
+              /* 多图版：同样存 hidden input（这次是 JSON 字符串），缩略行可逐张 × 摘；
+                 挑图动作仍由调用方的 pick(api) 给，追加完调 `api.set(key, 数组)` 就地重画。 */
+              picOf[id] = f;
+              const arr0 = Array.isArray(f.value) ? f.value.filter(x => x && x.src) : pfPicsVal(f.value || '');
+              ctl = `<input type="hidden" id="${id}" value="${esc(JSON.stringify(arr0))}">`
+                + `<div class="pf-pics"><span class="pf-pics-t" data-picsbox="${id}">${pfPicsHTML(arr0)}</span>`
+                + `<button type="button" class="ghost mini" data-picpick="${id}">${esc(f.pickLabel || '挑图')}</button></div>`;
             }
             else ctl = `<input id="${id}" type="${f.type || 'text'}" value="${esc(f.value == null ? '' : String(f.value))}" placeholder="${esc(f.placeholder || '')}">`;
             return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"${f.required ? ' data-required="1"' : ''}><label>${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
@@ -1463,18 +1599,30 @@ function keepBodyScroll(el, fn) {
             const out = {};
             for (const k of Object.keys(parts)) {
               const c = parts[k].ctl;
-              if (c) out[k] = String(c.value).trim();
+              if (!c) continue;
+              const pf = picOf[c.id];
+              out[k] = (pf && pf.type === 'pics') ? pfPicsVal(c.value) : String(c.value).trim();
             }
             return out;
           },
           set(key, patch) {
             const p = parts[key];
             if (!p || !patch) return;
-            if ('label' in patch && p.lab) p.lab.textContent = patch.label;
-            if ('placeholder' in patch && p.ctl) p.ctl.placeholder = patch.placeholder || '';
-            if ('hint' in patch && p.hint) p.hint.textContent = patch.hint;
-            if ('value' in patch && p.ctl) {
-              p.ctl.value = patch.value == null ? '' : String(patch.value);
+            /* 多图栏的简写：set(key, [{label,src},…]) 直接给数组，等价 {value: 数组} */
+            const v = Array.isArray(patch) ? { value: patch } : patch;
+            if ('label' in v && p.lab) p.lab.textContent = v.label;
+            if ('placeholder' in v && p.ctl) p.ctl.placeholder = v.placeholder || '';
+            if ('hint' in v && p.hint) p.hint.textContent = v.hint;
+            if ('value' in v && p.ctl) {
+              const pf = picOf[p.ctl.id];
+              if (pf && pf.type === 'pics') {
+                const arr = (Array.isArray(v.value) ? v.value : []).filter(x => x && x.src);
+                p.ctl.value = JSON.stringify(arr);
+                const box = dlg.querySelector('[data-picsbox="' + p.ctl.id + '"]');
+                if (box) box.innerHTML = pfPicsHTML(arr);
+                return;
+              }
+              p.ctl.value = v.value == null ? '' : String(v.value);
               /* 程序化改完 select 必须通知公共下拉：浮层那份列表是 build 那一刻的快照，
                  不 sync 就是按钮上写着 A、真实选中的是 B（与「填完 options 要 sync」同一条）。 */
               if (p.ctl.tagName === 'SELECT' && window.Dropdowns) Dropdowns.sync(p.ctl);
@@ -1482,7 +1630,7 @@ function keepBodyScroll(el, fn) {
               const box = dlg.querySelector('[data-picbox="' + p.ctl.id + '"]');
               if (box) box.innerHTML = pfPicHTML(p.ctl.value);
             }
-            if ('hidden' in patch) p.row.hidden = !!patch.hidden;
+            if ('hidden' in v) p.row.hidden = !!v.hidden;
           },
         };
         /* 图片那一栏那颗「挑一张」：动作完全由调用方给（公共层不认识资产库 / 收藏 / 本地上传）。
@@ -1495,6 +1643,121 @@ function keepBodyScroll(el, fn) {
             try { await f.pick(api); } catch (e) { if (msg) msg.textContent = '选图失败：' + errText(e); }
           };
         });
+        /* 多图栏缩略上的 ×：从数组里摘掉那一张再 set 回去 —— 隐藏值与缩略行一起就地更新。 */
+        dlg.addEventListener('click', e => {
+          const b = e.target.closest('[data-picrm]');
+          if (!b) return;
+          const box = b.closest('[data-picsbox]');
+          const pf = box && picOf[box.dataset.picsbox];
+          if (!pf || pf.type !== 'pics') return;
+          const row = b.closest('.pf-field');
+          const p = row && parts[row.dataset.key];
+          if (!p || !p.ctl) return;
+          const arr = pfPicsVal(p.ctl.value);
+          arr.splice(+b.dataset.picrm, 1);
+          api.set(row.dataset.key, arr);
+        });
+        /* 直接把图片交给多图栏的两条路：Ctrl+V 粘贴 / 把图片文件拖进弹窗。
+           落点都是第一格 pics 栏（缩略就地出现）；焦点若在某格 textarea，光标处再插一个
+           「［图N］」文字占位 —— 这张图在正文里的位置由此看得见，N 就是消息末尾
+           【随附素材】清单里的那个编号。字节过字段的 `onFile`（调用方给压缩 / 转存）；
+           没给就原样 dataURL。没有图就完全不接（preventDefault 也不做，文字照常贴）。 */
+        const picsFilesOf = dt => {
+          const out = [];
+          if (dt && dt.items && dt.items.length) {
+            for (const it of dt.items) {
+              if (it.kind === 'file' && /^image\//.test(it.type)) {
+                const f = it.getAsFile();
+                if (f) out.push(f);
+              }
+            }
+          }
+          if (!out.length && dt && dt.files && dt.files.length) {
+            for (const f of dt.files) if (/^image\//.test(f.type || '')) out.push(f);
+          }
+          return out;
+        };
+        const addPicsFiles = async (key, files, atTa) => {
+          const pf = picOf[parts[key].ctl.id] || {};
+          const toSrc = typeof pf.onFile === 'function' ? pf.onFile : pfBlobURL;
+          const msg = dlg.querySelector('#pfMsg');
+          const arr = pfPicsVal(parts[key].ctl.value);
+          const base = arr.length;
+          let fail = 0;
+          for (const f of files) {
+            try {
+              const src = await toSrc(f);
+              if (src) arr.push({ label: '粘贴的图片', src });
+              else fail++;
+            } catch (e) { fail++; }
+          }
+          if (fail && msg) msg.textContent = fail + ' 张图读不出来，没带上';
+          if (arr.length === base) return;
+          api.set(key, arr);
+          const ta = atTa && dlg.contains(atTa) ? atTa : null;
+          const n = arr.length - base;
+          if (ta) {
+            const tokens = Array.from({ length: n }, (_, i) => '［图' + (base + i + 1) + '］').join('');
+            const st = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
+            const en = ta.selectionEnd == null ? st : ta.selectionEnd;
+            ta.value = ta.value.slice(0, st) + tokens + ta.value.slice(en);
+            const np = st + tokens.length;
+            ta.setSelectionRange(np, np);
+            if (msg && !fail) msg.textContent = '已贴入 ' + n + ' 张图片，占位已插进光标处';
+          } else if (msg && !fail) {
+            msg.textContent = '已贴入 ' + n + ' 张图片';
+          }
+        };
+        const firstPicsKey = () => Object.keys(parts).find(k => {
+          const c = parts[k].ctl, pf = c && picOf[c.id];
+          return pf && pf.type === 'pics';
+        });
+        dlg.addEventListener('paste', e => {
+          const files = picsFilesOf(e.clipboardData);
+          if (!files.length) return;
+          const key = firstPicsKey();
+          if (!key) return;
+          e.preventDefault();
+          const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
+          addPicsFiles(key, files, ta).catch(err => {
+            const msg = dlg.querySelector('#pfMsg');
+            if (msg) msg.textContent = '贴图失败：' + errText(err);
+          });
+        });
+        /* 拖图进弹窗与粘贴同一副落点：dragover 必须拦默认（否则 drop 不触发），
+           缩略行当场亮描边告诉用户「松手就落这里」；拖走的没有图就还原。 */
+        const hotBox = () => {
+          const key = firstPicsKey();
+          return key ? dlg.querySelector('[data-picsbox="' + parts[key].ctl.id + '"]') : null;
+        };
+        dlg.addEventListener('dragover', e => {
+          const dt = e.dataTransfer;
+          if (!dt || !Array.from(dt.types || []).includes('Files')) return;
+          if (!firstPicsKey()) return;
+          e.preventDefault();
+          if (dt.dropEffect != null) dt.dropEffect = 'copy';
+          const box = hotBox();
+          if (box) box.classList.add('hot');
+        });
+        dlg.addEventListener('dragleave', e => {
+          if (e.target && e.target.nodeType === 1 && e.target.closest && e.target.closest('.pf-pics-t')) {
+            const box = hotBox(); if (box) box.classList.remove('hot');
+          }
+        });
+        dlg.addEventListener('drop', e => {
+          const box = hotBox(); if (box) box.classList.remove('hot');
+          const files = picsFilesOf(e.dataTransfer);
+          if (!files.length) return;
+          const key = firstPicsKey();
+          if (!key) return;
+          e.preventDefault();
+          const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
+          addPicsFiles(key, files, ta).catch(err => {
+            const msg = dlg.querySelector('#pfMsg');
+            if (msg) msg.textContent = '拖入失败：' + errText(err);
+          });
+        });
+        dlg.addEventListener('dragend', () => { const box = hotBox(); if (box) box.classList.remove('hot'); });
         if (typeof o.onChange === 'function') {
           for (const k of Object.keys(parts)) {
             const c = parts[k].ctl;
@@ -1524,7 +1787,8 @@ function keepBodyScroll(el, fn) {
                留着它会把上一次切换时那个 select 的取值一起递出去（页面据此写字段就写错了）。 */
             if (el.hidden) return;
             const k = el.dataset.key, ctl = el.querySelector('textarea,input,select');
-            out[k] = ctl.value.trim();
+            const pf = picOf[ctl.id];
+            out[k] = (pf && pf.type === 'pics') ? pfPicsVal(ctl.value) : ctl.value.trim();
             if (el.dataset.required && !out[k]) {
               const lab = el.querySelector('label');
               miss.push((lab && lab.textContent) || k);

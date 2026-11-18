@@ -2191,7 +2191,8 @@ function handleCloud(req, res, urlObj) {
       /* 判的是「凭据是否在代理侧」，不是「地址写在哪」：地址常常由页面给（设置页总会带上
          默认地址），账号与应用密码才可能留在 .env / 环境变量里。把 URL 也算进来，会出现
          用户明明在 .env 配好了账号密码、只因 URL 留空，界面就永远不显示「凭据已配置」。 */
-      const hasEnv = !!(process.env.CLOUD_WEBDAV_USER && process.env.CLOUD_WEBDAV_PASS);
+      const hasEnv = !!(String(process.env.CLOUD_WEBDAV_USER || '').trim()
+        && String(process.env.CLOUD_WEBDAV_PASS || '').trim());
       let prompts = null;
       try { const d = promptCloudDir(urlObj.searchParams.get('dir')); prompts = { dir: d, count: promptFileList(d).length }; }
       catch (e) { prompts = { error: e.message }; }

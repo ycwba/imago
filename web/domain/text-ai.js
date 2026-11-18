@@ -198,7 +198,7 @@ non_diegetic_music: 同 Ref2VA。
 
 要求：
 1. 只返回 JSON，不要任何解释、不要 markdown 代码块。格式：
-   {"title":"短片名","scenes":[{"name":"场景 1","shots":[{"prompt":"镜头提示词","duration":5,"name":"镜头短名","note":"一句画面说明","line":"这一镜要念的台词","speaker":"说这句话的角色名","chain":"tail"}]}]}
+   {"title":"短片名","scenes":[{"name":"场景 1","shots":[{"prompt":"镜头提示词","duration":5,"name":"镜头短名","note":"一句画面说明","line":"这一镜要念的台词","speaker":"说这句话的角色名","chain":"tail","pics":["图1"]}]}]}
 2. 场景名简短（不超过 8 个字）；镜头时长按**上面给的时长范围**给整数，并按原文信息量分配（没给范围就自己按内容定，几秒都能）。
 3. prompt 写清主体、动作、场景、镜头运动、光线、氛围；**已经在上面的角色名单里的人物就照那份外貌写，不要另编一个样子**（前后一致靠的就是这一步）。
 4. \`name\` 是给这一镜起的人看得懂的短名（不超过 12 个字，起不出就留空字符串）；\`note\` 是这一镜的画面说明，**整句写出来**，程序不会拿它当名字、也不会截断它。
@@ -208,6 +208,7 @@ non_diegetic_music: 同 Ref2VA。
 8. 时长范围已经给在上面，不用自己数；镜数由你按内容定。
 9. \`chain\` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"（第 1 镜永远不写）；其余镜头留空字符串。写了它的镜头生成时会自动取上一镜的尾帧当首帧，所以这一镜的 prompt 从**落幅之后**写起，不要再把上一镜已经拍过的画面重复描述一遍。长镜头由程序按型号上限自动拆成接续段，你不用自己拆。
 10. 消息里若带着「用户已经回答了你先前的追问」，那些回答是**硬约束**：逐条落实进分镜（风格、节奏、台词取舍、镜头怎么动都照它来），不要再反问同一件事，也不要自行改动用户已定的选择；没带那一段就按上面的要求直接拆。
+11. \`pics\` 是这一镜要挂的随附参考图编号（如 ["图1","图3"]）。消息末尾若有【随附素材】清单，图1…图N 就是那批图（用户为这次拆分镜挑的参考图）；只把**真正贴这条镜头画面**的图号写进去（按主体、场景、风格判断，一张图可以贴进多个镜头），没有贴题的就写空数组或不带这一格。没有【随附素材】清单时不要写 pics。编号只照清单写，不要编造清单里没有的图号。
 
 **共享词汇表（导演台同一套）**：
 {glossary}`,
@@ -238,7 +239,7 @@ non_diegetic_music: 同 Ref2VA。
 
 要求：
 1. 只返回 JSON，不要任何解释、不要 markdown 代码块。格式：
-   {"changes":[{"action":"update","scene":1,"shot":2,"prompt":"改后的提示词","name":"镜头名（可选）","duration":5,"line":"改后的台词","speaker":"说这句话的角色名","chain":"tail"},{"action":"insert","scene":1,"after":2,"prompt":"新镜头提示词","duration":4,"line":"这一镜的台词（没有就不写）","speaker":"角色名（没有对白就不写）","chain":"tail"},{"action":"insert","newScene":"新场景名","prompt":"新场景的第一个镜头","duration":4},{"action":"delete","scene":1,"shot":3},{"action":"move","scene":1,"shot":4,"after":1}]}
+   {"changes":[{"action":"update","scene":1,"shot":2,"prompt":"改后的提示词","name":"镜头名（可选）","duration":5,"line":"改后的台词","speaker":"说这句话的角色名","chain":"tail","pics":["图1"]},{"action":"insert","scene":1,"after":2,"prompt":"新镜头提示词","duration":4,"line":"这一镜的台词（没有就不写）","speaker":"角色名（没有对白就不写）","chain":"tail"},{"action":"insert","newScene":"新场景名","prompt":"新场景的第一个镜头","duration":4},{"action":"delete","scene":1,"shot":3},{"action":"move","scene":1,"shot":4,"after":1}]}
 2. scene / shot / after 都照清单里的序号数（从 1 开始）；不要重新编号、不要搬动清单里没提到的镜头。
 3. update 改一个已有镜头：prompt / name / duration / line **只带真的要改的字段**，没改的不要原样抄一遍；prompt 写**完整的新提示词**本身（不是只写改动的几个词）；line 要清掉这一镜的台词就写成空字符串。
 4. insert 加新镜头：after=2 表示插在第 2 镜之后；after=0 表示插在这一场的开头；不写 after 表示加在这一场末尾。
@@ -250,6 +251,7 @@ non_diegetic_music: 同 Ref2VA。
 10. 台词（line）只放剧本或用户那句话里**本来就有**的句子，逐字照抄；没有对白就留空字符串，不要自己编，也不要把它写进 prompt —— 它是要单独合成语音的一句话，与画面描述是两件事。有台词时 speaker 写说这句话的角色名（照清单里的叫法，没有名字写「旁白」）；要清掉台词就把 line 与 speaker 都写成空字符串。
 11. \`chain\` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"（第 1 镜永远不写）；清单里已经标着「接上一镜」的镜头不要再抄一遍；要取消接续就写空字符串。长镜头由程序按型号上限自动拆成接续段并自动标好，你不用自己拆，也不要把上一镜的画面在下一镜里重复描述一遍。
 12. 消息里若带着「用户已经回答了你先前的追问」，那些回答是**硬约束**：逐条落实进改动（改哪些镜、往哪个方向改、台词与时长动不动都照它来），不要再反问同一件事，也不要自行改动用户已定的选择。
+13. \`pics\` 是这一镜要挂的随附参考图编号（如 ["图1","图3"]），update 与 insert 都可以带。消息末尾若有【随附素材】清单，图1…图N 就是那批图（用户为这次修改挑的参考图）；只挂**真正贴这条镜头画面**的（按主体、场景、风格判断）。update 没带 pics 就保持这一镜现有的参考图不动；要清掉就写空数组。没有【随附素材】清单时不要写 pics；编号只照清单写，不要编造。
 
 只输出 JSON。
 
@@ -282,8 +284,9 @@ non_diegetic_music: 同 Ref2VA。
 3. 这句话里读不出来的细节按最常见的做法补，不要反问。
 4. 仍然遵守拆分镜的全部规矩：台词只放**本来就有**的对白，逐字照抄（没有就空字符串，不要自己编，也不要写进 prompt）；speaker 写说这句话的角色名（照剧本叫法，没有名字写「旁白」）；\`chain\` 只在「这一镜的画面必须紧接着上一镜落幅往下演」时才写 "tail"；\`name\` 不超过 12 个字；\`note\` 是整句画面说明，不要截断。
 5. 输出**改后的完整方案**：只返回 JSON，不要任何解释、不要 markdown 代码块。格式：
-   {"title":"短片名","scenes":[{"name":"场景名","shots":[{"prompt":"镜头提示词","duration":5,"name":"镜头短名","note":"一句画面说明","line":"这一镜要念的台词","speaker":"说这句话的角色名","chain":"tail"}]}]}
+   {"title":"短片名","scenes":[{"name":"场景名","shots":[{"prompt":"镜头提示词","duration":5,"name":"镜头短名","note":"一句画面说明","line":"这一镜要念的台词","speaker":"说这句话的角色名","chain":"tail","pics":["图1"]}]}]}
    scenes 里必须有**全部**镜头 —— 改过的和没改的都在，不要只回改动的那几条（程序整份替换，缺了哪条哪条就真丢了）。
+6. \`pics\` 是这一镜要挂的随附参考图编号（如 ["图1","图3"]）。清单里标着「挂图 图N、图M」的镜头，用户没有点名要改它的图时 **pics 原样保留**；用户要求换图 / 摘图 / 加图时，按消息末尾【随附素材】清单里的编号改写；没有【随附素材】清单时照抄清单里的编号，不要自己编。只有你判断真正贴题的图才留在 pics 里。
 
 只输出 JSON。
 
@@ -606,7 +609,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
         { key: 'story', label: '分镜切片规划（张数与拆分维度可选 + 每张提示词）', used: '导演台右栏「按描述生成这一镜的画面」',
           ref: '要求文字 AI `只返回 JSON`（`{"frames":[{"t":0,"prompt":"…"}]}`），由它决定生成几张、每张在第几秒、每张画什么。改这条时请保留 JSON 格式要求，否则会退化成按 2.5 秒硬切片。'
             + '用户消息里会带「张数：…」「拆分维度：…」两行（那一排选项没选就写「自动」那句）。' },
-        { key: 'split', label: '剧本拆分镜', used: '导演台「拆分镜」→ 任务「拆一份新的 / 接着往下拆」',
+        { key: 'split', label: '剧本拆分镜', used: '导演台「拆分镜」→ 任务「接着往下拆」',
           ref: '要求文字 AI `只返回 JSON`（`{"title":"…","scenes":[{"name":"场景 1","shots":[{"prompt":"…","duration":5}]}]}`）；末尾会由程序自动补上「镜头数 / 每镜时长」两条约束。改这条时请保留 JSON 格式要求。\n拆分前程序会先走一轮**反问**（与润色同一套问答：AI 自己判断要不要问，问答面板就地展开，回答按硬约束落实 —— 就是要求 10 那一条；设置里选「从不问」整轮跳过）。' },
         { key: 'board_edit', label: '修改现有分镜（改 / 加镜头、优化提示词）', used: '导演台「拆分镜」→ 任务选「修改现有分镜」',
           ref: '要求文字 AI `只返回 JSON`（`{"changes":[{"action":"update","scene":1,"shot":2,"prompt":"…"},{"action":"insert","scene":1,"after":2,"prompt":"…"},{"action":"insert","newScene":"新场景名","prompt":"…"}]}`）；消息里会附上按序号编好的当前分镜清单，AI 按 `scene`/`shot`/`after` 的序号改与插。改这条时请保留 JSON 格式要求与「只带真的要改的字段」那一条 —— 程序按序号定位，对不上号的会整条丢掉并计数。\n动刀前同样可以先反问（与拆分镜同一套，回答按硬约束落实，见要求 12）。' },
@@ -1319,11 +1322,24 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     }
     return [];
   },
-  /* 取字节：File/Blob 直接用，跨域链接经本地代理 /fetch */
+  /* 取字节：File / Blob 直接用，`data:` 就地解码，其余链接走同源 fetch（跨域经本地代理 /fetch）。
+     `data:` 这一路**必须自己解**：页面的 CSP 只放行同源连接，`fetch('data:…')` 会被浏览器当场
+     判成「连不上」—— 而拆分镜挑图时正是把每张图定型成 dataURL（blob: 地址活不过这一次请求），
+     于是每一张都「读不出来」，界面上却怪到型号头上（「当前文字型号不识图」）。
+     解码失败不抛：落回下面那条路，让调用方照旧按「读不出来」报数。 */
   async _blob(src) {
     // 不用 instanceof：跨 iframe / 沙箱来的 File 过不了构造器判断，按能力（arrayBuffer）识别更稳
     if (src && typeof src === 'object' && typeof src.arrayBuffer === 'function') return src;
     const s = String(src || '');
+    const d = /^data:([^;,]*);base64,([\s\S]*)$/i.exec(s);
+    if (d) {
+      try {
+        const bin = atob(d[2]);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        return new Blob([buf], { type: d[1] || 'application/octet-stream' });
+      } catch (e) { /* 坏 base64：交给下面那条路报「读不出来」 */ }
+    }
     const u = /^https?:/i.test(s) && s.indexOf(location.origin) !== 0 ? '/fetch?url=' + encodeURIComponent(s) : s;
     const r = await netFetch(u, { timeout: 60000, retry: 1 });
     if (!r.ok) throw new Error('素材读取失败 HTTP ' + r.status);
@@ -1695,25 +1711,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       messages: [{ role: 'system', content: sys }, { role: 'user', content }]
         .concat(Array.isArray(o.extraMessages) ? o.extraMessages : []),
     };
-    /* 文字 AI 这一路也要留「实际发出的请求」快照（`wb:raw-request`，与 Api.request 同一出口事件）：
-       掩码 / 随附素材只在这一路出现，原始请求面板不给它留快照，用户就永远没处核对
-       「掩码到底带没带上」。正文里的「随附素材」清单 + 紧随原图的那发 <dataURL image/png> 就是证据。 */
-    this._snap(prov, body, o);
     return { model, body };
-  },
-  /* 快照投递：tag / label 由调用方给（opts.snapTag / opts.snapLabel），没给的落 ''（不进任何面板）。 */
-  _snap(prov, body, o) {
-    try {
-      const o2 = o || {};
-      window.dispatchEvent(new CustomEvent('wb:raw-request', { detail: {
-        tag: String(o2.snapTag || ''), label: String(o2.snapLabel || ''),
-        provider: (prov && prov.id) || '', providerName: (prov && (prov.displayName || prov.name)) || '',
-        endpoint: 'chat', method: 'POST',
-        path: String((prov && prov.relay) || '') + ((prov && prov.endpoints && prov.endpoints.chat) || '/chat/completions'),
-        body: (window.Api && Api.snapOf) ? Api.snapOf(body) : body,
-        at: Date.now(),
-      } }));
-    } catch (e) { /* 展示快照失败不能影响真正要发的那一次请求 */ }
   },
   /* 用量落账也只有一份（流式与非流式都要记，否则流式上线后每日曲线会缺一块）。
      记录里的时间字段叫 at（发生时间），不叫 ts —— 信封自己占用了 ts（写入时间，
@@ -1809,7 +1807,8 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       /* include_usage：不带这一条，流式请求就再也记不到 tokens，用量页会静默少一块 */
       r = await ask({ stream: true, stream_options: { include_usage: true } });
     } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('已经取消这次生成');
+      /* 保留 AbortError 名字：调用方靠它认出「用户按了停止」，收尾走「已停止」而不是错误卡 */
+      if (e && e.name === 'AbortError') { const x = new Error('已经取消这次生成'); x.name = 'AbortError'; throw x; }
       throw e;
     }
     if (!r.ok) {
@@ -1857,7 +1856,8 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
         if (onDelta) { try { onDelta(piece, kind); } catch (e) {} }
       });
     } catch (e) {
-      if (e && e.name === 'AbortError') throw new Error('已经取消这次生成');
+      /* 保留 AbortError 名字：正文读到一半按「停止」的那一路要能让调用方认出来（按「已停止」收尾） */
+      if (e && e.name === 'AbortError') { const x = new Error('已经取消这次生成'); x.name = 'AbortError'; throw x; }
       if (got) throw new Error('这次生成中途断了（已经收到 ' + got + ' 字，界面里能看到）：' + e.message);
       /* 只有「还没收到任何内容 + 明确 4xx 拒收」才能改走非流式重发。
          流已经建起来之后（got === 0 也可能是上游已经受理、只是没吐字）重发等于说两遍话、

@@ -36,7 +36,7 @@ export function createAccountCards(deps) {
     provEpoch, setDocEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
     asrFormEl, asrLocalFormEl, searchFormEl, cusCardEl, cusShown,
     regOf, envOf, textFormOf,
-    markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange,
+    markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
     syncServiceProvs, openCus, hideCus, pickCusCap, editCus, removeCus, afterCustomChanged,
     asr, asrLocal, asrBrowser, search,
   } = deps;
@@ -515,13 +515,16 @@ export function createAccountCards(deps) {
     const off = acctOff(m);
     const kb = keyBadge(m);
     const open = keyOpen.has(m.keyId) || pendingAdds.has(m.keyId);
+    /* 这一张卡有没有摊开的型号面板：有就让卡按内容长高（见 spa-settings.css 的 .panel-open）——
+       320px 的卡里塞不下面板，以前只剩一条缝，清单看得见表头、看不见行。 */
+    const panelHere = capsShownOf(m).some(cap => panelOpen.has(slotKey(m.keyId, cap)));
     const mid = (open ? keyRowHTML(m) : '')
       + capsShownOf(m).map(cap => capRowHTML(m, cap)
         + (((cap === 'asr' && m.local) || hostKidOf(cap) === m.keyId) ? priFormHTML(m, cap) : '')
         + (panelOpen.has(slotKey(m.keyId, cap)) ? modelPanelHTML(m, cap) : '')).join('')
       + capAddHTML(m);
     return '<div class="acct fcard' + (off ? ' acct-off' : '') + (m.custom ? ' cus' : '')
-      + '" data-acct="' + kid + '">'
+      + (panelHere ? ' panel-open' : '') + '" data-acct="' + kid + '">'
       + '<div class="fcard-h"><span class="fcard-ic">' + window.esc((m.name || '?').slice(0, 1).toUpperCase()) + '</span>'
         + '<div class="fcard-tt"><div class="fcard-t">'
           + (m.site
@@ -794,6 +797,8 @@ export function createAccountCards(deps) {
       if (panelOpen.has(slot)) {
         window.Wb.viewport.reveal(q('[data-mblk="' + window.esc(slot) + '"]'),
           { pin: q('[data-crow="' + window.esc(slot) + '"]') });
+        /* 清单滚到「正在用」那一行（几百个型号时它在很后面，开面板就等于看不见它）。 */
+        if (afterPanelOpen) afterPanelOpen(slot);
       }
       return;
     }

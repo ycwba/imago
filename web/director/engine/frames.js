@@ -4,6 +4,7 @@
    document / window 用参数名遮蔽全局：页面作用域岛递进来的那两份代理继续生效，
    弹层、拖拽示意与键盘监听不会挂到别的常驻页面上。 */
 import { frameIndexTimes, FRAME_INDEX_MAX } from '../slice.js';
+import { spanTolOf } from '../tl-filmstrip.js';
 import { packFrames, unpackFrames } from '../slice-pack.js';
 
 /* 切片帧的持久层走代理的 /cache/slices（与浏览器 origin 无关的一份；换端口不再各攒一份）。
@@ -652,11 +653,9 @@ function slicePaintSoon() {
     if (need.length) await Promise.all(sliceAsk(key, src, need, hit, -1, true, slicePaintSoon));
     /* 回来的是**整个文件里真实存在的帧时刻**（流式那条路给的是包时刻，与请求的栅格差零点几秒是常态），
        所以按「相邻两格跨多远」定容差取最近的一张 —— 按 0.04 秒死抠的话，一张都对不上，
-       整条带子会一直停在占位斜纹上。 */
-    const span = list.length > 1
-      ? (list[list.length - 1] - list[0]) / (list.length - 1)
-      : 0.5;
-    return framePeek(clip, list, Math.max(0.041, span * 0.55));
+       整条带子会一直停在占位斜纹上。容差只有一份算式（tl-filmstrip.js 的 spanTolOf）：
+       strip.js 渐进重画那一遍用的是同一把尺，两边口径一漂，「后半段要拖一下才出现」就回来了。 */
+    return framePeek(clip, list, spanTolOf(list));
   }
 
   return {

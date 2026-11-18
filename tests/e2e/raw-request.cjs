@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-/* 原始请求折叠条（web/ui/raw-request.js + Api.snapOf）：
-   · 默认收起，点开后摘要与请求体就地更新；
+/* 原始请求折叠条（web/ui/raw-request.js + Api.snapOf）——只有**发出前的预览**一栏：
+   · 默认收起，点开后预览与请求体就地更新（标题说「预览 · 哪一家」）；
    · 导演台整栏每 3 秒 / 切镜重画时展开状态不丢（openTags 记的是 tag，不是那枚 DOM）；
    · 展示的请求体经过脱敏：没有 headers / 授权 / Cookie，dataURL 只留摘要，长提示词截断；
+   · 「发出后回看」那一族（html / htmlList / wb:raw-request）已删 —— 派发事件无人消费、入口不存在；
    · 导演台与工作台三型都挂上了自己的标签（tag 跟镜头 / 类型走，不串台）。
    全部用合成事件与假快照，不发一次真实生成请求、不扣费。 */
 'use strict';
@@ -32,8 +33,7 @@ const h = require('./harness.cjs');
     await page.waitFor(() => !!document.querySelector('.shot-item[data-sid="sh1"]'), 15000);
 
     /* 默认收起，且在没有快照时给出「尚未算出 / 预览」的占位。
-       ⚠ 这一块现在只有**一栏**：显示的是「本次输入将要发出的那一份」（预览），
-       真发出去的那一份只在单栏快照（`RawRequest.html`）里回看 —— 所以这里只有一个 pre。 */
+       只有**一栏**：显示的是「本次输入将要发出的那一份」（预览）—— 所以这里只有一个 pre。 */
     const tag = 'dir:shot:sh1';
     await page.waitFor(() => !!document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]'), 15000);
     const before = await page.eval(() => {
@@ -46,44 +46,43 @@ const h = require('./harness.cjs');
     if (!/尚未算出|预览/.test(before.summary)) throw new Error('没有快照时摘要不对：' + before.summary);
     if (before.halves !== 0 || before.pres !== 1) throw new Error('预览块应当是单栏：halves=' + before.halves + ' pres=' + before.pres);
 
-    /* 合成一份快照：生产路径里 `Api.request` 先把请求体过一遍 `snapOf` 再投事件，这里照做。
+    /* 合成一份预览：生产路径里页面算出的快照先过一遍 `snapOf` 再走 `setPreview`，这里照做。
        headers / 授权字段必须被剔除，dataURL 压成摘要，长提示词截断。 */
     await page.eval(t => {
       const data = 'data:image/png;base64,' + 'A'.repeat(6000);
-      window.dispatchEvent(new CustomEvent('wb:raw-request', { detail: {
-        tag: t, label: '镜头 A', provider: 'probe', providerName: '探针平台',
+      window.RawRequest.setPreview(t, {
+        provider: 'probe', providerName: '探针平台',
         endpoint: 'create', method: 'POST', path: '/relay/probe/v1/create',
         body: window.Api.snapOf({ prompt: '第一句画面提示词', image: data,
           headers: { Authorization: 'Bearer secret-token' }, authorization: 'secret-token',
           nested: { prompt: '嵌套提示词' } }),
         at: Date.now(),
-      } }));
+      });
     }, tag);
-    /* 预览块**不看**发出去的那一份：收到快照后，它的正文仍是「将要发」的请求体 */
-    await page.waitFor(() => document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]'), 10000);
+    /* 预览正文就地更新，标题说「预览 · 哪一家」；它**不是**「已发送」的那一份 */
+    await page.waitFor(() => /预览 · 探针平台/.test((document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"] summary') || {}).textContent || ''), 10000);
     const after = await page.eval(() => {
       const el = document.querySelector('details.raw-req[data-raw-tag="dir:shot:sh1"]');
       return { open: el.open, summary: el.querySelector('summary').textContent,
         pre: (el.querySelector('pre') || {}).textContent || '' };
     });
-    if (after.open) throw new Error('收到快照不该自动展开');
-    if (/已发送/.test(after.summary)) throw new Error('预览块不该被已发送的快照顶掉标题：' + after.summary);
-    /* 发出去的那一份在单栏快照里（素材库 / 批量结果那一族）：脱敏与摘要只在那一份上看。 */
-    const sent = await page.eval(t => {
-      const host = document.createElement('div');
-      host.innerHTML = window.RawRequest.html(t);
-      window.RawRequest.bind(host);
-      document.body.appendChild(host);
-      const out = { summary: (host.querySelector('summary') || {}).textContent || '',
-        pre: (host.querySelector('pre') || {}).textContent || '' };
-      host.remove();
-      return out;
+    if (after.open) throw new Error('收到预览不该自动展开');
+    if (!/预览/.test(after.summary) || /已发送/.test(after.summary)) throw new Error('预览块标题不对：' + after.summary);
+    if (!/第一句画面提示词/.test(after.pre) || !/嵌套提示词/.test(after.pre)) throw new Error('请求体没有展示提示词：' + after.pre);
+    if (!/<dataURL image\/png/.test(after.pre)) throw new Error('dataURL 没有压成摘要：' + after.pre.slice(0, 200));
+    if (after.pre.includes('AAAA')) throw new Error('dataURL 原文被塞进了 DOM');
+    if (/secret-token|Authorization|Cookie/i.test(after.pre)) throw new Error('请求体展示了凭据字段：' + after.pre.slice(0, 200));
+
+    /* 「发出后回看」那一族已删：`html` / `htmlList` 不在了，`wb:raw-request` 事件无人消费
+       （派发一颗也不报错、不改任何面板）。 */
+    const gone = await page.eval(t => {
+      const d = document.dispatchEvent(new CustomEvent('wb:raw-request', { detail: { tag: t, body: {} } }));
+      return { html: typeof window.RawRequest.html, htmlList: typeof window.RawRequest.htmlList, dispatched: d };
     }, tag);
-    if (!/已发送/.test(sent.summary) || !/探针平台/.test(sent.summary)) throw new Error('快照摘要没有说清已发送与平台：' + sent.summary);
-    if (!/第一句画面提示词/.test(sent.pre) || !/嵌套提示词/.test(sent.pre)) throw new Error('请求体没有展示提示词：' + sent.pre);
-    if (!/<dataURL image\/png/.test(sent.pre)) throw new Error('dataURL 没有压成摘要：' + sent.pre.slice(0, 200));
-    if (sent.pre.includes('AAAA')) throw new Error('dataURL 原文被塞进了 DOM');
-    if (/secret-token|Authorization|Cookie/i.test(sent.pre)) throw new Error('请求体展示了凭据字段：' + sent.pre.slice(0, 200));
+    if (gone.html !== 'undefined' || gone.htmlList !== 'undefined') {
+      throw new Error('发出后回看的入口还在：html=' + gone.html + ' htmlList=' + gone.htmlList);
+    }
+    if (!gone.dispatched) throw new Error('事件派发返回 false（监听器还在消费它）');
 
     /* 展开 → 切到另一镜再切回来：整栏重画后仍保持展开（openTags 按 tag 记）。 */
     await page.eval(() => {
@@ -132,7 +131,7 @@ const h = require('./harness.cjs');
 
     const errs = (page.errors || []).filter(Boolean).slice(0, 3);
     if (errs.length) throw new Error('页面异常：' + errs.join(' | '));
-    console.log('✓ 原始请求：默认收起 / 单栏预览不被已发送顶掉 / 快照脱敏与摘要 / 展开后重画仍开 / 三型标签各就位');
+    console.log('✓ 原始请求：只留发出前预览 / 预览脱敏与摘要 / 展开后重画仍开 / 回看族已删 / 三型标签各就位');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     process.exitCode = 1;

@@ -4,11 +4,14 @@
    画面帧不在这边解码：`E.ensureFrames` 走 frames.js 那条全页共用的流水线，
    这里只算「这一段要几个采样点」（tl-filmstrip.js），再把回来的图贴进格子。
    波形只读 `peaks`（源窗口上的 RMS，tl-peaks.js 的重采样），不在剪辑时再解码音频。 */
-import { frameCountFor, planFrameTimes } from '../tl-filmstrip.js';
+import { frameCountFor, planFrameTimes, spanTolOf } from '../tl-filmstrip.js';
 import { resamplePeaks } from '../tl-peaks.js';
 import { num } from '../util.js';
 
 const IMAGE_CELL_PX = 84;
+/* 单格解码回执的看门狗：超过它还没回来就当挂死处理（见 paintClip 的 busy 注释）。
+   元数据 20s / 定位 15s 的上游上限之后再加 10s 余量，30s 足够盖住「这会儿忙」。 */
+const STRIP_BUSY_WATCHDOG_MS = 30000;
 
 /* 胶片格宽随缩放收紧（与参考 Timeline.jsx 的 targetCellWidth 同一口径）：
    放大之后格子窄一点，同样的像素宽度里能看到更多采样点，剪点才对得上画面。 */
@@ -77,18 +80,33 @@ export function createStrip(E, document, window) {
     }
     if (!clip.src || clip.kind === 'image') return;
     const use = node.__stripTimes || times;
-    /* ① 缓存里有的先贴（纯读，一步解码都不做）：切镜头回来时画面当场就是满的。 */
+    /* ① 缓存里有的先贴（纯读，一步解码都不做）：切镜头回来时画面当场就是满的。
+       容差与解码回执（frames.js 的 ensureFrames）**同一份**（spanTolOf）—— 渐进重画时
+       解码流水线里现成的帧要按同一把尺顶上来；以前这里固定 0.4s，格距稍稀的素材
+       渐进阶段一格都顶不上，表现就是「后半段要拖一下轨道才出现」。 */
     if (framePeek) {
-      try { applyCells(node, urlsAligned(use, framePeek(clip, use))); } catch (e) { /* 读缓存失败就等解码那一路 */ }
+      try { applyCells(node, urlsAligned(use, framePeek(clip, use, spanTolOf(use)))); } catch (e) { /* 读缓存失败就等解码那一路 */ }
     }
     if (hidden || node.__stripBusy || !ensureFrames) return;
-    /* ② 剩下的排进解码流水线；回来一批换一批。 */
+    /* ② 剩下的排进解码流水线；回来一批换一批。
+       busy 无兜底就是死锁面：回执一旦挂死（持久缓存读卡住 / 解码队列被切页挡住没醒），
+       这一块永远停在「忙」，此后每次重画只走①、不再排活 —— 表现正是「后半段要拖一下轨道
+       （拖动触发整块重画、节点重建、busy 归零）才出现」。30 秒没回执就放开 busy 自己重问；
+       卡死的那份回执真回来时照常贴帧（applyCells 幂等），两条路谁先到谁说了算。 */
     node.__stripBusy = true;
+    let settled = false;
+    const watchdog = setTimeout(() => {
+      if (settled || !node.isConnected) return;
+      node.__stripBusy = false;
+      paintClip(node, clip, hidden);
+    }, STRIP_BUSY_WATCHDOG_MS);
     ensureFrames(clip, use).then(frames => {
+      settled = true;
+      clearTimeout(watchdog);
       node.__stripBusy = false;
       if (!node.isConnected) return;
       applyCells(node, urlsAligned(use, frames));
-    }, () => { node.__stripBusy = false; });
+    }, () => { settled = true; clearTimeout(watchdog); node.__stripBusy = false; });
   }
 
   /* ---------------- 配音 / 字幕 ---------------- */

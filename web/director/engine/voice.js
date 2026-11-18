@@ -11,6 +11,7 @@ import { moveClipToLane, moveTimedToLane, compactLanes } from '../tl-reorder.js'
 
 export function createVoice(E, document, window) {
   const {
+  cfg,
     projOf,
     REGOf,
     allShots,
@@ -575,7 +576,7 @@ async function generateShotLine(sh) {
   if (!sh) return;
   const host = document.getElementById('lineInline');
   if (!host) return;
-  const prompt = String(sh.prompt || '').trim();
+  const prompt = String(cfg(sh).prompt || '').trim();
   if (!prompt) { setStatus('<span class="err">先写这一镜的画面提示词</span>'); return; }
   if (!window.TextAI || !TextAI.prov(REGOf())) { setStatus('<span class="err">注册表里没有可用的文字 AI 供应商</span>'); return; }
   if (!(await TextAI.canRun(REGOf()))) { setStatus('<span class="err">请先在「设置」填文字 AI 密钥</span>'); return; }
@@ -585,7 +586,7 @@ async function generateShotLine(sh) {
     || '（素材库还没有角色）';
   const sys = TextAI.prompt('line_write', undefined, {
     prompt: prompt,
-    duration: sh.duration ? sh.duration + ' 秒' : '未声明（按内容估，宁短勿长）',
+    duration: cfg(sh).dur ? cfg(sh).dur + ' 秒' : '未声明（按内容估，宁短勿长）',
     cast: cast,
     line: String(sh.line || ''),
   });
@@ -601,7 +602,7 @@ async function generateShotLine(sh) {
     sh.line = line;
     if (speaker) sh.lineWho = speaker;
     filmEdited();
-    const over = sh.duration && estimateSpeechSeconds(line) > Number(sh.duration) + 0.05;
+    const over = cfg(sh).dur && estimateSpeechSeconds(line) > Number(cfg(sh).dur) + 0.05;
     setStatus(over
       ? '<span class="warn">✓ 已写上台词；这句比镜头时长略长，生成语音后可能要挪一下</span>'
       : '<span class="ok">✓ 已按这一镜的提示词写上台词</span>');
@@ -1356,7 +1357,6 @@ async function addVoiceAtPin(opts) {
       }
       r = await AiGen.synthTts(target.prov, {
         model: target.model.id || target.model.name, text: sayText,
-        snapTag: 'dir:voice:' + sh.id, snapLabel: sh.name || '',
         /* 落盘名与画面素材同一套（场景 + 镜头），`synthTts` 只补扩展名：
            FCPXML 媒体包里的配音文件因此与本机素材库里的是同一个名字。 */
         name: (() => {

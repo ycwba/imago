@@ -9,6 +9,8 @@
      sumQuotes      把多次询价结果收成一份账（缺金额绝不当 0、多币种不合并）
      runWithDeps    依赖式调度器：只把真正在提交的那一下算进并发名额 */
 
+import { byCreated } from './takes.js';
+
 const CODE_WHY = {
   'no-prev': '这是第一个镜头，没有上一镜可接',
   waiting: '等上一镜出画面后才能接它的尾帧',
@@ -33,12 +35,34 @@ export function shotPlacement(scenes) {
 }
 
 /* 上一镜是否已经有一张能当首帧的画面（静态尾帧 / 画面切片 / 已成功的候选）。
-   只回答「有没有」，取哪一张由 engine 的 resolveChainFrame 决定。 */
+   只回答「有没有」，取哪一张由 engine 的 resolveChainFrame 决定。
+   ⚠ 画面切片要**跳过删除中的那几张**（`k.deleted`：生成循环结束才从数组移除，
+   panel.js 的 shotKeyframes 同一口径）—— 判定不滤，接续镜就会拿一张用户已经删掉的
+   切片当首帧提交，或在该等上一镜的时候被判成「能接」。 */
 export function hasTailFrame(sh) {
   if (!sh) return false;
-  if (sh.lastFrame) return true;
-  if ((sh.keyframes || []).some(k => k && k.assetId)) return true;
-  return (sh.candidates || []).some(c => c && c.status === 'succeeded' && c.url);
+  const list = (sh.candidates || []).filter(c => c && typeof c === 'object');
+  /* 尾帧与画面切片现在住在**候选**身上：这一镜哪一条候选有，就算这一镜有。 */
+  if (list.some(c => c.lastFrame)) return true;
+  if (list.some(c => (c.keyframes || []).some(k => k && k.assetId && !k.deleted))) return true;
+  return list.some(c => c.status === 'succeeded' && c.url);
+}
+
+/* 上一镜的「参考候选」：选中的那条 → 最早创建的成功候选 → 最早创建的那条。
+   确定规则：候选数组的排序会随生成结果重排（出片的往前排），按顺序取会跟着漂 ——
+   接续取的是「上一镜的那一版画面」，它必须稳定。 */
+export function tailCandOf(sh) {
+  const list = ((sh && sh.candidates) || []).filter(c => c && typeof c === 'object');
+  if (!list.length) return null;
+  const sel = list.find(c => c.vid === sh.selId);
+  if (sel) return sel;
+  const ok = list.filter(c => c.status === 'succeeded' && c.url).sort(byCreated);
+  return ok[0] || list.slice().sort(byCreated)[0] || null;
+}
+
+/* 这一镜有没有候选挂着接续（接上一镜的尾帧）：接续标记在候选身上。 */
+export function chainMarkOf(sh) {
+  return ((sh && sh.candidates) || []).some(c => c && c.linkPrev === 'tail' && !c.firstFrame);
 }
 
 export function isRunning(sh) {
@@ -52,7 +76,7 @@ export function chainDeps(shots, opts) {
   const list = shots || [];
   const pending = (opts && opts.pending) || null;
   return list.map((sh, i) => {
-    if (!sh || sh.linkPrev !== 'tail' || sh.firstFrame) return { shot: sh, prev: null, ok: true, code: '', why: '' };
+    if (!sh || !chainMarkOf(sh)) return { shot: sh, prev: null, ok: true, code: '', why: '' };
     const prev = i > 0 ? list[i - 1] : null;
     if (!prev) return { shot: sh, prev: null, ok: false, code: 'no-prev', why: CODE_WHY['no-prev'] };
     if (hasTailFrame(prev)) return { shot: sh, prev, ok: true, code: 'ready', why: '' };
@@ -86,13 +110,13 @@ export function pickChainModel(models, currentModel, duration, supportsDuration)
      多半只是那一家还没回来，这时重挑会把一份合法存档型号悄悄换掉、再记一次
      「接续型号按能力收正」（判据 tests/e2e/director-boot-quiet.cjs）。
    型号槽是空的 / 「auto」时没有存档要保护，到货几家就先挑几家。 */
-export function chainModelRepick(sh, list, settled) {
-  if (!sh) return null;
-  const stored = sh.model && sh.model !== 'auto' ? (list || []).find(m => m.id === sh.model) : null;
+export function chainModelRepick(c, list, settled) {
+  if (!c) return null;
+  const stored = c.model && c.model !== 'auto' ? (list || []).find(m => m.id === c.model) : null;
   if (stored) {
     if (stored.first) return null;
-    if (sh.modelAuto !== 'chain') return null;
-  } else if (sh.model && sh.model !== 'auto' && !settled) {
+    if (c.modelAuto !== 'chain') return null;
+  } else if (c.model && c.model !== 'auto' && !settled) {
     return null;
   }
   return pickChainModel(list || [], '', 0, null);
@@ -226,16 +250,16 @@ function stable(v) {
   if (Array.isArray(v)) return '[' + v.map(stable).join(',') + ']';
   return '{' + Object.keys(v).sort().map(k => k + ':' + stable(v[k])).join(',') + '}';
 }
-export function quoteKeyOf(shot, ctx) {
-  const sh = shot || {};
+export function quoteKeyOf(take, ctx) {
+  const t = take || {};
   const c = ctx || {};
   return [
     c.provider || '', c.model || '',
-    sh.duration == null ? '' : sh.duration,
-    sh.res || '', sh.tier || '', sh.ar || '', sh.size || '',
+    t.dur == null ? '' : t.dur,
+    t.res || '', t.tier || '', t.ar || '', t.size || '',
     c.intent || '', c.mode || '',
     stable(c.topBools), stable(c.shapeFields), stable(c.caps),
-    sh.combo || '', c.combo || '',
+    t.combo || '', c.combo || '',
   ].join('|');
 }
 

@@ -8,6 +8,7 @@ import { shotRefPlanOf, tokenizeRefPrompt, applyProviderRefSyntax } from '../ref
 export function createMedia(E, document, window) {
   'use strict';
   const {
+  cfg,
     allShots,
     projOf,
     saveScheduleSoft,
@@ -82,8 +83,12 @@ function filmSize() {
 /* ---------- 视频模型与参数：按这一镜的输入推导可用模型 ---------- */
 /* 素材编号与发送顺序的唯一计划表：首帧 → 尾帧 → 画面切片 → 手动参考图 → 参考视频 → 参考音频。
    芯片、润色附图、提交前的 @ 替换、真正发出去的 inputEntries 都读这一份（见 ref-plan.js）。 */
-function chainSlotOf(sh) {
-  return !!(sh && sh.linkPrev === 'tail' && !sh.firstFrame && allShots().indexOf(sh) > 0);
+function chainSlotOf(x) {
+  if (!x) return false;
+  const c = cfg(x);
+  /* x 可以是镜头，也可以是一条候选（批量提交按候选走）：候选要回到它所属的镜头判位置。 */
+  const shot = Array.isArray(x.candidates) ? x : allShots().find(s => (s.candidates || []).includes(x));
+  return !!(c && c.linkPrev === 'tail' && !c.firstFrame && allShots().indexOf(shot) > 0);
 }
 /* 规范标记 → 平台声明的引用语法（H3 就是 <Picture N> / <Video N> / <Audio N>）。
    未声明语法的平台原样提交。 */
@@ -96,7 +101,7 @@ function refTokenize(sh, prompt, ic, o) {
   /* 接续镜的首帧在提交那一刻才解析，但编号现在就得定下来：先按「会接上」占住第 1 张图，
      真正解析失败时整次提交会中止，不会发出一份编号错位的正文。 */
   const opt = o || { chainPending: chainSlotOf(sh) };
-  return tokenizeRefPrompt(prompt, shotRefPlanOf(sh, ic, opt, id => Api.assetSrc(id)));
+  return tokenizeRefPrompt(prompt, shotRefPlanOf(cfg(sh), ic, opt, id => Api.assetSrc(id)));
 }
 
   return {

@@ -2684,6 +2684,8 @@
       /* 查询次数不设上限：模型要查几次就查几次。退出只看三件事 —— 它自己交出了正文（不再写 CALL/RUN）、
          查询结果把上下文占满了、或者同一个查询连着问 STALE_MAX 遍还没换内容（唯一的兜底）。 */
       for (let round = 0; ; round++) {
+        /* 按了停止就不再起新的一轮：工具轮之间停止时请求已经断掉，这里只负责收尾 */
+        if (aborter && aborter.signal.aborted) { stopTurn(turn, ''); return; }
         const mayCall = ctx.keep < CTX_ROOM && stale < STALE_MAX;
         const st = addStream();
         live = st;
@@ -2694,9 +2696,13 @@
           out = await TextAI.chatStream(r, sysNow(ctx.scope), compose(q, ctx, mayCall),
             { signal: aborter.signal, model, media: att.media, noTools: true }, (p, k) => st.push(p, k), prov);
         } catch (e) {
-          const m = errText(e);
           const got = st.text();
           live = null; st.drop();
+          /* 用户按了「停止」：按**主动停止**收尾 —— 已写出来的字照常显示，不弹错误卡、
+             不给「重发」胶囊、也不把原话回填进输入框（那是「失败要重来」的路径，
+             停止是「我不要了」，两件事混在一起，界面上就成了停止完还催着重发）。 */
+          if (e && (e.name === 'AbortError' || (aborter && aborter.signal.aborted))) { stopTurn(turn, got); return; }
+          const m = errText(e);
           /* 断在半路的这一轮：把原话**留在输入框里**并给一颗「重发」。
              以前 `el.ta.value=''` 是在发请求**之前**清的，失败后只剩一行原因文字，
              想再问一遍得把原话重新打一遍 —— 而同一个 App 里的「AI 润色」面板是有「重新润色」的。 */
@@ -2900,6 +2906,16 @@
     }
   }
 
+  /* 用户按「停止」后的收尾（catch 的 abort 分支与工具轮顶的早退共用这一份）：
+     已写出来的字照常留着，气泡后注一句「已停止」；不弹错误卡、不给「重发」胶囊、
+     也不把原话回填输入框 —— 停止是「我不要了」，不是「失败要重来」，两条路必须分开。
+     turn.status 用 'stopped'（消费方只认 'error' 判失败，'stopped' 不算）。 */
+  function stopTurn(turn, got) {
+    turn.status = 'stopped';
+    turn.assistant.text = got || '';
+    save();
+    push(got ? 'ai' : 'step', got ? got + '\n\n（已按停止结束）' : '已停止');
+  }
   /* 一轮结束的**收据**：一句话说清「这一轮查了什么、改了什么」。
      为什么要有：那一串灰色小条是按时间排的查询流水，用户得自己数、自己拼；
      而「查了 5 次」与「提交了 1 个生成任务（任务号 xxx）」是完全不同的两件事 ——

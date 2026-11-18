@@ -13,10 +13,17 @@
    所以「清洗 / 格式闸门 / 校验和 / 导入归一化」都在这一份纯函数里，engine 只管取文件与落盘。
    纯算法、不碰 DOM / 网络，判据在 tests/director-project-pack.mjs。
 
-   格式版本只认当前这一版：更高 / 没有版本一律拒绝且零写入（旧形状不做兼容层）。 */
+   格式版本只认当前这一版（v2）：更高 / 更低 / 没有版本一律拒绝且零写入（旧形状不做兼容层）。
+   v1 的形状是「镜头级一份『画面』+ 候选可写 null（沿用画面）」，那一层已经退役 ——
+   硬读会读成半份工程，所以 v1 单独说一句话：在旧版本里重新导出。 */
+
+import { TAKE_CFG_KEYS, originOf } from './takes.js';
 
 export const PROJECT_PACK_TYPE = 'ai-workbench-director-project';
-export const PROJECT_PACK_VERSION = 1;
+export const PROJECT_PACK_VERSION = 2;
+
+/* 比当前这一版更老的格式版本：单独一句话说清怎么办，不与「缺版本」混在一起。 */
+const PROJECT_PACK_LEGACY_VERSIONS = new Set([1]);
 
 /* 这几种状态是「这一轮的生成任务还在跑」，任务号只对导出它的那台机器有意义。 */
 const PROJ_PACK_IN_FLIGHT = new Set(['creating', 'queued', 'running']);
@@ -70,8 +77,11 @@ function projPackEmpty(v) {
   if (v && typeof v === 'object') return Object.keys(v).length === 0;
   return false;
 }
-/* 这些是**镜头面板**渲染时算/补的，不属于作品内容（见上面那段说明）。
-   只从镜头那一层摘，别在整棵树里删 `duration` —— 成片轨的片段时长正是要照比的那一部分。 */
+/* 这些是**面板**渲染时算/补的，不属于作品内容（见上面那段说明）。
+   拍摄配置现在在候选上，所以候选那一层也要摘同样的几样 ——
+   否则面板算出来的 `combo` / 产物实际时长一变，同一部短片的指纹就跟着变，
+   「内容完全一致」认不出同一部作品。
+   只在镜头 / 候选两层摘，别在整棵树里删 `duration` —— 成片轨的片段时长正是要照比的那一部分。 */
 const PROJ_PACK_FP_VOLATILE = new Set(['combo', 'adv', 'duration']);
 
 /* 一部短片的内容指纹。导出侧与导入侧都调它 —— 两边同一把尺子，才有「完全一致」。 */
@@ -85,6 +95,15 @@ export function projPackFingerprint(project) {
       if (!sh || typeof sh !== 'object') return sh;
       const s = { ...sh };
       for (const k of PROJ_PACK_FP_VOLATILE) delete s[k];
+      /* 候选自己那份拍摄配置也在候选上：面板算出来的那几样同样不进指纹。 */
+      if (Array.isArray(s.candidates)) {
+        s.candidates = s.candidates.map(c => {
+          if (!c || typeof c !== 'object') return c;
+          const x = { ...c };
+          for (const k of PROJ_PACK_FP_VOLATILE) delete x[k];
+          return x;
+        });
+      }
       return s;
     });
   }
@@ -146,6 +165,22 @@ function projPackMediaHints(projects, hintOf) {
   return out;
 }
 
+/* 候选在新形状里自带**完整的一份拍摄配置**与一句自己的描述
+   （型号 / 档位 / 画幅 / 时长 / 参考文件 / 关键帧 / 接续标记 + `prompt` + `origin`）。
+   导出与导入都按这一份清单收口：缺键补空值（默认值口径与 takes.js 的 cloneTakeOf 一致），
+   `prompt` 恒为字符串 —— 当年「沿用画面」那个 null 已经不是合法形状。
+   收口放在这一份纯函数里，导出侧与导入侧同一把尺子。 */
+function projPackTakeShape(c) {
+  if (!c || typeof c !== 'object') return c;
+  c.prompt = String(c.prompt == null ? '' : c.prompt);
+  c.origin = originOf(c);
+  TAKE_CFG_KEYS.forEach(k => {
+    if (c[k] !== undefined) return;
+    c[k] = (k === 'refImages' || k === 'refMeta' || k === 'keyframes') ? [] : '';
+  });
+  return c;
+}
+
 /* 导出前的清洗：只去掉「出了这台机器就没意义」的字段，作品本身一个字节不改。 */
 function projPackClean(project, groupName) {
   const why = projPackShape(project);
@@ -168,6 +203,8 @@ function projPackClean(project, groupName) {
            可能把它带进来，落地前抹掉 —— 否则新机器上的历史补扫会整批跳过这一条。 */
         delete c._mirrorAnnounced;
         if (projPackMediaKind(c.url) === 'blob') c.url = '';
+        /* 候选自己那份拍摄配置与描述随包带走：缺键补空值，描述恒为字符串。 */
+        projPackTakeShape(c);
       }
     }
   }
@@ -199,7 +236,11 @@ export function projectPackStats(projects) {
       s.scenes++;
       for (const sh of projPackArray(sc.shots)) {
         s.shots++;
-        if (projPackText(sh.prompt).trim()) s.promptShots++;
+        /* 「写了描述的镜头数」= 这一镜的默认候选（主描述那一条）有字 ——
+           镜头级不再有 prompt（画面层退役），所以数候选。 */
+        const def = projPackArray(sh.candidates).find(c => c && typeof c === 'object' && c.origin === 'auto')
+          || projPackArray(sh.candidates)[0];
+        if (def && projPackText(def.prompt).trim()) s.promptShots++;
         if (projPackText(sh.line).trim()) s.lines++;
         if (projPackText(sh.note).trim()) s.notes++;
         if (projPackText(sh.selId).trim()) s.selected++;
@@ -266,9 +307,16 @@ export function assertProjectPack(pack) {
     throw new Error('不是导演台导出的项目文件');
   }
   if (pack.version !== PROJECT_PACK_VERSION) {
-    throw new Error(pack.version > PROJECT_PACK_VERSION
-      ? '这份项目文件来自更新版本（v' + pack.version + '），请先升级再导入'
-      : '这份项目文件缺少可识别的格式版本');
+    const v = Number(pack.version);
+    /* 旧版本单独说：v1 的「画面」那一层已经退役，硬读会读成半份工程 ——
+       照做就能改的话只有一句：在旧版本里重新导出。 */
+    if (PROJECT_PACK_LEGACY_VERSIONS.has(v)) {
+      throw new Error('这份项目文件来自旧版本（v' + v + '），请在旧版本里重新导出后再导入');
+    }
+    if (v > PROJECT_PACK_VERSION) {
+      throw new Error('这份项目文件来自更新版本（v' + pack.version + '），请先升级再导入');
+    }
+    throw new Error('这份项目文件缺少可识别的格式版本');
   }
   if (!projPackArray(pack.projects).length) throw new Error('项目文件里没有短片');
   for (const p of pack.projects) {
@@ -460,6 +508,8 @@ export function prepareProjectPackImport(pack, opts) {
           delete c._objUrl;
           delete c._mirrorAnnounced;      // 纯内存标记，别让它跟着导入的短片一起进来
           if (projPackMediaKind(c.url) === 'blob') { c.url = ''; scannedDead++; }
+          /* 导入进来的候选一律按新形状收口：描述恒为字符串，拍摄配置缺键补空值。 */
+          projPackTakeShape(c);
           if (PROJ_PACK_IN_FLIGHT.has(String(c.status || ''))) {
             c.status = 'failed';
             c.progress = 0;

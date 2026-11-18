@@ -408,7 +408,6 @@ window.AiGen = {
       format: o.format || ((tts.formats || [])[0] || ''),
       textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user',
       ...(o.bools || {}),
-      snapTag: o.snapTag || '', snapLabel: o.snapLabel || '',
       log: false,                       // 同步合成没有平台任务号：归档由调用方按自己的本地号做
     });
     let b64 = Api.pickPath(res, tts.responsePath || 'choices.0.message.audio.data');
@@ -502,7 +501,6 @@ window.AiGen = {
          由它按 hide / need / from 声明决定哪些真的进提交体。不带 = 这一家声明的顶层开关一个都不发，
          于是同一个平台在工作台能勾「平台提示词优化」，在导演台的画面生成里连控件都没有。 */
       params: o.params, shape: o.shape,
-      snapTag: o.snapTag || '', snapLabel: o.snapLabel || '',
       log: o.log || { type: '图片生成', meta: { 画质: o.quality || '', 画幅: o.ar || '' } },
     });
     const p0 = Api.parseItem(prov, gen);
@@ -1360,8 +1358,9 @@ window.AiStream = {
          它为空（某家只吐片段不给收尾包）时用我们攒的那一份兜底。 */
       return (txt == null || txt === '') ? live.text() : txt;
     } catch (e) {
-      /* 中断 / 报错：面板**留着**（已经写出来的字就是用户唯一拿到的结果），
-         只把底部那行状态换成原因 —— 直接 clear 等于把证据一起抹掉。 */
+      /* 按「停止」：面板留着（已写出的字是用户唯一拿到的结果），底部换「已停止」—— 停止是主动收尾不是失败；
+         AbortError 名字由 Net.fetch / chatStream 那层保留。中断 / 报错同样面板留着，只把底部换成原因。 */
+      if (e && e.name === 'AbortError') { try { live.note('已停止'); } catch (e2) { /* 面板已不在：不影响收尾 */ } throw e; }
       live.fail(errText(e));
       throw e;
     }

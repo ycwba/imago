@@ -13,6 +13,7 @@
      · token    —— 占位符词法：`@待建:小雅` 怎么认、怎么换成 `@小雅`。
      · libSpec  —— 建档时要写进素材库的那一份（类型、组名、外貌、音色描述）。 */
 import { reEscape } from './util.js';
+import { promptTextsOf } from './takes.js';
 
 export function createBoardAssets(ctx) {
   const { nameKey, MIN_REPEAT, PREFIX } = ctx;
@@ -40,8 +41,13 @@ export function createBoardAssets(ctx) {
     const out = new Map();
     uniq.forEach(nm => out.set(nameKey(nm), 0));
     (shots || []).forEach(sh => {
-      let hay = [String((sh && sh.prompt) || ''), String((sh && sh.line) || ''),
-        String((sh && sh.lineWho) || ''), String((sh && sh.name) || '')].join('\n');
+      /* 候选自己的描述也参与「重复出现」的判定：拆分镜写进候选里的那句话
+         与这一镜的主描述一样会变成一次请求，漏掉它就会把只在自己候选里重复的主体判成路人。 */
+      let hay = promptTextsOf(sh).concat([
+        String((sh && sh.line) || ''),
+        String((sh && sh.lineWho) || ''),
+        String((sh && sh.name) || ''),
+      ]).join('\n');
       uniq.forEach(nm => {
         const k = nameKey(nm);
         if (out.get(k) === undefined) return;
@@ -171,15 +177,15 @@ export function createBoardAssets(ctx) {
   }
 
   /* 全片里哪些镜头**引用了**这个待建素材（占位符还在的那些）。
-     素材出图后要把图补进这些镜头 —— 先在这里把「哪几镜要补」认出来，
-     别到那时满屏扫一遍（工程大了就是几百个镜头）。 */
+     这一镜的主描述与各条候选自己的描述都算 —— 后者同样会作为一次请求的正文发出去。 */
   function shotsPending(shots, name) {
     const nm = String(name || '').trim();
     if (!nm) return [];
+    const k = nameKey(nm);
     const out = [];
     (shots || []).forEach(sh => {
       if (!sh) return;
-      if (pendingIn(String(sh.prompt || '')).some(x => nameKey(x) === nameKey(nm))) out.push(sh);
+      if (promptTextsOf(sh).some(t => pendingIn(t).some(x => nameKey(x) === k))) out.push(sh);
     });
     return out;
   }

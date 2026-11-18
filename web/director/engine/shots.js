@@ -10,7 +10,6 @@ export function createShots(E, document, window) {
   'use strict';
   const {
     projOf,
-    resolvedOf,
     uid,
   } = E;
 
@@ -24,16 +23,23 @@ export function createShots(E, document, window) {
    干净 profile 一进去就是「未处理错误」横幅 + 右栏一直空着（加载期竞态，与「能力声明回来之前不许说你没配 X 接口」是同一类）。
    现在直接取型号自己记着的那一家，认不出就留空 —— 真要点「生成这条」时那一路有 needProv，
    会给一句能照做的话，而不是在建立占位的时候崩掉整页。 */
-function mkCandidateBase(sh, vid) {
-  const rm = resolvedOf(sh) || {};
+function mkCandidateBase(sh, vid, origin = 'auto') {
   return {
-    vid, provider: rm.provider || '', status: 'draft', progress: 0,
+    vid, provider: '', status: 'draft', progress: 0,
     url: null, error: null, selected: false, locked: false, trimS: null, trimE: null,
-    shotId: sh.id, created: Date.now(), prompt: (sh.prompt || '').trim(),
+    shotId: sh.id, created: Date.now(), prompt: '', origin,
+    /* 这一条候选自己的**拍摄配置**：型号 / 档位 / 画幅 / 时长 / 参考文件 / 关键帧 / 接续标记。
+       「画面」层退役后，配置与描述都住在候选身上 —— 镜头只留这一镜的公共信息。
+       provider 是「这一条将来要发给谁」的记号：draft 阶段既不会提交也不会被轮询
+       （pollLive 按 tmp_ 号跳过），真要提交时由 submitCandidate 按这一条的型号落定。 */
+    model: '', modelAuto: '', tier: '', res: '', ar: '', size: '', dur: '',
+    refImages: [], refMeta: [], refVideo: null, refAudio: null, keyframes: [], combo: '',
+    firstFrame: null, lastFrame: null, linkPrev: '',
   };
 }
-/* 一个空的候选占位：新增镜头 / 点 ＋ 都先建它，描述在右栏写、写完点「生成这条」 */
-function mkDraftCandidate(sh) { return mkCandidateBase(sh, 'tmp_draft_' + uid()); }
+/* 一个空的候选占位：新增镜头 / 点 ＋ 都先建它，描述在右栏写、写完点「生成这条」。
+   默认那一条是 auto（这一镜的主描述落在它身上）；用户点「＋ 候选」建的是 manual（只改自己）。 */
+function mkDraftCandidate(sh, origin = 'auto') { return mkCandidateBase(sh, 'tmp_draft_' + uid(), origin); }
 /* 「把一份外部视频塞进候选条」也是一份候选，只是它已经成了：状态/进度/裁剪/价格这几项
    三个导入入口（素材库批量投递、收藏转存、中栏单条导入）以前各写一遍同样的八个字段，
    加一项就得三处同步。现在页面只递「哪一条、从哪来、地址是什么」。 */
@@ -42,6 +48,13 @@ function mkImportedCandidate(o) {
     vid: o.vid, provider: o.provider, status: 'succeeded', progress: 100,
     url: o.url, local: !!o.local, locked: false, trimS: null, trimE: null,
     priceMicros: null, duration: o.duration || null, error: null,
+    prompt: o.prompt == null ? '' : String(o.prompt), origin: 'imported',
+    /* 导入进来的是一条成品，但**它也得有自己的拍摄配置**（否则这一条没有型号 / 画幅可读）。
+       调用方把来源那条候选的配置递过来（o.cfg），没递就用上面那套默认形状。 */
+    model: '', modelAuto: '', tier: '', res: '', ar: '', size: '', dur: '',
+    refImages: [], refMeta: [], refVideo: null, refAudio: null, keyframes: [], combo: '',
+    firstFrame: null, lastFrame: null, linkPrev: '',
+    ...(o.cfg && typeof o.cfg === 'object' ? o.cfg : {}),
     ...(o.fromAsset ? { fromAsset: true } : {}),
     /* 导入去重的凭据（`operationId`）：文件按「名字+字节数+修改时间」、资产按资产号。
        同一份素材再导一次时不追加第二条候选；失败重试用的也是同一个号。 */
@@ -50,18 +63,13 @@ function mkImportedCandidate(o) {
 }
 function newShot(prompt = '') {
   const sh = {
-    id: uid(), name: '新镜头', prompt,
-    ar: '16:9', res: '768p', tier: 'fast', draw: 1,
-    firstFrame: null, lastFrame: null,       // dataURL
-    refImages: [],                            // dataURL[]
-    refVideo: null, refAudio: null,           // { asset_id, name }
-    keyframes: [],                            // { t, desc, status, assetId } 时间切片参考图
-    candidates: [],                           // { vid, status, progress, url, priceMicros, error, selected, locked, trimS, trimE, duration }
+    id: uid(), name: '新镜头',
+    draw: 1,                                  // 这一镜要出几条（张数仍是镜头级的设置）
+    candidates: [],                           // 候选镜头：每条自带描述与拍摄配置
     selId: null,                              // 选中的候选 vid
-    /* 「输入模式」= 这一镜这一次请求的形状（`Capabilities.combos` 里选中的那一条 id）。
+    /* 「输入模式」= 这一条候选这一次请求的形状（`Capabilities.combos` 里选中的那一条 id）。
        平台不给形状声明时一直是空串，那一排芯片整块不画，行为与加它之前逐字相同。
-       挂在镜头上而不是模块变量：导演台一次编辑的是镜头，切镜头要跟着换。 */
-    combo: '',
+       它住在候选身上：一条候选镜头 = 一次请求 = 一个形状。 */
     /* 拆分镜落进工程数据的两个结构化字段，都只挂在镜头上：
        `line` = 这一镜要念的话（只有文字，**不进配音轨**）。配音轨只放已经有音频的条目：
        `addVoiceEntry` 第一件事是问 `voiceTarget`，draft 占位候选不算落点；往里塞一条「有字没声音」的
@@ -76,15 +84,12 @@ function newShot(prompt = '') {
        与 `line` 一样是「还没合成的那句话」的附属信息。 */
     lineWho: '',
     note: '',
-    /* 接续：`linkPrev === 'tail'` 表示这一镜生成时自动取上一镜的尾帧当首帧。
-       用户显式选过首帧时以那一张为准（`firstFrame` 优先），这里的标记只是「还挂着接续」；
-       占位、能力判定与提交时解析尾帧都读它。
-       `modelAuto === 'chain'` = 当前型号是程序为了接续自动挑的，不是用户手选 ——
-       用户改型号时清掉，界面据此显示「已自动切到 X」。 */
-    linkPrev: '',
-    modelAuto: '',
   };
-  sh.candidates.push(mkDraftCandidate(sh));   // 默认带一个候选占位（默认选中它）
+  /* 默认候选 = 这一镜的第一条候选镜头：描述与拍摄配置都在它身上。
+     镜头级不再留 prompt / 型号 / 画幅 / 参考文件那些字段（读配置一律收候选）。 */
+  const c = mkDraftCandidate(sh, 'auto');
+  c.prompt = String(prompt || '');
+  sh.candidates.push(c);
   return sh;
 }
 /* 工作区/项目是异步加载的，轮询定时器可能在 proj 还是 null 时先跑起来 —— 这里统一兜住，
@@ -129,7 +134,7 @@ const shotDur = sh => {
   if (!c) return 0;
   if (c.trimE != null) return round1(Math.max(0, c.trimE - (c.trimS || 0)));
   if (c.duration) return c.duration;
-  if (c.url) return sh.duration || 5;
+  if (c.url) return c.dur || 5;
   return 0;   // 还没出画面：不显示假时长
 };
 /* 本镜时长文案：没生成就写「未生成」 */

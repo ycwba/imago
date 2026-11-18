@@ -24,9 +24,9 @@ let n = 0;
 const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项不成立：' + msg); };
 
 /* 一次完整开机：种一份工作区 → 打开导演台 → 等过「500ms 保存窗口 + 能力补画」→ 读数。
-   读的是浏览器里那一份（IndexedDB），磁盘上的 `.data/workspace.json` 是镜像、可能还带着节流。 */
+   读的是浏览器里那一份（IndexedDB），磁盘上的 `.data` 状态仓是镜像、可能还带着节流。 */
 async function bootWith(mutate, tag) {
-  const shot = { id: 'sh_2', name: '镜头二', prompt: '接上一镜', line: '', lineWho: '', refImages: [], candidates: [], selId: null };
+  const shot = { id: 'sh_2', name: '镜头二', prompt: '接上一镜', line: '', lineWho: '', draw: 1, refImages: [], candidates: [], selId: null };
   Object.assign(shot, mutate || {});
   const project = { id: 'p-' + tag, name: '开机静默探针', scenes: [{ id: 'sc1', name: '场景 1', shots: [shot] }] };
   const proxy = await h.startProxy();
@@ -60,7 +60,8 @@ async function bootWith(mutate, tag) {
       const ws = await window.Kv.at('ws').get('workspace');
       const p = (ws && ws.projects || []).find(x => x && x.scenes && x.scenes.length);
       const sh = p && p.scenes[0].shots[0];
-      return { shot: sh || null, errs: (window.__errs || []).slice(0, 3), 落盘: !!(sh && p) };
+      const cand = sh ? ((sh.candidates || []).find(c => c && c.origin === 'auto') || (sh.candidates || [])[0] || null) : null;
+      return { shot: sh || null, cand, errs: (window.__errs || []).slice(0, 3), 落盘: !!(sh && p) };
     });
     return { samples, got };
   } finally {
@@ -80,26 +81,31 @@ const 静默 = r => r.samples.every(s => !s.undo && s.最近 === '');
     must(!fill.got.errs.length, '开机过程中页面抛错（静默落盘那一路是域模块里调的，E 名单漏了名字就在这里炸）：' + fill.got.errs.join(' | '));
     must(fill.got.落盘, '开机后 IndexedDB 里没有那一份工作区（探针没跑通，下面的判据都无从读起）');
     must(静默(fill), '开机没有人操作，工程却被记成改过：'
-      + JSON.stringify(fill.samples.map(s => ({ undo: s.undo, 最近: s.最近 }))));
-    /* 补齐确实跑了：型号是接续那一路挑出来的，时长/分辨率/画幅/档位/条数是按声明填的。
+      + JSON.stringify(fill.samples.map(s => ({ undo: s.undo, 最近: s.最近, 状态: s.状态 }))));
+    /* 补齐确实跑了：型号是接续那一路挑出来的，时长/分辨率/画幅/条数是按声明填的
+       （档位只有型号声明了才填，见下面那一条）。
        没有这一条，上面那句「计数器没动」就可能是「回写压根没发生」蒙过去的。 */
-    const f = fill.got.shot;
+    const f = fill.got.cand;
+    must(!!f, '开机没给这一镜补上默认候选（描述与配置都该落在候选身上）');
     must(String(f.model || '') !== '', '开机没给这一镜补上型号（盘上那份还是空的，说明补齐那一路没走）：' + JSON.stringify(f));
-    must(Number(f.duration) > 0, '开机没把型号声明的默认时长补齐到盘上：' + JSON.stringify(f));
-    must(String(f.res || '') !== '' && String(f.ar || '') !== '' && String(f.tier || '') !== '' && Number(f.draw) > 0,
+    must(Number(f.dur) > 0, '开机没把型号声明的默认时长补齐到盘上：' + JSON.stringify(f));
+    must(String(f.res || '') !== '' && String(f.ar || '') !== '' && Number(f.dur) > 0 && Number(fill.got.shot.draw) > 0,
       '开机补齐只填了一半参数（静默落盘只跑了一次，还剩几个字段是空的）：' + JSON.stringify(f));
 
     /* ── B 拿 A 补齐出来的那一份原样再开一次：每个字段都存过且合法 ────────
        这一档盯的是另一件事：收正判定不能把「已经等于声明默认值」也算成一次改写，
        否则每次开机都多一枚撤销步数，Ctrl+Z 退的是自己刚填进去的值。 */
-    const same = await bootWith(f, 'same');
+    const same = await bootWith({ candidates: [f] }, 'same');
     must(!same.got.errs.length, '第二档开机页面抛错：' + same.got.errs.join(' | '));
     must(静默(same), '一份参数已经全部合法的工程，开机又把它记成改过一次：'
       + JSON.stringify(same.samples.map(s => ({ undo: s.undo, 最近: s.最近 }))));
-    const s = same.got.shot;
-    must(s.model === f.model && s.duration === f.duration && s.res === f.res && s.ar === f.ar
-      && s.tier === f.tier && Number(s.draw) === Number(f.draw),
-      '第二档开机改写了参数（第一档补齐出来的那一份没收敛）：前 ' + JSON.stringify(f) + ' 后 ' + JSON.stringify(s));
+    const s = same.got.cand;
+    must(!!s, '第二档开机后这一镜没有候选了');
+    must(s.model === f.model && s.dur === f.dur && s.res === f.res && s.ar === f.ar
+      && (!f.tier || s.tier === f.tier)
+      && Number(same.got.shot.draw) === Number(fill.got.shot.draw),
+      '第二档开机改写了参数（第一档补齐出来的那一份没收敛）：前 ' + JSON.stringify(f) + ' 后 ' + JSON.stringify(s)
+      + ' · draw ' + JSON.stringify(fill.got.shot.draw) + ' → ' + JSON.stringify(same.got.shot.draw));
 
     /* ── C 对照组：存过的值不在型号声明里 = 真编辑，必须记账 ───────────────
        `res:'9999p'` 是补齐那一路认得的「有值」（它只补空值），却一定不在任何型号声明的分辨率档里，
@@ -109,7 +115,7 @@ const 静默 = r => r.samples.every(s => !s.undo && s.最近 === '');
     must(Number(last.undo) >= 1, '存过的非法值被收正了，却没进撤销栈（Ctrl+Z 退不回去）：undo=' + last.undo);
     must(String(last.最近 || '').indexOf('收正') >= 0,
       '撤销栈顶那一步该报出收正的名字，而不是空的「编辑」：' + JSON.stringify(last.最近));
-    must(drift.got.shot.res !== '9999p', '非法的分辨率没有落到盘上（说明这一路压根没跑，上面三条是空对空）：' + drift.got.shot.res);
+    must(drift.got.cand.res !== '9999p', '非法的分辨率没有落到盘上（说明这一路压根没跑，上面三条是空对空）：' + drift.got.cand.res);
     /* 状态行经过 `sanitizeHTML`，空格可能是普通空格也可能是 &nbsp; 解码出来的 U+00A0，
        所以这一条按「空白无关」匹配 —— 要盯的是这句退得回去的话在不在，不是它中间那个字节。 */
     must(/可\s*Ctrl\+Z\s*退回/.test(last.状态), '收正要说一句退得回去（状态行）：' + JSON.stringify(last.状态));

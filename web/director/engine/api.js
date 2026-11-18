@@ -6,6 +6,7 @@
 export function createApi(E, document, window) {
   'use strict';
   const {
+  cfg,
     ST_ZH,
     projOf,
     regOf,
@@ -77,7 +78,7 @@ function playerTaskDetails(sh) {
     const waited = c2.created ? Math.max(0, Math.round((now - c2.created) / 1000)) : null;
     const bits = [
       ['候选', '第 ' + (projOf().curCand + 1) + ' / ' + list.length + ' 条'],
-      ['型号', (rm.name || rm.id || '') + (sh.res ? ' · ' + sh.res : '') + (sh.ar ? ' · ' + sh.ar : '') + (sh.duration ? ' · ' + sh.duration + '秒' : '')],
+      ['型号', (rm.name || rm.id || '') + (cfg(sh).res ? ' · ' + cfg(sh).res : '') + (cfg(sh).ar ? ' · ' + cfg(sh).ar : '') + (cfg(sh).dur ? ' · ' + cfg(sh).dur + '秒' : '')],
       ['状态', ST_ZH[c2.status] || c2.status],
       c2.queue_position ? ['队列位置', '第 ' + c2.queue_position + ' 位'] : null,
       c2.status === 'running' && c2.progress ? ['进度', c2.progress + '%'] : null,

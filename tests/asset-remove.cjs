@@ -9,7 +9,9 @@
         （老版字幕烧录栅格化落下的 subtitle-*.png 正是 provider='local' 这一族，
         用户点名「字幕文件总是出现在资产库、删除好像有问题」）。
      ② 归属：provider 注记解析不到注册表平台时显示「本机」，不再挂来源那家
-        （语音平台）的 displayName —— 用户点名「供应商显示的是语音的供应商」。 */
+        （语音平台）的 displayName —— 用户点名「供应商显示的是语音的供应商」。
+     ③ 引用扫描：描述与拍摄配置都住在候选身上之后，候选的参考视频 / 音频 / 关键帧 /
+        参考图与旧工程的镜头级字段都算引用，且按身份精确比、不误命中相邻号。 */
 const fs = require('fs');
 const vm = require('vm');
 const path = require('path');
@@ -145,6 +147,24 @@ function boot() {
   try { await Lib.remove({ provider: 'platnor', assetId: 'pn_1', id: 'pn_1' }); }
   catch (e) { norErr = String(e && e.message || e); }
   ok('平台没声明 remove 端点：照实说「存放在平台侧」', /平台侧/.test(norErr), 'err=' + norErr);
+
+  /* 引用扫描：描述与拍摄配置都住在候选身上（老工程的镜头级字段同样要认）——
+     「某条资产被哪些镜头引用」按身份精确比，不整条 stringify 做子串匹配。 */
+  console.log('· 引用扫描（usages）');
+  const WORKSPACE = { projects: [{ id: 'p1', name: '片一', scenes: [{ id: 's1', shots: [
+    { id: 'sh1', candidates: [{ refVideo: { asset_id: 'la_hit' } }] },
+    { id: 'sh2', candidates: [{ keyframes: [{ assetId: 'la_hit' }] }] },
+    { id: 'sh3', refVideo: { asset_id: 'la_hit' }, candidates: [] },
+    { id: 'sh4', candidates: [{ refImages: ['/asset/la_hit'] }] },
+    { id: 'sh5', candidates: [{ refImages: ['/asset/la_hit2'], prompt: 'la_hit 只是文字' }] },
+  ] }] }] };
+  ctx.Kv = { at: () => ({ get: async () => WORKSPACE }) };
+  ctx.Fav = { list: () => [] };
+  const u = await Lib.usages('la_hit');
+  ok('候选的参考视频 / 关键帧 / 参考图与旧镜头级参考视频都算引用；不误命中 la_hit2 / 提示词',
+    u.items.length === 4 && u.unknown.length === 0
+      && u.items.every(x => /第 [1-4] 镜/.test(x.label)),
+    JSON.stringify(u));
 
   console.log((bad ? '✗ ' + bad + '/' + n + ' 红\n' : '✓ ' + n + ' 条全绿\n'));
   process.exit(bad ? 1 : 0);

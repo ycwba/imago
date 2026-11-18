@@ -49,7 +49,10 @@ const h = require('./harness.cjs');
       }
       Wb.lightbox.open({ src, label: 'e2e', kind: 'image' }, [{ src, label: 'e2e', kind: 'image' }]);
     });
-    await page.waitFor(() => document.querySelector('#lbStage img'), 8000);
+    await page.waitFor(() => {
+      const im = document.querySelector('#lbStage img');
+      return !!(im && im.complete && im.naturalWidth > 0);
+    }, 8000);
     await page.eval(() => { LbMask.enter(u => { window.__rv.saved = u; }); });
     await page.waitFor(() => document.querySelector('.lb-mask-cv'), 8000);
 

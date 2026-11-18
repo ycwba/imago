@@ -2,6 +2,8 @@
    落盘之后逐镜夹回它自己那一档。区间内的代码由 engine.js 逐字搬出，E 只递 shotModels / videoPlanOf
    两位（Panel 那份解构结果，建包时还没初始化，所以 engine 那边包成箭头）；document / window 用参数名遮蔽全局。 */
 
+import { defaultTakeOf } from '../takes.js';
+
 export function createScript(E, document, window) {
   'use strict';
   const {
@@ -9,13 +11,12 @@ export function createScript(E, document, window) {
     videoPlanOf,
   } = E;
 
-/* ---------------- ④ AI 分镜：拆新 / 改现有 / 加镜头（2026-10 扩成三件事） ----------------
-   页头「拆分镜」那一个入口下现在挂三档任务，判据与落点都在这一节：
-     · 拆一份新的（new）   —— 贴剧本拆一个新短片（老路，口径一个字节没动）
+/* ---------------- ④ AI 分镜：改现有 / 接着往下拆（两档，都落在当前短片上） ----------------
+   页头「拆分镜」那一个入口下现在挂两档任务，判据与落点都在这一节：
      · 修改现有分镜（edit）—— 对着现有分镜说一句话（不说就是整体优化提示词），AI 回一份 changes
      · 接着往下拆（append）—— 把现有分镜的清单连同新文案一起喂给 AI，顺着往下加镜头
-   后两档都不重拆已有镜头 —— 以前想改一句话只能「拆一份新的」，而那是另起一个短片：
-   用户已经生成好的画面与剪辑记录全留在旧那个里。
+   两档都不重拆已有镜头 —— 以前想改一句话只能「拆一份新的」，而那是另起一个短片：
+   用户已经生成好的画面与剪辑记录全留在旧那个里（那一档已删，要开新片到左栏菜单新建）。
    改 / 加走 board_edit 那条链，四个纯函数管全链：
      snapBoard       把当前分镜编成带序号的清单（给 AI 看、给用户对）
      boardListText   把清单拼成给 AI 的那段正文（长提示词截断，一条只留认得出身份的信息）
@@ -59,7 +60,10 @@ const durWritable = () => videoDurSpan().any > 0;
 /* 两条落盘路径唯一的 duration 写点：判据 + 取整 + 「不写」这一档都只在这里一次。 */
 function setShotDur(sh, v) {
   const d = Math.round(Number(v));
-  if (durWritable() && Number.isFinite(d) && d > 0) sh.duration = d;
+  if (!durWritable() || !Number.isFinite(d) || d <= 0) return;
+  /* 时长住在**候选**上（这一条候选自己请求几秒）：落盘写的是这一镜的默认候选。 */
+  const c = defaultTakeOf(sh);
+  if (c) c.dur = d;
 }
 /* 给 AI 的那句时长约束。可用型号为零（或它们的区间压根没有交集）时**整句不加**，
    落盘时也一律不替它写 duration —— 沿用「没声明就不碰」的立场。 */
@@ -90,7 +94,7 @@ const suggestShots = text => Math.max(4, Math.round(String(text || '').length / 
 function softShotsNote(text, got) {
   const n = suggestShots(text), L = String(text || '').length;
   if (got == null) return '按这段长度（' + L + ' 字），预计拆 ' + n + ' 镜左右'
-    + (L > 2000 ? '；剧本较长，建议先用「拆一份新的」出骨架，再用「接着往下拆」分批补' : '');
+    + (L > 2000 ? '；剧本较长，建议分批「接着往下拆」，一次补一段' : '');
   if (got <= n) return '共 ' + got + ' 个镜头（这一段按字数预计 ' + n + ' 镜左右）';
   return '这一段按字数预计 ' + n + ' 镜左右，这次给了 ' + got + ' 个：镜头多可以分批生成，'
     + '也可以取消重拆（本次照常写入，一个都没截掉）';
@@ -103,17 +107,20 @@ function softShotsNote(text, got) {
 function clampShotDurations(shots) {
   const bits = []; let n = 0;
   (shots || []).forEach(sh => {
-    const cur = Number(sh && sh.duration);
-    if (!Number.isFinite(cur) || cur <= 0) return;          // 没填时长的镜头不替它编一个
-    const vp = videoPlanOf(sh);
-    const d = (vp.kinds || {}).duration;
-    if (!d || !d.list.length) return;                        // 这一家没声明区间 → 一个字不动
-    const to = Number(d.value);
-    if (!Number.isFinite(to) || to === cur) return;
-    const mm = vp.model || {};
-    bits.push((sh.name || '未命名镜头') + ' · ' + cur + ' 秒 → ' + to + ' 秒（'
-      + (mm.name || mm.id || '这一型') + ' 支持 ' + d.min + '–' + d.max + ' 秒）');
-    sh.duration = to; n++;
+    /* 逐**候选**夹：时长住在候选身上，每条候选按**它自己的**型号与区间收正。 */
+    ((sh && sh.candidates) || []).forEach(c => {
+      const cur = Number(c && c.dur);
+      if (!Number.isFinite(cur) || cur <= 0) return;          // 没填时长的候选不替它编一个
+      const vp = videoPlanOf(sh, c);
+      const d = (vp.kinds || {}).duration;
+      if (!d || !d.list.length) return;                        // 这一家没声明区间 → 一个字不动
+      const to = Number(d.value);
+      if (!Number.isFinite(to) || to === cur) return;
+      const mm = vp.model || {};
+      bits.push((sh.name || '未命名镜头') + ' · ' + cur + ' 秒 → ' + to + ' 秒（'
+        + (mm.name || mm.id || '这一型') + ' 支持 ' + d.min + '–' + d.max + ' 秒）');
+      c.dur = to; n++;
+    });
   });
   return { fixed: n, detail: bits.slice(0, 5).join('；'), more: Math.max(0, n - 5) };
 }

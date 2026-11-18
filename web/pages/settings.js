@@ -887,6 +887,11 @@ const SettingsView = {
       ownModels.forEach(m => put(m && (m.id || m), (m && m.name) || '', true));
       prefs.off.forEach(id => put(id, '', false));
       prefs.typed.forEach(id => put(id, '', false));
+      /* 下拉里有一档「当前选中」兜底（接口还没取过列表、或这个型号只有 sk_model_<keyId>
+         一格记着）：清单行也要画它。少了这一行，正在用的那个型号没有 图 / 音 / 视 可点。 */
+      if (p && (p.modelKind || p.kind) === 'text' && !p.serviceOnly && window.TextAI && TextAI.model) {
+        put(TextAI.model(p), '', false);
+      }
       const tset = new Set(prefs.typed);
       map.forEach(x => { x.typed = tset.has(x.id); });
       const arr = [...map.values()];
@@ -949,6 +954,20 @@ const SettingsView = {
          容器没被换掉（换的是它的子节点），所以点名 box 自己就够，公共件按行的下标还位。 */
       window.Wb.viewport.keep(box, () => fillModelRows(box, slot));
     }
+    /* 清单滚到「正在用」那一行。文字供应商动辄几百个型号（OpenRouter 495），选中的那个
+       按 id 排往往在几百行之后 —— 面板刚打开时它在视野外，看着就像「清单里没有它」，
+       连带它的 图 / 音 / 视 也点不到。只在开面板 / 重新取回清单之后滚，重画时不动，
+       否则用户自己滑到的位置会被拽走。 */
+    function scrollPickIntoView(slot) {
+      const box = q('[data-tchips="' + window.esc(slot) + '"]');
+      const row = box && box.querySelector('.mlist-row.picked');
+      if (!row) return;
+      const br = box.getBoundingClientRect(), rr = row.getBoundingClientRect();
+      if (rr.top >= br.top - 1 && rr.bottom <= br.bottom + 1) return;
+      box.scrollTop += (rr.top - br.top) - 4;
+    }
+    /* 账号卡流那边开面板是它自己的事件（accounts.js），滚清单留在这一层：跨这一层只走这一个口。 */
+    const afterPanelOpen = slot => scrollPickIntoView(slot);
     function fillModelRows(box, slot) {
       const kid = slotKid(slot);
       const p = provBySlot(slot);
@@ -979,7 +998,10 @@ const SettingsView = {
             return '<button class="med-tag' + cls + '" type="button" data-tmedit="' + kind + '"'
               + ' data-tkid="' + es + '" title="' + window.esc(tip) + '">' + zh + '</button>';
           };
-          return '<div class="mlist-row text-model' + (on ? ' pick' : '') + '" role="button" tabindex="0"'
+          /* 选中态用 .picked 而不是 .pick：资产卡那颗多选勾选框才是 .pick，
+             全局 `.task .pick, .card .pick` 会把这一行压成 18×18 的绝对定位方块
+             （设置页每组卡片的外层正是 .card）—— 表现就是「选中的型号在清单里不见了」。 */
+          return '<div class="mlist-row text-model' + (on ? ' picked' : '') + '" role="button" tabindex="0"'
             + ' data-tpick-model="' + id2 + '" data-tkid="' + es + '"'
             + ' aria-pressed="' + (on ? 'true' : 'false') + '"'
             + ' title="' + (on ? '全站润色在用这一个'
@@ -1092,6 +1114,7 @@ const SettingsView = {
         renderModelRows(slot);
         fillModelOptions(slot);
         paintFetchNote(slot);
+        scrollPickIntoView(slot);
         return list;
       } catch (e) {
         fetchNote.set(slot, { state: 'err', why: errText(e), ms: Date.now() - t0 });
@@ -4126,7 +4149,7 @@ const SettingsView = {
       provEpoch, setDocEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
       asrFormEl, asrLocalFormEl, searchFormEl, cusCardEl, cusShown,
       regOf: () => REG, envOf: () => envInfo, textFormOf: () => textForm,
-      markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange,
+      markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
       syncServiceProvs, openCus, hideCus, pickCusCap, editCus, removeCus, afterCustomChanged,
       asr, asrLocal, asrBrowser, search,
     });

@@ -1171,8 +1171,16 @@ export default {
         const re = /(^|[^A-Za-z0-9._%+-])@([^\s\u3000@，。；、,.!?！？：:（）()【\[\]「」『』"']{1,24})/g;
         ((ws && ws.projects) || []).forEach(p => ((p && p.scenes) || []).forEach(sc =>
           ((sc && sc.shots) || []).forEach(sh => {
-            const txt = String((sh && sh.prompt) || '');
-            if (!sh || txt.indexOf('@') < 0) return;
+            if (!sh) return;
+            /* 描述住在候选身上（每条候选一句）；镜头级 prompt 只在还没被导演台转过形状的旧工程里有。
+               同一个名字在一镜的多条候选里出现只算这一镜一次（names 按镜去重）。 */
+            const texts = [];
+            if (sh.prompt != null) texts.push(String(sh.prompt));
+            ((sh && sh.candidates) || []).forEach(c => {
+              if (c && c.prompt != null) texts.push(String(c.prompt));
+            });
+            const txt = texts.join('\n');
+            if (txt.indexOf('@') < 0) return;
             const names = new Set();
             let m;
             re.lastIndex = 0;

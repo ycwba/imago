@@ -13,6 +13,7 @@
      眼前那一行钉住（锚点落在「一行」那种尺度，不是落在壳子上）。
    · **横向**：`scrollLeft` 与纵向同一趟一起还（候选条那一族）。
    · **外层**：`opts.outer` 罩住「这一页在窄窗里改由外层滚」的那一只祖先。
+   · **整栏换掉**：`opts.absolute` 按原来的像素位还（切类型那种两边没有同一行的重画）。
    · **共享列表件**：`Wb.cards` 整箱重画（换一批条目、高度也变了）之后位置还在 ——
      工作台右栏 / 收藏 / 资产库的列表都走这一份，它是「点按钮重画列表」的实景。
    · **节点跨空列表存活**：同一份 `Wb.cards` 画到空列表、再画回同一批条目时，必须按 key
@@ -80,6 +81,33 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       return now ? Math.round(now.scrollTop) : -1;
     });
     must(kept === 200, '整片重画把滚动位吃掉了：' + kept + '（公共件 Wb.viewport.keep 没还原）');
+
+    /* ---------- 整栏内容被换掉：opts.absolute 按像素位还 ----------
+       切类型那种重画两边没有同一件事可认：锚点会落到结构上同名的邻块身上，
+       按锚点还会把 scrollTop 改成「那一块仍在原来的偏移」。这一档要的是原来的像素位。
+       对照：同样这一次换法不传 absolute，锚点会把 scrollTop 挪走（证明探针确实在量两条路）。 */
+    const absoluteOk = await page.eval(() => {
+      const mk = top => '<div style="height:' + top + 'px"></div>'
+        + '<div id="probeAbsRow" style="height:40px"></div><div style="height:600px"></div>';
+      const host = document.createElement('div');
+      host.style.cssText = 'position:fixed;left:-9999px;top:0;width:240px;height:120px;overflow:hidden';
+      document.body.appendChild(host);
+      const build = top => { host.innerHTML = '<div style="height:120px;overflow-y:auto">' + mk(top) + '</div>'; };
+      build(200);
+      host.firstElementChild.scrollTop = 220;
+      window.Wb.viewport.keep(host, () => { build(100); }, { absolute: true });
+      const abs = Math.round(host.firstElementChild.scrollTop);
+      build(200);
+      host.firstElementChild.scrollTop = 220;
+      window.Wb.viewport.keep(host, () => { build(100); });
+      const anchored = Math.round(host.firstElementChild.scrollTop);
+      host.remove();
+      return { abs: abs, anchored: anchored };
+    });
+    must(absoluteOk.abs === 220, 'opts.absolute 没按像素位还原（内容换了、高度也变了）：'
+      + JSON.stringify(absoluteOk));
+    must(absoluteOk.anchored !== 220, '对照不成立：不传 absolute 时锚点本该把 scrollTop 挪走（这一条保证探针在量两条路）：'
+      + JSON.stringify(absoluteOk));
 
     await page.eval(() => { const host = document.getElementById('probeScrollHost'); if (host) host.remove(); });
 
@@ -442,7 +470,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       console.error('页面异常：\n' + page.errors.slice(0, 5).join('\n'));
       throw new Error('页面上有异常');
     }
-    console.log('✓ 视口机制：裸重画甩回顶（对照）· keep 还原（纵向 / 横向 / opts.outer 外层 / 锚点钻进壳子）· '
+    console.log('✓ 视口机制：裸重画甩回顶（对照）· keep 还原（纵向 / 横向 / opts.outer 外层 / opts.absolute 整栏换掉 / 锚点钻进壳子）· '
       + '共享列表件整箱重画不吃位 · 空列表后按 key 找回同一批节点（不重建，改内容才重画）· '
       + 'reveal 钉住点中的那一行');
   } catch (e) {

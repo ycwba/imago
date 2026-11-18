@@ -74,6 +74,10 @@ async function startProxy(opts = {}) {
          （`/prompts` 整目录兜底重建索引时会重写 `_index.json`）。`opts.env` 在后面展开，
          要点名另一处的判据照样能盖掉这一默认。 */
       AUTOSAVE_DIR: path.join(probeRoot, 'downloads'),
+      /* 云同步凭据也隔离掉：本机 `.env` 里常配着真实 WebDAV，探针继承过去之后
+         「没配凭据应当 400」会变成 200，cloud-sync 那一类判据甚至会往用户云端推数据。
+         `.env` 加载器把空串当「没给」，所以这里用空白字符占位 —— cloudCfg 取用前会 trim 成空。 */
+      CLOUD_WEBDAV_URL: ' ', CLOUD_WEBDAV_USER: ' ', CLOUD_WEBDAV_PASS: ' ',
       ...(opts.env || {}),
     },
     stdio: ['ignore', 'pipe', 'pipe'],

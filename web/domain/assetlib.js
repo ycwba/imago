@@ -30,6 +30,38 @@
      本机资产库里那条的 id 是 `la_xxx`，那是**本机文件号、不是任务号**，拿它去问永远 404。
      落盘时把当时的任务号一起留在了本机索引里（registry 的 `list.map.task`），所以本机条目
      也认得出自己是哪一次生成的。 */
+  /* 云端说成功、却没给产物地址 —— 平台把过期产物清掉之后就是这个形状
+     （VGENV 实测：status=succeeded、progress=100，但 output 整段是 null）。
+     以前这里一律当「接口竞态」写成「生成中」，于是这条任务永远显示生成中、刷新也不自愈。
+     宽限期 OUTPUT_GONE_MS：刚完成的那一小段时间是真的竞态（地址还没写进去），
+     过了就说明产物地址被平台收走了 —— 别再骗人说它还在生成。 */
+  const OUTPUT_GONE_MS = 30 * 60 * 1000;
+  /* 这一条任务在本机有没有**唯一一份**视频副本：走本机别名表那一份判据
+     （localAssetIdOf 对任务号只认「恰好一份」，多产物任务不会误合并）。
+     只对视频走这一条 —— 多图任务镜像了一张不能代表整条任务（图片仍走 outCount 那一族）。 */
+  function localVideoOfTask(taskId, media) {
+    if (media !== '视频') return '';
+    const tid = String(taskId || '');
+    if (!tid) return '';
+    if (!window.AssetLocal || !AssetLocal.localAssetIdOf) return '';
+    try { return AssetLocal.localAssetIdOf('/asset/' + encodeURIComponent(tid)) || ''; } catch (e) { return ''; }
+  }
+  /* 云端那条已经没地址了，但本机有这一份 → 当场当本机资产：卡片直接播本地文件，
+     不再显示「生成中」。本机号是唯一身份（id / assetId 都是它），
+     mirror 记着账里那一行（格式 / 规范名 / 字节数 / 落点），页面照旧能删、能导出。 */
+  function localAssetEntryOf(base, laId, fmt) {
+    const f = (window.AssetLocal && AssetLocal.localFileOf)
+      ? (AssetLocal.localFileOf('/asset/' + laId) || {}) : {};
+    const raw = String(f.name || '');
+    /* 账里的规范名自带尾缀（王八.mp4）；别再补一次变 王八.mp4.mp4 */
+    const stem = raw && raw.toLowerCase().endsWith('.' + fmt) ? raw.slice(0, -(fmt.length + 1)) : raw;
+    return { ...base, kind: 'asset', id: laId, assetId: laId, status: 'done', outCount: 1,
+      src: assetSrc(laId),
+      dl: assetDl(laId, (stem || String(base.prompt || 'file').slice(0, 20)) + '.' + fmt),
+      localAsset: true, mirrorKey: 'la:' + laId,
+      mirror: { a: laId, f: String(f.format || fmt), n: raw, b: Number(f.bytes || 0),
+        fp: String(f.path || ''), g: String(base.genId || base.taskId || '') } };
+  }
   /* 上游条目 → 标准条目（字段全部来自 list.map 声明）。
      外面再包一层 normalize()：先按声明解析，再交给 AssetLocal.decorate 决定这条该显示
      本机副本还是平台地址 —— **全项目只有这一个地方产出条目**，所以本地镜像这一层
@@ -120,8 +152,22 @@
       // 外链产物（如 VGENV 的签名地址）统一换成 /getv 本地路由：显示、抽帧、量体积都同源
       if (outUrl) return [{ ...base, kind: 'asset', id: base.genId, status: 'done', outCount: 1,
         src: mediaSrc(outUrl), rawSrc: outUrl, dl: '/fetch?url=' + encodeURIComponent(outUrl) + '&dl=1' }];
-      // 状态已成功但产物字段还没写入（接口竞态）：按「生成中」处理，刷新后自愈
-      return [{ ...base, kind: 'task', id: base.genId, status: 'running', failMsg: '' }];
+      /* 云端说成功、却没给产物地址 —— 分三档（判据见 OUTPUT_GONE_MS 那处的说明）：
+         ① 本机账里有这条任务唯一的一份视频 → 当场当本机资产，卡片直接播本地文件；
+         ② 早就完成（超过宽限期）→ 已过期，别再写「生成中」；
+         ③ 刚完成 → 仍按生成中等一轮（接口竞态，下一轮列表会补上地址）。 */
+      {
+        const tid = String(base.genId || base.taskId || '');
+        const laId = localVideoOfTask(tid, media);
+        if (laId) return [localAssetEntryOf(base, laId, fmt)];
+        const doneAt = Date.parse(String(base.completed || '')) || 0;
+        if (doneAt && (Date.now() - doneAt > OUTPUT_GONE_MS)) {
+          return [{ ...base, kind: 'task', id: base.genId, status: 'expired',
+            failMsg: '平台已不提供这条任务的产物地址（多半已过期），本机也没有副本；需要的话只能重新生成' }];
+        }
+        // 状态已成功但产物字段还没写入（接口竞态）：按「生成中」处理，刷新后自愈
+        return [{ ...base, kind: 'task', id: base.genId, status: 'running', failMsg: '' }];
+      }
     }
     if (st === 'queued' || st === 'running') {
       /* 卡片上写的是标准状态（'queued' / 'running'），原始措辞留在 gstatus 里给用量页展示 ——
@@ -354,12 +400,26 @@
         const m = /\/asset\/([A-Za-z0-9_-]+)/.exec(s);
         return !!(m && m[1] === target);
       };
+      /* 参考视频 / 音频记录：`asset_id`（旧写法）与 `assetId` 都认，地址与缩略图走 inUrl。 */
+      const hitRef = r => !!r && typeof r === 'object'
+        && (eq(r.asset_id) || eq(r.assetId) || inUrl(r.src));
+      /* 一条候选里所有可能指向这份资产的地方：产物身份 + 它自己那套拍摄配置
+         （配置住在候选身上；镜头级同名字段只在还没转过形状的旧工程里有）。 */
+      const hitTake = c => {
+        if (!c || typeof c !== 'object') return false;
+        if (eq(c.assetId) || inUrl(c.url) || inUrl(c.src)) return true;
+        if (hitRef(c.refVideo) || hitRef(c.refAudio)) return true;
+        if ((c.keyframes || []).some(k => k && (eq(k.assetId) || inUrl(k.src)))) return true;
+        if (inUrl(c.firstFrame) || inUrl(c.lastFrame)) return true;
+        return (c.refImages || []).some(s => inUrl(s));
+      };
       const hitShot = sh => {
         if (!sh || typeof sh !== 'object') return false;
-        if (sh.refVideo && eq(sh.refVideo.asset_id)) return true;
-        if (sh.refAudio && eq(sh.refAudio.asset_id)) return true;
+        if (hitRef(sh.refVideo) || hitRef(sh.refAudio)) return true;
         if ((sh.keyframes || []).some(k => k && (eq(k.assetId) || inUrl(k.src)))) return true;
-        return (sh.candidates || []).some(c => c && (eq(c.assetId) || inUrl(c.url) || inUrl(c.src)));
+        if (inUrl(sh.firstFrame) || inUrl(sh.lastFrame)) return true;
+        if ((sh.refImages || []).some(s => inUrl(s))) return true;
+        return (sh.candidates || []).some(hitTake);
       };
       const hitVoice = v => !!v && typeof v === 'object'
         && (eq(v.assetId) || inUrl(v.src) || inUrl(v.refAudio) || eq(v.refAssetId));
@@ -579,9 +639,22 @@
       (Array.isArray(add) ? add : []).forEach(put);
       let list = [...map.values()];
       const doneGens = new Set();
-      list.forEach(e => { if (e.kind === 'asset' && e.genId) doneGens.add((e.provider || '') + '|' + e.genId); });
+      list.forEach(e => {
+        if (e.kind !== 'asset') return;
+        const p = e.provider || '';
+        if (e.genId) doneGens.add(p + '|' + e.genId);
+        /* 本机镜像行的**平台任务号在 taskId 上**（它的 genId 是本机号 la_xxx，两边对不上）。
+           不把它记进去，同一份东西就会同时留着一张「生成中」任务卡和一张本机视频卡 ——
+           哪怕别名表还没就绪（3.1 查不到本机），同一次列表里也只剩一张。 */
+        if (e.localAsset && e.taskId) doneGens.add(p + '|' + e.taskId);
+      });
       if (doneGens.size) {
-        list = list.filter(e => !(e.kind === 'task' && e.genId && doneGens.has((e.provider || '') + '|' + e.genId)));
+        list = list.filter(e => {
+          if (e.kind !== 'task') return true;
+          const p = e.provider || '';
+          return !((e.genId && doneGens.has(p + '|' + e.genId))
+            || (e.taskId && doneGens.has(p + '|' + e.taskId)));
+        });
       }
       const score = x => (x.src ? 2 : 0) + (x.status ? 1 : 0) + (x.prompt ? 1 : 0);
       const byAsset = new Map();

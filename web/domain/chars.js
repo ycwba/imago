@@ -1022,11 +1022,9 @@ window.Chars = (function () {
       ? prompts.map(p => p + '。严格沿用参考图里的同一个人：脸型、五官、发型都不要变')
       : prompts;
     const type = prop ? '素材-道具' : scene ? '素材-场景' : '素材-角色定妆';
-    const snapTag = 'chars:' + (prop ? 'prop' : scene ? 'scene' : 'char') + ':' + item.id;
     const meta0 = prop ? { 道具: item.name, 画幅: ar } : scene ? { 场景: item.name } : { 角色: item.name, 画幅: ar };
     const settled = await Promise.allSettled(usePrompts.map((prompt, i) =>
       AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: ar, count: 1,
-        snapTag, snapLabel: item.name,
         inputEntries: inputEntries,
         /* 任务号回传给调用方落盘：切页之后这一轮 JS 就没了，但任务还在平台上跑 ——
            存下号来，下次打开这一页能把它认领回来（见 assetlib 的 AiGen.adopt）。 */
@@ -1140,7 +1138,6 @@ window.Chars = (function () {
       name: item.name, look: descOf(item), style: episodeStyle(drama), ar: '16:9',
     });
     const e = await AiGen.image({ prov: v.prov, model: v.model, prompt: prompt, ar: '16:9', count: want,
-      snapTag: 'chars:' + (isSceneItem(item) ? 'scene' : 'char') + ':' + item.id, snapLabel: item.name + ' · ' + name,
       inputEntries: inputEntries,
       onTask: o && o.onTask,        // 同上：任务号回传给页面落盘，切页回来能认领
       log: { type: '素材-角色资产', meta: { 角色: item.name, 资产: name, 模板: tpl } } });
@@ -1713,7 +1710,7 @@ window.Chars = (function () {
     }
     const body = { model: model.id, text: o.text, style: o.style || '', voice: voice, format: fmt,
       textRole: tts.textRole || 'assistant', styleRole: tts.styleRole || 'user', log: false,
-      snapTag: o.snapTag || ('chars:voice:' + ((o.char && o.char.id) || '')), snapLabel: (o.char && o.char.name) || '' };
+      }
     let res;
     try {
       res = await Api.create(prov, body);
@@ -2425,7 +2422,9 @@ window.Chars = (function () {
      而「第 1 段第 2 次」这类名字全靠长度与分隔对得上，换法不一致下载目录里就认不出是哪一集。 */
 
   /* 素材改名回填的**唯一改写规则**（纯函数）：把工程里所有镜头对这一条的引用刷成新名 ——
-     ① prompt 正文的 `@旧名` token；② refMeta 里 id 对得上的 label（老工程没 id 的按 label 认一次）。
+     ① 每条候选 prompt 正文的 `@旧名` token；② refMeta 里 id 对得上的 label
+     （老工程没 id 的按 label 认一次）—— 每条候选各带一份 refMeta，镜头级那份只在
+     还没被导演台转过形状的旧工程里，一并认。
      refMeta.id 一个字不动 —— 身份与名字分开，引用不断。
      token 边界：`@旧名` 后面是 `·`（`@小雅·三视图` 那种资产 token）只换名字段；后面紧跟别的
      名字字符（`@小雅雅` 是另一位）不动。边界字符集与 loadRefUse 认名字的那一套一致，但 `·`
@@ -2452,16 +2451,21 @@ window.Chars = (function () {
       return out == null ? null : (at ? '@' : '') + out;
     };
     let n = 0;
-    ((projects) || []).forEach(p => ((p && p.scenes) || []).forEach(sc => ((sc && sc.shots) || []).forEach(sh => {
-      if (!sh) return;
-      let touched = false;
-      (Array.isArray(sh.refMeta) ? sh.refMeta : []).forEach(rm => {
+    /* 一份 refMeta 的改写（id 对上的全改；没 id 的老条目按 label 兜底认一次，
+       只改 label、不写 id）。返回这份表有没有动过。 */
+    const relabelAll = list => {
+      let hit = false;
+      (Array.isArray(list) ? list : []).forEach(rm => {
         if (!rm) return;
-        /* id 对上的全改；没 id 的老条目按 label 兜底认一次（只改 label，不写 id）。 */
         if (rm.id !== id && rm.id) return;
         const nl = relabel(rm.label);
-        if (nl != null && nl !== rm.label) { rm.label = nl; touched = true; }
+        if (nl != null && nl !== rm.label) { rm.label = nl; hit = true; }
       });
+      return hit;
+    };
+    ((projects) || []).forEach(p => ((p && p.scenes) || []).forEach(sc => ((sc && sc.shots) || []).forEach(sh => {
+      if (!sh) return;
+      let touched = relabelAll(sh.refMeta);
       const fix = (txt) => {
         const t = String(txt == null ? '' : txt);
         if (t.indexOf('@' + oldName) < 0) return t;
@@ -2471,6 +2475,7 @@ window.Chars = (function () {
       if (np !== String(sh.prompt == null ? '' : sh.prompt)) { sh.prompt = np; touched = true; }
       (Array.isArray(sh.candidates) ? sh.candidates : []).forEach(cd => {
         if (!cd) return;
+        if (relabelAll(cd.refMeta)) touched = true;
         const cp = fix(cd.prompt);
         if (cp !== String(cd.prompt == null ? '' : cd.prompt)) { cd.prompt = cp; touched = true; }
       });

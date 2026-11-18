@@ -1,6 +1,7 @@
 /* 素材改名回填 `Chars.renameShotRefs` 的三条 token 边界（纯函数，vm 装载 domain/chars.js）：
    ① `@小雅` 整名 → 换；② `@小雅·三视图` 只换名字段；③ `@小雅雅` 是另一位 → 不动。
-   另核 refMeta：id 对上的刷 label，老数据没 id 的按 label 兜底（只改 label 不写 id）。 */
+   另核 refMeta：id 对上的刷 label，老数据没 id 的按 label 兜底（只改 label 不写 id）；
+   描述与 refMeta 都住在候选身上，镜头级那份旧形状同样认。 */
 'use strict';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -123,6 +124,23 @@ const projOf = shots => [{ id: 'p1', scenes: [{ id: 's1', shots }] }];
   const shots = [shot('用 @小(雅) 看')];
   const n = Chars.renameShotRefs(projOf(shots), { id: ID, oldName: '小(雅)', newName: '小美' });
   ok('旧名含正则特殊字符照换', n === 1 && shots[0].prompt === '用 @小美 看', shots[0].prompt);
+}
+
+/* ⑨ 候选自己那份 refMeta：id 对上的 / 没 id 的按 label 兜底都刷；别的条目与别的候选不动 */
+{
+  const sh = shot('', [{ id: ID, label: '小雅·镜头级' }]);
+  sh.candidates = [
+    { prompt: '', refMeta: [{ id: ID, label: '小雅·三视图' }, { id: 'other', label: '小雅' }] },
+    { prompt: '', refMeta: [{ label: '小雅' }, { label: '别人' }] },
+    { prompt: '', refMeta: [] },
+  ];
+  const n = Chars.renameShotRefs(projOf([sh]), { id: ID, oldName: '小雅', newName: '小美' });
+  const c0 = sh.candidates[0].refMeta, c1 = sh.candidates[1].refMeta;
+  ok('候选 refMeta：id 对上的刷 label、别人的不动；没 id 的按 label 兜底；同镜只计一次',
+    n === 1 && sh.refMeta[0].label === '小美·镜头级'
+    && c0[0].label === '小美·三视图' && c0[0].id === ID && c0[1].label === '小雅'
+    && c1[0].label === '小美' && c1[0].id == null && c1[1].label === '别人',
+    'n=' + n + ' shot=' + JSON.stringify(sh.refMeta) + ' c0=' + JSON.stringify(c0) + ' c1=' + JSON.stringify(c1));
 }
 
 console.log(bad ? '\n' + bad + ' 项未通过' : '\n全部通过');

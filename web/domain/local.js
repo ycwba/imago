@@ -434,6 +434,10 @@
     if (k && queued.has(k)) return false;
     if (o.kind === 'asset') return true;
     const st = String(o.status || '');
+    /* 已结束、本机又没有字节、而且不带失败原因的那些（已取消 / 已过期 / 无效…）也藏掉：
+       它们不是「刚点了生成」，留在列表里只是占位置（云端产物地址被清掉的任务有几十条）。
+       真正的失败仍保留 —— 卡片上那句失败原因是唯一的凭据，藏起来人就再也看不到为什么没成。 */
+    if (/^(cancelled|canceled|expired|invalid|aborted|rejected)$/i.test(st)) return true;
     return !!st && classifyStatus(null, st) === 'done';
   }
 

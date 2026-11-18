@@ -8,6 +8,7 @@
 export function createEstimate(E, document, window) {
   'use strict';
   const {
+  cfg,
     $,
     regOf,
     addRefImage,
@@ -35,7 +36,7 @@ let kfQ = 'standard';   // 时间切片画质选择（编辑器会反复重渲�
 /* 画面生成（时间切片）的高参：画质 / 画幅 / 尺寸 / 格式。
    值存模块变量（右栏每次重渲染都重建这一块），并整份存进 localStorage ——
     reload 之后又回默认档，用户每次都得重挑一遍。
-   `kfAr = ''` 是「跟随这一镜的画幅」（原来的行为：关键帧直接用 sh.ar），
+   `kfAr = ''` 是「跟随这一镜的画幅」（原来的行为：关键帧直接用这一条候选的 ar），
    所以这一档默认不变，只是**给了一个出口**：生图型号声明的画幅与视频那一条对得上时自己挑。 */
 let kfAr = '', kfSize = '', kfFormat = '';
 /* 「AdvParams 那四档之外」的三排（型号布尔 / 提交体顶层开关 / 提交体顶层非布尔字段）：
@@ -105,7 +106,7 @@ function kfAdvCtx(sh) {
   const m = kfModelOf().model || {};
   const caps = (window.Capabilities && Capabilities.shapeState && m.id)
     ? Capabilities.shapeState(m, null,
-      ((sh && sh.refImages && sh.refImages.length) || shotKeyframes(sh).length) ? ['reference_image'] : [], undefined)
+      ((sh && cfg(sh).refImages && cfg(sh).refImages.length) || shotKeyframes(sh).length) ? ['reference_image'] : [], undefined)
     : null;
   return { mode: '', intent: '', caps: caps };
 }
@@ -235,7 +236,7 @@ function shotQuoteArgs(sh, over) {
   const ex = shotAdvExtras(sh);
   const ctx = shotAdvCtx(sh);
   const body = Object.assign({
-    count: sh.draw || 1, duration: sh.duration, res: sh.res, tier: sh.tier, ar: sh.ar, size: sh.size,
+    count: sh.draw || 1, duration: cfg(sh).dur, res: cfg(sh).res, tier: cfg(sh).tier, ar: cfg(sh).ar, size: cfg(sh).size,
     /* 这一镜选的输入模式进报价：`creation_intent` 走 `pricing.body` 的映射（换人档的价与时长算法
        都不一样），`mode` 只当声明里 hide / def 的上下文。不递就等于「界面上切了换人档，报价还是
        普通生成那一档的钱」—— 差价要到生成那一刻才暴露。 */
@@ -331,16 +332,16 @@ function assetToDataURL(assetId) {
 /* 画面生成（时间切片）那几档参数的**判据在 `gen-forms.js` 的 `AdvParams.plan`**（与工作台图像栏同一份）：
    选项来自图片模型自己的声明、回落顺序、显示名、摘要、提交体要带哪几项，全在那一处。
    这里只留三件导演台自己的事：① 值存在模块变量里（整块随编辑器重绘，控件不是常驻 DOM），
-   ② 「跟随这一镜」这个借用值从 `sh.ar` 来，③ 归档日志的写法。 */
+   ② 「跟随这一镜」这个借用值从这一条候选的 ar 来，③ 归档日志的写法。 */
 function kfImgPlan(sh) {
   const m = kfModelOf().model || {};
-  const ar = sh && sh.ar ? String(sh.ar) : '';
+  const ar = sh && cfg(sh).ar ? String(cfg(sh).ar) : '';
   return AdvParams.plan(m, {
     kinds: ['quality', 'aspect_ratio', 'size', 'output_format'],
     ids: { quality: 'kfQuality', aspect_ratio: 'kfAr', size: 'kfSize', output_format: 'kfFormat' },
     cur: { quality: kfQ, aspect_ratio: kfAr, size: kfSize, output_format: kfFormat },
-    /* 「跟随这一镜」只在**这个生图型号也收这一比例**时才成立：sh.ar 是视频那条的取值，
-       生图那一家没声明过它就是「发一个平台不认的字段值」（借 sh.ar 正是本轮修掉的那件事）。 */
+    /* 「跟随这一镜」只在**这个生图型号也收这一比例**时才成立：这一条候选的 ar 是视频那条的取值，
+       生图那一家没声明过它就是「发一个平台不认的字段值」（借视频那条的 ar 正是本轮修掉的那件事）。 */
     follow: ar ? { aspect_ratio: { value: ar, note: '随这一镜' } } : null,
     units: { count: '张' },
   });
@@ -415,9 +416,9 @@ async function refreshKfEst() {
   const sh = curShot();
   if (!el || !sh) return;
   const sel = kfSplitSel();
-  const n = +(sel.count || 0) || (sh.keyframes || []).length || 4;
+  const n = +(sel.count || 0) || (cfg(sh).keyframes || []).length || 4;
   const est = await kfEstText(sh, n);
-  el.textContent = (!sel.count && !(sh.keyframes || []).length ? '张数交给 AI · 按 ' : '按 ')
+  el.textContent = (!sel.count && !(cfg(sh).keyframes || []).length ? '张数交给 AI · 按 ' : '按 ')
     + (est ? `${n} 张 ${est}` : `${n} 张（报价不可用）`);
 }
 /* ============ 按描述生成这一镜的画面 ============
@@ -468,7 +469,7 @@ async function callTextAI(sys, user) {
 /* ① 规划：张数与拆分维度由那一排选项给出（没选就交给文字 AI），每张的时间点与提示词由它定 */
 async function planKeyframes(sh, dur) {
   const sys = storySysOf();
-  const user = `镜头描述：${sh.prompt}
+  const user = `镜头描述：${cfg(sh).prompt}
 镜头时长：${dur} 秒` + window.SplitPlan.userLines(kfSplitSel()) + '\n只返回 JSON。';
   const txt = await callTextAI(sys, user);
   const frames = parseFrames(txt, dur);
@@ -479,7 +480,7 @@ async function planKeyframes(sh, dur) {
   if (times[times.length - 1] !== dur) times.push(dur);
   const out = [];
   for (const t of times) {
-    const p = await callTextAI(sys, `镜头描述：${sh.prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
+    const p = await callTextAI(sys, `镜头描述：${cfg(sh).prompt}\n这一帧位于第 ${t} 秒，请写出这一帧的文生图提示词，直接返回提示词本身。`);
     if (p) out.push({ t, prompt: p.replace(/^["'`]|["'`]$/g, '').slice(0, 600) });
   }
   return out;
@@ -500,7 +501,7 @@ async function genOneImage(imgProv, imgModel, prompt, o) {
   return e.assetId;
 }
 
-/* 画面生成要带的参考图：把这一镜挑好的 sh.refImages 转成**生图平台**认的输入条目。
+/* 画面生成要带的参考图：把这一条候选挑好的 refImages 转成**生图平台**认的输入条目。
    上限现读图片模型的 reference_image 声明 —— 视频模型那份 maxRef 是另一码事，
    两家数字不一样时多出来的几张不能发，也不能假装发了（「选好了」配一个空结果）。
    整批只转存一次（在生成循环外面调用）：循环里各转一遍，同一张图会往同一家平台传 N 遍。
@@ -508,7 +509,7 @@ async function genOneImage(imgProv, imgModel, prompt, o) {
 async function kfRefEntries(sh, note) {
   const pick = kfModelOf();
   if (!pick.prov) return null;
-  const list = (sh.refImages || []).filter(Boolean);
+  const list = (cfg(sh).refImages || []).filter(Boolean);
   const max = kfRefMax(pick.model);
   if (!max) { if (list.length) note('这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + list.length + ' 张参考图没带上）'); return null; }
   const use = list.slice(0, max);
@@ -530,8 +531,9 @@ function addKeyframeToRefs(sh, assetId, kf, i) {
   if (!ic.ref) return false;
   if (ic.blockedRoles.has('reference_image')) return false;   // 已选首尾帧 → 画面不能同时当参考图
   const src = Api.assetSrc(assetId);
-  if ((sh.refImages || []).includes(src)) return false;
-  if (sh.refImages.length >= ic.maxRef) return false;   // 上限就是模型声明的那个数，不猜一个 9
+  const refs = cfg(sh).refImages || [];
+  if (refs.includes(src)) return false;
+  if (refs.length >= ic.maxRef) return false;   // 上限就是模型声明的那个数，不猜一个 9
   // label 留空 → 素材 chips 显示 @参考图N（可被 refSyntax 正确转换）
   addRefImage(sh, src, null);
   return true;
@@ -549,7 +551,8 @@ async function generateKeyframes(sh) {
   /* 时长没有就现取声明：模型默认的 duration → 声明里最短那一档；都不给才用最旧的那个数（只用于画面切片，不进提交体） */
   const rmv = resolvedModel(sh);
   const kfDur = (Array.isArray(rmv?.options?.durations) ? rmv.options.durations : []).map(Number).filter(Number.isFinite);
-  const dur = Number(sh.duration) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
+  const take = cfg(sh);
+  const dur = Number(take.dur) || Number(rmv?.options?.defaults?.duration) || (kfDur.length ? Math.min(...kfDur) : 5);
   /* 选项面板在这一轮开始的那一刻收起：接下来露出来的应该是流式规划面板与占位图，
      「开始规划」那颗按钮压在它们上面只会挡视线。重画出来的两颗动作按钮都按 kfRun 现画忙态。 */
   kfSplitOpen = false;
@@ -579,13 +582,13 @@ async function generateKeyframes(sh) {
     });
 
     // ② 立刻建立占位图（先出现占位，再慢慢替换成真图）
-    sh.keyframes = finalPlan.map((f, i) => ({
-      t: f.t, desc: sh.keyframes?.[i]?.desc || f.desc || '', imgPrompt: f.prompt,
+    take.keyframes = finalPlan.map((f, i) => ({
+      t: f.t, desc: take.keyframes?.[i]?.desc || f.desc || '', imgPrompt: f.prompt,
       status: 'queued', assetId: null, err: null, deleted: false,
     }));
-    /* 报数的分母取**这一批计划了几张**：生成中途被删掉的那些会在收尾从 `sh.keyframes` 里过滤掉，
+    /* 报数的分母取**这一批计划了几张**：生成中途被删掉的那些会在收尾从 `cfg(sh).keyframes` 里过滤掉，
        用过滤后的长度当分母，会把「已经生成、随后被删」的那几张从总数里抹掉（分子还在）。 */
-    const totalN = sh.keyframes.length;
+    const totalN = take.keyframes.length;
     renderEditor(); scheduleSave();
     setStatus(`已确认 ${finalPlan.length} 张画面（${finalPlan.map(f => f.t + 's').join(' / ')}），开始生成…`);
 
@@ -596,12 +599,12 @@ async function generateKeyframes(sh) {
 
     // ③ 逐张生成 → 替换占位 → 同时加入参考图（后台刷新走 renderSoft：正在右栏编辑时不打断输入）
     let okN = 0, refN = 0;
-    for (let i = 0; i < sh.keyframes.length; i++) {
-      const kf = sh.keyframes[i];
+    for (let i = 0; i < take.keyframes.length; i++) {
+      const kf = take.keyframes[i];
       if (!kf || kf.deleted) continue;   // 用户在生成过程中删掉的：跳过
       kf.status = 'generating'; renderSoft(['edit']);
       try {
-        const prompt = kf.imgPrompt || (sh.prompt + '，第 ' + kf.t + ' 秒的关键画面');
+        const prompt = kf.imgPrompt || ((cfg(sh).prompt || '') + '，第 ' + kf.t + ' 秒的关键画面');
         const assetId = await genOneImage(imgProv, imgModel, prompt, kfGenOpts(sh, { inputEntries: kfRefs, at: kf.t, kf }));
         kf.assetId = assetId;
         kf.status = assetId ? 'done' : 'failed';
@@ -609,7 +612,7 @@ async function generateKeyframes(sh) {
       } catch (e2) { kf.status = 'failed'; kf.err = e2.message; }
       renderSoft(['edit']); scheduleSave();
     }
-    sh.keyframes = (sh.keyframes || []).filter(k => !k.deleted);   // 移除生成中被删掉的
+    take.keyframes = (take.keyframes || []).filter(k => !k.deleted);   // 移除生成中被删掉的
     renderSoft(['edit']); scheduleSave();
     loadCredits();
     setStatus(okN
@@ -622,7 +625,7 @@ async function generateKeyframes(sh) {
     setStatus('<span class="err">生成失败：' + e.message + '</span>');
   } finally {
     kfRun = false;
-    sh.keyframes = (sh.keyframes || []).filter(k => !k.deleted);
+    take.keyframes = (take.keyframes || []).filter(k => !k.deleted);
     renderEditor();
   }
 }

@@ -46,7 +46,7 @@ assert.match(cat, /小雅 · 角色/);
 assert.match(cat, /河岸 · 场景/);
 assert.match(cat, /还没有预览图/, '河岸没有预览图要标出来');
 assert.match(SA.fullText([entries[0]]), /@小雅（角色）：年轻女生/);
-const b = SA.bind([{ prompt: '@小雅 走进河岸' }], entries);
+const b = SA.bind([{ candidates: [{ vid: 'a', status: 'draft', origin: 'auto', prompt: '@小雅 走进河岸' }] }], entries);
 assert.equal(b.n, 1);
 assert.equal(b.shots, 1);
 assert.deepEqual(pickOk, ['小雅']);
