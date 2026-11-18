@@ -589,6 +589,7 @@ const StudioView = {
         }, 2400);
       }
       function slotRoom(sl) { return Math.max(0, sl.max - slotItems(sl.kind).length); }
+      const unitOf = kind => (kind === 'video' || kind === 'audio') ? '段' : '张';
       function slotNote(sl) {
         const { prov, model } = currentModel();
         const bits = [];
@@ -757,7 +758,7 @@ const StudioView = {
         }
         const items = slotItems(sl.kind);
         const sub = [];
-        if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+        sub.push('已有 ' + items.length + ' / ' + sl.max + unitOf(sl.kind));
         if (note) sub.push(note);
         return '<div class="slot-wide asset-slot' + (blocked ? ' blocked' : '') + '" data-slot="' + sl.kind + '"'
           + ' title="' + window.esc(blocked ? def.label + '：与已选素材互斥，清空已选后可添加'
@@ -888,7 +889,7 @@ const StudioView = {
                 a.className = 'asset-slot' + (blocked ? ' blocked' : '');
                 a.dataset.slot = sl.kind;
                 const sub = [];
-                if (items.length) sub.push('已有 ' + items.length + ' / ' + sl.max);
+                sub.push('已有 ' + items.length + ' / ' + sl.max + unitOf(sl.kind));
                 if (note) sub.push(note);
                 a.innerHTML = '<span class="ic">' + icon(def.ic, 18) + '</span>'
                   + (items.length ? '<span>再加一个</span>' : '<span>' + window.esc(def.label) + '</span>')
