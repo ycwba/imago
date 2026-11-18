@@ -461,6 +461,8 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   run('tests/e2e/director-perf.cjs', process.execPath, ['tests/e2e/director-perf.cjs'], { tier: 'browser' });
   /* 「生成全部分镜」就地更新已有候选：一镜已有的候选状态自己跑起来，不新建第二张卡。 */
   run('tests/e2e/director-genall-takes.cjs', process.execPath, ['tests/e2e/director-genall-takes.cjs'], { tier: 'browser' });
+  /* 右栏首帧 / 尾帧的 ×：清的是候选配置（cfg），界面与落盘都不能再留着那两帧。 */
+  run('tests/e2e/director-frame-slots.cjs', process.execPath, ['tests/e2e/director-frame-slots.cjs'], { tier: 'browser' });
   /* 剪辑核冒烟（一次装配）：板 / 切一刀 / 撤销 / 转场 / 标记 / 字幕 / 缩放 / 就地刷 / 历史。
      日常验证走 `npm run test:director`（纯件 4 条 + 这一条，约 35 秒）；重交互仍靠 director-edit。 */
   run('tests/e2e/director-core.cjs', process.execPath, ['tests/e2e/director-core.cjs'], { tier: 'browser' });
