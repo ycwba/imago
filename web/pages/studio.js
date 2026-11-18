@@ -484,7 +484,6 @@ const StudioView = {
         return (window.Capabilities && Capabilities.comboCovering)
           ? Capabilities.comboCovering(currentModel().model, roles) : null;
       }
-      const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
       const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
       function ensureCombo() {
         const s = cur();
@@ -499,18 +498,13 @@ const StudioView = {
         paintLeft();
       }
       function renderModeChips() {
-        const head = $('modeHead'), row = $('modeRow');
+        /* 档位收哪些素材的说明行已删（modeHead 那一格随模板一起摘）：素材槽磁贴自己写着
+           「已有 N / max」，组件本身就是说明。 */
+        const row = $('modeRow');
         const list = comboList();
         if (!list.length) {
-          if (head) head.hidden = true;
           if (row) { row.hidden = true; row.innerHTML = ''; }
           return;
-        }
-        const cb = comboNow();
-        if (head) {
-          head.hidden = false;
-          const note = $('modeHeadNote');
-          if (note) note.textContent = comboNote(cb);
         }
         if (!row) return;
         const chips = comboChips(list, cur().combo);

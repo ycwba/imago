@@ -219,9 +219,6 @@ const NORM_SHAPES = {
          认不到就按「收得下当前素材的那一档」回落，这是有意的迁移，不是留着三个别名。 */
       keep.id = 'smart:' + smartSrc.map(c => c.mode).sort().join('+');
       keep.label = '智能参考';
-      /* 这颗芯片与别的不一样：它不是「一种请求形状」，而是「形状由送上来的那批素材决定」，
-         所以界面要在说明行把这句话讲出来（两个页面都读这一个字段，别在页面里按名字分支）。 */
-      keep.hint = '放哪一批素材就是哪一种请求';
       keep.mode = '';    // 并档后没有唯一 mode；它本来也不是请求字段，只是声明的上下文（`when` 只比 intent）
       const roles = new Map();
       smartSrc.forEach(c => {
@@ -629,29 +626,15 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
     const fit = this.comboCovering(model, roles) || list[0];
     return fit.id;
   },
-  /* 「这一档收哪几类素材、各几个」那一行说明：数字（min / max）与名字全部现读那一档的声明，
-     页面抄一句就会漂 —— 工作台与导演台原来各写了一份逐字相同的字符串，
-     其中一份改了「空档那一档怎么说法」，另一份还挂着「这一档收：」的空尾巴。
-     `cb.hint` 是归一化并档时给的整档说明（「智能参考」= 送上来哪批素材就是哪一种请求），
-     有就补在后面：那一档的名字讲不清它和别档的区别，这句话才讲得清。 */
-  comboScopeNote(cb) {
-    if (!cb) return '';
-    const s = (cb.roles || []).length
-      ? '这一档收：' + cb.roles.map(r => this.roleZh(r.role)
-        + (r.min > 0 ? '（至少 ' + r.min + '）' : '') + ' ≤' + (r.max || 0)).join(' · ')
-      : '这一档只用文字提示词';
-    return cb.hint ? s + ' · ' + cb.hint : s;
-  },
   /* 「输入模式」那一排芯片的画法（与上面 `AdvExtras.html.*` 同一立场：判据 + 画法一份，页面只接线）：
      两个页面只剩「什么时候整块不出现」「id 挂在哪」「点下去调谁」这三件各自的事。
-     只有一档时返回空串 —— 点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件，
-     而说明行照旧留着（它讲得清用户被限定成了什么形状）。 */
+     只有一档时返回空串 —— 点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件。
+     档位收哪些素材的说明行已删：素材槽磁贴自己写着「已有 N / max」，组件本身就是说明。 */
   comboChipsHTML(list, currentId) {
     if (!list || list.length < 2) return '';
     const E = window.esc;
     return (list || []).map(c => '<button type="button" class="ui-pill' + (c.id === currentId ? ' on' : '')
-      + '" data-cid="' + E(c.id) + '">' + E(this.comboLabel(c)) + '</button>').join('')
-      + '<span class="why">换模式只改这次能同时用哪几类素材，已放好的不清掉。</span>';
+      + '" data-cid="' + E(c.id) + '">' + E(this.comboLabel(c)) + '</button>').join('');
   },
   /* 当前模式下这一组参数的**取值范围与默认值**：有模式声明就按那一档的，
      没有就退回型号总表。平台在换人档里只给 768p / 没有 2x，界面就只给 768p ——

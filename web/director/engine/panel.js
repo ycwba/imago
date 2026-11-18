@@ -150,10 +150,8 @@ const ROLE_ZH = new Proxy({}, {
 /* 模式名（「智能参考」「视频换人」）也只有一份（`Capabilities.comboLabel`）：
    归一化那边给的是整档语义名，页面按 role 现拼根本读不到它。 */
 const comboLabel = cb => (window.Capabilities && Capabilities.comboLabel) ? Capabilities.comboLabel(cb) : '';
-/* 「这一档收哪些」（说明行）与那一排芯片的画法同样只有一份（`comboScopeNote` / `comboChipsHTML`）：
-   这一页与工作台画的是同一排，措辞与 min/max 的写法抄两遍迟早和声明漂开。
-   指针名字故意避开公共层那两个（dup-guard 判据把页面里同名的 `function` 定义当第二份实现）。 */
-const comboNote = cb => (window.Capabilities && Capabilities.comboScopeNote) ? Capabilities.comboScopeNote(cb) : '';
+/* 那一排芯片的画法同样只有一份（`comboChipsHTML`）：这一页与工作台画的是同一排。
+   档位收哪些素材的说明行已删 —— 素材槽磁贴自己写着「已有 N / max」，组件本身就是说明。 */
 const comboChips = (list, id) => (window.Capabilities && Capabilities.comboChipsHTML) ? Capabilities.comboChipsHTML(list, id) : '';
 /* 参考视频槽的缩略图地址：
    · 资产在 SparkCine 资产库里 → 走 /asset/<id>?v=2（代理每次都重新解析签名地址，长期有效）
@@ -280,6 +278,15 @@ function shotInputCaps(sh) {
     const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(provOf(rm2.provider), role) : null;
     if (tpl && tpl.requiresAudio) bits.push('需含音频轨');
     return bits.join(' · ');
+  };
+  /* 槽位的**数量上限**也现读声明：磁贴上的「已有 N / max」与提交前的拦截同一把尺子。 */
+  caps.roleMax = role => {
+    const rm2 = resolvedModel(sh) || {};
+    if (window.Capabilities && Capabilities.rule) {
+      const r = Capabilities.rule(rm2, role, cfg(sh).combo);
+      if (r && r.max > 0) return r.max;
+    }
+    return Math.max(1, (roles.get(role) || {}).max || 1);
   };
   caps.none = !(caps.ref || caps.first || caps.last || caps.refVideo || caps.refAudio);
   /* 素材互斥（能力声明里的 group 驱动）：首尾帧一组、参考素材（图/视频/音频）一组，
@@ -1166,17 +1173,13 @@ function mentionPicked(c, pick, info) {
 
 /* 画「输入模式」那一排（与工作台同一份判据、同一套画法，样式在 ui.css 的 .mode-row / .ui-pill）：
    · 没有模式声明的家整块不出现 —— 与「这一排存在但一个芯片都没有」是两件事，后者让人以为功能坏了；
-   · 只有一档时**不画芯片**（点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件），
-     但说明行照旧留着：它讲得清这一档收哪几类素材，用户知道自己被限定成了什么形状。 */
+   · 只有一档时**不画芯片**（点下去什么都不变的按钮就是「看着能点、其实什么都不做」的死控件）。
+   档位收哪些素材不再配说明行：素材槽磁贴自己写着「已有 N / max」——组件本身就是说明。 */
 function modeChipsHTML(sh) {
   const list = shotCombos(sh);
   if (!list.length) return '';
-  const cb = shotCombo(sh);
-  /* 说明行与芯片一排的内容都在公共层（`comboScopeNote` / `comboChipsHTML`，与工作台同一份）；
-     这一页只负责把它们包进自己的容器（整块编辑器每次重绘都重建这一段）。 */
   const chips = comboChips(list, cfg(sh).combo);
-  return '<div class="ed-label" style="margin-top: var(--sp-12)"><span>输入模式</span><span class="cnt">'
-    + esc(comboNote(cb)) + '</span></div>' + (chips ? '<div class="mode-row" id="modeRow">' + chips + '</div>' : '');
+  return chips ? '<div class="mode-row" id="modeRow" style="margin-top: var(--sp-12)">' + chips + '</div>' : '';
 }
 /* 芯片的接线：整块编辑器每次重绘都重建这一段，所以每次重画后绑一次就够了。 */
 function bindModeChips(sh) {
@@ -1462,9 +1465,9 @@ function renderEditor() {
   const kfRefLine = kfRefCap
     ? (kfRefN
       ? '生成画面会带上这 ' + Math.min(kfRefN, kfRefCap) + ' 张参考图'
-      + (kfRefN > kfRefCap ? ' · 这个生图型号一次最多收 ' + kfRefCap + ' 张，多出的 ' + (kfRefN - kfRefCap) + ' 张不带' : '')
-      : '这一镜还没有参考图 · 在「参考图」槽位挑几张（这个型号一次最多收 ' + kfRefCap + ' 张）')
-    : (kfRefN ? '这个生图型号没有「参考图」槽位，画面只按文字生成（这一镜那 ' + kfRefN + ' 张参考图不会带上）'
+      + (kfRefN > kfRefCap ? ' · 一次最多收 ' + kfRefCap + ' 张，多出的 ' + (kfRefN - kfRefCap) + ' 张不带' : '')
+      : '一次最多收 ' + kfRefCap + ' 张参考图（现在还没有）')
+    : (kfRefN ? '这个生图型号没有「参考图」槽位 · 那 ' + kfRefN + ' 张参考图不会带上，画面只按文字生成'
       : '这个生图型号没有「参考图」槽位，画面只按文字生成');
   /* 「四档之外」那三排在这一路上到底画得出几颗（决定整块出不出现）：
      计数判据在公共层（AdvExtras.visibleCount：被形状藏掉的那一项不占数），页面不再自己数一遍。 */
@@ -1584,7 +1587,7 @@ function renderEditor() {
         <em>${chainOn ? (cfg(sh).firstFrame ? '已手动放了首帧，显式首帧优先' : (hasPrevShot ? '生成时自动截取上一镜结尾' : '没有上一镜可接')) : '让相邻两镜的画面连起来'}</em>
       </label>
       <div class="assets-grid">
-        ${(ic.first || cfg(sh).firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (cfg(sh).firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!cfg(sh).firstFrame, ROLE_ZH.first_frame)}${cfg(sh).firstFrame && !chainSlot ? ' data-view="first"' : ''}>${cfg(sh).firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(cfg(sh).firstFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择（也可选视频取尾帧）</span>`}</div>` : ''}
+        ${(ic.first || cfg(sh).firstFrame || chainSlot) ? `<div class="asset-slot${ic.first ? '' : ' stray'}${chainSlot ? ' chain' : ''}${bFirst ? (cfg(sh).firstFrame ? ' conflict' : ' blocked') : ''}"${chainSlot ? '' : slotAttrs('first', ic.first, bFirst, !ic.first && !!cfg(sh).firstFrame, ROLE_ZH.first_frame)}${cfg(sh).firstFrame && !chainSlot ? ' data-view="first"' : ''}>${cfg(sh).firstFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(cfg(sh).firstFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="firstFrame">${icon('close', 11)}</button>` : chainSlot ? `<span class="ic">${icon('link', 16)}</span>接上一镜尾帧<span class="sub">生成时自动截取上一镜结尾</span><span class="chain-ops"><button class="ghost mini" type="button" data-chain="now">现在取帧</button><button class="ghost mini" type="button" data-chain="off">取消接续</button></span>` : `<span class="ic">${icon('image', 16)}</span>开头画面<span class="sub">首帧 · 点击选择</span>`}</div>` : ''}
         ${(ic.last || cfg(sh).lastFrame) ? `<div class="asset-slot${ic.last ? '' : ' stray'}${bLast ? (cfg(sh).lastFrame ? ' conflict' : ' blocked') : ''}"${slotAttrs('last', ic.last, bLast, !ic.last && !!cfg(sh).lastFrame, ROLE_ZH.last_frame)}${cfg(sh).lastFrame ? ' data-view="last"' : ''}>${cfg(sh).lastFrame ? `${Wb.thumbs.mediaHTML(Api.mediaSrc(cfg(sh).lastFrame), { type: 'image' })}<button type="button" class="x iconbtn on-dark" data-k="lastFrame">${icon('close', 11)}</button>` : `<span class="ic">${icon('image', 16)}</span>结尾画面<span class="sub">尾帧</span>`}</div>` : ''}
         ${(cfg(sh).keyframes || []).map((kf, i) => `
           <div class="asset-slot kf"${kf.status === 'done' && kf.assetId ? ` data-view="kf:${i}"` : ''}>
@@ -1616,10 +1619,10 @@ function renderEditor() {
           ? `<div class="hint">输入模式「${esc(comboLabel(shotCombo(sh)))}」不用参考素材</div>`
           : '<div class="hint">当前型号不支持参考素材</div>') : ''}
       ${(ic.refVideo || cfg(sh).refVideo) ? `<div class="slot-wide asset-slot${cfg(sh).refVideo ? ' has-media' : ''}${ic.refVideo ? '' : ' stray'}${bRefVideo ? (cfg(sh).refVideo ? ' conflict' : ' blocked') : ''}"${slotAttrs('refvideo', ic.refVideo, bRefVideo, !ic.refVideo && !!cfg(sh).refVideo, ROLE_ZH.reference_video)}${cfg(sh).refVideo ? ` data-view="refvideo" title="${esc(cfg(sh).refVideo.name || '参考视频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
-        ${cfg(sh).refVideo ? `${refVideoThumbSrc(cfg(sh).refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(cfg(sh).refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(cfg(sh).refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${cfg(sh).refVideo.duration ? ' · ' + cfg(sh).refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频（可选）<span class="sub">沿用这段视频的运镜和节奏${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
+        ${cfg(sh).refVideo ? `${refVideoThumbSrc(cfg(sh).refVideo) ? `<span class="rvthumb">${Wb.thumbs.mediaHTML(refVideoThumbSrc(cfg(sh).refVideo))}</span>` : `<span class="ic">${icon('film', 16)}</span>`}<span class="rvmeta"><b>${esc(cfg(sh).refVideo.name || '参考视频')}</b><span>参考视频 · 已上传${cfg(sh).refVideo.duration ? ' · ' + cfg(sh).refVideo.duration + 's' : ''}</span></span><button type="button" class="x iconbtn on-dark" data-k="refVideo">${icon('close', 11)}</button>` : `<span class="ic">${icon('film', 16)}</span>参考视频<span class="sub">已有 0 / ${ic.roleMax('reference_video')} 段${ic.slotNote('reference_video') ? ' · ' + esc(ic.slotNote('reference_video')) : ''}</span>`}
       </div>` : ''}
       ${(ic.refAudio || cfg(sh).refAudio) ? `<div class="slot-wide asset-slot${ic.refAudio ? '' : ' stray'}${bRefAudio ? (cfg(sh).refAudio ? ' conflict' : ' blocked') : ''}"${slotAttrs('refaudio', ic.refAudio, bRefAudio, !ic.refAudio && !!cfg(sh).refAudio, ROLE_ZH.reference_audio)}${cfg(sh).refAudio ? ` data-view="refaudio" title="${esc(cfg(sh).refAudio.name || '参考音频')}（点开查看 · × 移除；更换先 × 再选）"` : ''}>
-        ${cfg(sh).refAudio ? `<span>${esc(cfg(sh).refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频（可选）<span class="sub">沿用节奏${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
+        ${cfg(sh).refAudio ? `<span>${esc(cfg(sh).refAudio.name)}（已上传）</span><button type="button" class="x iconbtn on-dark" data-k="refAudio">${icon('close', 11)}</button>` : `<span class="ic">${icon('mic', 16)}</span>参考音频<span class="sub">已有 0 / ${ic.roleMax('reference_audio')} 段${ic.slotNote('reference_audio') ? ' · ' + esc(ic.slotNote('reference_audio')) : ''}</span>`}
       </div>` : ''}
       <div class="adv${AdvParams.closed('sk_dir_adv_closed') ? ' closed' : ''}" id="advBox" style="margin-top: var(--sp-16)">
         <div class="adv-head" id="advHead">

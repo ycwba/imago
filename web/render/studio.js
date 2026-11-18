@@ -148,17 +148,6 @@ class: "ghost",
 ])
 ]),
 _createElementVNode("div", {
-class: "ed-label",
-"data-r": "modeHead",
-hidden: ""
-}, [
-_createElementVNode("span", null, "输入模式"),
-_createElementVNode("span", {
-class: "cnt",
-"data-r": "modeHeadNote"
-})
-]),
-_createElementVNode("div", {
 class: "mode-row",
 "data-r": "modeRow",
 hidden: ""

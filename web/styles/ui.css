@@ -702,10 +702,9 @@ button.armed { min-width: 4.6em; }
 .ui-pill.on { background: var(--sel-bg); border-color: transparent; color: var(--acc); font-weight: 600; }
 .ui-pill:disabled { opacity: var(--a-50); cursor: not-allowed; }
 /* .mode-row 「输入模式」那一排（工作台与导演台共用）：单颗胶囊的样式就是上面的 .ui-pill，
-   这里只管怎么排 —— 说明句要独占一行，所以最后那条 .why 占满整行宽。 */
+   这里只管怎么排。档位收哪些素材的说明句已删 —— 素材槽磁贴自己写着「已有 N / max」。 */
 .mode-row { display: flex; flex-wrap: wrap; gap: var(--sp-8); align-items: center; margin: calc(-1 * var(--sp-2)) 0 var(--sp-8); }
 .mode-row .ui-pill { font-size: var(--fs-12); padding: 0 var(--sp-8); }
-.mode-row .why { flex-basis: 100%; font-size: var(--fs-12); color: var(--sub); }
 .ui-tag { display: inline-flex; align-items: center; gap: var(--sp-4); border-radius: var(--radius-999); height: var(--sz-chip); padding: 0 var(--sp-8);
   font-size: var(--fs-12); background: var(--panel2); color: var(--sub); white-space: nowrap; }
 /* 状态牌的淡底一律读 `--ok-tint` / `--warn-tint` / `--err-tint`（同一族只此一份透明度），
