@@ -1,15 +1,18 @@
 #!/usr/bin/env node
-/* 文案硬约束（G-文案）：让组件本身体现功能，说明句只留组件表达不了的功能语义。
-   四条可机器判的规矩，违例当场点名：
+/* 文案硬约束（G-文案）：组件本身应该体现功能，文案只补组件表达不了的。
+   五条可机器判的规矩，违例当场点名：
      ① 已删的「组件外说明行」不许回归：comboScopeNote / modeHead 两个标识符，
         与「这一档收：」「放哪一批素材就是哪一种请求」「换模式只改」三句旧文案
         （组件外的重复说明 —— 素材磁贴自己写着「已有 N / max」，就是说明）。
      ② 点按指引不写在文案里：「点这里」「点击选择」这类可点击性提示已删 ——
-        磁贴 / 按钮用光标与 hover 表达可点（title 里补充后果语义不受限）。
+        磁贴 / 按钮用光标与 hover 表达可点。
      ③ 素材磁贴的数量句必须来自声明：任何「已有 N / max」两头都是数字字面量的写法都算
         写死（N 现算、max 现读 sl.max / ic.maxRef / ic.roleMax —— 与提交拦截同一把尺）。
      ④ 渲染素材磁贴的两个文件（director 的 panel.js / 工作台 studio.js）非注释行不得出现
         写死的大小文案（「≤ … MB」进字符串）—— 大小只有 ruleText / fmtBytes 一份出处。
+     ⑤ 不防御性描述：AGENTS.md 的「组件自述」条目必须直说「组件本身应该体现功能」，
+        且不得出现防御性措辞（保留项 / 例外 / 只补后果语义 / 逐项列举例外）——
+        规矩直说，不预先辩解。
    存量表只减不增：本判据没有存量 —— 命中就是新增，直接红。 */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -69,5 +72,26 @@ for (const f of files) {
   }
   n++;
 }
+/* ⑤ 不防御性描述：AGENTS.md 的「组件自述」条目直说规矩本身 —— 不列举实现细节、
+   不预先辩解。条目里出现「数量 / 大小限制写在…」「档位收哪些素材」这类展开句，
+   或「保留项 / 例外」这类防御性措辞，都算违例。 */
+const agents = fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8').split(/\r?\n/);
+const start = agents.findIndex(l => l.trim() === '- 组件本身应该体现功能；文案只补组件表达不了的。');
+if (start < 0) {
+  bad.push('AGENTS.md 缺「组件本身应该体现功能」那条直说（组件自述条目被改写或搬走）');
+} else {
+  const bullet = [agents[start]];
+  for (let i = start + 1; i < agents.length; i++) {
+    if (agents[i].startsWith('- ') || agents[i].startsWith('## ')) break;
+    bullet.push(agents[i]);
+  }
+  const text = bullet.join('\n');
+  const HEDGE = ['数量 / 大小限制', '档位收哪些素材', '单位 · 大小', '保留项', '例外',
+    'icon-only', '阶段状态句', '对话框后果', '只补后果语义', 'title 只补'];
+  HEDGE.forEach(h => { if (text.includes(h)) bad.push('AGENTS.md 组件自述条目过度防御性描述：「' + h + '」'); });
+  for (const need of ['tests/copy-guard.mjs']) {
+    if (!text.includes(need)) bad.push('AGENTS.md 组件自述条目缺硬约束指针：' + need);
+  }
+}
 assert.deepEqual(bad, [], '文案硬约束违例 ' + bad.length + ' 处：\n' + bad.join('\n'));
-console.log('✓ copy-guard：' + n + ' 个文件 · 说明行 / 点按指引 / 写死数量 / 写死大小 四条全过');
+console.log('✓ copy-guard：' + n + ' 个文件 · 说明行 / 点按指引 / 写死数量 / 写死大小 / 不防御性描述 五条全过');
