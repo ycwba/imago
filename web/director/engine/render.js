@@ -130,10 +130,10 @@ function candThumbInner(c, isCur, i) {
   return `<div class="cand-thumb${isCur ? ' cur' : ''}${c.vid === (curShot() || {}).selId ? ' sel' : ''}${c.locked ? ' lock' : ''}${c.status === 'succeeded' && c.url ? ' has' : ''}" data-vid="${esc(String(c.vid))}" data-i="${i}" title="${esc(candTitle(curShot(), c))}">
     <span class="candno">${i + 1}</span>${c.locked ? `<span class="lockbadge">${icon('lock', 11)}</span>` : ''}${candMediaHTML(c, waitTxt)}${candBadgeHTML(c)}</div>`;
 }
-/* 没有候选时的占位卡：点了就按这一镜的配置生成一条 */
+/* 没有候选时的占位卡：加了号与「还没有候选」，加不加的说明全在这两样里（组件自述） */
 function candPlaceholder() {
   return `<div class="cand-thumb addcand big" data-add="1">
-      <span class="plusic">${icon('plus', 18)}</span><span class="pt">还没有候选</span><span class="pd">点这里新增</span>
+      <span class="plusic">${icon('plus', 18)}</span><span class="pt">还没有候选</span>
     </div>`;
 }
 /* 有候选时行尾的小加号：再抽一条 */

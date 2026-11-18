@@ -901,7 +901,7 @@ function refreshPolishAllBtn() {
   if (polishAllRun) {
     btn.textContent = '停止润色';
     btn.disabled = false;
-    btn.title = '正在润色，点这里停下（已经润好的那几条仍会摆出来给你确认）';
+    btn.title = '正在润色；停下后已润好的那几条仍会摆出来确认';
     return;
   }
   const { targets } = polishAllTargets();

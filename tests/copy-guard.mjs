@@ -1,12 +1,14 @@
 #!/usr/bin/env node
 /* 文案硬约束（G-文案）：让组件本身体现功能，说明句只留组件表达不了的功能语义。
-   三条可机器判的规矩，违例当场点名：
-     ① 已删的「组件外说明行」不许回归：comboScopeNote / modeHeadNote 两个标识符，
+   四条可机器判的规矩，违例当场点名：
+     ① 已删的「组件外说明行」不许回归：comboScopeNote / modeHead 两个标识符，
         与「这一档收：」「放哪一批素材就是哪一种请求」「换模式只改」三句旧文案
         （组件外的重复说明 —— 素材磁贴自己写着「已有 N / max」，就是说明）。
-     ② 素材磁贴的数量句必须来自声明：任何「已有 N / max」两头都是数字字面量的写法都算
+     ② 点按指引不写在文案里：「点这里」「点击选择」这类可点击性提示已删 ——
+        磁贴 / 按钮用光标与 hover 表达可点（title 里补充后果语义不受限）。
+     ③ 素材磁贴的数量句必须来自声明：任何「已有 N / max」两头都是数字字面量的写法都算
         写死（N 现算、max 现读 sl.max / ic.maxRef / ic.roleMax —— 与提交拦截同一把尺）。
-     ③ 渲染素材磁贴的两个文件（director 的 panel.js / 工作台 studio.js）非注释行不得出现
+     ④ 渲染素材磁贴的两个文件（director 的 panel.js / 工作台 studio.js）非注释行不得出现
         写死的大小文案（「≤ … MB」进字符串）—— 大小只有 ruleText / fmtBytes 一份出处。
    存量表只减不增：本判据没有存量 —— 命中就是新增，直接红。 */
 import fs from 'node:fs';
@@ -31,10 +33,10 @@ const files = [
 ];
 const rel = p => path.relative(root, p).replace(/\\/g, '/');
 
-/* ① 已删的说明行与标识符：整个 web 层（含注释）都不该再出现 —— 注释只写当前事实。 */
+/* ① 已删的说明行 / 点按指引：整个 web 层（含注释）都不该再出现 —— 注释只写当前事实。 */
 const BANNED = [
-  'comboScopeNote', 'modeHeadNote', 'modeHead',
-  '放哪一批素材就是哪一种请求', '这一档收：', '换模式只改',
+  'comboScopeNote', 'modeHead',
+  '放哪一批素材就是哪一种请求', '这一档收：', '换模式只改', '点这里', '点击选择',
 ];
 /* ② 数量句两头写死：`已有 3 / 9`（max 不来自声明）。动态的 `已有 ${n} / ${max}` 与
    `已有 0 / ${roleMax(...)}`（空槽的 0 是常量、max 是现读）都放行。 */
@@ -68,4 +70,4 @@ for (const f of files) {
   n++;
 }
 assert.deepEqual(bad, [], '文案硬约束违例 ' + bad.length + ' 处：\n' + bad.join('\n'));
-console.log('✓ copy-guard：' + n + ' 个文件 · 已删说明行 / 写死数量 / 写死大小 三条全过');
+console.log('✓ copy-guard：' + n + ' 个文件 · 说明行 / 点按指引 / 写死数量 / 写死大小 四条全过');
