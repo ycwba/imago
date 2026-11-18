@@ -104,10 +104,20 @@ const candStateOf = page => page.eval(() => {
     const before = await candStateOf(page);
     if (before.length !== 1) throw new Error('种子不对：候选条上应有 1 条，实际 ' + before.length + ' 条');
 
-    /* 点「生成全部分镜」→ 确认框 → 确认。 */
+    /* 点「生成全部分镜」→ 范围弹窗（下一步）→ 报价确认框 → 确认。 */
     await page.eval(() => { const b = document.getElementById('genAll'); if (b) b.click(); });
-    await page.waitFor(() => !!document.querySelector('dialog.ui-dlg .pr-foot .pri'), 8000);
+    await page.waitFor(() => !!document.querySelector('dialog.ui-dlg .pl-scope'), 8000);
     await page.eval(() => { const b = document.querySelector('dialog.ui-dlg .pr-foot .pri'); if (b) b.click(); });
+    await page.waitFor(() => {
+      const d = document.querySelector('dialog.ui-dlg');
+      return d && !d.querySelector('.pl-scope') && /开始生成/.test(d.textContent || '');
+    }, 8000, 200);
+    await page.eval(() => {
+      const dlg = Array.from(document.querySelectorAll('dialog.ui-dlg'))
+        .find(x => /开始生成/.test(x.textContent || ''));
+      const b = dlg && dlg.querySelector('.pr-foot .pri');
+      if (b) b.click();
+    });
     await page.waitFor(() => window.__GEN.create.length >= 1, 20000, 200);
 
     /* ③ 提交体里的提示词就是那条候选自己的描述。 */

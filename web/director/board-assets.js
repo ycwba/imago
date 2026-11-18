@@ -42,8 +42,10 @@ export function createBoardAssets(ctx) {
     uniq.forEach(nm => out.set(nameKey(nm), 0));
     (shots || []).forEach(sh => {
       /* 候选自己的描述也参与「重复出现」的判定：拆分镜写进候选里的那句话
-         与这一镜的主描述一样会变成一次请求，漏掉它就会把只在自己候选里重复的主体判成路人。 */
+         与这一镜的主描述一样会变成一次请求，漏掉它就会把只在自己候选里重复的主体判成路人。
+         审查弹窗那一层的扁平条目（还没有落成真镜头）带的是 `text`，一样算 —— 判的是这份方案。 */
       let hay = promptTextsOf(sh).concat([
+        String((sh && sh.text) || ''),
         String((sh && sh.line) || ''),
         String((sh && sh.lineWho) || ''),
         String((sh && sh.name) || ''),

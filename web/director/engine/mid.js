@@ -383,10 +383,43 @@ function wireMidPlayer(col, ctx) {
       });
     }
 }
-/* 顺序模式：一行镜头缩略图（每个镜头一张），可点击切换、可拖动排序 */
+/* 顺序模式：一行镜头缩略图（每个镜头一张），可点击切换、可拖动排序。
+   与左栏同一把尺：先算**结构签名**（镜头 id / 缩略键 / 状态或等待文案 / 选中 / 接续），
+   没变就不重建 —— 这一排跟着中间栏的每次重画走，轮询在跑时白重建一次就是几十个节点。 */
+let stripSig = '';
+let stripExpanded = window.LS.get('dir_strip_expand') === '1';
+function paintStripToggle(col) {
+  const host = col.querySelector('#shotStripHost');
+  if (!host) return;
+  host.classList.toggle('expanded', stripExpanded);
+  const tg = host.querySelector('#stripToggle');
+  if (!tg) return;
+  tg.innerHTML = icon(stripExpanded ? 'chevronUp' : 'chevronDown', 12);
+  tg.title = stripExpanded ? '收成一行左右滚动' : '展开成多行，一屏看完所有镜头';
+  if (!tg.__bound) {
+    tg.__bound = true;
+    tg.onclick = e => {
+      e.stopPropagation();
+      stripExpanded = !stripExpanded;
+      window.LS.set('dir_strip_expand', stripExpanded ? '1' : '0');
+      paintStripToggle(col);
+    };
+  }
+}
 function renderShotStrip(col) {
   const wrap = col.querySelector('#shotStrip');
   if (!wrap) return;
+  paintStripToggle(col);
+  const sig = allShots().map(sh => {
+    const c = sh.candidates.find(x => x.vid === sh.selId);
+    const waitTxt = genAllWaitOf(sh);
+    return sh.id + '|' + (c ? thumbKey(c) : String(cfg(sh).firstFrame || ''))
+      + '|' + (waitTxt || shotStatusOf(sh).text)
+      + '|' + (sh === curShot() ? 'S' : '')
+      + '|' + (cfg(sh).linkPrev === 'tail' ? 'C' : '');
+  }).join('\n');
+  if (sig === stripSig) return;
+  stripSig = sig;
   /* 重画之前先把「此刻已经出画的那一枚媒体」按镜头收起来，建完再照身份收养（与 renderScenes 那一族同一条路）。
      顺序模式那一排跟着中间栏每 3 秒重建一次，而 `<video>` 一销毁就得重新抽帧、缓存没命中时整排退回占位 ——
      用户报的「各个地方的视频预览都在闪」，这一排就是第三份（左栏在 renderScenes、中间栏在 renderMid）。
@@ -423,7 +456,7 @@ function renderShotStrip(col) {
         : cfg(sh).firstFrame ? Wb.thumbs.mediaHTML(cfg(sh).firstFrame, { type: 'image', key: stripKey, mediaAttrs: 'loading="lazy"' })
         : `<div class="ph"></div>`;
       it.innerHTML = `${thumb}<span class="sn">${String(k + 1).padStart(2, '0')}</span>
-        <span class="st">${shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text}</span>`
+        <span class="st">${genAllWaitOf(sh) || (shotReady(sh) ? shotDurText(sh) : shotStatusOf(sh).text)}</span>`
         + (chained ? `<span class="dep${depOk ? ' ok' : ''}" title="${esc(depText)}">${icon(depOk ? 'check' : 'link', 10)}</span>` : '');
       it.title = sh.name + (chained && prev ? ' · ' + depText : '') + '（点击切换，拖动排序）';
       /* 收养的条件只有一个：这一格此刻显示的还是**同一份素材**的首帧（键对得上）。

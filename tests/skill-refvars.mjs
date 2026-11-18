@@ -89,7 +89,6 @@ const BV = createBoardVars({
 /* ⑥ 内置 Skill 的正文里确实写了变量（写错变量名就白填了）。 */
 for (const [file, want] of [
   ['skills/split-script/SKILL.md', ['cast', 'assets', 'what', 'board', 'dur']],
-  ['skills/board-edit/SKILL.md', ['board', 'cast', 'assets', 'what', 'dur']],
   ['skills/board-assets/SKILL.md', ['board', 'cast', 'assets']],
   ['skills/video-prompt/SKILL.md', ['duration', 'mode', 'model', 'ar', 'assets']],
   ['skills/image-prompt/SKILL.md', ['model', 'ar', 'assets']],

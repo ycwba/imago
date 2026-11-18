@@ -37,7 +37,13 @@ export function createSplit(E, document, window) {
                        拆分镜（chain.js 的 pickChainModel）与 ensureChainModel 都读这一份；
      ensureChainModel()  接续挂着、又没显式首帧时，确保这一镜落在一个支持首帧的型号上。
    `modelAuto` 只为界面那句「已自动切到 X」服务，不是第二种模型来源。 */
+/* 5s TTL 记忆：genAllPlan / 报价会**逐候选**调它，一次重建就是一遍注册表扫描；
+   能力清单逐家到货（wb:cap-ready 广播）时立刻作废，不让旧清单压住新到货的那一家。 */
+let chainListMemo = { at: 0, list: null };
+window.addEventListener('wb:cap-ready', () => { chainListMemo = { at: 0, list: null }; });
 function chainModelList() {
+  const now = Date.now();
+  if (chainListMemo.list && now - chainListMemo.at < 5000) return chainListMemo.list;
   const out = [];
   (shotModels(null) || []).forEach(g => (g.models || []).forEach(m => {
     const op = (m && m.options) || g.options || {};
@@ -49,6 +55,7 @@ function chainModelList() {
       min: span ? span[0] : 0, max: span ? span[1] : 0,
       first: roles.has('first_frame'), last: roles.has('last_frame') });
   }));
+  chainListMemo = { at: now, list: out };
   return out;
 }
 function ensureChainModel(sh, c) {
@@ -134,7 +141,7 @@ const BoardTools = createBoardTools({
   /* E 里来的是箭头（Panel 那一位，避开 TDZ），改稿落盘挂图走它。 */
   bindShotPics,
 });
-const { snapBoard, boardListText, boardPlanOf, applyBoardPlan } = BoardTools;
+const { snapBoard, boardListText, boardFullItemsOf, applyBoardFull } = BoardTools;
 
 /* ============================ 拆分镜之前：这一次带哪些素材进来 ============================
    三件事各只有一处落点，页面不另写第二份：
@@ -193,9 +200,9 @@ window.SplitAssets = SplitAssets;
 
   return {
     SplitAssets,
-    applyBoardPlan,
+    applyBoardFull,
     boardListText,
-    boardPlanOf,
+    boardFullItemsOf,
     chainModelList,
     chainModelWhy,
     chainWaitWhy,

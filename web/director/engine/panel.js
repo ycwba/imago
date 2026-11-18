@@ -17,6 +17,7 @@ export function createPanel(E, document, window) {
     projOf,
     REGOf,
     BoardAssetsOf,
+    SplitAssetsOf,
     allShots,
     curShot,
     beginEdit,
@@ -1119,8 +1120,13 @@ window.addEventListener('wb:char-pic', e => {
   if (!item || !item.name) return;
   const name = String(item.name);
   let touched = 0, pics = 0, why = '';
-  /* 找出引用了这条待建素材的镜头（占位符还在的那些）。 */
-  const shots = BoardAssetsOf().shotsPending(allShots(), name);
+  /* 找出引用了这条素材的镜头：占位符还在的那些（待建档、刚出图）+ 已经写成 `@名字` 的那些。
+     第二类盖两种情况 —— 拆分镜挂图时那条还没有预览图（挂不上、提示词里的 @名字 留着），
+     以及后来才手动传的图；出图 / 传图这一刻两边一起补挂（addLibPicToShot 去重，重复安全）。 */
+  const SA = SplitAssetsOf();
+  const pending = BoardAssetsOf().shotsPending(allShots(), name);
+  const referencing = SA && SA.shotsReferencing ? SA.shotsReferencing(allShots(), name) : [];
+  const shots = pending.concat(referencing.filter(sh => pending.indexOf(sh) < 0));
   shots.forEach(sh => {
     const resolved = BoardAssetsOf().resolve(String(cfg(sh).prompt || ''), name, name);
     cfg(sh).prompt = resolved;

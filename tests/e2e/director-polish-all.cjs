@@ -2,10 +2,11 @@
 /* 「润色全部文案」的编排判据（「生成全部分镜」分裂按钮的尾项）。
    种子：四镜 —— 镜一有默认候选（这一镜主描述）+ 一条手动候选自有描述，镜二有主描述，
    镜三有一条已完成候选（「视频已生成」那一档），镜四空（不列进目标）。文字 AI 打桩：
-     ① 入口在分裂按钮尾菜单里：`#genMore` 打开 `#genAllMenu`，点 `#polishAll` 先出范围弹窗；
+     ① 入口是左栏那颗通栏按钮（与「生成全部分镜」同宽）：点 `#polishAll` 先出范围弹窗；
      ② 范围弹窗：三档芯片（全部 / 视频已生成 / 还没视频）只切显示、勾选跨芯片保留；
-        取消勾选一条目标之后「开始润色」只发选中的那几条；
-     ③ 过程弹窗 4 路并发（打桩里数最大在途 ≥ 2），逐行流式，不反问（askPolish 一次不调）；
+        带一格「发给 AI 的备注」；取消勾选一条目标之后「开始润色」只发选中的那几条；
+     ③ 范围确认后先走一轮**整体问答**（askPolish 一次；桩回 need:false 就直接开润），
+        过程弹窗 4 路并发（打桩里数最大在途 ≥ 2），逐行流式；
      ④ 结束后同一张弹窗换审阅清单：每条候选一行「镜头 · 候选 N（状态）」；
         确认写回按候选定位 —— 每条只改自己那句（包括默认候选），镜头级 prompt 已退役；
      ⑤ 停止：只掐在途请求、弹窗不关；已完成的转审阅（部分结果），取消则一个字不动；
@@ -94,20 +95,15 @@ const wsShots = async proxy => {
       if (pv && window.LS && window.LS.set) window.LS.set('sk_key_' + (pv.keyId || pv.id), 'sk-probe');
       return pv ? pv.id : '';
     }, opts || {});
-    /* 分裂按钮尾菜单 → 润色入口 → 范围弹窗。返回范围弹窗里的勾选集合快照给调用方断言。 */
+    /* 润色入口（通栏按钮）→ 范围弹窗。返回范围弹窗里的勾选集合快照给调用方断言。 */
     const openScope = async () => {
-      await page.eval(() => document.getElementById('genMore').click());
-      await page.waitFor(() => {
-        const m = document.getElementById('genAllMenu');
-        return m && !m.hidden;
-      }, 4000, 100);
       await page.eval(() => document.getElementById('polishAll').click());
       await page.waitFor(() => !!document.querySelector('dialog.ui-dlg .pl-scope'), 8000);
       return page.eval(() => ({
         chips: [...document.querySelectorAll('.pl-scope-chips .ui-seg')].map(b => b.textContent),
         groups: document.querySelectorAll('.pl-scope-list .pl-shot').length,
         sum: String((document.querySelector('.pl-scope-sum') || {}).textContent || ''),
-        menuHidden: !!document.getElementById('genAllMenu').hidden,
+        hasNote: !!document.querySelector('.pl-scope .pl-note'),
       }));
     };
     const chip = f => page.eval(x => {
@@ -203,7 +199,7 @@ const wsShots = async proxy => {
     if (st0.dis) throw new Error('放了文字 AI 密钥之后润色入口仍然禁用：' + st0.title);
 
     const sc = await openScope();
-    if (!sc.menuHidden) throw new Error('点完润色入口菜单没有收起');
+    if (!sc.hasNote) throw new Error('范围弹窗里没有「发给 AI 的备注」那格');
     if (sc.chips.join('/') !== '全部/视频已生成/还没视频') throw new Error('范围弹窗芯片不对：' + sc.chips.join('/'));
     if (sc.groups !== 3) throw new Error('范围弹窗镜头组数不对（期望 3 组）：' + sc.groups);
     if (!/已勾选 4 \/ 4/.test(sc.sum)) throw new Error('默认应全选：' + sc.sum);
@@ -217,7 +213,7 @@ const wsShots = async proxy => {
     await waitReview();
     let pr = await prState();
     const po = await page.eval(() => window.__PO);
-    if (po.ask !== 0) throw new Error('批量润色不该发起反问（askPolish 被调了 ' + po.ask + ' 次）');
+    if (po.ask !== 1) throw new Error('批量润色应先走一轮整体问答（askPolish 被调了 ' + po.ask + ' 次；桩回 need:false 就直接开润）');
     if (po.chat.length !== 3) throw new Error('应只润勾选的 3 条（实际请求 ' + po.chat.length + ' 条）');
     if (po.chat.some(x => x.indexOf('撑伞') >= 0)) throw new Error('取消勾选的镜二画面仍被润了');
     if (!po.chat.some(x => x.indexOf('候选改写句') >= 0)) throw new Error('候选自有描述没有被润');
@@ -301,7 +297,7 @@ const wsShots = async proxy => {
     const prOpen = await page.eval(() => !!document.getElementById('prDlg'));
     if (after !== before) throw new Error('范围弹窗取消之后仍发出了润色请求');
     if (prOpen) throw new Error('范围弹窗取消之后过程弹窗仍被打开');
-    console.log('director-polish-all: 分裂菜单/芯片筛选/逐条勾选/并发/审阅写回隔离/停止转审阅/全失败/取消 ✓');
+    console.log('director-polish-all: 通栏入口/芯片筛选/逐条勾选/备注/整体问答/并发/审阅写回隔离/停止转审阅/全失败/取消 ✓');
   } finally {
     if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});

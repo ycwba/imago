@@ -1,7 +1,7 @@
 /* SplitAssets — 拆分镜「喂哪几条素材」：范围解析 / 目录清单 / AI 挑选 / 落盘挂图。
    从 web/director/engine.js 拆出；库、图片槽位与提示词常量由 createSplitAssets 注入。 */
 import { parseJsonLoose, ctxClip } from './util.js';
-import { shotPromptOf } from './takes.js';
+import { shotPromptOf, promptTextsOf } from './takes.js';
 
 export function createSplitAssets(ctx) {
   const { BOARD_CTX_SHORT, BOARD_CTX_PROMPT, PICK_SOFT_MAX, RULE_WITHOUT, RULE_WITH, AT_TAIL, libIdx, libPicChoices, addLibPicToShot, bindShotPics, nameKey, TextAI } = ctx;
@@ -9,6 +9,24 @@ export function createSplitAssets(ctx) {
      前缀由 engine 注入，两边不会各写一份而对不上。 */
   const PREFIX = ctx.PLACEHOLDER_PREFIX || '待建';
   const PLACEHOLDER_RE = new RegExp('^' + String(PREFIX).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ':');
+  /* 「@token → 库条目」的认名只有这一份：**最长前缀匹配**。
+     token 取到空白 / 另一个 @ 为止，所以 `@小雅，撑伞` 的尾巴（标点 / （角色） 这类注记）会跟着进来 ——
+     整段当名字查库永远查不到，这正是「AI 写了 @ 却挂不上图」的根因。
+     这里拿清单里的名字从长到短试「token 是否以它开头」（按 nameKey 比，容住空白与大小写），
+     最长命中才算：「小雅」与「小雅丽」都在清单里时，`@小雅丽…` 必须归小雅丽。
+     返回 { x, name, rest }：x 是条目、name 是命中的名字、rest 是名字后面剩下的那段
+     （可能带 `·资产名` 与尾标点，调用方拿 AT_TAIL 自己洗）。 */
+  function tokenNameOf(tok, list) {
+    const s = String(tok || '');
+    let best = null;
+    (list || []).forEach(x => {
+      const nm = String((x && x.name) || '').trim();
+      if (!nm || s.length < nm.length) return;
+      if (nameKey(s.slice(0, nm.length)) !== nameKey(nm)) return;
+      if (!best || nm.length > best.name.length) best = { x, name: nm, rest: s.slice(nm.length) };
+    });
+    return best;
+  }
 
 const SplitAssets = {
   /* 库里所有**有名**条目 —— `@名字` 认的是名字，没名字的条目喂过去 AI 也指不回来。 */
@@ -155,47 +173,78 @@ const SplitAssets = {
      带不上的几种（型号没有槽位 / 这一镜已选首尾帧 / 超出上限 / 那条还没图）由
      `addLibPicToShot` 给出原因，这里只收集第一句并报出去。
 
+     认名走**最长前缀匹配**（`tokenNameOf`）：token 取到空白 / 另一个 @ 为止，
+     `@小雅，撑伞走过河岸` 的逗号、`@小雅（角色）` 的注记都跟着进了 token ——
+     整段当名字查库永远查不到，这正是「AI 写了 @ 却挂不上图」的根因。
+     查找范围**选中清单优先、全库兜底**：AI 引用了没挑中的条目时也能挂上
+     （挂图不改提示词，多挂一张不是错）；同名多条取第一条（解析兜底）。
+
      **占位符**（`@待建:名字`）：那是「这一条素材刚建档、还没出图」的意思 ——
      现在没有图可挂，所以**跳过它**（不去库里找那个名字），并把「还有几个待建的没出图」
      报出来。出图之后占位符会换成真名（`BoardAssets.resolve`），那时才挂得上。 */
   bind(shots, picked) {
     const r = { n: 0, shots: 0, dup: 0, why: '', pending: 0 };
-    const list = picked || [];
+    const prio = (picked || []).filter(Boolean);
+    const rest = prio.length
+      ? SplitAssets.named().filter(x => !prio.some(p => nameKey(p.name) === nameKey(x.name)))
+      : SplitAssets.named();
+    const list = prio.concat(rest);
     if (!list.length) return r;
-    const byKey = libIdx(list);
     (shots || []).forEach(sh => {
       /* 描述在**默认候选**身上（这一镜的主描述）：镜头本身不再留 prompt。 */
       const p = shotPromptOf(sh);
       if (!p) return;
       const done = new Set();
       let got = 0;
-      /* token 取到空白 / 另一个 @ 为止，`素材名·资产名` 连着中点一起拿；尾上标点由 `AT_TAIL` 洗。 */
       (p.match(/@[^\s@]+/g) || []).forEach(tok => {
-        const cut = tok.slice(1).split('·');
-        const nm = cut[0].replace(AT_TAIL, '');
-        const note = (cut[1] || '').replace(AT_TAIL, '').trim();
+        const body = tok.slice(1);
         /* 占位符（`待建:名字`）：还没有图可挂 —— 跳过，但数出来报给调用方
            （界面上要让人知道「这几条还得先出图」）。 */
-        if (PLACEHOLDER_RE.test(nm)) { r.pending++; return; }
-        const arr = byKey.get(nameKey(nm));
-        const x = Array.isArray(arr) ? arr[0] : arr;   // 同名多条取第一条（AI 报名字的解析兜底）
-        if (!x) return;
-        const id = nameKey(nm) + '·' + nameKey(note);
+        if (PLACEHOLDER_RE.test(body)) { r.pending++; return; }
+        const hit = tokenNameOf(body, list);
+        if (!hit) return;
+        /* 二级资产名只在**中点写法**里认（`@小雅·三视图`）：rest 是『，撑伞走过』这类
+           正文尾巴时它不是资产名，直接挂预览图 —— 把正文当资产名查只会查不到、整张图跟着丢。 */
+        const note = (hit.rest && hit.rest.charAt(0) === '·')
+          ? hit.rest.slice(1).replace(AT_TAIL, '').trim() : '';
+        const id = nameKey(hit.name) + (note ? '·' + nameKey(note) : '');
         if (done.has(id)) return;
         done.add(id);
         let pick;
         if (note) {
-          const hit = libPicChoices(x).find(c => nameKey(c.note) === nameKey(note));
-          if (!hit) return;                                  // 名字对得上但那张资产没了：不硬凑预览图
-          pick = hit;
+          const c = libPicChoices(hit.x).find(c2 => nameKey(c2.note) === nameKey(note));
+          if (!c) return;                                    // 名字对得上但那张资产没了：不硬凑预览图
+          pick = c;
         }
-        const one = addLibPicToShot(sh, x, pick);
+        const one = addLibPicToShot(sh, hit.x, pick);
         if (one.ok) { if (one.dup) r.dup++; else { r.n++; got++; } return; }
         if (!r.why) r.why = one.why || '';
       });
       if (got) r.shots++;
     });
     return r;
+  },
+  /* 全片里哪些镜头的 prompt **按名字引用了**这一条（`@名字` 写法，含 `·资产名`）。
+     与 board-assets 的 shotsPending（占位符还在的）互补：素材出图 / 手动传图后，
+     两边一起找引用它的镜头把图补挂上（addLibPicToShot 去重，重复调用安全）。
+     认名走与 bind 同一份 tokenNameOf：`@小雅，撑伞` 这种带尾巴的写法也算引用。 */
+  shotsReferencing(shots, name) {
+    const nm = String(name == null ? '' : name).trim();
+    if (!nm) return [];
+    const probe = [{ name: nm }];
+    const k = nameKey(nm);
+    const out = [];
+    (shots || []).forEach(sh => {
+      if (!sh) return;
+      const hit = promptTextsOf(sh).some(p => (String(p || '').match(/@[^\s@]+/g) || []).some(tok => {
+        const body = tok.slice(1);
+        if (PLACEHOLDER_RE.test(body)) return false;
+        const h = tokenNameOf(body, probe);
+        return !!h && nameKey(h.name) === k;
+      }));
+      if (hit) out.push(sh);
+    });
+    return out;
   },
   /* 落盘：AI 点的那几张随附图（图号已翻成下标）挂进对应镜头的参考图槽。
      与 `bind` 是并列的两层，不是一回事 —— `bind` 认提示词里的 `@名字`（素材库条目），

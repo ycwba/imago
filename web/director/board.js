@@ -1,7 +1,31 @@
-/* 分镜结构化纯函数：快照 / 给 AI 的清单 / changes 对账 / 唯一落盘点。
+/* 分镜结构化纯函数：快照 / 给 AI 的清单 / 统一格式解析与唯一落盘点 / 新短片命名判据。
    从 web/director/engine.js 拆出；镜头工厂、时长夹取、场景图与状态判据由 createBoardTools 注入。 */
 import { ctxClip, BOARD_CTX_PROMPT } from './util.js';
 import { defaultTakeOf, setShotPrompt, takeStatusZh } from './takes.js';
+
+/* ---------- 新短片的「没动过」判据（拆分镜自动命名的三件套） ----------
+   全是**默认值**比对，不近似、不猜：动过一格就不算没动过。
+   · isUntouchedShot    新建镜头的占位（名「新镜头」、单条空 draft、无任何素材与台词）
+   · isDefaultSceneName 「场景 1」这一族默认场名
+   · isDefaultProjName  「未命名短片 / 未命名短片 2」这一族默认片名（空名也算未命名） */
+export function isUntouchedShot(sh) {
+  if (!sh || typeof sh !== 'object') return false;
+  if (String(sh.name || '') !== '新镜头') return false;
+  if (Number(sh.draw) !== 1) return false;
+  if (String(sh.line || '').trim() || String(sh.lineWho || '').trim() || String(sh.note || '').trim()) return false;
+  const cands = Array.isArray(sh.candidates) ? sh.candidates : [];
+  if (cands.length !== 1) return false;
+  const c = cands[0];
+  if (!c || c.status !== 'draft') return false;
+  if (String(c.prompt == null ? '' : c.prompt).trim()) return false;
+  if ((Array.isArray(c.refImages) && c.refImages.some(Boolean))
+    || (Array.isArray(c.keyframes) && c.keyframes.some(k => k && k.assetId && !k.deleted))
+    || c.refVideo || c.refAudio || c.firstFrame || c.lastFrame || c.linkPrev) return false;
+  return true;
+}
+export const isDefaultSceneName = n => /^场景\s*\d+$/.test(String(n == null ? '' : n).trim());
+export const isDefaultProjName = n => !String(n == null ? '' : n).trim()
+  || /^未命名短片(\s*\d+)?$/.test(String(n == null ? '' : n).trim());
 
 /* 「AI 说的图N」翻成随附素材表里的下标，全站只有这一处（拆分镜三档共用）。
    raw 收数组或「图1、图3」这类串；只认 1 ≤ N ≤ 随附素材张数，编造 / 越界的进 unknown
@@ -55,9 +79,10 @@ function snapBoard(scenes) {
       const def = defaultTakeOf(sh);
       return {
       n: hi + 1, sh, name: sh.name || '',
+      /* `ref` 是给 AI 的**稳定锚点**（s场-镜）：统一格式里改哪一镜、原样保留哪一镜都靠它认。
+         只对 AI 那一次有效，解析时就翻成镜头 id（见 boardFullItemsOf）。 */
+      ref: 's' + (si + 1) + '-' + (hi + 1),
       prompt: String((def && def.prompt) || '').trim(),
-      line: String(sh.line || '').trim(),
-      who: String(sh.lineWho || '').trim(),
       dur: Number(def && def.dur) > 0 ? Number(def.dur) : 0,
       /* 接上一镜：AI 改稿时要看得见「这镜的首帧来自上一镜结尾」，否则它会把这条接续当成
          普通镜头改提示词，或者把已经接好的两镜拆开。 */
@@ -87,16 +112,9 @@ function boardListText(snap) {
     s.shots.forEach(t => {
       const nm = t.name && t.name !== ('镜头 ' + t.n) ? `「${t.name}」` : '';
       const body = t.prompt ? ctxClip(t.prompt, BOARD_CTX_PROMPT) : '（还没写）';
-      /* 台词只在这一镜真挂着那句时才写：AI 看不见它就改不了它（`update` 带 `line` 那一路），
-         而给没台词的镜头写一行空的「台词：」，等于请它编一句。 */
-      const ln = t.line ? '（台词' + (t.who ? '（' + t.who + '）' : '') + '：' + ctxClip(t.line, BOARD_CTX_PROMPT) + '）' : '';
       const chain = t.chain === 'tail' ? ' · 接上一镜' : '';
       /* 已有参考素材：与「接上一镜」互斥，AI 改稿时要看得见（见 snapBoard 的 refs）。 */
       const refs = t.refs ? ' · 有参考素材' : '';
-      /* 拆分镜随附图挂在哪几镜（图N 对照消息末尾【随附素材】的编号）：
-         AI 改这一镜时要看得见它现在挂着哪几张图。快照行不带 pics 时照旧不写。 */
-      const picTail = (Array.isArray(t.pics) && t.pics.length)
-        ? ' · 挂图 ' + t.pics.map(i => '图' + (i + 1)).join('、') : '';
       /* 已有候选（只读）：让人工智能看得见这一镜已经有哪几条候选、各自要什么，
          免得把同一条重造一遍。候选各自的描述加引号；超过 4 条只报数量。 */
       const takes = (Array.isArray(t.takes) && t.takes.length)
@@ -104,382 +122,183 @@ function boardListText(snap) {
           + (c.text ? '「' + c.text + '」' : '（还没写）')).join('、')
           + (t.takeMore ? '，另 ' + t.takeMore + ' 条未列' : '')
         : '';
-      out.push(`  镜头 ${t.n}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}${chain}${refs}${picTail}）${ln}：${body}${takes}`);
+      out.push(`  镜头 ${t.ref}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}${chain}${refs}）：${body}${takes}`);
     });
   });
   return out.join('\n');
 }
-/* 把 AI 回的 changes 翻成一份对账。
-   每条 item 带着 op 与目标 id（shotId / sceneId + afterId）—— 审查弹窗里用户能改正文、能删条目，
-   落盘只按这些 id 找，不会再拿序号回查一遍（那时序号已经会漂）。
-   返回 {items, skipped, noop, picUnknown, picChain, chainRefused}：两个计数是「AI 交的东西没全采纳」的原因账，
-   报告时要照实说 —— 静默吞掉 = 用户以为它改了，其实一个字没动。
-   ⚠ 这里**不再有任何镜数上限、也不 clamp 时长**：以前 `cap` 会把超出的几条
-   默默压掉不列出来，以前 `sbSec` 拿一份全站都没有的 2–15 把 AI 的秒数「洗」成合法 ——
-   洗过的值落进镜头、再进提交体，界面上那句「2–15」就成了假话。现在 AI 给多少条就列多少条，
-   秒数原样带着，越界由落盘后的 `clampShotDurations` 按**这一镜自己的型号**夹回去并报数。
-   update / insert 可带 `pics`（AI 点的随附图号，第三参 `pics` 是这次随附的素材表）：翻成下标进 patch，
-   编造 / 越界的图号进返回值 `picUnknown` 报数；该镜**已有的**参考图不在这条路上动。
-   **首尾帧与参考图互斥**：这一镜最终是接上一镜（`chain:"tail"`）时，这次点的图一律不挂，
-   图号进 `picChain` 由审查弹窗报数；已有参考素材的镜头不改成接续，计入 `chainRefused`。 */
-function boardPlanOf(changes, snap, pics) {
-  /* 原样取 AI 的秒数（只认「是个正数」），整数化一下就停：夹区间是落盘那一步按型号做的事。
-     而**一家都没声明区间时这条链压根没有能判合法的依据** —— 当「这一项没给」处理，
-     并由 sub 那句话照实说清（不是默默丢掉，用户看得见这一条没写入时长）。 */
+/* 统一格式解析：AI 回的那份完整镜头清单 → 审查行。
+   输入 `j` = {"title","scenes":[{"name","shots":[{"ref","prompt","duration","name","note","chain","pics"]}]}]}；
+   `snap` 是 snapBoard 那份带 `ref` 的快照，`pics` 是这次随附的**图片**表（图N → 下标）。
+   每行当场把 ref 翻成镜头 id（shotId / sceneId）—— 审查弹窗里用户能改能删，落盘只认 id。
+   返回 {items, skipped, unknownRefs, updN, addN, kept, title}：
+     · ref 认得上的行是「改这一镜」（updN）；没带 ref 的行是「新增」（addN）；
+     · `kept` = 现有镜头里没被任何 ref 提到的条数 —— 落盘时它们**原样保留**（统一格式不做删除，
+       想删在左栏删；这样 AI 漏抄几条也不会误删用户已生成的内容），sub 里要报数；
+     · 对不上号的 ref 照实计数（unknownRefs），那一行按新镜头处理。
+   ⚠ 不 clamp 时长、不设镜数上限：AI 给多少列多少，秒数原样带，
+   越界由落盘后的 `clampShotDurations` 按这一镜自己的型号夹回去并报数。
+   **首尾帧与参考图互斥**：`chain:"tail"` 的行不挂图，图号进 `picChain` 报数；
+   ref 行已有参考素材时不再改成接续（链上已有素材的镜头改接续会丢素材），落盘那一步拒并计数。 */
+function boardFullItemsOf(j, snap, pics) {
   const canDur = durWritable();
-  const rawSec = (v, dflt) => {
+  const rawSec = v => {
     if (!canDur) return null;
-    const x = Number(v == null || v === '' ? dflt : v);
+    const x = Number(v == null || v === '' ? null : v);
     return Number.isFinite(x) && x > 0 ? Math.round(x) : null;
   };
-  const durSub = d => (d == null
-    ? (canDur ? '时长按这一镜的型号现算' : '本机没有声明时长区间的型号，这一镜的秒数不写入')
-    : d + ' 秒');
-  const sceneOf = ref => {
-    if (ref == null || ref === '') return snap.length === 1 ? snap[0] : null;
-    /* 先按名字认，认不出再按序号：场景名以数字开头（「3 号站台」）时，
-       parseInt 先跑会把它当序号指到第 3 场 —— 名字优先，AI 用名字指代就落到名字上。 */
-    const key = nameKey(ref);
-    if (key) {
-      const byName = snap.find(x => nameKey(x.name) === key);
-      if (byName) return byName;
-    }
-    const n = parseInt(ref, 10);
-    if (Number.isFinite(n) && n >= 1 && n <= snap.length) return snap[n - 1];
-    return null;
+  /* ref → 「场行 + 镜行」。只认「s<场>-<镜>」这一种写法（AI 照清单抄的）；写成别的就当没带。 */
+  const byRef = new Map();
+  (snap || []).forEach(s => (s.shots || []).forEach(t => byRef.set(String(t.ref || '').toLowerCase(), { S: s, t })));
+  const refAt = v => {
+    const k = String(v == null ? '' : v).trim().toLowerCase();
+    return /^s\d+-\d+$/.test(k) ? (byRef.get(k) || null) : null;
   };
-  /* 「AI 说的第 N 镜」翻成那一条镜头，全站只有这一处（加了「删镜头」「挪顺序」两条分支之后，
-     同一句 `S.shots[parseInt(ch.shot, 10) - 1]` 在三个分支里各抄了一遍 —— 只要有一支漏掉那个 `-1`
-     或忘了往下翻 id，「AI 说第 2 镜」就动到第 3 镜，而审查弹窗里每一行都看着像对的。 */
-  const shotAt = ch => {
-    const S = sceneOf(ch.scene);
-    const n = parseInt(ch.shot, 10);
-    const t = S && Number.isFinite(n) ? S.shots[n - 1] : null;
-    return t ? { S, t } : null;
-  };
-  const items = []; let skipped = 0, noop = 0, picUnknown = 0;
+  const items = []; let skipped = 0, unknownRefs = 0, updN = 0, addN = 0;
   const picChain = new Set();
-  let chainRefused = 0;
-  const put = it => { items.push(it); };
-  (changes || []).forEach(ch => {
-    if (!ch || typeof ch !== 'object') { skipped++; return; }
-    const action = String(ch.action || 'update');
-    if (action === 'update') {
-      const h = shotAt(ch);
-      if (!h) { skipped++; return; }
-      const S = h.S, t = h.t;
-      /* 「只带真的要改的字段」：没带的项一个都不动（原样抄一遍会被算成「与现状相同」而无意义）。 */
-      const raw = String(ch.prompt == null ? '' : ch.prompt).trim();
-      const pChg = !!raw && raw !== t.prompt;
-      const durN = ch.duration == null || ch.duration === '' ? null : rawSec(ch.duration);
-      const durChg = durN != null && durN !== t.dur ? durN : null;
-      const nm = String(ch.name == null ? '' : ch.name).trim().slice(0, 12);
-      const nameChg = nm && nm !== t.name ? nm : '';
-      /* 台词：`null`（没带这一项）与 `''`（带了、但要求清掉）是两件事 —— 拿 trim 之后是否为空来判
-         「有没有改」就会把「把这句台词删掉」当成没发生，用户点写入后界面上那句还挂在镜头上。 */
-      const lnRaw = ch.line == null ? null : String(ch.line).trim();
-      const lineChg = lnRaw != null && lnRaw !== t.line ? lnRaw : null;
-      /* 说话人（`speaker`，人话里也叫「角色」）：它只跟着台词走 —— 台词被清掉时它一起清
-         （一句没有台词的「说话人」是条死数据，下一次合成会拿它去问一个不存在的音色）。
-         台词没动而只改说话人是有效改动（同一句话换个人念），单独放行。 */
-      const whoRaw = ch.speaker == null && ch.who == null ? null
-        : String(ch.speaker != null ? ch.speaker : ch.who).trim();
-      const whoChg = lineChg === '' ? ''
-        : (whoRaw != null && whoRaw !== t.who ? whoRaw : null);
-      /* 接续：`null` = 没带这一项、保持原样；`'tail'` = 改成接上一镜；空串 = 取消接续。 */
-      const chainRaw = ch.chain == null && ch.linkPrev == null ? null
-        : (String(ch.chain != null ? ch.chain : ch.linkPrev) === 'tail' ? 'tail' : '');
-      let chainChg = chainRaw != null && chainRaw !== (t.chain === 'tail' ? 'tail' : '') ? chainRaw : null;
-      /* 已有参考素材的镜头不能改成接上一镜（首尾帧与参考素材互斥）：这一条不落，照实计数；
-         想接续得先在素材那一栏删掉参考素材 —— 本程序不替用户删已有素材。 */
-      let chainRefusedNow = false;
-      if (chainChg === 'tail' && t.refs) { chainChg = null; chainRefusedNow = true; chainRefused++; }
-      /* 随附参考图（AI 这次点的图号）：只管新附的那批图，该镜已有的参考图不碰。
-         没带这一项 / 点了空数组都不算改动（空数组 = 「这次不挂」，与新镜头的默认一致）。 */
-      const pr = ch.pics == null ? null : picsIdxOf(ch.pics, pics);
-      picUnknown += pr ? pr.unknown.length : 0;
-      const rawPicChg = pr && pr.idxs.length ? pr.idxs : null;
-      /* 这一镜最终接上一镜（本次改成接续，或本来就接续且这次没取消）时，图一律不挂：
-         首尾帧与参考图同一次请求不能共存。图号进冲突账，不静默吞掉。 */
-      const chainedNow = chainChg != null ? chainChg === 'tail' : t.chain === 'tail';
-      const picChg = rawPicChg && !chainedNow ? rawPicChg : null;
-      if (rawPicChg && chainedNow) rawPicChg.forEach(i => picChain.add(i));
-      if (!pChg && !nameChg && durChg == null && lineChg == null && whoChg == null && chainChg == null && picChg == null) { noop++; return; }
-      const bits = [];
-      if (pChg) bits.push('原：' + (t.prompt ? (t.prompt.length > 60 ? t.prompt.slice(0, 60) + '…' : t.prompt) : '（还没写）'));
-      if (durChg != null) bits.push(t.dur ? ('时长 ' + t.dur + ' → ' + durChg + ' 秒') : ('时长设为 ' + durChg + ' 秒'));
-      if (nameChg) bits.push('名字改成「' + nameChg + '」');
-      if (lineChg != null) bits.push(lineChg
-        ? ('台词改成「' + (lineChg.length > 30 ? lineChg.slice(0, 30) + '…' : lineChg) + '」')
-        : '这一镜的台词清掉');
-      if (whoChg) bits.push('说话人改成「' + whoChg + '」');
-      if (chainChg != null) bits.push(chainChg === 'tail' ? '改为接上一镜尾帧' : '取消接上一镜');
-      if (chainRefusedNow) bits.push('已有参考素材，没改成接上一镜');
-      if (picChg) bits.push('挂参考图 ' + picChg.map(i => '图' + (i + 1)).join('、'));
-      if (rawPicChg && chainedNow) bits.push('图' + rawPicChg.map(i => (i + 1)).join('、图') + ' 与接上一镜互斥，没挂');
-      put({
-        op: 'update', shotId: t.sh.id, sceneId: S.sc.id,
-        patch: { name: nameChg, duration: durChg, line: lineChg, who: whoChg, chain: chainChg, pics: picChg },   // 空串 / null = 这一项没改，落盘时跳过
-        label: '改 · ' + S.name + ' · 镜头 ' + t.n,
-        sub: bits.join(' · '),
-        text: pChg ? raw : t.prompt,
-        keep: !pChg,                                        // 只改名字 / 时长 / 台词时正文可以本来就是空的
-      });
-      return;
-    }
-    if (action === 'insert') {
-      const raw = String(ch.prompt == null ? '' : ch.prompt).trim();
-      if (!raw) { skipped++; return; }                      // 没有提示词的新镜头没有意义
-      const dur = rawSec(ch.duration);
-      const patch = { name: String(ch.name == null ? '' : ch.name).trim().slice(0, 12), duration: dur,
-        line: ch.line == null ? '' : String(ch.line).trim(),
-        who: (ch.line == null ? '' : String(ch.speaker != null ? ch.speaker : (ch.who == null ? '' : ch.who)).trim()),
-        chain: ch.chain === 'tail' ? 'tail' : '',
-        chainModel: String(ch.chainModel || '') };
-      const pri = ch.pics == null ? null : picsIdxOf(ch.pics, pics);
-      picUnknown += pri ? pri.unknown.length : 0;
-      const rawPics = pri ? pri.idxs : [];
-      const chainedInsert = patch.chain === 'tail';
-      if (chainedInsert && rawPics.length) rawPics.forEach(i => picChain.add(i));
-      patch.pics = chainedInsert ? [] : rawPics;
-      const picDropNote = chainedInsert && rawPics.length
-        ? ' · 图' + rawPics.map(i => i + 1).join('、图') + ' 与接上一镜互斥，没挂' : '';
-      const nsc = String(ch.newScene == null ? '' : ch.newScene).trim().slice(0, 12);
-      if (nsc) {
-        put({ op: 'insert', newScene: nsc, patch, label: '新增 · 新场景「' + nsc + '」',
-          sub: '新建一场放在最后 · ' + durSub(dur) + picDropNote, text: raw });
+  const seenRef = new Set();
+  ((j && j.scenes) || []).forEach((sc, sci) => {
+    const scName = String((sc && sc.name) || '').trim();
+    ((sc && sc.shots) || []).forEach((s, shi) => {
+      if (!s || typeof s !== 'object') { skipped++; return; }
+      const hit = refAt(s.ref);
+      const t = hit && hit.t;
+      const text = String(s.prompt == null ? '' : s.prompt).trim();
+      const note = String(s.note == null ? '' : s.note).trim();
+      const nm = String(s.name == null ? '' : s.name).trim().slice(0, 12);
+      const dur = rawSec(s.duration);
+      const chain = String(s.chain == null ? '' : s.chain) === 'tail' ? 'tail' : '';
+      /* 随附图：图号在这里翻成下标。接上一镜的行不挂图（互斥），图号进冲突账报数 ——
+         但 ref 行已有参考素材时，落盘会拒绝把它改成接续（见 applyBoardFull），图照常带上。 */
+      const pr = picsIdxOf(s.pics, pics);
+      const chainDrops = chain === 'tail' && !(t && t.refs);
+      const picIdxs = chainDrops ? [] : pr.idxs.slice();
+      if (chainDrops && pr.idxs.length) pr.idxs.forEach(i => picChain.add(i));
+      if (t) {
+        /* 改现有镜头：prompt 空着 = 保持原文（用户可能只想改名 / 时长）；其余字段照行落。 */
+        if (!seenRef.has(t.ref)) { seenRef.add(t.ref); updN++; }
+        items.push({
+          key: String(t.ref),
+          ref: String(t.ref), shotId: t.sh.id,
+          scene: scName || hit.S.name,      // 展示用：AI 给的场名（落盘不动现有镜头的场景归属）
+          curScene: hit.S.name,             // 这一镜现在的场名（label 与报数用它）
+          name: nm, dur, note, text: text || t.prompt,
+          chain, pics: picIdxs,
+          upd: true,
+          label: '改 · ' + hit.S.name + ' · ' + t.ref + (dur ? '（' + dur + 's）' : ''),
+        });
         return;
       }
-      const S = sceneOf(ch.scene);
-      if (!S) { skipped++; return; }
-      const len = S.shots.length;
-      const aRaw = ch.after == null || ch.after === '' ? null : parseInt(ch.after, 10);
-      let afterId, where;
-      if (aRaw == null || !Number.isFinite(aRaw) || aRaw >= len) { afterId = len ? S.shots[len - 1].sh.id : null; where = '末尾'; }
-      else if (aRaw <= 0) { afterId = null; where = '开头'; }   // 0 = 插在这一场的开头
-      else { afterId = S.shots[aRaw - 1].sh.id; where = '第 ' + aRaw + ' 镜之后'; }
-      put({ op: 'insert', sceneId: S.sc.id, afterId, patch,
-        label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur) + picDropNote, text: raw });
-      return;
-    }
-    /* 删镜头与挪顺序。序号在这里就翻成 id（与 update / insert 同一立场）——
-       审查弹窗里用户还能删条目、在一场内拖动，落盘只认 id 才不会挪错地方。 */
-    if (action === 'delete') {
-      const h = shotAt(ch);
-      if (!h) { skipped++; return; }
-      const S = h.S, t = h.t;
-      const nc = (t.sh.candidates || []).filter(x => x.status !== 'draft').length;
-      put({
-        op: 'delete', shotId: t.sh.id, sceneId: S.sc.id, keep: true, text: '',
-        label: '删掉 · ' + S.name + ' · 镜头 ' + t.n,
-        /* 后果照实列出来（与左栏那颗「×」的三句同一个口径）：这一路没有按钮上的就地二次确认，
-           弹窗里这一行小字是用户唯一能看见代价的地方。 */
-        sub: [t.name || ('镜头 ' + t.n), t.dur ? t.dur + ' 秒' : '时长未定',
-          nc > 1 ? ('这一镜里 ' + nc + ' 条生成结果会一起没') : (nc === 1 ? '这一镜已经生成的那条画面会一起没' : ''),
-          '挂在它上面的配音也会删掉'].filter(Boolean).join(' · '),
+      /* 新镜头：没有提示词的行没有意义（改镜可以空、新镜不行）。 */
+      if (!text) { skipped++; return; }
+      if (s.ref != null && String(s.ref).trim()) unknownRefs++;     // 写了 ref 但对不上：照实计数
+      addN++;
+      items.push({
+        key: (scName || ('场景 ' + (sci + 1))) + '·' + (shi + 1),
+        ref: '', scene: scName, curScene: '',
+        name: nm, dur, note, text,
+        chain, pics: picIdxs,
+        upd: false,
+        label: (scName ? scName + ' · ' : '') + '新镜头' + (dur ? '（' + dur + 's）' : ''),
       });
-      return;
-    }
-    if (action === 'move') {
-      const h = shotAt(ch);
-      if (!h) { skipped++; return; }
-      const S = h.S, t = h.t;
-      const len = S.shots.length;
-      const aRaw = ch.after == null || ch.after === '' ? null : parseInt(ch.after, 10);
-      let afterId, where;
-      if (aRaw == null || !Number.isFinite(aRaw) || aRaw >= len) { afterId = len ? S.shots[len - 1].sh.id : null; where = '末尾'; }
-      else if (aRaw <= 0) { afterId = null; where = '开头'; }
-      else { afterId = S.shots[aRaw - 1].sh.id; where = '第 ' + aRaw + ' 镜之后'; }
-      /* 「挪到它自己后面」「本来就在第一场还要挪到开头」都是一条空改动：AI 经常把
-         「第 3 镜（末场末条）挪到末尾」当成一次移动。照 noop 计，落盘不该为它动一次数组。 */
-      if (afterId === t.sh.id || (afterId === null && t.n === 1)) { noop++; return; }
-      put({
-        op: 'move', shotId: t.sh.id, sceneId: S.sc.id, afterId, keep: true, text: '',
-        label: '挪位 · ' + S.name + ' · 镜头 ' + t.n,
-        sub: '挪到' + where + '（只改这一场里的先后，镜头本身一个字不动）',
-      });
-      return;
-    }
-    skipped++;                                              // 认不出的 action：照实计数，不静默
+    });
   });
-  return { items, skipped, noop, picUnknown, picChain: [...picChain], chainRefused };
+  const totalExisting = (snap || []).reduce((n, s) => n + (s.shots || []).length, 0);
+  return { items, skipped, unknownRefs, updN, addN, kept: Math.max(0, totalExisting - updN),
+    picChain: [...picChain], title: String((j && j.title) || '').trim() };
 }
-/* 落盘（这条链唯一的写点）。update 按 shotId 就地改那一条：正文只在真的变了才写
-   （用户没动的那一格别拿它去覆盖），名字 / 时长 / 台词只在 patch 里带了才写
-   （台词那一项 `null` = 没带、`''` = 要求清掉，两者都不能当成「什么都没改」跳过）。
-   insert 按 sceneId + afterId 分组，一场一场重建镜头数组（同一位置连插几条时顺序按 AI 给的来）；
-   afterId 指向的镜头在这期间没了（弹窗开着时被删）就并进那一场末尾 —— 不丢、也不塞到别处。
-   newScene 与现有场景重名（nameKey 是同一把尺子）就并进那一场，否则在末尾新开一场。
-   delete 走左栏那颗「×」摘出来的同一份 `removeShot`；move 先把那一条从数组里摘出来（**不**回收地址、
-   **不**删空场景，它马上要被放回去），再交给同一套 head / after 分组放回去 —— 落点算式只有一份。
-   还在生成的那一条不许删（`Wb.stLive`），单独计 `busy` 照实报数：这一路没有按钮上的就地二次确认，
-   而任务号一落盘就等于一次已付的钱。
-   返回 {upd, add, newScenes, skipped, del, mov, busy, lined, pics, at, clamped}：pics 是新镜头认领场景图的结果，
-   at 指回第一个被落笔的镜头（调用方把光标放过去），clamped 是这一次夹回的时长有几镜（报数用），
-   lined 是这一次真的写上台词的有几镜（报数用 ——「带上了台词」与「点哪儿去合成」是同一句话的两半），
-   touched 是这一次动过的镜头对象（活引用，调用方不用按 id 回查），
-   picN / picShots / picDup / picWhy / picUnknown 是 AI 随附图的挂图账（第三参 `pics` 是这次的素材表）。 */
-function applyBoardPlan(items, scenes, pics) {
+/* 统一格式落盘（这条链唯一的写点）。
+   · ref 行按 id **就地改**那一条：prompt 只在真的变了才写（没变的别拿空串盖掉）；
+     name / 时长照行落（AI 整份回的）；接续照行落 —— 但已有参考素材的镜头不改成接续
+     （互斥，照实计 chainRefused），取消接续时顺手清「程序选的型号」标记。
+     镜头对象是活引用：候选、生成结果、选用全跟着它走。
+   · 无 ref 的行建新镜头，按场景名归并：`matchSceneOf` 认得出已有场景（nameKey 精确之外
+     再剥编号前缀）就追加到那一场末尾；认不出才新开一场（按 AI 首现顺序排在现有场景之后）。
+     场景图只喂**这一次新建的**镜头（与 placeScenesInto 同一立场）。
+   · 没被任何 ref 提到的现有镜头**原样保留**（kept 计数）—— 统一格式不做删除，
+     AI 漏抄几条不会误删用户已生成的内容；想删在左栏删。
+   随附图排在场景图之后挂（同一镜头两层各挂各的，`bindShotPics` 按图去重）。
+   返回 {upd, add, newScenes, kept, unknownRefs, skipped, chained, unchained, chainRefused,
+         pics, at, touched, picN, picShots, picDup, picWhy, picUnknown, clamped}。 */
+function applyBoardFull(items, scenes, pics) {
   const list = scenes || [];
+  const total0 = list.reduce((n, sc) => n + ((sc && sc.shots) || []).length, 0);
   const findShot = id => {
     for (const sc of list) { const sh = (sc.shots || []).find(x => x.id === id); if (sh) return { sc, sh }; }
     return null;
   };
-  const r = { upd: 0, add: 0, newScenes: 0, skipped: 0, del: 0, mov: 0, busy: 0, lined: 0, chained: 0, unchained: 0 };
-  /* 这一次真的动过的镜头（改到的 + 新插的）：落盘后的时长兜底只夹这些。
-     拿整部短片的镜头去夹会顺手改到没参与这次写入的镜头，而报数那句「其中 X 镜」就成了假话。
-     被挪位置的那一条不进来 —— 它一个秒数都没改。 */
-  const touched = [];
-  /* AI 点了随附图的那几镜（改到的 + 新插的；挪位的不收 —— 它一个字没动）。
-     挂图排在场景图之后（feedScenePics 块跑完才执行），同一批镜头里两层各挂各的。 */
-  const picJobs = [];
-  const madeOf = new Map();          // sc → 本次真的插进去的镜头（场景图只喂这一批，那一场原有的不动）
-  const mk = (it, nth) => {
-    const sh = newShot();
-    /* 新镜头的描述与配置都落在它的**默认候选**上（描述与配置都在候选身上）。 */
-    const def = defaultTakeOf(sh);
-    setShotPrompt(sh, String(it.text || '').trim());
-    sh.name = (it.patch && it.patch.name) || ('镜头 ' + nth);
-    if (it.patch && it.patch.line) { sh.line = it.patch.line; r.lined++; }
-    if (it.patch && it.patch.who != null) sh.lineWho = it.patch.who;
-    if (it.patch && it.patch.duration != null) setShotDur(sh, it.patch.duration);
-    /* 拆分长镜头时程序已经按接续型号算过每段时长：把它记成程序选的，并写明来源。
-       手写 insert 带 `chain` 但没有型号时，落盘后由 engine 的 ensureChainModel 现挑。 */
-    if (it.patch && it.patch.chain === 'tail') { if (def) def.linkPrev = 'tail'; r.chained++; }
-    if (it.patch && it.patch.chainModel) { if (def) { def.model = it.patch.chainModel; def.modelAuto = 'chain'; } }
-    if (it.patch && it.patch.pics && it.patch.pics.length) picJobs.push({ sh, idxs: it.patch.pics });
-    return sh;
-  };
-  const groups = new Map();          // sceneId → { head: [], after: Map<shotId, items> }
-  const newG = new Map();            // nameKey → { name, items }
+  const r = { upd: 0, add: 0, newScenes: 0, kept: 0, unknownRefs: 0, skipped: 0,
+    chained: 0, unchained: 0, chainRefused: 0 };
+  const touched = [];                 // 改到的 + 新建的（活引用）：时长兜底与素材图只落这一批
+  const picJobs = [];                 // AI 点了随附图的那几镜（ref 行与新镜都收）
+  /* 新镜头按场景名分组（首现顺序）；ref 行不参与场景重建（镜头留在原地）。 */
+  const newG = new Map();             // nameKey → { name, items }
   let atRef = null;
-  items.forEach(it => {
+  (items || []).forEach(it => {
     if (!it) return;
-    if (it.op === 'update') {
+    if (it.upd && it.shotId) {
       const h = findShot(it.shotId);
       if (!h) { r.skipped++; return; }
+      const sh = h.sh, def = defaultTakeOf(sh);
       const np = String(it.text == null ? '' : it.text).trim();
-      const def = defaultTakeOf(h.sh);
-      if (np && np !== String((def && def.prompt) || '')) setShotPrompt(h.sh, np);
-      if (it.patch && it.patch.name) h.sh.name = it.patch.name;
-      if (it.patch && it.patch.duration != null) setShotDur(h.sh, it.patch.duration);
-      if (it.patch && it.patch.line != null) { h.sh.line = it.patch.line; if (it.patch.line) r.lined++; }
-      /* 说话人与台词成对落：台词被清掉那一路 `boardPlanOf` 已经把 `who` 一起写成空串。 */
-      if (it.patch && it.patch.who != null) h.sh.lineWho = it.patch.who;
-      /* 接续只改这一个字段；关掉时顺手清掉「程序选的型号」标记，留着会让下次自动切到别处。
-         接续标记与型号住在**候选**上：这一镜改的是它的默认候选。 */
-      if (it.patch && it.patch.chain != null) {
-        const on = it.patch.chain === 'tail';
-        if (((def && def.linkPrev) === 'tail') !== on) { if (on) r.chained++; else r.unchained++; }
-        if (def) {
-          def.linkPrev = on ? 'tail' : '';
-          if (!on) def.modelAuto = '';
+      if (np && np !== String((def && def.prompt) || '')) setShotPrompt(sh, np);
+      if (String(it.name || '').trim()) sh.name = String(it.name).trim();
+      if (it.dur != null) setShotDur(sh, it.dur);
+      if (String(sh.note || '') !== String(it.note || '')) sh.note = String(it.note || '');
+      /* 接续照行落；已有参考素材的镜头不改成接续（互斥）。 */
+      if (it.chain === 'tail') {
+        if (def && def.linkPrev !== 'tail') {
+          const hasRefs = (Array.isArray(def.refImages) && def.refImages.some(Boolean))
+            || (Array.isArray(def.keyframes) && def.keyframes.some(k => k && k.assetId && !k.deleted))
+            || def.refVideo || def.refAudio;
+          if (hasRefs) r.chainRefused++;
+          else { def.linkPrev = 'tail'; r.chained++; }
         }
+      } else if (def && def.linkPrev === 'tail') {
+        def.linkPrev = '';
+        def.modelAuto = '';
+        r.unchained++;
       }
-      r.upd++;
-      touched.push(h.sh);
-      if (it.patch && it.patch.pics && it.patch.pics.length) picJobs.push({ sh: h.sh, idxs: it.patch.pics });
-      if (!atRef) atRef = h.sh;
+      if (it.pics && it.pics.length) picJobs.push({ sh, idxs: it.pics });
+      r.upd++; touched.push(sh);
+      if (!atRef) atRef = sh;
       return;
     }
-    if (it.op === 'delete') {
-      const h = findShot(it.shotId);
-      if (!h) { r.skipped++; return; }
-      if ((h.sh.candidates || []).some(c => Wb.stLive(c.status))) { r.busy++; return; }
-      if (!removeShot(h.sc, h.sh)) { r.skipped++; return; }
-      r.del++;
-      return;
-    }
-    if (it.op === 'move') {
-      const h = findShot(it.shotId);
-      if (!h) { r.skipped++; return; }
-      if (!list.some(x => x.id === it.sceneId)) { r.skipped++; return; }
-      const i = (h.sc.shots || []).indexOf(h.sh);
-      if (i < 0) { r.skipped++; return; }
-      /* 摘出来交给插入那一套摆放：源场景不可能被清空（这一场至少还有它旁边那一条，
-         只有它一场的情况在 boardPlanOf 里就已经判成 noop）。 */
-      h.sc.shots.splice(i, 1);
-      it.moveShot = h.sh;                           // 挂上对象本身：下面摆放那一步认得它是「已有的一镜」，不会换成空壳
-      const g0 = groups.get(it.sceneId) || { head: [], after: new Map() };
-      if (it.afterId) {
-        const arr = g0.after.get(it.afterId) || [];
-        arr.push(it); g0.after.set(it.afterId, arr);
-      } else g0.head.push(it);
-      groups.set(it.sceneId, g0);
-      return;
-    }
-    if (it.op === 'insert') {
-      if (it.newScene) {
-        const key = nameKey(it.newScene);
-        let g = newG.get(key);
-        if (!g) { g = { name: it.newScene, items: [] }; newG.set(key, g); }
-        g.items.push(it);
-        return;
-      }
-      if (!list.some(x => x.id === it.sceneId)) { r.skipped++; return; }
-      const g0 = groups.get(it.sceneId) || { head: [], after: new Map() };
-      if (it.afterId) {
-        const arr = g0.after.get(it.afterId) || [];
-        arr.push(it); g0.after.set(it.afterId, arr);
-      } else g0.head.push(it);
-      groups.set(it.sceneId, g0);
-      return;
-    }
+    const key = nameKey(String(it.scene || '').trim());
+    let g = key ? newG.get(key) : null;
+    if (!g) { g = { name: String(it.scene || '').trim(), items: [] }; if (key) newG.set(key, g); }
+    g.items.push(it);
   });
-  /* 先改完更新、再重建有插入的那些场景：重建读的是重建那一刻的镜头数组，
-     所以「同一场里又改又插」时两件事落在同一份账上。 */
-  groups.forEach((g, sid) => {
-    const sc = list.find(x => x.id === sid);
-    if (!sc) { r.skipped += g.head.length; g.after.forEach(arr => { r.skipped += arr.length; }); return; }
-    const src = sc.shots || [];
-    const out = []; const made = [];
-    const take = it => {
-      /* `it.moveShot` 在 = 被挪位置的那一条：**原样放回**，不新建（新建会把它的候选、配音、
-         已定下的时长全丢掉，而用户只是让它换个顺序）。它也不进 `made`（场景图不喂它）
-         与 `touched`（一个秒数都没改，落盘后的时长兜底不该顺手夹它）。
-         ⚠ 这个名字**刻意不叫 `shot`**：`it.shot` 这个名字留给 AI 回的那个序号，
-         而序号只许在 `boardPlanOf` 里翻成 id 一次 —— 这一条装的是镜头对象本身，叫 `shot` 会被
-         当成序号、落盘那一步又按序号找镜头，那是尺子的红线，不是这里的语义。 */
-      const s = it.moveShot || mk(it, out.length + 1);
-      out.push(s);
-      if (it.moveShot) r.mov++;
-      else { made.push(s); touched.push(s); r.add++; }
-      if (!atRef) atRef = s;
-    };
-    g.head.forEach(take);
-    const used = new Set();
-    src.forEach(sh => {
-      out.push(sh);
-      const arr = g.after.get(sh.id);
-      if (arr) { used.add(sh.id); arr.forEach(take); }
-    });
-    g.after.forEach((arr, id) => { if (!used.has(id)) arr.forEach(take); });   // 目标没了 → 并到末尾
-    sc.shots = out;
-    madeOf.set(sc, made);
-  });
+  /* 新镜头一场一场落：认得出已有场景就追加到末尾，认不出才新开（排在现有场景之后）。 */
+  const madeOf = new Map();
   newG.forEach(g => {
-    const exist = list.find(sc => nameKey(sc.name || '') === nameKey(g.name));
-    const sc = exist || { id: uid(), name: g.name, shots: [] };
+    const dst = g.name ? matchSceneOf(g.name, list) : null;
+    const sc = dst || { id: uid(), name: g.name || ('场景 ' + (list.length + 1)), shots: [] };
     const made = madeOf.get(sc) || [];
     g.items.forEach(it => {
-      const s = mk(it, (sc.shots || []).length + 1);
-      sc.shots = (sc.shots || []).concat(s);
-      made.push(s);
-      touched.push(s);
-      if (!atRef) atRef = s;
-      r.add++;
+      const sh = newShot();
+      const def = defaultTakeOf(sh);
+      setShotPrompt(sh, String(it.text || '').trim());
+      sh.name = String(it.name || '').trim() || ('镜头 ' + ((sc.shots || []).length + 1));
+      sh.note = String(it.note || '');
+      if (it.dur != null) setShotDur(sh, it.dur);
+      if (it.chain === 'tail' && def) def.linkPrev = 'tail';
+      /* 长镜头拆段那一路算好的接续型号照落（秒数是照它的区间分的）。 */
+      if (it.chainModel && def) { def.model = String(it.chainModel); def.modelAuto = 'chain'; }
+      if (it.pics && it.pics.length) picJobs.push({ sh, idxs: it.pics });
+      sc.shots.push(sh);
+      made.push(sh); touched.push(sh); r.add++;
+      if (!atRef) atRef = sh;
     });
-    if (!exist) { list.push(sc); r.newScenes++; }
+    if (!dst) { list.push(sc); r.newScenes++; }
     madeOf.set(sc, made);
   });
-  /* 场景图只喂**这一次新插的**那些镜头（那一场原有的不动 —— 与 placeScenesInto 同一个立场） */
+  /* 场景图只喂这一次新建的镜头；AI 随附图排在场景图之后挂（bindShotPics 按图去重）。 */
   const scenePics = { added: 0, why: '' };
   madeOf.forEach((made, sc) => {
     const x = feedScenePics(sc, made);
     scenePics.added += x.added; if (x.why && !scenePics.why) scenePics.why = x.why;
   });
-  /* AI 点的随附图：排在场景图之后挂（同一个镜头两层各挂各的）。
-     这次没附图（`pics` 缺位）时 picJobs 也是空的，直接跳过；bindShotPics 没接线（旧调用方）不挂。 */
   const picRes = { n: 0, shots: 0, dup: 0, why: '', unknown: 0 };
   if (typeof bindShotPics === 'function' && picJobs.length && pics) {
     picJobs.forEach(j => {
@@ -496,14 +315,13 @@ function applyBoardPlan(items, scenes, pics) {
       if (k >= 0) { at = { scene: i, shot: k }; break; }
     }
   }
-  /* `touched` = 这一次新建与被改过的那些镜头对象（活引用）：调用方拿它夹时长与「按 @名字 挂素材图」，
-     交出去是为了让页面不要再按 id 回查一遍 —— 回查就是第二份账，而这两件事都必须落在同一批人身上。 */
-  return { upd: r.upd, add: r.add, newScenes: r.newScenes, skipped: r.skipped, del: r.del, mov: r.mov, busy: r.busy,
-    lined: r.lined, chained: r.chained, unchained: r.unchained, pics: scenePics, at: at, touched: touched,
+  /* `touched` 交出去：调用方拿它做「按 @名字 挂素材图」与接续型号收正，不再按 id 回查。 */
+  r.kept = Math.max(0, total0 - r.upd);
+  return { upd: r.upd, add: r.add, newScenes: r.newScenes, kept: r.kept, unknownRefs: r.unknownRefs,
+    skipped: r.skipped, chained: r.chained, unchained: r.unchained, chainRefused: r.chainRefused,
+    pics: scenePics, at, touched,
     picN: picRes.n, picShots: picRes.shots, picDup: picRes.dup, picWhy: picRes.why, picUnknown: picRes.unknown,
-    /* 写入期兜底：批量生成发的是候选的请求时长（`c.dur`）原值，而按型号回写那一句只在打开这一镜右栏时跑。
-       两条落盘路径各夹一次、夹完报数，这里（改现有分镜）与 aiBoardSplit 用的是同一份实现。 */
     clamped: clampShotDurations(touched) };
 }
-  return { snapBoard, boardListText, boardPlanOf, applyBoardPlan };
+  return { snapBoard, boardListText, boardFullItemsOf, applyBoardFull };
 }

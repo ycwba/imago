@@ -6,7 +6,7 @@
      ② 点「按这句再改」→ 流式面板就地出现（.pr-live 有 .pinl）；
      ③ onFollow 收到的 current 是**弹窗此刻那份**（用户手改过的行，不是最初那份）；
      ④ 跑完清单被返回值换新（行数变化）、对话记录出现这一轮、状态行说「已按你这句话改过一版」；
-     ⑤ 「拆一份新的」那一档已删：表单里只剩「接着往下拆 / 修改现有分镜」两档。
+     ⑤ 两档任务下拉已删（统一格式）：表单只有一个输入格，AI 按输入自己决定改 / 加。
    文字 AI 打桩按 sys 特征分流：拆分轮与 follow 轮（split_follow 的「改后的完整方案」）各回各的 JSON。 */
 'use strict';
 const h = require('./harness.cjs');
@@ -36,21 +36,22 @@ const wsOf = () => ({ projects: [{ id: 'pr_sf', name: '按句再改探针', curS
     await page.waitFor(() => window.WBBridge && window.WBBridge.get('director')
       && window.WBBridge.get('director').ready(), 25000);
 
-    /* 打桩：按 sys 特征分流 + 记账。素材判定轮（board_assets）回一个它认不出的形状 → warn 跳过，不影响断言。 */
+    /* 打桩：按 sys 特征分流 + 记账。素材判定轮（board_assets）回一个它认不出的形状 → warn 跳过，不影响断言。
+       统一格式：现有那一镜带 ref（清单里就一条 → s1-1），新镜头不带。 */
     await page.eval(() => {
       const T = window.TextAI;
       window.__SF = { calls: [], followDraft: null };
       const splitJson = JSON.stringify({ title: '探针短片', scenes: [
         { name: 'xxx', shots: [
-          { prompt: 'xxx 场景的原有镜头（补全版）', duration: 5, name: '镜头一补', note: '', line: '', speaker: '', chain: '' },
-          { prompt: 'xxx 场景里新加的一个镜头', duration: 4, name: '新镜头', note: '', line: '', speaker: '', chain: 'tail' },
-          { prompt: 'xxx 场景里另一个新镜头', duration: 4, name: '新镜头二', note: '', line: '', speaker: '', chain: '' },
+          { ref: 's1-1', prompt: 'xxx 场景的原有镜头（补全版）', duration: 5, name: '镜头一补', note: '', chain: '' },
+          { prompt: 'xxx 场景里新加的一个镜头', duration: 4, name: '新镜头', note: '', chain: 'tail' },
+          { prompt: 'xxx 场景里另一个新镜头', duration: 4, name: '新镜头二', note: '', chain: '' },
         ] },
       ] });
       const followJson = JSON.stringify({ title: '探针短片', scenes: [
         { name: 'xxx', shots: [
-          { prompt: 'xxx 场景的原有镜头（补全版）', duration: 3, name: '镜头一补', note: '', line: '', speaker: '', chain: '' },
-          { prompt: '按你那句改过的新镜头', duration: 4, name: '新镜头', note: '', line: '', speaker: '', chain: 'tail' },
+          { ref: 's1-1', prompt: 'xxx 场景的原有镜头（补全版）', duration: 3, name: '镜头一补', note: '', chain: '' },
+          { prompt: '按你那句改过的新镜头', duration: 4, name: '新镜头', note: '', chain: 'tail' },
         ] },
       ] });
       T.chatStream = async (reg, sys, user, opts, onDelta) => {
@@ -79,14 +80,13 @@ const wsOf = () => ({ projects: [{ id: 'pr_sf', name: '按句再改探针', curS
       return true;
     });
 
-    /* 打开「拆分镜」表单：⑤ 表单里只剩两档（「拆一份新的」已删） */
+    /* 打开「拆分镜」表单：⑤ 两档任务下拉已删（统一格式，一个输入格走全部） */
     await page.eval(() => { const b = document.getElementById('scriptBtn'); if (b) b.click(); });
     await page.waitFor(() => !!document.querySelector('dialog.pf-dlg, dialog#pfDlg'), 8000);
-    const taskOpts = await page.eval(() => Array.from(document.querySelectorAll('dialog select option'))
+    const taskOpts = await page.eval(() => Array.from(document.querySelectorAll('#pfDlg select option'))
       .map(o => o.value).filter(v => v === 'append' || v === 'edit' || v === 'new'));
-    if (taskOpts.includes('new')) throw new Error('「拆一份新的」那一档还在表单里：' + JSON.stringify(taskOpts));
-    if (!(taskOpts.includes('append') && taskOpts.includes('edit'))) throw new Error('两档不见了：' + JSON.stringify(taskOpts));
-    /* 默认档是「接着往下拆」：直接填文案开始 */
+    if (taskOpts.length) throw new Error('任务档位下拉还在表单里（应已删）：' + JSON.stringify(taskOpts));
+    /* 直接填文案开始 */
     await page.eval(() => {
       const dlg = document.querySelector('#pfDlg');
       const ta = Array.from(dlg.querySelectorAll('textarea')).find(x => x.offsetParent !== null);
@@ -159,7 +159,7 @@ const wsOf = () => ({ projects: [{ id: 'pr_sf', name: '按句再改探针', curS
       if (b) b.click();
     });
     await sleep(400);
-    console.log('split-follow-live: 真链 follow ✓（面板可见 / 清单换新 / current 带手改 / 记录一轮）+ 两档表单 ✓');
+    console.log('split-follow-live: 真链 follow ✓（面板可见 / 清单换新 / current 带手改 / 记录一轮）+ 统一格式表单 ✓');
   } finally {
     if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});

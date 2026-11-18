@@ -77,10 +77,16 @@
   .mid-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; }
   .mid-body::-webkit-scrollbar { width: 8px; }
   .mid-body::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
-  /* 顺序条（原来点「顺序」才出现的那一栏）常驻、高度按内容封顶；条内换行，多了自己滚。 */
-  .shot-strip-host { flex: 0 0 auto; max-height: var(--strip-h); display: flex; flex-direction: column;
+  /* 顺序条（原来点「顺序」才出现的那一栏）常驻：默认一行横滚（与候选条同一副画法），
+     右上角那枚 chevron 展开成多行 + 竖滚 + 封顶 --strip-h。展开态记在 localStorage。 */
+  .shot-strip-host { flex: 0 0 auto; position: relative; display: flex; flex-direction: column;
     background: var(--panel); border-top: var(--hair) solid var(--line); }
   .shot-strip-host[hidden] { display: none; }
+  .shot-strip-host .strip-toggle { position: absolute; right: var(--sp-8); top: var(--sp-4); z-index: 3;
+    width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center;
+    border: none; background: none; color: var(--sub); cursor: pointer; border-radius: var(--radius-4); }
+  .shot-strip-host .strip-toggle:hover { color: var(--acc); background: var(--acc-tint-10); }
+  .shot-strip-host.expanded { max-height: var(--strip-h); }
   /* 剪辑态视频栏不滚（用户点名）：`.player-wrap` 设成 size 容器，播放盒宽直接由容器高（cqh）
      与栏宽（cqw）现算 —— 拖轨道坞（--dock-h）、改窗口全程跟手，不再靠整栏重画时 JS 现量
      （那份旧量法在拖坞之后不重算，旧盒高溢出 `.player-wrap`，中栏就出滚动条）。
@@ -404,15 +410,9 @@
   .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-8) var(--sp-2); line-height: 1.6; }
   #editLeft .hint { margin-top: 0; }
   .gen-all { margin-top: auto; padding: var(--sp-12); border-top: var(--hair) solid var(--line); }
-  /* 批量动作是一颗分裂按钮：主钮吃满整行，尾钮只占 chevron 那一格
-     （`.gen-all button { width:100% }` 会把两半都拉满，所以尾钮按 id 收回来）。 */
-  .gen-all .gen-split { display: flex; width: 100%; }
-  .gen-all .gen-split > #genAll { flex: 1 1 auto; width: auto; }
-  .gen-all .gen-split > #genMore { flex: 0 0 auto; width: auto; padding: 0 var(--sp-8); }
+  /* 批量动作两颗通栏按钮（同宽同高）：生成主钮实底、润色副钮描边（花钱的动作与花 tokens 的动作分层）。 */
   .gen-all button { width: 100%; padding: var(--sp-12); font-size: var(--fs-14); }
-  /* 浮层用 fixed 坐标：左栏是 overflow:hidden，绝对定位的浮层会被裁掉。
-     left / bottom 由 engine 打开时按尾钮的盒子现算（摆在按钮上方、夹进视口）。 */
-  .gen-all #genAllMenu { position: fixed; right: auto; top: auto; }
+  .gen-all button + button { margin-top: var(--sp-8); }
   /* 状态区只有一条进度条（填充 = 已完成 / 全部），不写文案；空态与常态的面板高度同一份。
      flex 收住子项的 margin：否则条收起时 9px 外边距跟着消失，面板会矮一截。 */
   .gen-all .gen-all-status { display: flex; align-items: flex-end; height: calc(var(--sp-8) + var(--sp-16)); }
@@ -715,11 +715,13 @@
   .line-row .lr-top em.none { color: var(--sub); background: transparent; border: var(--hair) dashed var(--line); }
   /* 剪辑态那一格的状态说明整块已删（镜头统计那一行 + 成片陈旧那句长提示）；
      合并进度条更早那一轮就删了 —— 合成的进度只写在「导出成片」那颗按钮上 */
-  /* 顺序模式的镜头缩略图条：每个镜头一张 */
-  .shot-strip { display: flex; flex-wrap: wrap; align-content: flex-start; gap: var(--sp-8);
-    padding: var(--sp-8) var(--sp-16) var(--sp-8); overflow-y: auto; overflow-x: hidden; }
-  .shot-strip::-webkit-scrollbar { width: 8px; }
+  /* 顺序模式的镜头缩略图条：每个镜头一张；默认一行横滚，展开态才换行竖滚。 */
+  .shot-strip { display: flex; flex-wrap: nowrap; gap: var(--sp-8);
+    padding: var(--sp-8) var(--sp-32) var(--sp-8) var(--sp-16); overflow-y: hidden; overflow-x: auto; }
+  .shot-strip::-webkit-scrollbar { height: 8px; }
   .shot-strip::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
+  .shot-strip-host.expanded .shot-strip { flex-wrap: wrap; align-content: flex-start;
+    overflow-y: auto; overflow-x: hidden; padding-right: var(--sp-16); }
   .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: var(--hair-2) solid transparent; border-radius: var(--radius-4);
     overflow: hidden; cursor: pointer; background: var(--input); transition: border-color var(--dur-120), transform var(--dur-120); }
   .strip-item:hover { transform: translateY(-2px); }
@@ -1302,24 +1304,18 @@
     <div class="left-head">
       <b>分镜 <span id="scCount">0</span></b>
       <button class="script-btn sec" id="scriptEditBtn" title="台词在剪辑右栏「台词」那一档改"><span data-icon="docTab" data-size="13"></span> 剧本</button>
-      <button class="script-btn" id="scriptBtn" title="AI 分镜：拆新的 / 改现有 / 接着往下拆"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
+      <button class="script-btn" id="scriptBtn" title="AI 分镜：新剧情直接拆；对着现有分镜说一句就改（可改可加）"><span data-icon="docTab" data-size="13"></span> 拆分镜</button>
     </div>
     <div id="scenesBox"></div>
     <!-- 剪辑态左栏：历史编辑记录 + 素材入口（renderScenes 按剪辑模式翻显隐） -->
     <div id="editLeft" hidden></div>
     <button class="add-scene" id="addScene">＋ 加一个场景</button>
     <div class="gen-all">
-      <!-- 批量动作只有一颗分裂按钮：主钮跑生成全部分镜，尾部 chevron 的浮层里收
-           「润色全部文案」—— 同一批镜头不用平铺两颗通栏按钮。
-           浮层是 position:fixed：左栏 overflow:hidden 会裁掉绝对定位的浮层，
-           位置由 engine 按按钮的 getBoundingClientRect 现算并摆在上方。 -->
-      <span class="gen-split exp-split">
-        <button type="button" class="pri" id="genAll">生成全部分镜</button>
-        <button type="button" class="pri exp-more" id="genMore" aria-expanded="false" title="更多生成动作"><span data-icon="chevronDown" data-size="12"></span></button>
-        <span class="exp-menu" id="genAllMenu" role="menu" hidden>
-          <button type="button" id="polishAll" role="menuitem" title="按范围把写好提示词的画面 / 候选各润一遍（不反问）；润完先审阅，确认才写回">润色全部文案</button>
-        </span>
-      </span>
+      <!-- 批量动作是两颗**通栏**按钮（同宽）：主钮跑生成全部分镜（先范围勾选 → 报价 → 确认），
+           润色全部文案走它自己的范围 + 备注 + 整体问答流程。两个批量流程各自有弹窗，
+           左栏不再摆分裂按钮。 -->
+      <button type="button" class="pri" id="genAll">生成全部分镜</button>
+      <button type="button" class="ghost" id="polishAll" title="按范围把写好提示词的画面 / 候选各润一遍；可备注整批取向，AI 也可先问几句整体风格；润完先审阅，确认才写回">润色全部文案</button>
       <!-- 左栏状态区只有一条进度条：完成量看条的填充，不写文案。
            按钮的文案与可用状态跟生成计划**同一份**（genAllPlan）—— 计划一变，两处一起变，
            不会出现「写着可生成 2 镜，按钮却说是全部」。 -->
@@ -1330,10 +1326,11 @@
   </div>
 
   <!-- 中栏分两段：`.mid-body` 是整片重画的那一层（播放器 / 候选条 / 动作行 / 总长），
-       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，高度按内容封顶。 -->
+       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，默认一行横滚、右上角展开。 -->
   <div class="col col-mid" id="midCol">
     <div class="mid-body" id="midBody"></div>
     <div class="shot-strip-host" id="shotStripHost" hidden>
+      <button type="button" class="strip-toggle" id="stripToggle"></button>
       <div class="shot-strip" id="shotStrip"></div>
     </div>
   </div>

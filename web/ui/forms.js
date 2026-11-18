@@ -529,12 +529,11 @@ function keepBodyScroll(el, fn) {
          · retry: async () => newText   「重新润色」按钮用
      · PromptReview.openList({ title, sub, items:[{label,text}], hint, applyLabel, retry })
          → 多段（如分镜切片）：逐条可编辑 / 可删除；resolve([{label,text}]) 或 null
-     · PromptReview.openList({ ..., mode:'board', durEditable, estimate, lineEditable })
+     · PromptReview.openList({ ..., mode:'board', durEditable, estimate })
          → 分镜那一种：按场分组、每条改名字与秒数、组内拖动排序、顶部三个读数、
-           点「重新规划」时**用户改过的那几条原样留着**。`lineEditable` 再把台词与说话人
-           一起列出来（拆分镜那一路 AI 已经填了，先看得见再写入）。不传 `mode` 的调用方
-           走的还是上面那份平铺实现，一个字节都没动 —— 这是这一条的红线（时间切片、
-           图像拆段都在那一边）。
+           点「重新规划」时**用户改过的那几条原样留着**；带 `ref` 的行会亮出编号
+           （写入时就地更新那一镜）。不传 `mode` 的调用方走的是上面那份平铺实现，
+           一个字节都没动 —— 这是这一条的红线（时间切片、图像拆段都在那一边）。
    ========================================================================== */
 (function () {
   function mount(title, sub, shell) {
@@ -725,10 +724,6 @@ function keepBodyScroll(el, fn) {
              `chainModel` 是拆的时候挑好的接续型号，落盘时一起带走。 */
           chain: src.chain === 'tail' ? 'tail' : '',
           chainModel: String(src.chainModel == null ? '' : src.chainModel),
-          /* 台词与说话人是分镜拆分那一路才会用到的一组字段（`lineEditable`）：
-             平铺审阅不看它们，但原样存在这里，重新规划时「改过的那几条」才不会被新方案冲掉。 */
-          line: String(src.line == null ? '' : src.line),
-          who: String(src.who != null ? src.who : (src.speaker == null ? '' : src.speaker)),
           text: String(src.text == null ? '' : src.text), raw: src, edited: false,
           /* AI 点的随附图：只存合法下标。 */
           pics: pr ? pr.slice() : [] };
@@ -773,27 +768,21 @@ function keepBodyScroll(el, fn) {
         ? `<span class="pr-pics">${r.pics.map(i => {
             const p = (o.pics || [])[i];
             if (!p || !p.src) return '';
-            return `<span class="pr-pic" title="图${i + 1}${p.label ? ' · ' + esc(p.label) : ''}">
+            return `<span class="pr-pic" data-lb="${i}" title="图${i + 1}${p.label ? ' · ' + esc(p.label) : ''}（点开大图）">
               <img src="${p.src}" alt=""><button type="button" class="pr-picrm" data-picrm="${i}" data-u="${r.u}"
                 title="这次不挂这张图">${icon('close', 10)}</button></span>`;
           }).join('')}</span>` : '';
-      /* 拆分镜这一路把台词一起列出来：AI 已经按剧本填了 `line` / `speaker`，
-         不在这儿显示的话，用户点「新建短片」之前根本看不见它填了什么。
-         说话的人只有这一件控件（与导演台右栏同一立场）；台词空着时人不留着。 */
-      const bodyCell = o.lineEditable
-        ? `<div class="bcol">${picThumbs}${textCell}<div class="bline">
-            <input class="pb-who" data-u="${r.u}" value="${esc(r.who)}" placeholder="说话的人" aria-label="说这句话的人">
-            <textarea class="pb-line" data-u="${r.u}" placeholder="这一镜的台词">${esc(r.line)}</textarea>
-          </div></div>`
-        : (picThumbs ? `<div class="bcol">${picThumbs}${textCell}</div>` : textCell);
+      const bodyCell = picThumbs ? `<div class="bcol">${picThumbs}${textCell}</div>` : textCell;
       const chain = r.chain === 'tail'
         ? '<span class="bchain" title="尾帧接首帧">接上一镜</span>' : '';
+      /* 带 ref 的行是「改这一镜现有内容」：把编号亮出来，与新增的行一眼分开。 */
+      const refTag = (r.raw && r.raw.ref) ? `<span class="bchain" title="写入时就地更新这一镜">${esc(String(r.raw.ref))}</span>` : '';
       return `<div class="pr-row brow${r.edited ? ' pin' : ''}" data-u="${r.u}" data-scene="${esc(r.scene)}">
         <span class="grip" draggable="true" title="在本场景内拖动排序">${icon('list', 12)}</span>
         <span class="no">${r.no}</span>
         <input class="pb-name" data-u="${r.u}" value="${esc(r.name)}" placeholder="镜头名" aria-label="这一镜的名字">
         ${dur}
-        ${chain}
+        ${chain}${refTag}
         ${bodyCell}
         <button type="button" class="x iconbtn" data-del="${r.u}" title="删掉这一条">${icon('close', 11)}</button>
       </div>`;
@@ -835,20 +824,13 @@ function keepBodyScroll(el, fn) {
       body.querySelectorAll('.pb-text').forEach(el => {
         el.oninput = () => { const r = byU(+el.dataset.u); if (!r) return; r.text = el.value; markPin(r); };
       });
-      body.querySelectorAll('.pb-who').forEach(el => {
-        el.oninput = () => { const r = byU(+el.dataset.u); if (!r) return; r.who = el.value; markPin(r); };
-      });
-      body.querySelectorAll('.pb-line').forEach(el => {
-        el.oninput = () => {
-          const r = byU(+el.dataset.u); if (!r) return;
-          r.line = el.value; markPin(r);
-          /* 台词清掉时说话人一起清：一句没有台词的名字是条死数据，
-             会被下一镜的配音按钮拿去问一个不存在的音色（与 applyScript 同一判据）。 */
-          if (!el.value.trim() && r.who) {
-            r.who = '';
-            const w = body.querySelector('.pb-who[data-u="' + r.u + '"]');
-            if (w) w.value = '';
-          }
+      /* 随附图缩略点开走公共灯箱（与资产库 / 收藏同一副）：× 才是摘图，点图本身是看。 */
+      body.querySelectorAll('.pr-pic[data-lb]').forEach(el => {
+        el.onclick = e => {
+          if (e.target.closest('[data-picrm]')) return;
+          const p = (o.pics || [])[+el.dataset.lb];
+          if (!p || !window.Wb || !Wb.lightbox) return;
+          try { Wb.lightbox.open(p, o.pics); } catch (err) { /* 灯箱没就绪就当没点 */ }
         };
       });
       body.querySelectorAll('[data-del]').forEach(b => {
@@ -1031,12 +1013,6 @@ function keepBodyScroll(el, fn) {
           /* AI 点的随附图（下标数组，可能已被人在弹窗里摘过几张）：落盘要按它挂参考图。 */
           pics: (r.pics || []).slice(),
         };
-        /* 只在真的露出台词那一档才覆盖这两项：没露出的调用方连一个字都没看见，
-           交给它一份现推的空台词等于把原数据擦掉。 */
-        if (o.lineEditable) {
-          row.line = String(r.line || '').trim();
-          row.who = row.line ? String(r.who || '').trim() : '';
-        }
         out.push(Object.assign({}, r.raw, row));
       });
       /* 「待建素材」那一份交给调用方（拆分镜那一条要拿去建档出图）。
@@ -1053,8 +1029,10 @@ function keepBodyScroll(el, fn) {
        整份替换，不走 mergeFresh 的「改过的留着」那一条（那是给「从剧本重拆」的重新规划用的：
        那份新方案不认识用户的手改）。待建素材照旧保住手改的那几条（与重新规划同一立场）。 */
     const follow = mountFollow(dlg, o, okBtn, () => !rows.length, {
-      snapshot: () => rows.map(r => ({ key: r.key, scene: r.scene, name: r.name, dur: r.dur,
-        text: r.text, line: r.line, who: r.who, chain: r.chain, chainModel: r.chainModel,
+      /* 快照带 raw（ref / shotId 在里面）：follow 轮回来时「改哪一镜」的锚点不能丢。 */
+      snapshot: () => rows.map(r => Object.assign({}, r.raw, {
+        key: r.key, scene: r.scene, name: r.name, dur: r.dur,
+        text: r.text, chain: r.chain, chainModel: r.chainModel,
         pics: (r.pics || []).slice() })),
       install: (freshItems, freshAssets) => {
         rows = normAll(freshItems || []);
@@ -1530,16 +1508,24 @@ function keepBodyScroll(el, fn) {
         const pfPicHTML = v => (v
           ? '<img src="' + esc(window.Api && Api.mediaSrc ? Api.mediaSrc(v) : v) + '" alt="">'
           : '<span class="none">还没有图</span>');
-        /* 多图栏（`type:'pics'`）：值是 [{label,src},…] 数组，隐藏 input 里存它的 JSON 字符串 ——
-           取数口子照旧读 .value，这里只多一道解析（坏 JSON / 缺 src 的条目丢弃，按空数组算）。 */
+        /* 多图栏（`type:'pics'`）：值是 [{label,src,kind},…] 数组，隐藏 input 里存它的 JSON 字符串 ——
+           取数口子照旧读 .value，这里只多一道解析（坏 JSON / 缺 src 的条目丢弃，按空数组算）。
+           kind 缺省按 image 画（老调用方没带 kind 的条目不受影响）。 */
         const pfPicsVal = s => {
           try { const a = JSON.parse(s); return Array.isArray(a) ? a.filter(x => x && x.src) : []; }
           catch (e) { return []; }
         };
+        const pfKindOf = p => (p && (p.kind === 'video' || p.kind === 'audio')) ? p.kind : 'image';
         const pfPicsHTML = arr => ((arr || []).map((p, i) => (p && p.src
-          ? `<span class="pf-picit"><img src="${esc(p.src)}" alt="" title="${esc(p.label || '')}">`
-            + `<button type="button" class="pf-picrm" data-picrm="${i}" title="摘掉这张">${icon('close', 10)}</button></span>`
-          : '')).join('') || '<span class="none">还没有图：挑图 / 粘贴 / 拖进这里</span>');
+          ? `<span class="pf-picit${pfKindOf(p) !== 'image' ? ' av' : ''}" data-picview="${i}"
+              title="${esc(p.label || '')}（点开预览）">`
+            + (pfKindOf(p) === 'video'
+              ? `<span class="av">${icon('film', 16)}<i>视频</i></span>`
+              : pfKindOf(p) === 'audio'
+                ? `<span class="av">${icon('mic', 16)}<i>音频</i></span>`
+                : `<img src="${esc(p.src)}" alt="">`)
+            + `<button type="button" class="pf-picrm" data-picrm="${i}" title="摘掉这份">${icon('close', 10)}</button></span>`
+          : '')).join('') || '<span class="none">还没有素材：挑图 / 粘贴 / 拖进这里</span>');
         /* 剪贴板里的图 → dataURL：粘贴走这一份。公共层不压缩、不认资产库，
            原样读字节 —— 与挑图那一路「取消 = 不动」同一立场，读不出来就当没贴。 */
         const pfBlobURL = file => new Promise(res => {
@@ -1643,8 +1629,22 @@ function keepBodyScroll(el, fn) {
             try { await f.pick(api); } catch (e) { if (msg) msg.textContent = '选图失败：' + errText(e); }
           };
         });
-        /* 多图栏缩略上的 ×：从数组里摘掉那一张再 set 回去 —— 隐藏值与缩略行一起就地更新。 */
+        /* 多图栏缩略上的 ×：从数组里摘掉那一张再 set 回去 —— 隐藏值与缩略行一起就地更新。
+           点缩略本身 = 预览（公共灯箱，`view` 由调用方给；没给就不接，别摆一颗死按钮）。 */
         dlg.addEventListener('click', e => {
+          const v = e.target.closest('[data-picview]');
+          if (v && !e.target.closest('[data-picrm]')) {
+            const box = v.closest('[data-picsbox]');
+            const pf = box && picOf[box.dataset.picsbox];
+            if (pf && pf.type === 'pics' && typeof pf.view === 'function') {
+              const row = v.closest('.pf-field');
+              const p = row && parts[row.dataset.key];
+              const arr = p && p.ctl ? pfPicsVal(p.ctl.value) : [];
+              const item = arr[+v.dataset.picview];
+              if (item) { try { pf.view(item, arr); } catch (err) { /* 预览失败不打断输入 */ } }
+              return;
+            }
+          }
           const b = e.target.closest('[data-picrm]');
           if (!b) return;
           const box = b.closest('[data-picsbox]');
@@ -1657,23 +1657,31 @@ function keepBodyScroll(el, fn) {
           arr.splice(+b.dataset.picrm, 1);
           api.set(row.dataset.key, arr);
         });
-        /* 直接把图片交给多图栏的两条路：Ctrl+V 粘贴 / 把图片文件拖进弹窗。
+        /* 直接把素材交给多图栏的两条路：Ctrl+V 粘贴 / 把文件拖进弹窗。
            落点都是第一格 pics 栏（缩略就地出现）；焦点若在某格 textarea，光标处再插一个
-           「［图N］」文字占位 —— 这张图在正文里的位置由此看得见，N 就是消息末尾
-           【随附素材】清单里的那个编号。字节过字段的 `onFile`（调用方给压缩 / 转存）；
-           没给就原样 dataURL。没有图就完全不接（preventDefault 也不做，文字照常贴）。 */
-        const picsFilesOf = dt => {
+           「［图N］／［视频N］／［音频N］」文字占位 —— 这份素材在正文里的位置由此看得见，
+           N 就是消息末尾【随附素材】清单里的那个编号（各按自己的种类数，与 mediaLegend 同一把尺子）。
+           字节过字段的 `onFile`（调用方给压缩 / 转存，可回对象带上 kind）；没给就原样 dataURL。
+           收哪些种类由字段的 `kinds` 说（缺省只收图片）；不在名单里的文件完全不接
+           （preventDefault 也不做，文字照常贴）。 */
+        const pfKindOfFile = f => /^video\//.test(f && f.type) || /\.(mp4|mov|webm|m4v)$/i.test((f && f.name) || '') ? 'video'
+          : /^audio\//.test(f && f.type) || /\.(mp3|wav|m4a|ogg|oga|flac|aac)$/i.test((f && f.name) || '') ? 'audio' : 'image';
+        const PF_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
+        const pfKindsOf = pf => (Array.isArray(pf.kinds) && pf.kinds.length) ? pf.kinds : ['image'];
+        const picsFilesOf = (dt, pf) => {
+          const kinds = new Set(pfKindsOf(pf));
+          const takes = f => f && kinds.has(pfKindOfFile(f));
           const out = [];
           if (dt && dt.items && dt.items.length) {
             for (const it of dt.items) {
-              if (it.kind === 'file' && /^image\//.test(it.type)) {
+              if (it.kind === 'file') {
                 const f = it.getAsFile();
-                if (f) out.push(f);
+                if (takes(f)) out.push(f);
               }
             }
           }
           if (!out.length && dt && dt.files && dt.files.length) {
-            for (const f of dt.files) if (/^image\//.test(f.type || '')) out.push(f);
+            for (const f of dt.files) if (takes(f)) out.push(f);
           }
           return out;
         };
@@ -1682,30 +1690,41 @@ function keepBodyScroll(el, fn) {
           const toSrc = typeof pf.onFile === 'function' ? pf.onFile : pfBlobURL;
           const msg = dlg.querySelector('#pfMsg');
           const arr = pfPicsVal(parts[key].ctl.value);
-          const base = arr.length;
+          const baseN = arr.length;
+          /* 每个种类各数各的：占位编号与消息末尾【随附素材】的图N / 视频N / 音频N 一致。 */
+          const cnt = { image: 0, video: 0, audio: 0 };
+          arr.forEach(p => { cnt[pfKindOf(p)]++; });
+          const added = [];
           let fail = 0;
           for (const f of files) {
             try {
-              const src = await toSrc(f);
-              if (src) arr.push({ label: '粘贴的图片', src });
-              else fail++;
+              const r = await toSrc(f);
+              if (!r) { fail++; continue; }
+              const it = typeof r === 'string'
+                ? { kind: pfKindOfFile(f), label: '粘贴的' + (PF_KIND_ZH[pfKindOfFile(f)] || '素材'), src: r }
+                : r;
+              arr.push(it); added.push(it);
             } catch (e) { fail++; }
           }
-          if (fail && msg) msg.textContent = fail + ' 张图读不出来，没带上';
-          if (arr.length === base) return;
+          if (fail && msg) msg.textContent = fail + ' 份素材读不出来，没带上';
+          if (!added.length) return;
           api.set(key, arr);
           const ta = atTa && dlg.contains(atTa) ? atTa : null;
-          const n = arr.length - base;
+          const n = added.length;
           if (ta) {
-            const tokens = Array.from({ length: n }, (_, i) => '［图' + (base + i + 1) + '］').join('');
+            const tokens = added.map(it => {
+              const k = pfKindOf(it);
+              cnt[k]++;
+              return '［' + (k === 'image' ? '图' : k === 'audio' ? '音频' : '视频') + cnt[k] + '］';
+            }).join('');
             const st = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
             const en = ta.selectionEnd == null ? st : ta.selectionEnd;
             ta.value = ta.value.slice(0, st) + tokens + ta.value.slice(en);
             const np = st + tokens.length;
             ta.setSelectionRange(np, np);
-            if (msg && !fail) msg.textContent = '已贴入 ' + n + ' 张图片，占位已插进光标处';
+            if (msg && !fail) msg.textContent = '已贴入 ' + n + ' 份素材，占位已插进光标处';
           } else if (msg && !fail) {
-            msg.textContent = '已贴入 ' + n + ' 张图片';
+            msg.textContent = '已贴入 ' + n + ' 份素材';
           }
         };
         const firstPicsKey = () => Object.keys(parts).find(k => {
@@ -1713,15 +1732,16 @@ function keepBodyScroll(el, fn) {
           return pf && pf.type === 'pics';
         });
         dlg.addEventListener('paste', e => {
-          const files = picsFilesOf(e.clipboardData);
-          if (!files.length) return;
           const key = firstPicsKey();
           if (!key) return;
+          const pf = picOf[parts[key].ctl.id] || {};
+          const files = picsFilesOf(e.clipboardData, pf);
+          if (!files.length) return;
           e.preventDefault();
           const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
           addPicsFiles(key, files, ta).catch(err => {
             const msg = dlg.querySelector('#pfMsg');
-            if (msg) msg.textContent = '贴图失败：' + errText(err);
+            if (msg) msg.textContent = '贴入失败：' + errText(err);
           });
         });
         /* 拖图进弹窗与粘贴同一副落点：dragover 必须拦默认（否则 drop 不触发），
@@ -1746,10 +1766,11 @@ function keepBodyScroll(el, fn) {
         });
         dlg.addEventListener('drop', e => {
           const box = hotBox(); if (box) box.classList.remove('hot');
-          const files = picsFilesOf(e.dataTransfer);
-          if (!files.length) return;
           const key = firstPicsKey();
           if (!key) return;
+          const pf = picOf[parts[key].ctl.id] || {};
+          const files = picsFilesOf(e.dataTransfer, pf);
+          if (!files.length) return;
           e.preventDefault();
           const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
           addPicsFiles(key, files, ta).catch(err => {

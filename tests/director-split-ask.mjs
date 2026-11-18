@@ -39,18 +39,21 @@ const bodyOf = rel => read(rel).replace(/\r\n/g, '\n')
 
 assert.equal(bodyOf('skills/split-script/SKILL.md'), TextAI.DEF.split,
   'skills/split-script/SKILL.md 与 TextAI.DEF.split 漂开了');
-assert.equal(bodyOf('skills/board-edit/SKILL.md'), TextAI.DEF.board_edit,
-  'skills/board-edit/SKILL.md 与 TextAI.DEF.board_edit 漂开了');
+
+/* board_edit 契约已并入 split（统一格式）：改现有镜带 ref、新镜不带 ref，一份输出。 */
+assert.ok(!('board_edit' in TextAI.DEF) && !TextAI.SKILL_CONTRACT.board_edit,
+  'board_edit 契约应当已经摘除（被统一格式的 split 覆盖）');
+assert.ok(TextAI.DEF.split.includes('"ref":"s1-2"'),
+  '统一格式的 split 契约必须带 ref 锚点的格式说明');
+assert.ok(TextAI.DEF.split.includes('硬约束'), 'DEF.split 保留「回答是硬约束」那条');
 
 /* ---- 问答契约写进了要求清单（回答是硬约束）---- */
-assert.ok(TextAI.DEF.split.includes('10. 消息里若带着「用户已经回答了你先前的追问」')
-  && TextAI.DEF.split.includes('硬约束'), 'DEF.split 缺「回答是硬约束」那条（要求 10）');
-assert.ok(TextAI.DEF.board_edit.includes('12. 消息里若带着「用户已经回答了你先前的追问」')
-  && TextAI.DEF.board_edit.includes('硬约束'), 'DEF.board_edit 缺「回答是硬约束」那条（要求 12）');
+assert.ok(TextAI.DEF.split.includes('消息里若带着「用户已经回答了你先前的追问」')
+  && TextAI.DEF.split.includes('硬约束'), 'DEF.split 缺「回答是硬约束」那条');
 
-/* ---- 反问走单独一轮：这两条仍在 NO_ASK（正文永不接 ASK_NOTE）---- */
-assert.ok(TextAI.NO_ASK.includes('split') && TextAI.NO_ASK.includes('board_edit'),
-  'split / board_edit 必须留在 NO_ASK（正文指令不接追问说明，反问是单独一轮）');
+/* ---- 反问走单独一轮：仍在 NO_ASK（正文永不接 ASK_NOTE）---- */
+assert.ok(TextAI.NO_ASK.includes('split'),
+  'split 必须留在 NO_ASK（正文指令不接追问说明，反问是单独一轮）');
 /* defaultPrompt 会把共享词汇表填进 {glossary}（9 份导演台 Skill 同一份定义） */
 const filledSplit = ctx.window.TplVars.fill(TextAI.DEF.split, { glossary: TextAI.GLOSSARY });
 assert.equal(TextAI.defaultPrompt('split'), TextAI.stripAskNote(filledSplit),
@@ -128,10 +131,9 @@ const formsSrc = read('web/ui/forms.js');
 assert.ok(/function mountFollow\(dlg, o, okBtn, blocked, hooks\)/.test(formsSrc), 'forms.js 缺 mountFollow');
 assert.ok((formsSrc.match(/const follow = mountFollow\(dlg, o,/g) || []).length === 2,
   'mountFollow 必须被分组审阅与平铺审阅各接一次');
-assert.ok((applySrc.match(/onFollow: async \(askText, ctl/g) || []).length === 2,
-  'apply.js 的拆新与改稿两路都要接 onFollow');
-assert.ok(/const itemsOfDraft = j =>/.test(applySrc), 'apply.js 缺 itemsOfDraft（生成轮与再改轮共用解析）');
-assert.ok(/TextAI\.prompt\('split_follow'\)/.test(applySrc), '拆新档的再改轮没走 split_follow 契约');
+assert.ok((applySrc.match(/onFollow: async \(askText, ctl/g) || []).length === 1,
+  '统一链只剩一路审查弹窗（onFollow 挂在拆分镜那一份上）');
+assert.ok(/TextAI\.prompt\('split_follow'\)/.test(applySrc), '拆分镜的再改轮没走 split_follow 契约');
 
 /* ---- 润色 Skill 的请求条件变量：正文写了，设置页的说明表也得列 ---- */
 for (const [contract, want] of [

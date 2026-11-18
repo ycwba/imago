@@ -175,9 +175,10 @@ function segName(base, suffix) {
 
 /* 长镜头拆分。只在**没有任何可用视频型号能覆盖整段时长**时拆：
    有一家能吃下就整段交给它，多拆一段就多一道缝、多花一次钱。
-   items 是审查弹窗那一层的条目（{ key, scene, name, dur, text, line, who, note, label }）。
-   opts: { models, canDur, currentModel, maxName }
+   items 是审查弹窗那一层的条目（{ key, scene, name, dur, text, note, label, … }）。
+   opts: { models, canDur, currentModel, maxName, keep }
      models = [{ id, name, min, max, first, last }]
+     keep(it) = 真时该条原样放行不拆（统一格式里带 ref 的现有镜头）
    canDur=false（本机没有声明时长区间的型号）时整段不动 —— 没有秒数依据，不替平台编。
    返回 { items, split, added, impossible, note, picDropped }：
      split      有几个原镜头被拆开
@@ -208,6 +209,9 @@ export function splitLongShots(items, opts) {
   }
   list.forEach(src => {
     if (!src) { out.push(src); return; }
+    /* `keep` 命中的条目**原样放行**（统一格式里带 ref 的现有镜头）：它们的时长是落盘时
+       按各自型号夹过的，再按接续型号拆段等于把已经生成过内容的镜头换成空壳。 */
+    if (o.keep && o.keep(src)) { out.push(src); return; }
     const total = Math.round(Number(src.dur));
     if (!Number.isFinite(total) || total <= 0 || total <= allMax) { out.push(dropChainPics(src)); return; }
     const model = pickChainModel(o.models, o.currentModel || '', 0, null);

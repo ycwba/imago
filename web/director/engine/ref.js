@@ -226,7 +226,7 @@ function shotPolishOf(sh, original) {
     if (ctl && ctl.note && picked.note) ctl.note(picked.note);
     else if (picked.note) setStatus('<span class="meta">' + window.esc(picked.note) + '</span>');
     const sys = TextAI.polishSys(shotSysNow(), TextAI.polishExtra({
-      media: media, text: text, answers: answers,
+      media: media, text: text, answers: answers, note: opt.note,
     }));
     const user = TextAI.polishUser(POLISH_SHOT_WORD, text);
     const after = ctl

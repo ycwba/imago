@@ -53,10 +53,10 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       window.__prDone = PromptReview.openList({
         title: '判据：按这句再改',
         sub: '探针',
-        mode: 'board', durEditable: true, lineEditable: true, assetEditable: true,
+        mode: 'board', durEditable: true, assetEditable: true,
         items: [
-          { key: '场景 1·1', scene: '场景 1', name: '一镜', dur: 5, text: '原来的提示词', line: '', who: '', chain: '' },
-          { key: '场景 1·2', scene: '场景 1', name: '二镜', dur: 4, text: '第二条', line: '旧台词', who: '小雅', chain: 'tail' },
+          { key: '场景 1·1', scene: '场景 1', name: '一镜', dur: 5, text: '原来的提示词', chain: '' },
+          { key: '场景 1·2', scene: '场景 1', name: '二镜', dur: 4, text: '第二条', chain: 'tail' },
         ],
         assets: [{ name: '旧素材', kind: 'prop', look: '旧描述' }],
         onAssets: list => { window.__prAssets = list; },
@@ -68,8 +68,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
           window.__followLiveShown = !!document.querySelector('#prDlg .pr-live .pinl');
           await new Promise(r => setTimeout(r, 400));
           return { items: [
-              { key: '场景 1·1', scene: '场景 1', name: '改后一镜', dur: 4, text: '改后的提示词', line: '', who: '', chain: '' },
-              { key: '场景 1·2', scene: '场景 1', name: '二镜', dur: 4, text: '第二条', line: '旧台词', who: '小雅', chain: 'tail' },
+              { key: '场景 1·1', scene: '场景 1', name: '改后一镜', dur: 4, text: '改后的提示词', chain: '' },
+              { key: '场景 1·2', scene: '场景 1', name: '二镜', dur: 4, text: '第二条', chain: 'tail' },
             ], assets: [{ name: '小雅', kind: 'actor', look: '短发', voice: '清亮' }] };
         },
         followPlaceholder: '判据输入占位',
@@ -99,8 +99,8 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
     must(call.askText === '第一镜再具体一点', '调用方拿到的是那句话');
     must(call.ctlOk, 'ctl 带着 push 与 signal');
     must(call.cur && call.cur.length === 2 && call.cur[0].text === '用户手改过的提示词'
-      && call.cur[1].who === '小雅' && call.cur[1].chain === 'tail',
-      'snapshot 交回的是弹窗里此刻这份（含手改 / 台词 / 接续）');
+      && call.cur[1].chain === 'tail',
+      'snapshot 交回的是弹窗里此刻这份（含手改 / 接续 / raw 字段）');
     must(await page.eval(() => window.__retried === false), '「按这句再改」在跑时「重新规划」让路');
 
     /* 跑完：清单换掉 / 对话记录出现 / 流式收掉 / 状态行说改过一版 */
@@ -127,7 +127,7 @@ const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项
       window.__prRes = null;
       window.__prDone = PromptReview.openList({
         title: '判据：失败路径', mode: 'board', durEditable: true,
-        items: [{ key: '场景 1·1', scene: '场景 1', name: '一镜', dur: 5, text: '还在的提示词', line: '', who: '', chain: '' }],
+        items: [{ key: '场景 1·1', scene: '场景 1', name: '一镜', dur: 5, text: '还在的提示词', chain: '' }],
         onFollow: async () => { throw new Error('桩里故意失败'); },
       }).then(r => { window.__prRes = r; });
     });

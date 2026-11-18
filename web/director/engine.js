@@ -613,9 +613,6 @@ const TL_SYS_COMMON = '你是专业视频剪辑师。只返回 JSON，不要任�
    以前这里写的是 `localStorage.getItem('sk_polish_split') || TextAI.DEF.split` —— 绕过了 prompt()，
    于是「这条指令不许反问」（NO_ASK 里有 split）这一条保护对它不生效。 */
 const splitSysOf = () => TextAI.prompt('split');
-/* 「修改现有分镜」（board_edit）的指令取法同理：用户改过的优先，没有就用内置默认。
-   它也在 NO_ASK 名单里（要的是 JSON —— 先反问一句，parseJsonLoose 解出来就是空）。 */
-const boardEditSysOf = () => TextAI.prompt('board_edit');
 
 
 /* Script域（engine/script.js）：AI 分镜的时长口径（型号声明区间 / 给 AI 的约束 / 逐镜夹回）
@@ -648,7 +645,7 @@ const Split = createSplit({
   resolvedModel: (...a) => resolvedModel(...a), shotModels: (...a) => shotModels(...a),
 }, document, window);
 const {
-  SplitAssets, applyBoardPlan, boardListText, boardPlanOf,
+  SplitAssets, applyBoardFull, boardListText, boardFullItemsOf,
   chainModelList, chainModelWhy, chainWaitWhy, ensureChainModel, resolveChainFrame, snapBoard,
 } = Split;
 
@@ -672,7 +669,6 @@ const Apply = createApply({
   allShots: allShots,
   TL_SYS_COMMON: TL_SYS_COMMON,
   splitSysOf: splitSysOf,
-  boardEditSysOf: boardEditSysOf,
   durWritable: durWritable,
   setShotDur: setShotDur,
   boardDurNote: boardDurNote,
@@ -684,8 +680,8 @@ const Apply = createApply({
   ensureChainModel: ensureChainModel,
   snapBoard: snapBoard,
   boardListText: boardListText,
-  boardPlanOf: boardPlanOf,
-  applyBoardPlan: applyBoardPlan,
+  boardFullItemsOf: boardFullItemsOf,
+  applyBoardFull: applyBoardFull,
   SplitAssets: SplitAssets,
   scheduleSave: (...a) => scheduleSave(...a),
   feedScenePics: (...a) => feedScenePics(...a),
@@ -869,7 +865,8 @@ const {
   candThumbInner, curDraftCand, debounce, feedScenePics, fullscreenHold, generateCandidate,
   healStaleUrls, hydrateThumbFrames, lineVoicedOf, lineVoicesOf, midCandExpandOf, midEditTrimOf,
   openLineVoice, pbBarHTML, placeScenesInto, playerAreaHTML, playerMediaOf, provById, removeShot,
-  renderEditLeft, renderScenes, renderScenesSoon, reportScenePics, saveScheduleSoft,
+  renderEditLeft, renderScenes, renderScenesLive, renderScenesSoon, reportScenePics,
+  saveScheduleSlow, saveScheduleSoft,
   scrollCurThumbIntoView, selectCandidate, setTrimMode, shotStatusOf, sortCandidates, toolAction,
   transitionSet, updateMidLive,
 } = Render;
@@ -1027,6 +1024,7 @@ const Panel = createPanel({
   projOf: () => proj,
   REGOf: () => REG,
   BoardAssetsOf: () => BoardAssets,
+  SplitAssetsOf: () => SplitAssets,
   allShots: (...a) => allShots(...a),
   curShot: (...a) => curShot(...a),
   beginEdit: (...a) => beginEdit(...a),
@@ -1281,7 +1279,7 @@ const Gen = createGen({
   videoPlanOf: (...a) => videoPlanOf(...a),
   $, canStatus, uid, mkCandidateBase, allShots, curScene, ensureChainModel, chainWaitWhy,
   resolveChainFrame, scheduleSave, dlStage, assetStoreId, sameAssetSpace, loadCredits,
-  updateMidLive, sortCandidates, provById, saveScheduleSoft, renderScenesSoon, curDraftCand,
+  updateMidLive, sortCandidates, provById, saveScheduleSoft, saveScheduleSlow, renderScenesLive, curDraftCand,
   applyRefSyntax, refTokenize, resolvedModel, ROLE_ZH, comboLabel, shotUsedRoles, shotCombo,
   shotInputCaps, shotAdvCtx, shotAdvExtras, shotKeyframes, shotInputEntries, NO_PROMPT_WHY,
   shotBlockReason, provOf, needProv, shotQuote, renderAll, updateProjUI,
@@ -1308,11 +1306,21 @@ $('genAll').onclick = async () => {
   }
   $('genAll').disabled = true;
   try {
-    const q = await Gen.genAllQuote(plan, { fresh: true });
+    /* 范围弹窗先行（与「润色全部文案」同一副骨架）：勾这一轮要生成哪些镜头，
+       确认之后才报价与提交。取消时一个占位都不建、一个请求都不发。 */
+    const picked = await Gen.genAllScopeDialog(plan);
+    if (!picked) return;
     if (proj !== runProj || WS.curId !== runProj.id) return;
-    if (!(await Gen.genAllConfirm(plan, q))) return;
+    const plan2 = Gen.planForSelection(plan, picked);
+    if (!plan2.ok.length && !plan2.wait.length) {
+      setStatus('<span class="err">这一轮没有勾选能生成的镜头</span>');
+      return;
+    }
+    const q = await Gen.genAllQuote(plan2, { fresh: true });
+    if (proj !== runProj || WS.curId !== runProj.id) return;
+    if (!(await Gen.genAllConfirm(plan2, q))) return;
     if (proj !== runProj || WS.curId !== runProj.id) { Toast.warn('短片切走了，这一批没有开始'); return; }
-    await Gen.runGenAll(plan);
+    await Gen.runGenAll(plan2);
   } catch (e) {
     setStatus('<span class="err">批量生成没能开始：' + esc(errText(e)) + '</span>');
   } finally {
@@ -1320,39 +1328,10 @@ $('genAll').onclick = async () => {
     Gen.refreshGenAllBtn();
   }
 };
-/* 批量动作只有一颗分裂按钮：主钮跑生成全部分镜，尾钮的浮层里收「润色全部文案」。
-   浮层是 fixed 坐标（左栏 overflow:hidden 会裁掉 absolute），打开时按尾钮的盒子现算：
-   右缘与尾钮对齐、底边贴在尾钮上沿，左缘夹进视口。点外面 / Esc / 尺寸变 / 任何滚动都关。 */
-{
-  const genMenu = $('genAllMenu');
-  const genMore = $('genMore');
-  const closeGenMenu = () => {
-    if (genMenu.hidden) return;
-    genMenu.hidden = true;
-    genMore.setAttribute('aria-expanded', 'false');
-  };
-  const openGenMenu = () => {
-    genMenu.hidden = false;
-    genMore.setAttribute('aria-expanded', 'true');
-    const r = genMore.getBoundingClientRect();
-    const w = genMenu.offsetWidth || 190;
-    genMenu.style.left = Math.max(8, Math.min(r.right - w, window.innerWidth - w - 8)) + 'px';
-    genMenu.style.bottom = Math.max(8, window.innerHeight - r.top + 4) + 'px';
-  };
-  genMore.onclick = e => {
-    e.stopPropagation();
-    if (genMenu.hidden) openGenMenu(); else closeGenMenu();
-  };
-  genMenu.addEventListener('click', e => {
-    e.stopPropagation();
-    if (e.target.closest('button')) closeGenMenu();
-  });
-  document.addEventListener('click', closeGenMenu);
-  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeGenMenu(); });
-  window.addEventListener('resize', closeGenMenu);
-  document.addEventListener('scroll', closeGenMenu, true);
-}
-/* 「润色全部文案」：分裂按钮尾项里的批量入口（gen.js 的 runPolishAll）。
+/* 批量动作是两颗通栏按钮：生成全部分镜（先范围勾选 → 报价 → 确认）与
+   润色全部文案（先范围与备注 → 整体问答 → 润色 → 审阅）—— 各走各的弹窗流程，
+   左栏不再用分裂按钮收尾项（exp-* 那一套还留给页头的导出拆分按钮）。 */
+/* 「润色全部文案」的批量入口（gen.js 的 runPolishAll）。
    运行中再点 = 停止（那一行的换面归 refreshPolishAllBtn 管，这里只转一手）。 */
 $('polishAll').onclick = () => { Gen.runPolishAll(); };
 /* 导出域（engine/export.js）：成片指纹与导出 / FCPXML / 工程目录。

@@ -70,8 +70,11 @@ export function createRender(E, document, window) {
 
 /* ---------- 候选卡片（媒体标记与首帧缓存全部走 Wb.thumbs.mediaHTML，页面不再自己拼） ---------- */
 /* 没有画面时那一格写什么：整块重画与轮询增量补丁共用这一份措辞
-   （两处各写一份时，增量那份漏了 draft 分支，待写描述的候选会被改成「生成中」）。 */
-function candStatusText(c) {
+   （两处各写一份时，增量那份漏了 draft 分支，待写描述的候选会被改成「生成中」）。
+   `waitTxt` 给了且这条还是草稿时，占位写「等待上一镜生成中」（批量生成挂在依赖上的那批）：
+   草稿还挂着「待写描述」会让人以为要动手写，其实批量已经排上、只等上一镜出画面。 */
+function candStatusText(c, waitTxt) {
+  if (waitTxt && c.status === 'draft') return waitTxt;
   return c.status === 'draft' ? '待写描述'
     : c.status === 'failed' ? '生成失败' : c.status === 'cancelled' ? '已取消'
     : c.status === 'queued' ? '排队中' : (c.status === 'creating' ? '创建中' : '生成中');
@@ -95,10 +98,10 @@ function shotStatusOf(sh) {
   const cls = shotReady(sh) ? 'okc' : runC ? 'runc' : allBad ? 'errc' : '';
   return { runC, text, html: cls ? '<span class="' + cls + '">● ' + text + '</span>' : text };
 }
-function candMediaHTML(c) {
+function candMediaHTML(c, waitTxt) {
   if (c.url) return Wb.thumbs.mediaHTML(c.url, { key: thumbKey(c) });
   const cls = (c.status === 'draft' ? ' draft' : '') + (c.status === 'failed' || c.status === 'cancelled' ? ' fail' : '');
-  return `<div class="pending${cls}">${candStatusText(c)}</div>`;
+  return `<div class="pending${cls}">${esc(candStatusText(c, waitTxt))}</div>`;
 }
 /* 一条候选的悬停说明：状态 + 它**实际会用哪句话**（这一条自己的描述） */
 function candTitle(sh, c) {
@@ -123,8 +126,9 @@ function candBadgeHTML(c) {
 function candThumbInner(c, isCur, i) {
   const list = (curShot() || { candidates: [] }).candidates || [];
   if (i === undefined) i = list.indexOf(c);
+  const waitTxt = GenOf().genAllWaitOf(curShot());
   return `<div class="cand-thumb${isCur ? ' cur' : ''}${c.vid === (curShot() || {}).selId ? ' sel' : ''}${c.locked ? ' lock' : ''}${c.status === 'succeeded' && c.url ? ' has' : ''}" data-vid="${esc(String(c.vid))}" data-i="${i}" title="${esc(candTitle(curShot(), c))}">
-    <span class="candno">${i + 1}</span>${c.locked ? `<span class="lockbadge">${icon('lock', 11)}</span>` : ''}${candMediaHTML(c)}${candBadgeHTML(c)}</div>`;
+    <span class="candno">${i + 1}</span>${c.locked ? `<span class="lockbadge">${icon('lock', 11)}</span>` : ''}${candMediaHTML(c, waitTxt)}${candBadgeHTML(c)}</div>`;
 }
 /* 没有候选时的占位卡：点了就按这一镜的配置生成一条 */
 function candPlaceholder() {
@@ -362,7 +366,7 @@ function updateMidLive() {
     } else if (!c.url) {                                    // 一直是占位：只改文案
       const p = t.querySelector('.pending');
       if (p) {
-        const txt = candStatusText(c);
+        const txt = candStatusText(c, GenOf().genAllWaitOf(sh));
         if (p.textContent !== txt) p.textContent = txt;
         p.classList.toggle('fail', c.status === 'failed' || c.status === 'cancelled');
         p.classList.toggle('draft', c.status === 'draft');
@@ -501,6 +505,10 @@ function provById(id) {
 }
 let softTimer = null;
 function saveScheduleSoft() { clearTimeout(softTimer); softTimer = setTimeout(scheduleSaveQuiet, 300); }
+/* 轮询回填的**慢保存**：只有 progress / 队列位在动的轮次走这一档（10s 合并）——
+   它们不是要紧数据（任务号 / 状态 / 地址才是），犯不上每 3 秒把整份工作区序列化一遍。 */
+let softSlowTimer = null;
+function saveScheduleSlow() { clearTimeout(softSlowTimer); softSlowTimer = setTimeout(scheduleSaveQuiet, 10000); }
 
 /* ---------- 渲染：左栏 ---------- */
 /* 缩略图与首帧缓存：统一走 workbench.js 的 Wb.thumbs（全站一份实现）
@@ -853,10 +861,13 @@ function renderScenes() {
         const thumb = cur?.url ? Wb.thumbs.mediaHTML(cur.url, { key: sKey, mediaAttrs: 'class="sthumb"' })
           : cfg(sh).firstFrame ? Wb.thumbs.mediaHTML(cfg(sh).firstFrame, { type: 'image', key: sKey, mediaAttrs: 'class="sthumb" loading="lazy"' })
           : `<div class="sthumb empty"></div>`;
-        // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述
+        // 状态：已选用 / 生成中（带进度）/ 排队中 / 创建中 / 待选用 / 生成失败 / 未生成 / 待写描述；
+        // 批量生成里挂着「等上一镜」的改显等待文案（挂上时这一镜多半还是草稿，
+        // 「待写描述」会让人以为要动手，其实只等上一镜出画面）。
         const st = shotStatusOf(sh);
         const runC = st.runC;
-        const statusTxt = st.html;
+        const waitTxt = GenOf().genAllWaitOf(sh);
+        const statusTxt = waitTxt ? '<span class="runc">● ' + esc(waitTxt) + '</span>' : st.html;
         const prog = runC ? Math.max(0, Math.min(100, Number(runC.progress) || 0)) : 0;
         const pbarHTML = runC ? `<span class="pbar"><i style="width:${prog}%"></i></span>` : '';
         const durTxt = shotDur(sh) ? ' · ' + fmtDur(shotDur(sh)) : '';   // 还没出片就不写「未生成」，避免「生成中 · 未生成」
@@ -960,7 +971,45 @@ function renderScenes() {
     });
   });
   $('scCount').textContent = n;
+  scenesSig = scenesSigNow();
   updateProjUI();
+}
+
+/* ---------- 左栏的「就地刷新」----------
+   生成轮询每 3 秒来一次，绝大多数轮次变的只有进度数字 —— 以前那是每 3 秒一次整列重建
+   （几十个镜头 × 十几个节点 + 全部监听），是生成期卡顿的主要来源之一。
+   scenesLive 先算**结构签名**（镜头 id 序列、场名、镜名、选用、状态文案、等待文案；
+   刻意不含 progress）：签名没变就只就地改各行进度条的宽度；变了才整片 renderScenes。
+   状态文案一变（生成中 → 待选用）签名跟着变 → 走完整重画，界面不欠账。 */
+let scenesSig = '';
+function scenesSigNow() {
+  const genAllWaitOf = GenOf().genAllWaitOf;
+  const bits = [];
+  (projOf().scenes || []).forEach((sc, si) => {
+    bits.push('S' + si + ':' + String(sc && sc.name || '') + '#' + ((sc && sc.shots) || []).length);
+    ((sc && sc.shots) || []).forEach(sh => {
+      bits.push(sh.id + '|' + String(sh.name || '') + '|' + String(sh.selId || '')
+        + '|' + shotStatusOf(sh).text + '|' + (genAllWaitOf(sh) ? 'W' : ''));
+    });
+  });
+  bits.push('C' + projOf().curScene + ':' + projOf().curShot);
+  return bits.join('\n');
+}
+function renderScenesLive() {
+  if (scenesSigNow() !== scenesSig) { renderScenes(); return; }
+  /* 结构没变：只剩进度条这一个数在动，逐行就地改宽度（没有进度条的行一跳而过）。 */
+  const byId = new Map();
+  (projOf().scenes || []).forEach(sc => (sc.shots || []).forEach(sh => byId.set(String(sh.id), sh)));
+  document.querySelectorAll('#scenesBox .shot-item[data-sid]').forEach(it => {
+    const sh = byId.get(it.dataset.sid);
+    if (!sh) return;
+    const runC = shotRunCand(sh);
+    const bar = it.querySelector('.pbar i');
+    if (runC && bar) {
+      const w = Math.max(0, Math.min(100, Number(runC.progress) || 0)) + '%';
+      if (bar.style.width !== w) bar.style.width = w;
+    }
+  });
 }
 
 /* 剪辑态左栏点一镜：**播放头跳到那一镜在成片里的对应位置**（用户点名）。
@@ -1226,8 +1275,10 @@ function curDraftCand() {
     removeShot,
     renderEditLeft,
     renderScenes,
+    renderScenesLive,
     renderScenesSoon,
     reportScenePics,
+    saveScheduleSlow,
     saveScheduleSoft,
     scrollCurThumbIntoView,
     selectCandidate,
