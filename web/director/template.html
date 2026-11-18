@@ -78,12 +78,14 @@
   .mid-body::-webkit-scrollbar { width: 8px; }
   .mid-body::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
   /* 顺序条（原来点「顺序」才出现的那一栏）常驻：默认一行横滚（与候选条同一副画法），
-     右上角那枚 chevron 展开成多行 + 竖滚 + 封顶 --strip-h。展开态记在 localStorage。 */
-  .shot-strip-host { flex: 0 0 auto; position: relative; display: flex; flex-direction: column;
+     右侧那枚 chevron 展开成多行 + 竖滚 + 封顶 --strip-h。展开态记在 localStorage。
+     展开钮是兄弟列、不叠卡片；chevron 描述**内容的去向**：这一栏钉在栏底，展开是往上长
+     （收起那行在下面、多出来的行出现在它上面）→ 收起态画朝上、展开态画朝下。 */
+  .shot-strip-host { flex: 0 0 auto; display: flex; flex-direction: row; align-items: stretch;
     background: var(--panel); border-top: var(--hair) solid var(--line); }
   .shot-strip-host[hidden] { display: none; }
-  .shot-strip-host .strip-toggle { position: absolute; right: var(--sp-8); top: var(--sp-4); z-index: 3;
-    width: 22px; height: 22px; padding: 0; display: flex; align-items: center; justify-content: center;
+  .shot-strip-host .strip-toggle { flex: 0 0 auto; width: 26px; margin: 0 var(--sp-8) 0 var(--sp-4);
+    padding: 0; display: flex; align-items: center; justify-content: center;
     border: none; background: none; color: var(--sub); cursor: pointer; border-radius: var(--radius-4); }
   .shot-strip-host .strip-toggle:hover { color: var(--acc); background: var(--acc-tint-10); }
   .shot-strip-host.expanded { max-height: var(--strip-h); }
@@ -544,7 +546,7 @@
      且缩略图从底下滚过，读数也不该由背后的像素决定。 */
   .cand-pager { position: absolute; right: var(--sp-8); top: 50%; transform: translateY(-50%); z-index: 3;
     display: flex; align-items: center; gap: var(--sp-2); margin: 0; padding: var(--sp-2) var(--sp-4);
-    border: var(--hair) solid var(--line); border-radius: var(--radius-999);
+    border: var(--hair) solid var(--line); border-radius: var(--radius-6);
     background: var(--panel); box-shadow: var(--shadow-1); }
   .cand-pager .ghost { min-width: 24px; padding: 0 var(--sp-4); border: 0; background: none; }
   .cand-pager .ghost:hover { background: var(--input); }
@@ -715,13 +717,14 @@
   .line-row .lr-top em.none { color: var(--sub); background: transparent; border: var(--hair) dashed var(--line); }
   /* 剪辑态那一格的状态说明整块已删（镜头统计那一行 + 成片陈旧那句长提示）；
      合并进度条更早那一轮就删了 —— 合成的进度只写在「导出成片」那颗按钮上 */
-  /* 顺序模式的镜头缩略图条：每个镜头一张；默认一行横滚，展开态才换行竖滚。 */
-  .shot-strip { display: flex; flex-wrap: nowrap; gap: var(--sp-8);
-    padding: var(--sp-8) var(--sp-32) var(--sp-8) var(--sp-16); overflow-y: hidden; overflow-x: auto; }
+  /* 顺序模式的镜头缩略图条：每个镜头一张；默认一行横滚，展开态才换行竖滚。
+     展开钮在兄弟列上（上面那条），条本身吃满剩下的宽度。 */
+  .shot-strip { flex: 1 1 auto; min-width: 0; display: flex; flex-wrap: nowrap; gap: var(--sp-8);
+    padding: var(--sp-8) var(--sp-16); overflow-y: hidden; overflow-x: auto; }
   .shot-strip::-webkit-scrollbar { height: 8px; }
   .shot-strip::-webkit-scrollbar-thumb { background: var(--scroll); border-radius: var(--radius-4); }
   .shot-strip-host.expanded .shot-strip { flex-wrap: wrap; align-content: flex-start;
-    overflow-y: auto; overflow-x: hidden; padding-right: var(--sp-16); }
+    overflow-y: auto; overflow-x: hidden; }
   .strip-item { position: relative; flex: 0 0 auto; width: 96px; border: var(--hair-2) solid transparent; border-radius: var(--radius-4);
     overflow: hidden; cursor: pointer; background: var(--input); transition: border-color var(--dur-120), transform var(--dur-120); }
   .strip-item:hover { transform: translateY(-2px); }
@@ -1326,12 +1329,13 @@
   </div>
 
   <!-- 中栏分两段：`.mid-body` 是整片重画的那一层（播放器 / 候选条 / 动作行 / 总长），
-       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，默认一行横滚、右上角展开。 -->
+       `.shot-strip-host` 是**常驻**的镜头顺序条 —— 它不进重画，默认一行横滚、右侧那枚 chevron 展开。
+       展开钮是**兄弟列**（不叠在卡片上）：收起 / 展开都留一条自己的走位，不会压住第一张卡。 -->
   <div class="col col-mid" id="midCol">
     <div class="mid-body" id="midBody"></div>
     <div class="shot-strip-host" id="shotStripHost" hidden>
-      <button type="button" class="strip-toggle" id="stripToggle"></button>
       <div class="shot-strip" id="shotStrip"></div>
+      <button type="button" class="strip-toggle" id="stripToggle"></button>
     </div>
   </div>
 

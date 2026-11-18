@@ -1306,12 +1306,12 @@ $('genAll').onclick = async () => {
   }
   $('genAll').disabled = true;
   try {
-    /* 范围弹窗先行（与「润色全部文案」同一副骨架）：勾这一轮要生成哪些镜头，
-       确认之后才报价与提交。取消时一个占位都不建、一个请求都不发。 */
-    const picked = await Gen.genAllScopeDialog(plan);
-    if (!picked) return;
+    /* 范围弹窗先行（与「润色全部文案」同一副骨架，两级：镜头 → 候选镜头）：
+       勾这一轮要生成哪些候选，确认之后才报价与提交。取消时一个占位都不建、一个请求都不发。 */
+    const sel = await Gen.genAllScopeDialog(plan);
+    if (!sel) return;
     if (proj !== runProj || WS.curId !== runProj.id) return;
-    const plan2 = Gen.planForSelection(plan, picked);
+    const plan2 = Gen.planForSelection(plan, sel);
     if (!plan2.ok.length && !plan2.wait.length) {
       setStatus('<span class="err">这一轮没有勾选能生成的镜头</span>');
       return;

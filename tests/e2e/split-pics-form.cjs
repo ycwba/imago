@@ -4,7 +4,9 @@
    ② 把图片文件拖进弹窗 → 第二张缩略出现（与粘贴同一副落点）、dragover 时缩略行亮描边；
    ③ 字节的 `onFile` 钩子被调（粘贴 / 拖入同走它 —— 拆分镜那一路在这里做压缩）；
    ④ × 摘一张：缩略与隐藏值一起少一张；
-   ⑤ 排版统一：表单缩略（.pf-picit）与审阅行挂图（.pr-pic）同为 44px 档。
+   ⑤ 排版统一：表单缩略（.pf-picit）与审阅行挂图（.pr-pic）同为 44px 档；
+   ⑥ 点缩略开公共灯箱：模态表单开着时灯箱**搬进对话框**（top layer，不然被表单整张盖住），
+      关掉搬回 body；Esc 只关灯箱不关借宿的表单。
    素材图用探针现造的 PNG（pngjs 不进这条：canvas.toBlob 直接造）。 */
 'use strict';
 const h = require('./harness.cjs');
@@ -34,6 +36,7 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
           { key: 'script', type: 'textarea', value: '', placeholder: '剧本' },
           { key: 'pics', type: 'pics', label: '参考图', value: [],
             onFile: async f => { window.__PF.onFile++; return 'data:image/png;base64,' + btoa('img' + window.__PF.onFile); },
+            view: (it, all) => window.Wb.lightbox.open(it, all || [it]),
             pick: null },
         ],
       }).then(r => { window.__pfRes = r; });
@@ -105,6 +108,35 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
     });
     if (!(px.w === 44 && px.h === 44)) throw new Error('表单缩略不是 44px 档：' + JSON.stringify(px));
 
+    /* ⑥ 点缩略 → 公共灯箱。模态表单（showModal 的 dialog）在浏览器 top layer 里，
+       body 下的灯箱会被整张表单盖住 —— 开着表单时灯箱必须搬进对话框，关掉再搬回 body。
+       Esc 只关灯箱，不许把借宿的表单一起关掉。 */
+    await page.eval(() => document.querySelector('#pfDlg .pf-picit').click());
+    await page.waitFor(() => document.getElementById('lightbox').style.display === 'flex', 8000, 100);
+    const lbIn = await page.eval(() => {
+      const lb = document.getElementById('lightbox');
+      return { inDlg: lb.parentNode === document.querySelector('#pfDlg'),
+        painted: lb.getClientRects().length > 0 };
+    });
+    if (!lbIn.inDlg) throw new Error('模态表单开着时灯箱没有搬进对话框（会被表单盖住）：' + JSON.stringify(lbIn));
+    if (!lbIn.painted) throw new Error('灯箱搬进对话框后没有真的画出来');
+    /* 探针的 Page 没有 keyboard 档：直接走 CDP 的原始 Esc 键事件（与真按键同一输入路径）。 */
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyDown', key: 'Escape', code: 'Escape',
+      windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape',
+      windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
+    await page.waitFor(() => document.getElementById('lightbox').style.display === 'none', 8000, 100);
+    /* 表单还开着时灯箱可以留在它里面（display:none、下次同表单预览复用）；
+       表单关了它会被搬回 body —— 不变的账只有两条：表单没被 Esc 关掉、灯箱在开着的容器里。 */
+    const lbOut = await page.eval(() => {
+      const lb = document.getElementById('lightbox');
+      const dlg = document.querySelector('#pfDlg');
+      return { dlgStillOpen: !!dlg && dlg.open,
+        placed: lb.parentNode === document.body || (dlg && lb.parentNode === dlg) };
+    });
+    if (!lbOut.dlgStillOpen) throw new Error('Esc 把借宿的表单也关掉了（只想关预览）');
+    if (!lbOut.placed) throw new Error('灯箱既不在 body 也不在开着的表单里');
+
     /* 审阅行的挂图：openBoard 一份最小清单 + pics 表，量 .pr-pic */
     await page.eval(b64 => {
       document.querySelector('#pfDlg #pfCancel').click();
@@ -126,7 +158,7 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
     });
     if (!(pr.w === 44 && pr.h === 44)) throw new Error('审阅行挂图不是 44px 档（与表单不一致）：' + JSON.stringify(pr));
 
-    console.log('split-pics-form: 粘贴 / 拖入 / onFile / × 摘 / 44px 统一 ✓');
+    console.log('split-pics-form: 粘贴 / 拖入 / onFile / × 摘 / 44px 统一 / 灯箱借宿模态与 Esc ✓');
   } finally {
     if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});

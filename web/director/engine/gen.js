@@ -681,20 +681,42 @@ function genAllWaitOf(sh) {
 }
 
 /* ---------------- 生成全部分镜的范围选择 ----------------
-   与「润色全部文案」的范围弹窗同一副骨架（芯片切显示、勾选跨芯片保留）：
-   不能生成的镜头整行置灰并写明原因，接上一镜的标出来。
-   返回勾选的镜头数组（null = 取消）。勾完还有报价与确认两道闸，这里不发任何请求。 */
+   与「润色全部文案」的范围弹窗同一副骨架（芯片切显示、勾选跨芯片保留），也是**两级**：
+   镜头行管它名下所有候选（头上的勾一按全开 / 全关），候选行各自可勾 ——
+   已有的待生成候选一条一行；「按张数补建 N 条」也是一行（整行开关，克隆自默认候选）。
+   不能生成的镜头整组置灰并写明原因（不列候选行 —— 它们这一轮发不出去）。
+   返回 Map（镜头 → { takes: [候选], fresh: n }，只含勾了东西的镜头）；null = 取消。
+   勾完还有报价与确认两道闸，这里不发任何请求。 */
 async function genAllScopeDialog(plan) {
   const kindOf = new Map();
   plan.ok.forEach(sh => kindOf.set(sh, 'ok'));
   plan.wait.forEach(sh => kindOf.set(sh, 'wait'));
   plan.bad.forEach(sh => kindOf.set(sh, 'bad'));
-  const rows = (plan.todo || []).map(sh => ({ sh, kind: kindOf.get(sh) || 'ok', on: kindOf.get(sh) !== 'bad' }));
-  const picked = new Set(rows.filter(r => r.on).map(r => r.sh));
+  const zhKind = k => k === 'wait' ? '等上一镜' : k === 'bad' ? '不能生成' : '可生成';
+  const rows = (plan.todo || []).map(sh => {
+    const kind = kindOf.get(sh) || 'ok';
+    const on = kind !== 'bad';
+    return {
+      sh, kind,
+      takes: (plan.takes.get(sh) || []).map(c => ({ c, on })),
+      fresh: (plan.fresh.get(sh) || 0),
+      freshOn: on && (plan.fresh.get(sh) || 0) > 0,
+    };
+  });
+  const byId = new Map(rows.map(r => [r.sh.id, r]));
+  const onCount = () => rows.reduce((n, r) => n + r.takes.filter(x => x.on).length
+    + ((r.kind !== 'bad' && r.freshOn && r.fresh) ? r.fresh : 0), 0);
+  const totalCount = () => rows.reduce((n, r) => n + r.takes.length + r.fresh, 0);
   let listEl = null, sumEl = null, syncGo = () => {};
+  const paintScopeSum = () => {
+    sumEl.textContent = '已勾选 ' + onCount() + ' / ' + totalCount() + ' 条候选'
+      + (onCount() ? '' : '（至少勾一条才能开始）');
+    syncGo();
+  };
   const v = await window.UiDialog.open({
     title: '生成全部分镜',
-    sub: '先勾这一轮要生成哪些镜头（不能生成的写明原因）；勾完还要报价与确认两步，确认之前不发任何请求。',
+    sub: '先勾这一轮要生成哪些候选镜头（镜头行上的勾一键全开 / 全关；不能生成的写明原因）；'
+      + '勾完还要报价与确认两步，确认之前不发任何请求。',
     body(el) {
       el.innerHTML = '<div class="pl-scope">'
         + '<div class="pl-scope-chips">'
@@ -716,20 +738,40 @@ async function genAllScopeDialog(plan) {
           const sh = r.sh;
           const why = r.kind === 'bad' ? (plan.badWhy.get(sh) || '现在不能生成') : '';
           const waitTag = r.kind === 'wait' ? ' · 等上一镜出画面后提交' : '';
-          const n = (plan.counts.get(sh) || 0);
-          return '<label class="pl-take"' + (r.kind === 'bad' ? ' style="opacity:.55"' : '') + '>'
-            + '<input type="checkbox" data-sh="' + esc(sh.id) + '"' + (r.on ? ' checked' : '')
-            + (r.kind === 'bad' ? ' disabled' : '') + '>'
+          /* 镜头头的勾 = 全开；一半开一半关摆半选态（与润色范围弹窗同一画法）。 */
+          const allOn = r.takes.every(t => t.on) && (r.fresh === 0 || r.freshOn);
+          const anyOn = r.takes.some(t => t.on) || (r.freshOn && r.fresh > 0);
+          const head = '<label class="pl-shot-head">'
+            + '<input type="checkbox" data-role="shot" data-sh="' + esc(sh.id) + '"'
+            + (allOn ? ' checked' : '') + (r.kind === 'bad' ? ' disabled' : '') + '>'
             + '<b>' + esc(sh.name || '未命名镜头') + '</b>'
-            + '<span class="meta">' + zhKind(r.kind) + ' · ' + n + ' 条' + waitTag
+            + '<span class="meta">' + zhKind(r.kind) + ' · ' + (r.takes.length + r.fresh) + ' 条' + waitTag
             + (why ? ' · ' + esc(why) : '') + '</span>'
             + '</label>';
+          if (r.kind === 'bad') {
+            return '<div class="pl-shot" data-shot="' + esc(sh.id) + '" style="opacity:.6">' + head + '</div>';
+          }
+          const takeRows = r.takes.map((t, i) => '<label class="pl-take">'
+            + '<input type="checkbox" data-role="take" data-sh="' + esc(sh.id) + '" data-i="' + i + '"'
+            + (t.on ? ' checked' : '') + '>候选 ' + (i + 1) + '（草稿）'
+            + '<span class="meta">' + esc(String((t.c && t.c.prompt) || '').slice(0, 40)) + '</span>'
+            + '</label>').join('');
+          const freshRow = r.fresh > 0 ? '<label class="pl-take">'
+            + '<input type="checkbox" data-role="fresh" data-sh="' + esc(sh.id) + '"'
+            + (r.freshOn ? ' checked' : '') + '>按张数补建 ' + r.fresh + ' 条'
+            + '<span class="meta">克隆这一镜的默认候选（带全套配置）</span>'
+            + '</label>' : '';
+          return '<div class="pl-shot" data-shot="' + esc(sh.id) + '" data-any="' + (anyOn ? '1' : '') + '"'
+            + ' data-all="' + (allOn ? '1' : '') + '">' + head
+            + '<div class="pl-takes">' + takeRows + freshRow + '</div></div>';
         }).join('') : '<div class="empty">这一档没有镜头</div>';
-        sumEl.textContent = '已勾选 ' + picked.size + ' / ' + rows.length + ' 镜'
-          + (picked.size ? '' : '（至少勾一镜才能开始）');
-        syncGo();
+        /* 半选态在重建后补：indeterminate 是属性，进不了 innerHTML 字符串。 */
+        [...listEl.querySelectorAll('.pl-shot[data-any]')].forEach(g => {
+          const inp = g.querySelector('input[data-role="shot"]');
+          if (inp && !inp.disabled && g.dataset.any && !g.dataset.all) inp.indeterminate = true;
+        });
+        paintScopeSum();
       };
-      const zhKind = k => k === 'wait' ? '等上一镜' : k === 'bad' ? '不能生成' : '可生成';
       el.querySelector('.pl-scope-chips').addEventListener('click', e => {
         const b = e.target.closest('button[data-f]');
         if (!b) return;
@@ -740,41 +782,61 @@ async function genAllScopeDialog(plan) {
       listEl.addEventListener('change', e => {
         const inp = e.target;
         if (!inp || inp.tagName !== 'INPUT' || inp.disabled) return;
-        const row = rows.find(r => r.sh.id === inp.dataset.sh);
-        if (!row) return;
-        row.on = inp.checked;
-        if (row.on) picked.add(row.sh); else picked.delete(row.sh);
-        sumEl.textContent = '已勾选 ' + picked.size + ' / ' + rows.length + ' 镜'
-          + (picked.size ? '' : '（至少勾一镜才能开始）');
-        syncGo();
+        const r = byId.get(inp.dataset.sh);
+        if (!r || r.kind === 'bad') return;
+        if (inp.dataset.role === 'shot') {
+          const on = inp.checked;
+          r.takes.forEach(t => { t.on = on; });
+          r.freshOn = on && r.fresh > 0;
+          paint();
+          return;
+        }
+        if (inp.dataset.role === 'take') {
+          const t = r.takes[+inp.dataset.i];
+          if (t) t.on = inp.checked;
+        } else if (inp.dataset.role === 'fresh') {
+          r.freshOn = inp.checked;
+        }
+        /* 候选行的勾选也要整列重画：镜头头上的勾（全开 / 半选）跟着这一变化走。 */
+        paint();
       });
       paint();
     },
     onOpen(el) {
       const dlg = el.closest('dialog');
       const go = dlg && dlg.querySelector('.pr-foot .pri');
-      syncGo = () => { if (go) go.disabled = !picked.size; };
+      syncGo = () => { if (go) go.disabled = !onCount(); };
       syncGo();
     },
     actions: [{ label: '取消', value: null }, { label: '下一步（报价）', value: 'go', primary: true }],
   });
-  return v === 'go' ? rows.filter(r => r.on).map(r => r.sh) : null;
+  if (v !== 'go') return null;
+  const sel = new Map();
+  rows.forEach(r => {
+    const takes = r.takes.filter(t => t.on).map(t => t.c);
+    const fresh = (r.kind !== 'bad' && r.freshOn) ? r.fresh : 0;
+    if (takes.length + fresh > 0) sel.set(r.sh, { takes, fresh });
+  });
+  return sel;
 }
-/* 按勾选收窄计划：ok / wait 只留勾了的；依赖里上一镜没勾、又不在跑 / 没画面的，
-   等它的那些级联进 bad（不然会干等一个永远不会提交的镜头）。takes / fresh / counts 沿用原账
-   （执行器只读选中的那些键）。返回与 genAllPlan 同形状的一份新计划。 */
-function planForSelection(plan, pickedList) {
-  const sel = Array.isArray(pickedList) ? new Set(pickedList) : (pickedList || new Set());
-  const inSel = sh => sel.has(sh);
-  const ok = plan.ok.filter(inSel);
+/* 按勾选收窄计划：ok / wait 只留「勾了东西」的镜头；takes / fresh / counts 按勾选重建
+   （原计划的三份账不动）。依赖里上一镜没进批、又不在跑 / 没画面的，等它的那些级联进 bad
+   （不然会干等一个永远不会提交的镜头）。返回与 genAllPlan 同形状的一份新计划。 */
+function planForSelection(plan, sel) {
+  const selMap = sel instanceof Map ? sel : new Map();
+  const inBatch = sh => {
+    const e = selMap.get(sh);
+    return !!e && (e.takes.length + (e.fresh || 0)) > 0;
+  };
+  const ok = plan.ok.filter(inBatch);
   const deps = new Map();
   const wait = [];
   const bad = plan.bad.slice();
   const badWhy = new Map(plan.badWhy);
   plan.wait.forEach(sh => {
-    if (!inSel(sh)) return;
+    if (!inBatch(sh)) return;
     const prev = plan.deps.get(sh) || null;
-    if (prev && !inSel(prev) && chainStateOf(prev) !== 'done' && chainStateOf(prev) !== 'running') {
+    if (prev && !inBatch(prev) && chainStateOf(prev) !== 'done' && chainStateOf(prev) !== 'running') {
       bad.push(sh);
       badWhy.set(sh, '上一镜「' + (prev.name || '未命名镜头') + '」这一轮没有勾选，接不了它的尾帧');
       return;
@@ -794,8 +856,14 @@ function planForSelection(plan, pickedList) {
       changed = true;
     }
   }
-  return { todo: plan.todo, ok, wait, bad, badWhy, deps, prevMap: plan.prevMap,
-    takes: plan.takes, fresh: plan.fresh, counts: plan.counts };
+  const takes = new Map(), fresh = new Map(), counts = new Map();
+  ok.concat(wait).forEach(sh => {
+    const e = selMap.get(sh) || { takes: [], fresh: 0 };
+    takes.set(sh, e.takes.slice());
+    fresh.set(sh, e.fresh || 0);
+    counts.set(sh, e.takes.length + (e.fresh || 0));
+  });
+  return { todo: plan.todo, ok, wait, bad, badWhy, deps, prevMap: plan.prevMap, takes, fresh, counts };
 }
 /* ---------------- 润色全部文案 ----------------
    「生成全部分镜」分裂按钮的尾项：对选中的每一条描述各润一遍（**不反问** —— 批量

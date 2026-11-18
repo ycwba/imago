@@ -394,7 +394,9 @@ function paintStripToggle(col) {
   host.classList.toggle('expanded', stripExpanded);
   const tg = host.querySelector('#stripToggle');
   if (!tg) return;
-  tg.innerHTML = icon(stripExpanded ? 'chevronUp' : 'chevronDown', 12);
+  /* chevron 描述**内容的去向**：这一栏钉在中栏底部，展开是多行往上长（收起的那行仍在下面），
+     所以收起态画朝上（点它往上展开）、展开态画朝下（点它收回去）。 */
+  tg.innerHTML = icon(stripExpanded ? 'chevronDown' : 'chevronUp', 12);
   tg.title = stripExpanded ? '收成一行左右滚动' : '展开成多行，一屏看完所有镜头';
   if (!tg.__bound) {
     tg.__bound = true;

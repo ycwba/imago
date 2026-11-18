@@ -3360,6 +3360,9 @@
           if (e.key === 'ArrowLeft') W.lightbox.step(-1);
           else if (e.key === 'ArrowRight') W.lightbox.step(1);
           else if (e.key === 'Escape') {
+            /* Esc 只关灯箱：preventDefault 掐掉浏览器的默认动作，不然开着灯箱预览时
+               一按 Esc 会把它借宿的那张模态表单一起关掉（用户只想关预览）。 */
+            e.preventDefault();
             const m = lb.querySelector('video, audio');
             if (m) { try { m.pause(); } catch (err) {} }
             W.lightbox.close();
@@ -3431,6 +3434,20 @@
         }
       },
       isOpen() { const lb = document.getElementById('lightbox'); return !!lb && lb.style.display === 'flex'; },
+      /* 模态对话框（showModal 的 <dialog>）在浏览器的 top layer 里，body 下的普通元素永远画在它
+         下面 —— 拆分镜表单里点开随附素材预览，灯箱就被整张表单盖住（用户实测「无法正常查看」）。
+         所以打开时若屏上有模态对话框，就把灯箱节点**搬进那张对话框**（与它同进 top layer），
+         关掉再搬回 body：搬的是同一个节点，<img>/<video> 不重新加载。取**最后一个**模态
+         （后开的表单在上）。 */
+      _adoptModal() {
+        const lb = document.getElementById('lightbox');
+        if (!lb) return;
+        const modals = Array.from(document.querySelectorAll('dialog[open]'))
+          .filter(d => { try { return d.matches(':modal'); } catch (e) { return true; } });
+        const host = modals.length ? modals[modals.length - 1] : null;
+        if (host && lb.parentNode !== host) host.appendChild(lb);
+        else if (!host && lb.parentNode !== document.body) document.body.appendChild(lb);
+      },
       /* 打开：优先在当前视图里定位（找不到就单张显示被点的那条，别打开别的）。
          第二个参数可以显式给一组翻页范围（例如「详情里的参考图」这种临时列表）。 */
       open(item, listOverride) {
@@ -3459,6 +3476,7 @@
         const W = window.Wb;
         const stage = document.getElementById('lbStage');
         const lb = document.getElementById('lightbox');
+        this._adoptModal();
         stage.innerHTML = '<div class="lb-hint">加载中…</div>';
         lb.style.display = 'flex';
         W.lbDetail.show(it);
@@ -3522,6 +3540,7 @@
         if (lb) lb.style.display = 'none';
         const stage = document.getElementById('lbStage');
         if (stage) stage.innerHTML = '';
+        this._adoptModal();                       // 关掉搬回 body：别跟着某张已关的对话框一起消失
         window.Wb.lbDetail.close();
       },
     },
