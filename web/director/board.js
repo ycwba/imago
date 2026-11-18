@@ -62,6 +62,11 @@ function snapBoard(scenes) {
       /* 接上一镜：AI 改稿时要看得见「这镜的首帧来自上一镜结尾」，否则它会把这条接续当成
          普通镜头改提示词，或者把已经接好的两镜拆开。 */
       chain: (def && def.linkPrev === 'tail') ? 'tail' : '',
+      /* 已有参考素材：首尾帧与参考素材互斥，AI 要看得见这一镜已经有图 / 视频 / 音频，
+         才不会把它改成接上一镜。画面切片与手动参考图同属参考图槽位（与 `shotUsedRoles` 同一口径）。 */
+      refs: !!((def && Array.isArray(def.refImages) && def.refImages.some(Boolean))
+        || (def && Array.isArray(def.keyframes) && def.keyframes.some(k => k && k.assetId && !k.deleted))
+        || (def && def.refVideo) || (def && def.refAudio)),
       /* 候选镜头摘要（只读）：AI 改稿时看得见这一镜已经有哪几条候选、各自要什么，
          免得把同一条重造一遍或当作没有。只列前 4 条，其余报数量。 */
       takes: cs.slice(0, 4).map(c => ({ status: takeStatusZh(c),
@@ -86,6 +91,8 @@ function boardListText(snap) {
          而给没台词的镜头写一行空的「台词：」，等于请它编一句。 */
       const ln = t.line ? '（台词' + (t.who ? '（' + t.who + '）' : '') + '：' + ctxClip(t.line, BOARD_CTX_PROMPT) + '）' : '';
       const chain = t.chain === 'tail' ? ' · 接上一镜' : '';
+      /* 已有参考素材：与「接上一镜」互斥，AI 改稿时要看得见（见 snapBoard 的 refs）。 */
+      const refs = t.refs ? ' · 有参考素材' : '';
       /* 拆分镜随附图挂在哪几镜（图N 对照消息末尾【随附素材】的编号）：
          AI 改这一镜时要看得见它现在挂着哪几张图。快照行不带 pics 时照旧不写。 */
       const picTail = (Array.isArray(t.pics) && t.pics.length)
@@ -97,7 +104,7 @@ function boardListText(snap) {
           + (c.text ? '「' + c.text + '」' : '（还没写）')).join('、')
           + (t.takeMore ? '，另 ' + t.takeMore + ' 条未列' : '')
         : '';
-      out.push(`  镜头 ${t.n}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}${chain}${picTail}）${ln}：${body}${takes}`);
+      out.push(`  镜头 ${t.n}${nm}（${t.dur ? t.dur + ' 秒' : '时长未定'}${chain}${refs}${picTail}）${ln}：${body}${takes}`);
     });
   });
   return out.join('\n');
@@ -105,14 +112,16 @@ function boardListText(snap) {
 /* 把 AI 回的 changes 翻成一份对账。
    每条 item 带着 op 与目标 id（shotId / sceneId + afterId）—— 审查弹窗里用户能改正文、能删条目，
    落盘只按这些 id 找，不会再拿序号回查一遍（那时序号已经会漂）。
-   返回 {items, skipped, noop}：两个计数是「AI 交的东西没全采纳」的原因账，
+   返回 {items, skipped, noop, picUnknown, picChain, chainRefused}：两个计数是「AI 交的东西没全采纳」的原因账，
    报告时要照实说 —— 静默吞掉 = 用户以为它改了，其实一个字没动。
    ⚠ 这里**不再有任何镜数上限、也不 clamp 时长**：以前 `cap` 会把超出的几条
    默默压掉不列出来，以前 `sbSec` 拿一份全站都没有的 2–15 把 AI 的秒数「洗」成合法 ——
    洗过的值落进镜头、再进提交体，界面上那句「2–15」就成了假话。现在 AI 给多少条就列多少条，
    秒数原样带着，越界由落盘后的 `clampShotDurations` 按**这一镜自己的型号**夹回去并报数。
    update / insert 可带 `pics`（AI 点的随附图号，第三参 `pics` 是这次随附的素材表）：翻成下标进 patch，
-   编造 / 越界的图号进返回值 `picUnknown` 报数；该镜**已有的**参考图不在这条路上动。 */
+   编造 / 越界的图号进返回值 `picUnknown` 报数；该镜**已有的**参考图不在这条路上动。
+   **首尾帧与参考图互斥**：这一镜最终是接上一镜（`chain:"tail"`）时，这次点的图一律不挂，
+   图号进 `picChain` 由审查弹窗报数；已有参考素材的镜头不改成接续，计入 `chainRefused`。 */
 function boardPlanOf(changes, snap, pics) {
   /* 原样取 AI 的秒数（只认「是个正数」），整数化一下就停：夹区间是落盘那一步按型号做的事。
      而**一家都没声明区间时这条链压根没有能判合法的依据** —— 当「这一项没给」处理，
@@ -149,6 +158,8 @@ function boardPlanOf(changes, snap, pics) {
     return t ? { S, t } : null;
   };
   const items = []; let skipped = 0, noop = 0, picUnknown = 0;
+  const picChain = new Set();
+  let chainRefused = 0;
   const put = it => { items.push(it); };
   (changes || []).forEach(ch => {
     if (!ch || typeof ch !== 'object') { skipped++; return; }
@@ -178,12 +189,21 @@ function boardPlanOf(changes, snap, pics) {
       /* 接续：`null` = 没带这一项、保持原样；`'tail'` = 改成接上一镜；空串 = 取消接续。 */
       const chainRaw = ch.chain == null && ch.linkPrev == null ? null
         : (String(ch.chain != null ? ch.chain : ch.linkPrev) === 'tail' ? 'tail' : '');
-      const chainChg = chainRaw != null && chainRaw !== (t.chain === 'tail' ? 'tail' : '') ? chainRaw : null;
+      let chainChg = chainRaw != null && chainRaw !== (t.chain === 'tail' ? 'tail' : '') ? chainRaw : null;
+      /* 已有参考素材的镜头不能改成接上一镜（首尾帧与参考素材互斥）：这一条不落，照实计数；
+         想接续得先在素材那一栏删掉参考素材 —— 本程序不替用户删已有素材。 */
+      let chainRefusedNow = false;
+      if (chainChg === 'tail' && t.refs) { chainChg = null; chainRefusedNow = true; chainRefused++; }
       /* 随附参考图（AI 这次点的图号）：只管新附的那批图，该镜已有的参考图不碰。
          没带这一项 / 点了空数组都不算改动（空数组 = 「这次不挂」，与新镜头的默认一致）。 */
       const pr = ch.pics == null ? null : picsIdxOf(ch.pics, pics);
       picUnknown += pr ? pr.unknown.length : 0;
-      const picChg = pr && pr.idxs.length ? pr.idxs : null;
+      const rawPicChg = pr && pr.idxs.length ? pr.idxs : null;
+      /* 这一镜最终接上一镜（本次改成接续，或本来就接续且这次没取消）时，图一律不挂：
+         首尾帧与参考图同一次请求不能共存。图号进冲突账，不静默吞掉。 */
+      const chainedNow = chainChg != null ? chainChg === 'tail' : t.chain === 'tail';
+      const picChg = rawPicChg && !chainedNow ? rawPicChg : null;
+      if (rawPicChg && chainedNow) rawPicChg.forEach(i => picChain.add(i));
       if (!pChg && !nameChg && durChg == null && lineChg == null && whoChg == null && chainChg == null && picChg == null) { noop++; return; }
       const bits = [];
       if (pChg) bits.push('原：' + (t.prompt ? (t.prompt.length > 60 ? t.prompt.slice(0, 60) + '…' : t.prompt) : '（还没写）'));
@@ -194,7 +214,9 @@ function boardPlanOf(changes, snap, pics) {
         : '这一镜的台词清掉');
       if (whoChg) bits.push('说话人改成「' + whoChg + '」');
       if (chainChg != null) bits.push(chainChg === 'tail' ? '改为接上一镜尾帧' : '取消接上一镜');
+      if (chainRefusedNow) bits.push('已有参考素材，没改成接上一镜');
       if (picChg) bits.push('挂参考图 ' + picChg.map(i => '图' + (i + 1)).join('、'));
+      if (rawPicChg && chainedNow) bits.push('图' + rawPicChg.map(i => (i + 1)).join('、图') + ' 与接上一镜互斥，没挂');
       put({
         op: 'update', shotId: t.sh.id, sceneId: S.sc.id,
         patch: { name: nameChg, duration: durChg, line: lineChg, who: whoChg, chain: chainChg, pics: picChg },   // 空串 / null = 这一项没改，落盘时跳过
@@ -216,11 +238,16 @@ function boardPlanOf(changes, snap, pics) {
         chainModel: String(ch.chainModel || '') };
       const pri = ch.pics == null ? null : picsIdxOf(ch.pics, pics);
       picUnknown += pri ? pri.unknown.length : 0;
-      patch.pics = pri ? pri.idxs : [];
+      const rawPics = pri ? pri.idxs : [];
+      const chainedInsert = patch.chain === 'tail';
+      if (chainedInsert && rawPics.length) rawPics.forEach(i => picChain.add(i));
+      patch.pics = chainedInsert ? [] : rawPics;
+      const picDropNote = chainedInsert && rawPics.length
+        ? ' · 图' + rawPics.map(i => i + 1).join('、图') + ' 与接上一镜互斥，没挂' : '';
       const nsc = String(ch.newScene == null ? '' : ch.newScene).trim().slice(0, 12);
       if (nsc) {
         put({ op: 'insert', newScene: nsc, patch, label: '新增 · 新场景「' + nsc + '」',
-          sub: '新建一场放在最后 · ' + durSub(dur), text: raw });
+          sub: '新建一场放在最后 · ' + durSub(dur) + picDropNote, text: raw });
         return;
       }
       const S = sceneOf(ch.scene);
@@ -232,7 +259,7 @@ function boardPlanOf(changes, snap, pics) {
       else if (aRaw <= 0) { afterId = null; where = '开头'; }   // 0 = 插在这一场的开头
       else { afterId = S.shots[aRaw - 1].sh.id; where = '第 ' + aRaw + ' 镜之后'; }
       put({ op: 'insert', sceneId: S.sc.id, afterId, patch,
-        label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur), text: raw });
+        label: '新增 · ' + S.name + ' · ' + where, sub: durSub(dur) + picDropNote, text: raw });
       return;
     }
     /* 删镜头与挪顺序。序号在这里就翻成 id（与 update / insert 同一立场）——
@@ -275,7 +302,7 @@ function boardPlanOf(changes, snap, pics) {
     }
     skipped++;                                              // 认不出的 action：照实计数，不静默
   });
-  return { items, skipped, noop, picUnknown };
+  return { items, skipped, noop, picUnknown, picChain: [...picChain], chainRefused };
 }
 /* 落盘（这条链唯一的写点）。update 按 shotId 就地改那一条：正文只在真的变了才写
    （用户没动的那一格别拿它去覆盖），名字 / 时长 / 台词只在 patch 里带了才写

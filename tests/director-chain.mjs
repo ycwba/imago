@@ -130,6 +130,29 @@ assert.equal(already.split, 1);
 assert.equal(already.items[0].chain, 'tail', '原镜头本来接上一镜，第一段仍然接');
 assert.equal(already.items[1].chain, 'tail');
 
+/* ---------- 首尾帧与参考图互斥：接上一镜的镜头不带随附图 ---------- */
+const chainedPics = splitLongShots([{ key: 'k', name: '接续镜', dur: 30, text: '', chain: 'tail', pics: [0, 2] }],
+  { models: [splitBig], canDur: true, currentModel: 'big' });
+assert.ok(chainedPics.items.every(x => !x.pics || !x.pics.length), '整条接续拆出来的每一段都不能带参考图');
+assert.deepEqual(chainedPics.picDropped, [0, 2], '整条接续时图摘掉并报数');
+
+const leadingPics = splitLongShots([{ key: 'k', name: '长镜', dur: 30, text: '', pics: [1] }],
+  { models: [splitBig], canDur: true, currentModel: 'big' });
+assert.deepEqual(leadingPics.items[0].pics, [1], '不接续的第 1 段保留随附图');
+assert.ok(leadingPics.items.slice(1).every(x => !x.pics || !x.pics.length), '后续接续段不带图');
+assert.deepEqual(leadingPics.picDropped, [], '第 1 段仍然挂着，不算丢');
+
+const shortChained = splitLongShots([{ key: 'k', name: '短接续', dur: 5, text: '', chain: 'tail', pics: [3] }],
+  { models: [splitBig], canDur: true });
+assert.equal(shortChained.items[0].chain, 'tail');
+assert.deepEqual(shortChained.items[0].pics, [], '不拆分也要摘图：接续镜本来就不收参考图');
+assert.deepEqual(shortChained.picDropped, [3]);
+
+const shortPlain = splitLongShots([{ key: 'k', name: '短镜', dur: 5, text: '', pics: [4] }],
+  { models: [splitBig], canDur: true });
+assert.deepEqual(shortPlain.items[0].pics, [4], '不接续的短镜头原样保留');
+assert.deepEqual(shortPlain.picDropped, []);
+
 /* ---------- 报价键：同规格可合并，影响价钱的输入变了就不合并 ---------- */
 const sh = { dur: 5, res: '1080p', tier: 'pro', ar: '16:9', size: '', draw: 3 };
 const qctx = { provider: 'p', model: 'm', intent: 'i', mode: 'v',

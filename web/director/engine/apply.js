@@ -87,12 +87,14 @@ async function prepareRefPics(pics) {
 /* 审查弹窗 sub 里「这次附图是什么状态」那一句（拆新 / 改稿两条链共用）：
    usable 说「由 AI 决定挂到哪几镜」，不识图照实说没给 AI 看、这次不挂；unknown 是
    AI 写了但没对上的图号数；unused 是 AI 一张都没挂上的输入图 —— 哪些图当了参考、
-   哪些这次没用上，行上缩略图之外整表还要有这么一句总览。 */
-function picsInfoOf(mediaPrep, unknown, unused) {
+   哪些这次没用上，行上缩略图之外整表还要有这么一句总览。chainDrop 是挂在「接上一镜」
+   （首尾帧模式）镜头上的图数：首尾帧与参考图互斥，这些图不会挂，照实报数。 */
+function picsInfoOf(mediaPrep, unknown, unused, chainDrop) {
   if (mediaPrep.usable && mediaPrep.pics.length) {
     let s = '随附参考图 ' + mediaPrep.pics.length + ' 张，由 AI 决定挂到哪几镜';
     if (unused && unused.length) s += '；图' + unused.map(i => i + 1).join('、图') + ' 没挂到任何镜头';
     if (unknown) s += '；有 ' + unknown + ' 个图号没对上，没挂';
+    if (chainDrop) s += '；' + chainDrop + ' 张图挂在接上一镜的镜头上没挂（首尾帧不收参考图）';
     return s;
   }
   if (!mediaPrep.usable && mediaPrep.n) {
@@ -445,6 +447,9 @@ async function aiBoardSplit(v) {
   if (!splitAlive(run)) return;
   /* AI 写了但没对上的图号数（itemsOfDraft 每轮重算）：弹窗 sub 照实报数。 */
   let draftPicUnknown = 0;
+  /* AI 点给「接上一镜」镜头的图号（itemsOfDraft 每轮重算）：首尾帧与参考图互斥，
+     这些图不会挂；弹窗 sub 与落盘报告照实报数。 */
+  let draftPicChain = [];
   let draft = null;
   /* 素材只问一次：审查弹窗里点「重新规划」重跑这一趟时复用同一份挑中名单，
      不然每次重试都多问一遍文字 AI（多扣一次 tokens，而挑出来的还是那几条）。 */
@@ -529,6 +534,7 @@ ${fillSkillVars(splitSysOf(), varsOf(boardListText(snapBoard(projOf().scenes))))
     }
     /* 每轮重算：AI 这一次写了多少个没对上的图号（弹窗 sub 照实报数）。 */
     draftPicUnknown = 0;
+    const chainSet = new Set();
     const scenesNow = projOf().scenes || [];
     const lastSceneName = scenesNow.length ? String(scenesNow[scenesNow.length - 1].name || '').trim() : '';
     const items = [];
@@ -549,6 +555,10 @@ ${fillSkillVars(splitSysOf(), varsOf(boardListText(snapBoard(projOf().scenes))))
            对不上号的照实计数，下标带进弹窗后由用户就地增删。 */
         const pp = picsIdxOf(s.pics, mediaPrep.pics);
         draftPicUnknown += pp.unknown.length;
+        /* 这一镜接了上一镜（首尾帧模式）就不能再挂参考图：这次点的图摘掉，
+           图号进冲突账（弹窗 sub 照实说），不静默吞掉。 */
+        const chain = String(s.chain || '').trim() === 'tail' ? 'tail' : '';
+        if (chain === 'tail' && pp.idxs.length) pp.idxs.forEach(i => chainSet.add(i));
         /* 镜头名与画面说明**分家**。以前这里写 `s.note.slice(0, 12)` ——
            长的那一句说明被砍成 12 字当标题，原文两头都没留（既不在名字里也不在别处）。
            现在 `name` 只取 AI 给的短名（没有就空着，落盘时退回「镜头 N」），`note` 整条原样存进 `sh.note`。
@@ -562,16 +572,18 @@ ${fillSkillVars(splitSysOf(), varsOf(boardListText(snapBoard(projOf().scenes))))
           who: String(s.speaker != null ? s.speaker : (s.who == null ? '' : s.who)).trim(),
           note: String(s.note || '').trim(),
           text: s.prompt || s.note || '',
-          /* AI 给这一镜点的随附图（下标；弹窗行上可就地摘）。 */
-          pics: pp.idxs.slice(),
+          /* AI 给这一镜点的随附图（下标；弹窗行上可就地摘）。接上一镜的镜头不带图：
+             首尾帧与参考图互斥。 */
+          pics: chain === 'tail' ? [] : pp.idxs.slice(),
           /* AI 只在「必须紧接着上一镜落幅」时标 tail（见 split 的指令）；长镜头的第 2 段起
              由下面的 splitLongShots 自动补上。落盘写默认候选的 `linkPrev`，生成时取上一镜尾帧当首帧。 */
-          chain: String(s.chain || '').trim() === 'tail' ? 'tail' : '',
+          chain,
           label: scName + ' · 镜头 ' + no + (dur ? '（' + dur + 's）' : '')
             + (String(s.line || '').trim() ? ' · 有台词' : ''),
         });
       });
     });
+    draftPicChain = [...chainSet];
     return items;
   };
   const ask = async () => {
@@ -657,7 +669,10 @@ ${fillSkillVars(splitSysOf(), varsOf(boardListText(snapBoard(projOf().scenes))))
         splitInfo && splitInfo.impossible.length
           ? '其中 ' + splitInfo.impossible.length + ' 个长镜头没有能拆成合法接续片段的型号，已原样保留（写入后按各自型号上限夹回）'
           : '',
-        picsInfoOf(mediaPrep, draftPicUnknown, unusedPicsOf(mediaPrep.pics, items.map(it => it.pics))),
+        picsInfoOf(mediaPrep, draftPicUnknown,
+          unusedPicsOf(mediaPrep.pics, items.map(it => it.pics)
+            .concat([draftPicChain, (splitInfo && splitInfo.picDropped) || []])),
+          draftPicChain.length + ((splitInfo && splitInfo.picDropped) || []).length),
         staged.sub, '按场景分组，可逐条改名字、秒数、提示词与台词',
         '行上的场景名与现有清单对不上会另起一场；要并进已有场景，就把那一格改成它的原名'])).filter(Boolean).join(' · '),
     items, applyLabel: '追加到当前短片',
@@ -702,6 +717,11 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
          不让用户盯着一动不动的清单猜它在干嘛。 */
       if (typeof ctl.note === 'function') ctl.note('正在看这份方案里有哪些要新建的素材…');
       await stageAssetsOf(next);
+      /* 这一轮 AI 又把图点给接续镜时，弹窗底行照实说一句（清单里那些图已经摘掉）。 */
+      const chainDropN = draftPicChain.length + ((splitInfo && splitInfo.picDropped) || []).length;
+      if (chainDropN && typeof ctl.note === 'function') {
+        ctl.note(chainDropN + ' 张图挂在接上一镜的镜头上没挂（首尾帧不收参考图）');
+      }
       return { items: next, assets: (newAssets && newAssets.plan) || [] };
     },
     followPlaceholder: '还要怎么改？例：第 3 镜短一点 / 结尾加一个雨夜空镜 / 台词都删掉',
@@ -725,6 +745,9 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
   /* AI 点的随附图先收对儿、最后统一挂（bindPics 走 panel.js 那套有闸的挂图）：
      报数也聚成一份，不混进素材图那笔账。 */
   const picPairs = [];
+  /* 落盘前再兜一次：接上一镜的镜头一律不挂随附图（首尾帧与参考图互斥）。
+     审查弹窗里图已经被摘掉，这一份是防手改 / 旧数据漏过来的。 */
+  let writePicChain = 0;
   reviewed.forEach(row => {
     const scName = String(row.scene || '').trim() || ('场景 ' + (newScenes.length + 1));
     let sc = newScenes.find(s => s.name === scName);
@@ -753,7 +776,8 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
     if (row.chainModel && def3) { def3.model = String(row.chainModel); def3.modelAuto = 'chain'; }
     if (def3 && def3.linkPrev) ensureChainModel(sh3, def3);
     sc.shots.push(sh3);
-    if (mediaPrep.usable && Array.isArray(row.pics) && row.pics.length) {
+    if (row.chain === 'tail' && Array.isArray(row.pics) && row.pics.length) writePicChain += row.pics.length;
+    if (mediaPrep.usable && row.chain !== 'tail' && Array.isArray(row.pics) && row.pics.length) {
       picPairs.push({ sh: sh3, idxs: row.pics });
     }
   });
@@ -805,9 +829,12 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
   /* 挂图顺序：场景图（placeScenesInto）→ AI 随附图 → 素材图（bind 在 reportScenePics 里跑）。
      三路抢同一批参考图名额，AI 点的图是用户亲手挑的，排在素材图前面。 */
   const picRes = SplitAssets.bindPics(picPairs, mediaPrep.pics);
+  const chainDropN = draftPicChain.length + writePicChain;
+  const chainPicNote = chainDropN
+    ? '；' + chainDropN + ' 张随附图挂在接上一镜的镜头上没挂（首尾帧不收参考图）' : '';
   reportScenePics(r0.pics,
     `已追加 ${reviewed.length} 个镜头：并进 ${r0.merged} 个同名场景` + (r0.created ? '、新建 ' + r0.created + ' 个场景' : '')
-    + chainNote + lineNote + assetNote + clampNote(clamped),
+    + chainNote + chainPicNote + lineNote + assetNote + clampNote(clamped),
     SplitAssets.bind(allShots, staged.picked), picRes);
   renderAll(); scheduleSave();
   /* 14.2-1：新素材可以顺便出预览图（确认框勾了才排队 —— 花钱任务不自动发）。
@@ -918,8 +945,11 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
   const bits = ['共 ' + plan.items.length + ' 处改动'];
   if (plan.noop) bits.push(plan.noop + ' 条与现状相同已忽略');
   if (plan.skipped) bits.push(plan.skipped + ' 条对不上已丢掉');
+  if (plan.chainRefused) bits.push(plan.chainRefused + ' 镜已有参考素材，没改成接上一镜');
   bits.push(picsInfoOf(mediaPrep, plan.picUnknown,
-    unusedPicsOf(mediaPrep.pics, plan.items.map(it => (it.patch && it.patch.pics) || []))));
+    unusedPicsOf(mediaPrep.pics, plan.items.map(it => (it.patch && it.patch.pics) || [])
+      .concat([plan.picChain])),
+    plan.picChain.length));
   if (staged.sub) bits.push(staged.sub);
   /* 审阅就地接手这张弹窗（shell）：与拆新那一路同一条交接。 */
   splitDlgReview = true;
@@ -938,6 +968,16 @@ ${fillSkillVars(boardEditSysOf(), varsOf(whatText))}
     onFollow: async (askText, ctl) => {
       const plan2 = await ask(ctl, askText);
       followAsks.push(askText);
+      /* 这一轮 AI 又把图点给接续镜 / 想把有图的镜头改成接续时，弹窗底行照实说一句
+         （清单里已经按互斥收敛）。 */
+      if (ctl && typeof ctl.note === 'function') {
+        const notes = [];
+        if (plan2.picChain.length) {
+          notes.push(plan2.picChain.length + ' 张图挂在接上一镜的镜头上没挂（首尾帧不收参考图）');
+        }
+        if (plan2.chainRefused) notes.push(plan2.chainRefused + ' 镜已有参考素材，没改成接上一镜');
+        if (notes.length) ctl.note(notes.join('；'));
+      }
       return plan2.items;
     },
     followPlaceholder: '还要怎么改？例：第 3 镜那条改短一点 / 只改画面别动台词',

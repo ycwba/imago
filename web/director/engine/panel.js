@@ -1999,6 +1999,8 @@ function renderEditor() {
         if (kk === 'refImages') removeRefImage(sh, +i);
         else if (kk === 'refVideo') cfg(sh).refVideo = null;
         else if (kk === 'refAudio') cfg(sh).refAudio = null;
+        else if (kk === 'firstFrame') cfg(sh).firstFrame = null;
+        else if (kk === 'lastFrame') cfg(sh).lastFrame = null;
         else if (kk === 'keyframes') {
           const kf = (cfg(sh).keyframes || [])[+i];
           if (!kf) return;
@@ -2015,7 +2017,6 @@ function renderEditor() {
           }
           renderEditor(); scheduleSave();
         }
-        else sh[kk] = null;
         renderEditor(); scheduleSave();
       };
     });

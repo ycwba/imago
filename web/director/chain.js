@@ -179,11 +179,12 @@ function segName(base, suffix) {
    opts: { models, canDur, currentModel, maxName }
      models = [{ id, name, min, max, first, last }]
    canDur=false（本机没有声明时长区间的型号）时整段不动 —— 没有秒数依据，不替平台编。
-   返回 { items, split, added, impossible, note }：
+   返回 { items, split, added, impossible, note, picDropped }：
      split      有几个原镜头被拆开
      added      多出来几条（总条数 - 原条数）
      impossible [{ item, why }]：太长但拆不成合法片段，原样保留，交给落盘后的逐镜 clamp
-     note       给审查弹窗的一句报数（没有拆分时为空串） */
+     note       给审查弹窗的一句报数（没有拆分时为空串）
+     picDropped 因接上一镜而不能挂的随附图号（下标；首尾帧与参考图互斥） */
 export function splitLongShots(items, opts) {
   const o = opts || {};
   const list = items || [];
@@ -191,33 +192,48 @@ export function splitLongShots(items, opts) {
   const allMax = allModels.reduce((m, x) => Math.max(m, Number(x.max) || 0), 0);
   const out = [];
   const impossible = [];
+  const picDropped = [];
+  /* 接上一镜 = 首尾帧模式，同一次请求不能再带参考图。整条接续的镜头在这里把图摘掉并记下，
+     由审查弹窗与落盘报告照实说；不接续的镜头不动（拆分后的第 1 段仍归它）。 */
+  const dropChainPics = src => {
+    if (!src || src.chain !== 'tail') return src;
+    const pics = Array.isArray(src.pics) ? src.pics : [];
+    if (!pics.length) return src;
+    pics.forEach(i => picDropped.push(i));
+    return Object.assign({}, src, { pics: [] });
+  };
   let split = 0, added = 0;
-  if (o.canDur === false || !allMax) return { items: list.slice(), split: 0, added: 0, impossible, note: '' };
+  if (o.canDur === false || !allMax) {
+    return { items: list.map(dropChainPics), split: 0, added: 0, impossible, note: '', picDropped };
+  }
   list.forEach(src => {
     if (!src) { out.push(src); return; }
     const total = Math.round(Number(src.dur));
-    if (!Number.isFinite(total) || total <= 0 || total <= allMax) { out.push(src); return; }
+    if (!Number.isFinite(total) || total <= 0 || total <= allMax) { out.push(dropChainPics(src)); return; }
     const model = pickChainModel(o.models, o.currentModel || '', 0, null);
     const min = Math.max(1, Number(model && model.min) || 0);
     const max = Number(model && model.max) || 0;
     if (!model || !max) {
-      out.push(src);
-      impossible.push({ item: src, why: '没有支持首帧、又声明了时长区间的接续型号' });
+      const kept = dropChainPics(src);
+      out.push(kept);
+      impossible.push({ item: kept, why: '没有支持首帧、又声明了时长区间的接续型号' });
       return;
     }
     const n = Math.ceil(total / max);
     const durs = distribute(total, n, min, max);
     if (!durs) {
-      out.push(src);
-      impossible.push({ item: src, why: '总时长 ' + total + ' 秒，按 ' + (model.name || model.id)
+      const kept = dropChainPics(src);
+      out.push(kept);
+      impossible.push({ item: kept, why: '总时长 ' + total + ' 秒，按 ' + (model.name || model.id)
         + ' 每段 ' + min + '–' + max + ' 秒拆不成至少两段合法的接续片段' });
       return;
     }
     const texts = splitText(src.text, n, durs);
     const maxNameLen = Number(o.maxName) > 0 ? Number(o.maxName) : NAME_MAX;
+    const base = dropChainPics(src);
     for (let i = 0; i < n; i++) {
       const suffix = n > 1 ? '（' + (i + 1) + '/' + n + '）' : '';
-      const next = Object.assign({}, src, {
+      const next = Object.assign({}, base, {
         key: String(src.key == null ? '' : src.key) + suffix,
         name: segName(src.name, suffix).slice(0, maxNameLen),
         dur: durs[i],
@@ -230,6 +246,8 @@ export function splitLongShots(items, opts) {
         chainModel: model.id,
         splitOf: src.key,
       });
+      /* 第 2 段起一定是接续段：原镜头的随附图只留在第 1 段，不能复制给后续段。 */
+      if (i > 0) next.pics = [];
       out.push(next);
     }
     split++;
@@ -239,7 +257,7 @@ export function splitLongShots(items, opts) {
     ? '已把 ' + split + ' 个超过所有型号上限的镜头拆成接续片段（共多出 ' + added
       + ' 条，第二段起接上一镜尾帧）'
     : '';
-  return { items: out, split, added, impossible, note };
+  return { items: out, split, added, impossible, note, picDropped };
 }
 
 /* 报价稳定键：同一条键的镜头规格完全一样，可以合并成一次询价（count = 条数）。
