@@ -50,8 +50,8 @@
       add(o, '筛选', onChips(root, '.chars-page .chip.on').join(' / '));
       add(o, '搜索', val(root, '.chars-page input[type=search]'));
       add(o, '条数', qa(root, '.chars-page .card').length || '');
-      const open = q(root, '.chars-page .card.open');
-      if (open) add(o, '正在编辑', txt(open, '.t'));
+      const pane = q(root, '.chars-page .mat-pane');
+      if (pane) add(o, '正在编辑', txt(pane, '.pane-name'));
       return o;
     },
     'studio.html': root => {

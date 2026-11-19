@@ -396,9 +396,10 @@ const FAVS = [
     pin: 'card', pinFull: false, wait: 800 },
 ];
 const CHARS = [
-  /* 详情层里真正滚的是两块：.md-media 与 .md-doc 各自 overflow:auto。
-     「换身份锚点」那一排按钮长在媒体列（.md-media）里，不是文档列。 */
-  { g: 'chars', name: '素材库·详情里换身份锚点', sel: '.md-layer .md-media', click: '[data-d-act="setanchor"]',
+  /* 右栏素材面板里真正滚的是 .pane-scroll。「换身份锚点」那一排长在「画面」分区里，
+     换锚点会整片重画面板（.pane-scroll 换成新节点）—— 从 0 起就是「弹回顶」那个症状，
+     viewport.keep 必须把它还回来。 */
+  { g: 'chars', name: '素材库·面板里换身份锚点', sel: '.mat-pane .pane-scroll', click: '[data-d-act="setanchor"]',
     kind: 'keep', mode: 'frac', frac: 0.4, wait: 800 },
 ];
 const SIDEBAR = [
@@ -612,7 +613,7 @@ const SIDEBAR = [
       await clickAll(FAVS);
     }
 
-    /* ---------- 素材库：种一条有三个候选的角色（详情里「身份锚点」那一排才画得出来） ---------- */
+    /* ---------- 素材库：种一条有三个候选的角色（右栏面板「身份锚点」那一排才画得出来） ---------- */
     if (want('chars')) {
       await page.goto(proxy.base + '/shell.html');
       await page.waitFor(() => !!window.Kv, 15000);
@@ -621,14 +622,15 @@ const SIDEBAR = [
         localStorage.setItem('char_lib', JSON.stringify({ data: [{
           id: 'c_vp', name: '视口探针', kind: 'char', face: px, anchor: px,
           faces: [f(1), f(2), f(3)],
-          look: '一张用来量视口的探针图，' + '下面垫 enough 长的字让详情那一格真的能滚起来。'.repeat(8),
+          look: '一张用来量视口的探针图，' + '下面垫 enough 长的字让面板那一格真的能滚起来。'.repeat(8),
           bio: '生平也是长句，' + '好让那一格溢出自己的可视高度。'.repeat(8),
         }], ts: Date.now() }));
       }, PIX);
       await openPage('#chars.html');
       await page.waitFor(() => !!document.querySelector('.chars-page'), 30000, 100);
-      /* 点卡 → 检查器开 → 检查器上「打开详情」→ 详情里点一颗换身份锚点的钮（详情整块 innerHTML 重来，
-         里面那格滚动容器是新节点 —— 从 0 起就是「弹回顶」那个症状）。 */
+      /* 点卡 = 选中：右栏面板直接载入这一条（不再经过只读检查器那一跳）。
+         然后点一颗换身份锚点的钮（面板整块 innerHTML 重来，里面那格滚动容器是新节点 ——
+         从 0 起就是「弹回顶」那个症状）。 */
       const step1 = await page.eval(() => {
         const card = document.querySelector('.chars-page .mcard');
         if (!card) return '素材库里没有卡';
@@ -637,19 +639,9 @@ const SIDEBAR = [
       });
       if (step1 !== true) skipped.push('素材库那一族：' + step1);
       else {
-        await sleep(1200);
-        const step2 = await page.eval(() => {
-          const b = document.querySelector('[data-insp="open"]');
-          if (!b) return '检查器没开（页面上没有 [data-insp="open"]）';
-          b.click();
-          return true;
-        });
-        if (step2 !== true) skipped.push('素材库那一族：' + step2);
-        else {
-          await page.waitFor(() => !!document.querySelector('.md-layer [data-d-act="setanchor"]'), 20000, 150).catch(() => {});
-          await sleep(600);
-          await clickAll(CHARS);
-        }
+        await page.waitFor(() => !!document.querySelector('.mat-pane [data-d-act="setanchor"]'), 20000, 150).catch(() => {});
+        await sleep(600);
+        await clickAll(CHARS);
       }
     }
 

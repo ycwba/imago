@@ -1,24 +1,21 @@
-/* 素材库 —— 由 chars.html 迁到 Vue 3 的页面。
+/* 素材库 —— 三栏主从的页面。
    数据与副作用全部走已有的公共层（Chars / Wb / AssetLocal / AssetPicker / AssetTransfer /
    AiFind / AiChip / Chips / Dropdowns / Confirm / Toast），组件只负责「这一屏长什么样」。
    `chars.js` 仍是全站唯一的数据层（Chars.Pipe / Chars.Lib / Chars.Cast / Chars.SET），
    这一页一个字都不重写它。
 
-   布局是两栏 + 一层覆盖检查器：
+   布局是三栏主从：
      · 左「目录轨」：类型 / 分组；
      · 中「素材台」：一行工具 + 紧凑卡片网格 + 底部翻页行；
-     · 覆盖「检查器」：点一张卡才出现，浮在内容之上 —— 不占网格列、不挤压卡片。
-   「新建 / 编辑一条素材」挪到**整屏层**（`./chars/detail.js`）：那一层有自己的骨架
-   （左边画面吸顶、右边一条连续文档）与「每个生成位自带型号与数量」的生成条。
+     · 右「素材面板」（`./chars/pane.js`）：点一张卡 = 选中，面板立即载入这条素材的
+       完整档案就地编辑（资料 / 画面 / 角色资产 / 声音 / 使用关系分区单列）——
+       「看一条素材」只有一个地方；新建也在面板里开草稿。
 
-   与旧页的两点结构差异（行为不变）：
-   ① 卡片不再逐个 `bindCard`：网格上用事件委托接 `data-a` / `data-act` / `data-f`，
-      重画只换那一张卡的 html 字符串（焦点由 paintCard 还回去，与旧实现同一套判据）；
-   ② `document.getElementById` 只出现在公共模块要求的那几处 id（分页按钮交给 Wb.pager 的
-      `pgPrevId` 一档、AiChip 的清除键给唯一 id），页面自己的元素全走 ref。 */
+   卡片本身只留快捷条（出图 / 试听 / 删除，悬停浮出）与状态徽标；缩略图点开灯箱；
+   拖卡 = 引用这一条。窄窗（≤1100）面板改从右侧盖上来，网格保持两栏。 */
 import { ref, computed, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/chars.js';
-import { createDetail, detailDots, detailStat } from './chars/detail.js';
+import { createPane, dotsHTML, statHTML } from './chars/pane.js';
 
 const PAGE_MODE = window.pageModeOf('chars');
 const PAGE_SIZE = window.pageSizeOf('chars');
@@ -57,13 +54,13 @@ export default {
     const gridEl = ref(null);
     const gridEndEl = ref(null);
     const pagerRowEl = ref(null);
-    const inspEl = ref(null);
+    const paneEl = ref(null);
 
     /* ---------- 界面状态 ---------- */
     const ready = ref(false);
     const failed = ref('');
     const cards = ref([]);            // [{ id, html }]：一张卡一条，重画只换这一条
-    const inspId = ref('');            // 哪一张卡在右侧检查器里（点一下才开）
+    const selId = ref('');            // 右栏面板里是哪一条（新建草稿是 '__new__'）；'' = 面板收起
     const railOpen = ref(false);       // 窄窗下目录轨是覆盖抽屉
     const q = ref('');
     const searchPh = ref('搜索素材');
@@ -142,7 +139,7 @@ export default {
         return v ? v.key : '';
       } catch (e) { return ''; }
     };
-    let detail = null;
+    let pane = null;
 
     const src = s => window.Api.mediaSrc(s);
     /* 图片一律由 Wb.thumbs 画（地址映射、尺寸缓存、失败占位、解码属性都在那一份里），
@@ -323,6 +320,8 @@ export default {
     async function genRun(kind, id, c, msg, fn, quiet, label) {
       if (genHas(kind, id)) { if (!quiet) Toast.err('这一项正在生成中'); return false; }
       genSet(kind, id, msg); errSet(kind, id, ''); paintCard(c);
+      /* 面板开着的就是这一条：生成要进的分区若折叠着就展开，busy 挂上标题行。 */
+      if (pane && pane.isOpen() && pane.live && pane.live.id === id) pane.expandFor(kind);
       const prevPend = curPend;
       curPend = { key: kind + '#' + id, kind: kind, id: id, label: label || '' };
       const hook = pendHook(curPend);
@@ -339,36 +338,46 @@ export default {
       return !err;
     }
 
-    /* 卡面：图 + 名字 + 类型 + 被引用数 + 描述 + 完备度点阵。
-       描述与「被 N 镜引用」原来只有展开编辑区才看得到 —— 现在摆在卡面上，扫一眼就知道这个人是谁。 */
+    /* 卡面：图（hover 浮出快捷动作条）+ 名字 + 类型 + 被引用数 + 描述 + 完备度 + 状态徽标。
+       高频动作（出图 / 试听 / 删除）直接在卡上；点卡本体 = 选中进右栏面板。 */
     function cardHTML(c) {
       const pw = picWord(c);
       const pic = D.picOf(c);
       const faceBusy = genHas('face', c.id);
       const vo = voiced(c) && D.voiceOnlyOf(c);
+      const noPic = !!D.voiceOnlyOf(c);
       /* 报错盖在图上（与「正在出」同一个位置）：卡面只剩图 + 名字 + 徽标 + 组名，
          错误原因不另开一栏 —— 它就是这张图为什么没出来，看图的地方就要看得到。 */
       const errHTML = errsHTML(c);
       const kindIcon = KIND_ROWS.find(r => r[0] === D.libKindOf(c))[2];
+      /* 快捷动作条：出图（只出声的没有）、试听（有声音可听的才有）、删除。
+         按钮里带短词，图标只是辅助 —— 空的图标钮没人认得出是在干什么。 */
+      const hasVoice = voiced(c) && !!(c.voice || c.refAudio || String(c.voiceNote || '').trim());
+      const hover = '<div class="mhover">'
+        + (noPic ? '' : '<button class="tool mini" type="button" data-a="quickgen"'
+          + (faceBusy ? ' disabled title="正在出图"' : ' title="出一张' + esc(pw) + '"') + '>'
+          + icon('image', 13) + '出图</button>')
+        + (hasVoice ? '<button class="tool mini" type="button" data-a="quicklisten" title="试听现在的声音">'
+          + icon('play', 13) + '试听</button>' : '')
+        + '<button class="tool mini danger" type="button" data-a="del" title="从库里删掉">'
+        + icon('trash', 13) + '删除</button>'
+        + '</div>';
       const thumb = vo
-        ? `<div class="mthumb mph-empty card-shell-media"><div class="none">${icon('mic', 32)}<b>只出声</b></div></div>`
-        : `<div class="mthumb${isScene(c) ? ' mph-scene' : ''} card-shell-media"${faceBusy ? '' : ` data-a="${pic ? 'zoomface' : 'edit'}"`} title="${faceBusy
-          ? '正在出' + esc(pw)
-          : pic ? pw
-            : '还没有' + pw}">
+        ? `<div class="mthumb mph-empty card-shell-media"><div class="none">${icon('mic', 32)}<b>只出声</b></div>${hover}</div>`
+        : `<div class="mthumb${isScene(c) ? ' mph-scene' : ''} card-shell-media"${faceBusy ? ' title="正在出' + esc(pw) + '"' : (pic ? ` data-a="zoomface" title="${esc(pw)}"` : '')}>
           ${faceBusy ? `<div class="none">${D.Cast.waitHTML('正在出' + pw)}</div>`
             : pic ? thumbImg(pic) + (c.anchor && c.anchor === pic ? '<span class="anchorbadge" title="出图优先用它">锚点</span>' : '')
               : `<div class="none">${icon(kindIcon, 32)}<b>暂无${esc(pw)}</b></div>`}
-          ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}</div>`;
+          ${errHTML ? '<div class="thumb-why">' + errHTML + '</div>' : ''}${hover}</div>`;
       const pickedNow = sel.value.has(c.id);
       const uses = (refUse.get(String(c.name || '')) || []).length;
       const kindLab = D.LIB_KINDS[D.libKindOf(c)] || '';
-      const acts = window.Wb.actsHTML(c, {
-        items: [
-          { act: 'edit', icon: 'pencil', label: '编辑', title: '打开这一条的详情' },
-          { act: 'del', icon: 'trash', label: '删除', danger: true },
-        ].filter(Boolean),
-      });
+      /* 状态徽标：候选几张、声音是什么来路（Cast.voiceTag 那一份；还没声音的不上卡面）。 */
+      const candN = (c.faces || []).filter(x => x && x.src).length;
+      const chips = '<span class="mchips">'
+        + (candN > 1 ? '<span class="ui-tag">候选 ' + candN + ' 张</span>' : '')
+        + (hasVoice ? D.Cast.voiceTag(c) : '')
+        + '</span>';
       return `${multi.value ? `<div class="pick${pickedNow ? ' on' : ''}" title="勾选这一条">${pickedNow ? '✓' : ''}</div>` : ''}${thumb}
         <div class="mbody card-shell-body">
           <div class="mmeta"><span class="mkind">${icon(kindIcon, 12)}${esc(kindLab)}</span>
@@ -376,9 +385,8 @@ export default {
           <div class="mrow"><span class="mname" id="chars-name-${esc(c.id)}">${esc(c.name || '（无名）')}</span>
             ${uses ? '<span class="mrefs">' + uses + ' 镜引用</span>' : ''}</div>
           <p class="mbio">${esc(D.descOf(c) || c.bio || '暂无描述')}</p>
-          <div class="mfoot"><span class="mstat-pill">${detailDots(D, c)}${detailStat(D, c)}</span></div>
-        </div>
-        <div class="macts card-shell-actions">${acts}</div>`;
+          <div class="mfoot"><span class="mstat-pill">${dotsHTML(D, c)}${statHTML(D, c)}</span>${chips}</div>
+        </div>`;
     }
 
     function safeCardHTML(c) {
@@ -414,6 +422,8 @@ export default {
       if (!alive) return;
       bindCardDom();
       back();
+      /* 面板开着的就是这一条：卡面的变化（生成中 / 报错 / 完备度）同步进面板。 */
+      if (pane && pane.isOpen() && pane.live && pane.live.id === c.id) pane.paint();
     }
     function bindCardDom() {
       if (!gridEl.value) return;
@@ -446,7 +456,7 @@ export default {
       const nm = el.querySelector('.mname'), bio = el.querySelector('.mbio');
       if (nm) nm.textContent = c.name || '（无名）';
       if (bio) bio.textContent = D.descOf(c) || c.bio || '暂无描述';
-      paintInsp();
+      if (pane && pane.isOpen() && pane.live && pane.live.id === c.id) pane.paintName();
     }
     function flushHeads() {
       clearTimeout(headTimer); headTimer = 0;
@@ -490,81 +500,46 @@ export default {
       if (grpListEl.value) grpListEl.value.innerHTML = gs.map(g => `<option value="${esc(g.name)}">`).join('');
     }
 
-    /* ---------- ③ 检查器：点一张卡才占位 ---------- */
-    function paintInsp() {
-      const el = inspEl.value;
-      if (!el || !D) return;
-      const c = inspId.value ? itemOf(inspId.value) : null;
-      if (!c) { el.innerHTML = ''; return; }
-      const pic = D.picOf(c);
-      const uses = refUse.get(String(c.name || '')) || [];
-      const kf = kindF(D.libKindOf(c));
-      /* 整块重画罩在公共件里：`.insp-scroll` 是这一次字符串里的子节点，换新节点等于从 0 起 ——
-         表现是「检查器滚到描述中段点一颗按钮，那一列弹回顶」。锚点按身份找不到就用下标链，
-         两种都在这一趟里还。 */
-      window.Wb.viewport.keep(el, () => {
-        el.innerHTML = '<div class="insp-head"><div class="insp-title">'
-          + '<span class="mname">' + esc(c.name || '（无名）') + '</span>'
-          + '<span class="ui-tag">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span>'
-          + (c.group ? '<span class="ui-tag">' + esc(c.group) + '</span>' : '')
-          + '</div><button class="ghost insp-close" type="button" data-insp="close">收起</button></div>'
-          + '<div class="insp-scroll">'
-          + (pic ? '<div class="insp-hero">' + thumbImg(pic) + '</div>' : '')
-          + '<div class="insp-status">' + detailDots(D, c) + detailStat(D, c)
-          + '<span class="insp-refs">' + (uses.length ? '被 ' + uses.length + ' 镜引用' : '还没被用过') + '</span></div>'
-          + '<div class="insp-sec"><div class="insp-st">基本信息</div>'
-          + '<div class="insp-row"><span class="insp-rk">类型</span><span class="insp-rv">' + esc(D.LIB_KINDS[D.libKindOf(c)] || '') + '</span></div>'
-          + '<div class="insp-row"><span class="insp-rk">分组</span><span class="insp-rv">' + esc(c.group || '未分组') + '</span></div>'
-          + (D.isSceneItem(c) ? '<div class="insp-row"><span class="insp-rk">时段</span><span class="insp-rv">' + esc(c.time || '') + '</span></div>' : '')
-          + '</div>'
-          + '<div class="insp-sec"><div class="insp-st">描述</div>'
-          + '<div class="insp-row"><span class="insp-rk">' + esc(kf.look.lab.split('（')[0]) + '</span></div>'
-          + '<div class="ui-hint">' + esc(D.descOf(c) || '还没写描述') + '</div>'
-          + '<div class="insp-row" style="margin-top:var(--sp-8)"><span class="insp-rk">' + esc(kf.bio.lab.split('（')[0]) + '</span></div>'
-          + '<div class="ui-hint">' + esc(c.bio || '还没写') + '</div>'
-          + '</div>'
-          + (uses.length ? '<div class="insp-sec"><div class="insp-st">使用关系 · ' + uses.length + ' 个镜头</div>'
-            + uses.slice(0, 6).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
-            + '</div>' : '')
-          + '</div>'
-          + '<div class="insp-foot">'
-          + '<button class="pri" type="button" data-insp="open"><span class="ic">' + icon('expand', 15) + '</span><span class="tx">打开详情</span></button>'
-          + '<button class="ghost danger" type="button" data-insp="del"><span class="ic">' + icon('trash', 15) + '</span><span class="tx">从库里删掉</span></button>'
-          + '</div>';
-      });
-      /* 检查器里的图也走公共缩略图那一份（缓存命中直接用小图、失败换占位） */
-      if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(el);
+    /* ---------- 右栏素材面板：点卡选中的那一条住在这里（新建 / 编辑同一副骨架） ---------- */
+    async function selectItem(id) {
+      if (!pane || !D) return;
+      railOpen.value = false;
+      selId.value = id;
+      await render();
+      pane.open(id);
     }
-    /* 检查器上的点击：几颗按钮各自干什么 */
-    function onInspClick(e) {
-      const t = e.target && e.target.closest ? e.target.closest('[data-insp]') : null;
-      if (!t || !inspEl.value || !inspEl.value.contains(t)) return;
-      const c = inspId.value ? itemOf(inspId.value) : null;
-      if (!c) return;
-      const act = t.getAttribute('data-insp');
-      if (act === 'close') { toggleInsp(c.id, false); return; }
-      if (act === 'open') { openDetail(c.id); return; }
-      if (act === 'del') { invoke(ACTS.del, c, t, null); return; }
+    /* 收起面板（× / Esc / 覆盖态 scrim 都走这里）；光标还给刚才那张卡。 */
+    function closePane() {
+      if (!selId.value) return;
+      const id = selId.value;
+      selId.value = '';
+      pane.close();          // 清空面板 DOM；onClose 里 selId 已空，不会再 render 一遍
+      render();
+      const el = cardEl(id);
+      if (el && window.focusQuiet) window.focusQuiet(el);
     }
 
-    /* 「素材详情」整屏层：新建 / 编辑一条素材都在那里（画面 + 文档两栏）。 */
-    function makeDetail() {
-      detail = createDetail({
+    function makePane() {
+      pane = createPane({
         D,
         get REG() { return REG; },
         refUse, DRAFT,
-        libSave, errSet, genRun, genHas, genSet, genClear, genMsg, onTaskHook,
+        libSave, errSet, genRun, genHas, genSet, genClear, genMsg, genKeys: () => Array.from(GEN.keys()), onTaskHook,
         dramaWith, optsWith, defImgModel, defTtsModel, effKey,
         picWord, mainKind, candCount, durablePic, thumbImg, errText,
         saveField, queueFieldSave, syncDraft, draftOf,
         kindFields: c => kindF(D.libKindOf(c)),
         measureQuality,
         errsHTML,
+        /* 字段落库之后卡面跟着刷一遍（名字 / 描述 / 完备度点阵都可能在这一次输入里变了）。 */
+        afterFieldSave: (c) => { paintCard(c); },
+        /* 面板脚部那颗删除与卡面快捷条上那颗是同一个实现（同一件事只有一份确认与收尾）。 */
+        delItem: (c, el) => invoke(ACTS.del, c, el, null),
         render: () => { render(); },
         openZoom,
-        hostEl: rootEl.value,
-        onClose: () => { inspId.value = ''; render(); },
-        onCreated: (saved) => { openDetail(saved.id); },
+        paneEl: paneEl.value,
+        onClose: () => { if (selId.value) { selId.value = ''; render(); } },
+        onCreated: (saved) => { selectItem(saved.id); },
       });
     }
 
@@ -851,7 +826,7 @@ export default {
       sel.value = new Set();
       multi.value = false;
       batchCount.value = 0;
-      inspId.value = '';
+      if (selId.value) { selId.value = ''; pane.close(); }
       await render();
       if (e) Toast.err(e, 9000); else Toast.receipt('已删掉 ' + ok + ' 条素材');
     }
@@ -925,20 +900,7 @@ export default {
         return '';
       }
     }
-    /* 检查器：点一张卡就开（再点同一张 = 收）。 */
-    async function toggleInsp(id, force) {
-      const on = force == null ? inspId.value !== id : !!force;
-      if (on) railOpen.value = false;
-      inspId.value = on ? id : '';
-      await render();
-    }
-    /* 详情层：编辑一条（整屏层那一套） */
-    async function openDetail(id) {
-      if (!detail) return;
-      inspId.value = id;
-      await render();
-      detail.open(id);
-    }
+    /* 灯箱：缩略图点开的那一份（预览图与角色资产共用）。 */
     function openZoom(c, label, s2) {
       if (!s2) { Toast.err('这一条还没有这张图'); return; }
       const i = media.findIndex(x => x.s === s2);
@@ -948,15 +910,31 @@ export default {
 
 
     /* ---------- 卡片上的动作（事件委托按名字派到这里） ----------
-    /* 这一层只留**卡面上**那几个动作；编辑 / 出图 / 声音 / 角色资产那一族搬进
-    /* 「素材详情」整屏层了（./chars/detail.js）—— 同一件事只有一份实现。 */
+       卡面只留快捷条上那几颗：出图 / 试听 / 删除；缩略图点开灯箱。
+       编辑就是「选中」本体（点卡 / Enter），不再有单独的编辑按钮。 */
     const ACTS = {
-      /* 点「编辑」= 打开这一条的详情（整屏层）。检查器里那颗「打开详情」是同一个去处。 */
-      edit: async (c) => { await openDetail(c.id); },
+      /* 快捷出图：设置页的默认型号 + 默认张数，当场这一次（不落本机）。 */
+      quickgen: async (c) => {
+        if (!REG || !D.Pipe.pickProvModel(REG, 'image', defImgModel(), 'text_to_image')) {
+          return Toast.err('现在没有可用的生图平台：去设置页配一把密钥');
+        }
+        const model = defImgModel();
+        await genRun('face', c.id, c, '正在出「' + (c.name || '这条') + '」的' + picWord(c) + '…',
+          hook => D.Pipe.drawPreview(REG, fakeDrama(model), c, { count: candCount(model), onTask: hook }));
+      },
+      /* 快捷试听：按设置页默认语音型号合成一小段（Cast.preview 自己先判缺什么）。 */
+      quicklisten: async (c) => {
+        await genRun('voice', c.id, c, '正在合成「' + (c.name || '') + '」的试听…', async () => {
+          const r = await D.Cast.preview(REG, optsWith(defTtsModel()), c, { onStage: m => genSet('voice', c.id, m) });
+          if (r.why) Toast.err(r.why);
+          else if (r.label) Toast.ok('试听：' + r.label);
+        });
+      },
       /* 点缩略图看大图（灯箱）：预览图与角色资产共用那一份。 */
       zoom: async (c, el) => { openZoom(c, el.dataset.label || el.dataset.name || picWord(c), el.dataset.src); },
       zoomface: async (c, el) => { openZoom(c, picWord(c), el.dataset.src || D.picOf(c)); },
-      /* 「从库里删掉」：这一条从素材库消失（本机存的参考音频一起删）。 */
+      /* 「从库里删掉」：这一条从素材库消失（本机存的参考音频一起删）。
+         卡面快捷条与右栏面板脚部那颗共用这一份。 */
       del: async (c, el) => {
         const busy = genOn(c);
         if (busy) return Toast.err('这一条正有一项在生成（' + errLabel(busy, c) + '），等它跑完再删');
@@ -967,7 +945,7 @@ export default {
         if (e) Toast.err(e, 9000);
         if (gone) {
           ERR.forEach((v, k) => { if (k.endsWith('#' + c.id)) ERR.delete(k); });
-          if (inspId.value === c.id) inspId.value = '';
+          if (selId.value === c.id) { selId.value = ''; pane.close(); }
           render();
         }
       },
@@ -1006,7 +984,8 @@ export default {
       const c = itemOf(id);
       if (!c) return;
       if (multi.value) toggleSel(c);
-      else toggleInsp(id);
+      else if (selId.value === id) closePane();
+      else selectItem(id);
     }
 
     /* ---------- 网格上的事件委托 ---------- */
@@ -1035,8 +1014,11 @@ export default {
         invoke(ACTS[name], c, t, card);
         return;
       }
-      /* 点卡片正文 = 右侧检查器开这一条（再点同一张 = 收）。 */
-      if (c0) toggleInsp(c0.id);
+      /* 点卡片正文 = 选中：右栏面板载入这一条；再点同一张 = 收起（× / Esc 也收）。 */
+      if (c0) {
+        if (selId.value === c0.id) closePane();
+        else selectItem(c0.id);
+      }
     }
     /* 改完一个字段就地存（详情层与检查器共用这一份）：类型换了要拦重名，
        名字换了要问一句「导演台里有 N 处引用，回填吗」。 */
@@ -1203,12 +1185,15 @@ export default {
     }
 
     /* ---------- 新建一条素材 ---------- */
-    /* 新建就走「素材详情」那一层的空骨架：名字、类型、分组、描述都在那一页里填，
-       填完直接出第一张图、挑好再存 —— 不再经过那个弹窗。 */
+    /* 新建就在右栏面板开一张草稿卡：名字、类型、分组、描述都在那里填，
+       填完直接出第一张图、挑好再存 —— 不再经过那个弹窗。
+       selId 用一个不可能撞上真 id 的哨兵值，只为了让面板占上那一列。 */
     async function newChar() {
-      if (!D || !detail) return;
+      if (!D || !pane) return;
       if (groupDraft && !await commitNewGroup()) return;
-      detail.openNew({
+      railOpen.value = false;
+      selId.value = '__new__';
+      pane.openNew({
         name: '', kind: 'actor', group: group.value === '__none' ? '' : group.value,
         look: '', bio: '', time: '深夜', pic: '',
       });
@@ -1243,7 +1228,7 @@ export default {
         if (!alive) return;
         paintCharsRail();      // 目录轨「出齐用」那一行
         paintBatchPicks();     // 多选批量条上的出图 / 声音两行
-        if (detail && detail.isOpen()) detail.paint();   // 详情层里那三处生成条
+        if (pane && pane.isOpen()) pane.paint();   // 面板里那三处生成条
       }, 300);
     }
     function loadCaps() {
@@ -1325,7 +1310,6 @@ export default {
       await nextTick();
       if (seq !== renderSeq) return;
       bindCardDom();
-      paintInsp();
     }
 
     /* 过期签名图的后台回源（与收藏页同一份 Api.healMedia） */
@@ -1456,14 +1440,13 @@ export default {
       if (e.target && toolbarFb && e.target === toolbarFb.input) return;
       if (document.querySelector('dialog[open]')) return;
       if (window.Wb && window.Wb.lightbox && window.Wb.lightbox.isOpen && window.Wb.lightbox.isOpen()) return;
-      if (detail && detail.isOpen()) { detail.close(); return; }
-      if (inspId.value) toggleInsp(inspId.value, false);
+      if (selId.value) closePane();
     }
     function onVisibleChange() {
       /* 切回这一页时把「被 N 镜引用」重新数一遍（旧页每次打开都会读一次盘）；
-         编辑区开着就不整页重画，免得把正在敲的字换掉。
+         面板开着就不整页重画，免得把正在敲的字换掉。
          灯箱与详情的配置不用这一页管：公共层按前台页装回各自那一份（见 registerAdapters）。 */
-      if (ready.value && !inspId.value) { refUseAt = 0; render(); }
+      if (ready.value && !selId.value) { refUseAt = 0; render(); }
     }
 
     onMounted(async () => {
@@ -1490,13 +1473,12 @@ export default {
       if (rootEl.value) window.fillIcons(rootEl.value);
       try {
         initModules();
-        makeDetail();
+        makePane();
         if (railScrollEl.value) {
           railScrollEl.value.addEventListener('click', onRailClick);
         }
         /* 能力一家一家落定 → 型号清单长出来 → 型号下拉补画（见 loadCaps 那段注释） */
         window.addEventListener('wb:cap-ready', onCapReady);
-        if (inspEl.value) inspEl.value.addEventListener('click', onInspClick);
       } catch (e) {
         failed.value = '素材库初始化失败：' + errText(e);
         if (window.PageReport) PageReport.pageFail('素材库', failed.value, e);
@@ -1536,10 +1518,10 @@ export default {
 
     return {
       retryLoad: () => { if (window.__spaReload) window.__spaReload(); },
-      rootEl, matEl, toolbarEl, railScrollEl, railSubEl, grpListEl, inspEl,
+      rootEl, matEl, toolbarEl, railScrollEl, railSubEl, grpListEl, paneEl,
       btnNewEl, btnMultiEl, railToggleEl, bkImgPickEl, bkTtsPickEl,
       gridEl, gridEndEl, pagerRowEl,
-      ready, failed, cards, inspId, railOpen,
+      ready, failed, cards, selId, railOpen, closePane,
       libraryCount, scopeTitle, cntText, activateCard,
       pagerVisible, emptyHtml,
       newBtnHtml,

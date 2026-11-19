@@ -87,11 +87,14 @@ style: {"height":"var(--sp-2)"}
 }
 const _hoisted_42 = ["onClick"]
 const _hoisted_43 = {
-class: "mat-insp",
-ref: "inspEl",
-"aria-label": "素材信息"
+class: "mat-pane",
+ref: "paneEl",
+"aria-label": "素材面板"
 }
-const _hoisted_44 = { ref: "grpListEl" }
+const _hoisted_44 = {
+id: "charsGrpList",
+ref: "grpListEl"
+}
 
 export function render(_ctx, _cache) {
 return (_openBlock(), _createElementBlock("div", _hoisted_1, [
@@ -114,13 +117,13 @@ onClick: _ctx.newChar
 ])
 ]),
 _createElementVNode("div", {
-class: _normalizeClass(["mat", { 'has-insp': !!_ctx.inspId, 'rail-open': _ctx.railOpen }]),
+class: _normalizeClass(["mat", { 'pane-on': !!_ctx.selId, 'rail-open': _ctx.railOpen }]),
 ref: "matEl"
 }, [
 (_ctx.railOpen)
 ? (_openBlock(), _createElementBlock("button", {
 key: 0,
-class: "mat-scrim",
+class: "mat-scrim rail-scrim",
 type: "button",
 "aria-label": "关闭目录",
 onClick: $event => (_ctx.railOpen = false)
@@ -249,7 +252,7 @@ innerHTML: _ctx.emptyHtml
 (_openBlock(true), _createElementBlock(_Fragment, null, _renderList(_ctx.cards, (card) => {
 return (_openBlock(), _createElementBlock("div", {
 key: card.id,
-class: _normalizeClass(["card card-surface mcard", { sel: _ctx.inspId === card.id, multi: _ctx.multi, picked: _ctx.isPicked(card.id) }]),
+class: _normalizeClass(["card card-surface mcard", { sel: _ctx.selId === card.id, multi: _ctx.multi, picked: _ctx.isPicked(card.id) }]),
 draggable: "true",
 tabindex: "0",
 role: "group",
@@ -273,13 +276,13 @@ style: _normalizeStyle({ display: _ctx.pagerVisible ? '' : 'none' })
 }, null, 4 /* STYLE */)
 ])
 ]),
-(_ctx.inspId)
+(_ctx.selId)
 ? (_openBlock(), _createElementBlock("button", {
 key: 1,
-class: "mat-scrim mat-insp-scrim",
+class: "mat-scrim pane-scrim",
 type: "button",
-"aria-label": "关闭素材信息",
-onClick: $event => (_ctx.inspId = '')
+"aria-label": "关闭素材面板",
+onClick: _ctx.closePane
 }, null, 8 /* PROPS */, _hoisted_42))
 : _createCommentVNode("v-if", true),
 _createElementVNode("aside", _hoisted_43, null, 512 /* NEED_PATCH */)

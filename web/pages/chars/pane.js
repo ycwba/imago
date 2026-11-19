@@ -1,26 +1,25 @@
 /* ============================================================================
-   素材详情 —— 整屏层（新建 / 编辑一条素材）
+   素材面板 —— 素材库右侧的常驻编辑栏（三栏主从的第三栏）
    ---------------------------------------------------------------------------
-   这一层是「素材库那一页」的一部分，不是一张新页面：
-     · 编辑态：左边是**画面**（预览图 / 锚点 / 候选），右边是**文档**（基本信息 / 描述 /
-       角色资产 / 声音 / 使用关系）—— 写描述的时候得能看着那张图，所以画面那一栏不动。
-     · 新建态：同一副骨架，空的 —— 先把人写清楚，再出图。
-   它顶掉了以前「卡内就地展开的编辑区」（那张卡会长到一千多像素，把网格撑坏）。
+   点一张卡 = 选中：这一栏立即载入那条素材的完整档案，就地编辑 —— 「看一条素材」
+   只有一个地方（旧的「检查器 + 整屏详情层」两层已撤）。
+   新建也在这里：同一副骨架的草稿态，建档（脚部那颗「建好这一条」）之前不写库。
+
+   分区单列，各自可折叠（折叠只藏正文，缺项与生成中照旧挂在标题行上）：
+     资料 → 画面（出图 / 锚点 / 候选）→ 角色资产 → 声音 → 使用关系
+   「只出声」的角色没有画面与资产两区；场景没有资产与声音两区；道具只有资料与画面。
 
    **每个要生成东西的地方自带型号与数量**（生成条 `.gen-bar`）：预览图、角色资产、声音
-   各自一份，改一处不动别处。
-   默认值来自**设置页「素材库」那张卡**（默认生图型号 / 默认语音型号 / 默认出几张）；
-   页面上**没有「本页默认」面板**了 —— 换的那一次只管那一处，不写回设置页、不写进本机
-   （写回去就成了「按上次那个跑」）。
-   型号下拉、声音那一块、候选排**都调数据层那几件**（`Chars.Pipe.modelSelectHTML` /
-   `Chars.Cast.voiceRowHTML` / `Chars.Cast.picCandsHTML`）—— 界面只有一份。
+   各自一份，改一处不动别处。默认值来自**设置页「素材库」那张卡**；页面上没有
+   「本页默认」面板 —— 换的那一次只管那一处，不写回设置页、不写进本机。
 
    数据与副作用**一件都不重写**：写库走 `Chars.Lib`，出图走 `Chars.Pipe`，出声音走
-   `Chars.Cast` —— 这一层只负责「长什么样」与「点了之后做什么」。
+   `Chars.Cast`（声音整块的标记与动作名都是它那份）—— 这一层只负责「长什么样」
+   与「点了之后做什么」。
    ========================================================================== */
 
-/** 完备度点阵（与素材库卡面同一套形状语言）：预览图 · 角色资产 · 声音 · 描述 */
-export function detailDots(D, c) {
+/** 完备度点阵（卡面与面板头共用一套形状语言）：预览图 · 角色资产 · 声音 · 描述 */
+export function dotsHTML(D, c) {
   const isActor = !D.isSceneItem(c) && !D.isPropItem(c);
   const slots = [
     { ok: !!D.picOf(c), na: false },
@@ -33,7 +32,7 @@ export function detailDots(D, c) {
     return x.ok ? '<i class="ok"></i>' : '<i class="miss"></i>';
   }).join('') + '</span>';
 }
-export function detailStat(D, c) {
+export function statHTML(D, c) {
   const isActor = !D.isSceneItem(c) && !D.isPropItem(c);
   const slots = [
     { ok: !!D.picOf(c), na: false },
@@ -47,27 +46,29 @@ export function detailStat(D, c) {
 }
 
 /**
- * 建一层。ctx 由素材库页交过来（页面里那些写库 / 出图 / 记账的出口都在那边）。
+ * 建一个面板。ctx 由素材库页交过来（页面里那些写库 / 出图 / 记账的出口都在那边）。
  * ctx = {
  *   D, REG（getter）, refUse, DRAFT,
- *   libSave, errSet, genRun, genHas, genSet, genClear, onTaskHook,
+ *   libSave, errSet, genRun, genHas, genSet, genClear, genMsg, onTaskHook,
  *   dramaWith(model), optsWith(model, count),
  *   defImgModel(), defTtsModel(), effKey(kind, mode, key),
  *   picWord, mainKind, candCount(modelKey), durablePic, thumbImg, errText,
- *   saveField, queueFieldSave, render, openZoom,
- *   hostEl（挂层的那一格）, onClose, onCreated,
+ *   saveField, queueFieldSave, afterFieldSave, delItem(c, el),
+ *   kindFields: c => …, measureQuality,
+ *   errsHTML(c), render(), openZoom(c, label, src),
+ *   paneEl（面板宿主）, onClose(), onCreated(saved),
  * }
  */
-export function createDetail(ctx) {
+export function createPane(ctx) {
   const D = ctx.D;
   const esc = window.esc;
   const Toast = window.Toast;
-  const Confirm = window.Confirm;
 
-  let host = null;          // 层的外壳（挂在页面根上）
   let live = null;          // 当前这一条（编辑态）
   let draft = null;         // 新建态的草稿（还没建档）
   let isNew = false;
+  /* 分区折叠只记内存（会话内一致即可，不落本机）。 */
+  const FOLD = new Set();
   /* 每个生成位自己的型号与数量：pic（预览图）/ asset（角色资产）/ voice（声音）。
      型号存的是「型号键」（provId/modelId），空串 = 还没单独挑过 = 用设置页那个默认。
      数量：0 = 还没单独改过 = 用设置页那个「默认出几张」。
@@ -144,22 +145,62 @@ export function createDetail(ctx) {
       + '</div>';
   }
 
-  /* ---------- 画面那一栏（左边） ---------- */
-  function mediaHTML(c) {
+  /* ---------- 分区外壳：标题行可点折叠 ---------- */
+  function secHTML(sec, title, n, busy, body) {
+    const folded = FOLD.has(sec);
+    return '<section class="pane-sec' + (folded ? ' folded' : '') + '" data-sec="' + sec + '">'
+      + '<button class="pane-sec-h" type="button" data-d-act="fold" data-sec="' + sec + '"'
+      + ' aria-expanded="' + !folded + '">'
+      + '<span class="chev">' + (window.icon ? window.icon('chevronDown', 12) : '') + '</span>'
+      + '<span class="pane-sec-t">' + esc(title) + '</span>'
+      + (n ? '<span class="pane-sec-n">' + esc(n) + '</span>' : '')
+      + (busy ? '<span class="pane-sec-busy">' + esc(busy) + '</span>' : '')
+      + '</button>'
+      + '<div class="pane-sec-body">' + body + '</div>'
+      + '</section>';
+  }
+
+  /* ---------- 资料 ---------- */
+  function profileBody(c) {
+    const kf = ctx.kindFields(c);
+    const isActor = !D.isSceneItem(c) && !D.isPropItem(c);
+    const out = [];
+    out.push('<label class="pane-field"><span>名字</span>'
+      + '<input class="ui-inp" data-f="name" value="' + esc(c.name || '') + '" maxlength="20"></label>');
+    out.push('<div class="pane-row2">'
+      + '<label class="pane-field"><span>类型</span><select data-f="kind">'
+      + Object.keys(D.LIB_KINDS).map(k => '<option value="' + k + '"' + (k === D.libKindOf(c) ? ' selected' : '') + '>' + D.LIB_KINDS[k] + '</option>').join('')
+      + '</select></label>'
+      + '<label class="pane-field"><span>分组</span><input class="ui-inp" data-f="group" value="' + esc(c.group || '') + '" maxlength="20" placeholder="例：校园篇主要角色" list="charsGrpList"></label>'
+      + '</div>');
+    if (isActor) out.push('<label class="pane-check"><input type="checkbox" data-f="voiceOnly"' + (D.voiceOnlyOf(c) ? ' checked' : '') + '> 只出声（不出镜）</label>');
+    out.push('<label class="pane-field"><span>' + esc(kf.look.lab) + '</span>'
+      + '<textarea class="ui-ta" data-f="look" rows="3" placeholder="' + esc(kf.look.ph) + '">' + esc(c.look || c.desc || '') + '</textarea></label>');
+    if (D.isSceneItem(c)) {
+      out.push('<label class="pane-field"><span>' + esc(kf.time.lab) + '</span><select data-f="time">' + D.Cast.timeOptsHTML(c) + '</select></label>');
+    }
+    out.push('<label class="pane-field"><span>' + esc(kf.bio.lab) + '</span>'
+      + '<input class="ui-inp" data-f="bio" value="' + esc(c.bio || '') + '" placeholder="' + esc(kf.bio.ph) + '"></label>');
+    if (D.isPropItem(c)) out.push('<div class="ui-hint">道具只有一张图。</div>');
+    return out.join('');
+  }
+
+  /* ---------- 画面：hero + 出图条 + 锚点 + 候选 ---------- */
+  function picBody(c) {
     const pic = D.picOf(c);
     const kind = ctx.mainKind(c);
     const kf = ctx.kindFields(c);
-    const kindLab = D.LIB_KINDS[D.libKindOf(c)] || '';
-    const hero = pic
-      ? '<div class="md-hero">' + ctx.thumbImg(pic)
-        + '<div class="md-hero-cap"><b>' + esc(c.name || '（无名）') + '</b><span>' + esc(kindLab) + '</span></div></div>'
-      : '<div class="md-hero"><div class="none"><b>还没有预览图</b></div></div>';
     /* 这一处（预览图）现在用哪个型号：这一行挑的 → 设置页那个默认。 */
     const picModel = gens.pic.model || ctx.defImgModel();
     const cap = capOf('image', picModel);
     const picDef = ctx.candCount(picModel);
     /* 这一条上一次没出来的那几项，原因要落在看得见的地方（真品是写在卡上那一行）。 */
     const errHTML = ctx.errsHTML ? ctx.errsHTML(c) : '';
+    const hero = pic
+      ? '<button class="pane-hero" type="button" data-d-act="zoom" data-src="' + esc(pic) + '" data-label="' + esc(c.name || '') + ' · ' + esc(ctx.picWord(c)) + '" title="' + esc(ctx.picWord(c)) + '">'
+        + ctx.thumbImg(pic)
+        + '<span class="pane-hero-cap"><b>' + esc(c.name || '（无名）') + '</b></span></button>'
+      : '<div class="pane-hero"><div class="none"><b>还没有' + esc(ctx.picWord(c)) + '</b></div></div>';
     const bar = genBar({
       site: 'pic', label: '出图', kind: 'image', mode: 'text_to_image', cap: cap, def: picDef,
       act: pic ? '重出' + ctx.picWord(c) : 'AI 出第一张',
@@ -170,7 +211,7 @@ export function createDetail(ctx) {
     /* 候选排：出过的那些都在这里，能换能删（标记用数据层那一份） */
     const faces = (c.faces || []).filter(x => x && x.src);
     const cands = faces.length
-      ? '<div class="md-mrow"><div class="md-mt">预览图候选<span class="n">' + faces.length + ' 张</span></div>'
+      ? '<div class="pane-mrow"><div class="pane-mt">预览图候选<span class="n">' + faces.length + ' 张</span></div>'
         + D.Cast.picCandsHTML(faces, pic, { act: 'usecand', del: 'canddel', label: '候选', name: c.name, extra: ' data-k="' + esc(kind) + '"' })
         + '<div class="gen-row gen-row-inline"><span class="gen-lab">再出</span>'
         + modelHTML('image', 'text_to_image', gens.pic.model)
@@ -180,21 +221,21 @@ export function createDetail(ctx) {
       : '';
     /* 身份锚点：认人最准的那一张 */
     const anchors = faces.length > 1
-      ? '<div class="md-mrow"><div class="md-mt">身份锚点</div>'
+      ? '<div class="pane-mrow"><div class="pane-mt">身份锚点</div>'
         + '<div class="ui-hint">出图与参考优先用它。</div>'
-        + '<div class="md-anchors">' + faces.map((f, i) => {
+        + '<div class="pane-anchors">' + faces.map((f, i) => {
           const on = f.src === c.anchor;
-          return '<button class="md-anchor' + (on ? ' on' : '') + '" type="button" data-d-act="setanchor" data-src="' + esc(f.src) + '">'
+          return '<button class="pane-anchor' + (on ? ' on' : '') + '" type="button" data-d-act="setanchor" data-src="' + esc(f.src) + '">'
             + ctx.thumbImg(f.src) + '<span>' + (f.src === pic ? '预览图' : '候选 ' + (i + 1)) + '</span></button>';
         }).join('') + '</div>'
         + '<div class="ui-hint" style="margin-top:var(--sp-8)">参考图质量：<span data-q="' + esc(c.id) + '">正在量…</span></div>'
         + '</div>'
       : '';
-    return hero + (errHTML ? '<div class="md-err">' + errHTML + '</div>' : '') + bar + anchors + cands;
+    return hero + (errHTML ? '<div class="pane-err">' + errHTML + '</div>' : '') + bar + anchors + cands;
   }
 
-  /* ---------- 角色资产那一节 ---------- */
-  function assetSectionHTML(c) {
+  /* ---------- 角色资产 ---------- */
+  function assetBody(c) {
     const list = D.Cast.assetsOf(c);
     const tpls = D.Cast.assetTplsOf(c);
     const libProps = D.Lib.list().filter(x => x && D.isPropItem(x));
@@ -204,20 +245,20 @@ export function createDetail(ctx) {
     const cap = capOf('image', assetModel);
     const rows = list.map(a => {
       const lab = D.Cast.assetName(a);
-      const props = libProps.map(p => '<label class="ck sm" title="这一张图上带着「' + esc(p.name) + '」">'
+      const props = libProps.map(p => '<label class="pane-check" title="这一张图上带着「' + esc(p.name) + '」">'
         + '<input type="checkbox" data-a="assetprop" data-id="' + esc(a.id) + '" data-pid="' + esc(p.id) + '"'
         + ((a.propIds || []).indexOf(p.id) >= 0 ? ' checked' : '') + '>' + esc(p.name) + '</label>').join('');
       const rg = rowGens[a.id] || {};
-      return '<div class="ui-asset" data-aid="' + esc(a.id) + '">'
-        + '<span class="ui-cand" data-a="zoom" data-src="' + esc(a.src) + '" data-label="' + esc((c.name || '') + ' · ' + lab) + '">' + ctx.thumbImg(a.src) + '</span>'
+      return '<div class="pane-asset" data-aid="' + esc(a.id) + '">'
+        + '<button type="button" class="ui-cand" data-d-act="zoom" data-src="' + esc(a.src) + '" data-label="' + esc((c.name || '') + ' · ' + lab) + '">' + ctx.thumbImg(a.src) + '</button>'
         + '<input class="ui-inp" data-a="assetrename" data-id="' + esc(a.id) + '" maxlength="24" value="' + esc(lab) + '" title="这一张叫什么">'
         /* 这一行重出用**这一行自己的**型号与数量（记在 rowGens 里，重出时读它） */
-        + '<span class="md-row-gen"><span class="md-row-gen-l">重出</span>'
+        + '<span class="pane-row-gen"><span class="pane-row-gen-l">重出</span>'
         + modelHTML('image', 'text_to_image', rg.model || gens.asset.model, a.id)
         + countHTML(cap, rg.count || 1, '张', a.id) + '</span>'
         + '<button type="button" class="ui-linkbtn" data-a="assetregen" data-id="' + esc(a.id) + '">重出这一张</button>'
         + '<button type="button" class="ui-linkbtn" data-a="assetclear" data-id="' + esc(a.id) + '" data-label="' + esc(lab) + '">去掉这一张</button>'
-        + (libProps.length ? '<span class="ui-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
+        + (libProps.length ? '<span class="pane-props">' + props + '</span>' : '<span class="ui-hint sm">还没有道具</span>')
         + '</div>';
     }).join('');
     /* 加一张：名字 / 模板 / 自定义描述 / 型号 / 张数 —— 五样各管一件事。
@@ -226,20 +267,17 @@ export function createDetail(ctx) {
       site: 'asset', label: '加一张', kind: 'image', mode: 'text_to_image', cap: cap, def: 1,
       act: 'AI 出这一张',
       why: '照「' + shortLab(ctx.kindFields(c).look.lab) + '」这一句画',
-      extra: '<input class="ui-inp md-asset-name" data-a="assetname" maxlength="24" value="' + esc(dr.name) + '" placeholder="叫什么">'
+      extra: '<input class="ui-inp pane-asset-name" data-a="assetname" maxlength="24" value="' + esc(dr.name) + '" placeholder="叫什么">'
         + '<select data-a="assettpl">' + tpls.map(k => '<option value="' + esc(k) + '"' + (k === drTpl ? ' selected' : '') + '>' + esc(D.Cast.assetLabel(c, k) || k) + '</option>').join('') + '</select>'
         + '<button class="ghost" type="button" data-d-act="assetpick">' + (window.icon ? window.icon('upload', 12) : '') + '自己传一张</button>',
-      extra2: '<label class="md-what"><span>选「自定义」时要画什么</span>'
+      extra2: '<label class="pane-what"><span>选「自定义」时要画什么</span>'
         + '<input class="ui-inp" data-a="assetwhat" maxlength="60" value="' + esc(dr.what) + '" placeholder="例：雨天造型、侧脸特写"></label>',
     });
-    return '<section class="md-sec"><div class="md-sec-t">角色资产<span class="md-sec-n">' + list.length + ' 张</span></div>'
-      + bar
-      + (rows ? '<div class="ui-assets">' + rows + '</div>' : '')
-      + '</section>';
+    return bar + (rows ? '<div class="pane-assets">' + rows + '</div>' : '');
   }
 
-  /* ---------- 声音那一节：整块用数据层那一份（按这一位的定声音方式渲染） ---------- */
-  function voiceSectionHTML(c) {
+  /* ---------- 声音：整块用数据层那一份（按这一位的定声音方式渲染） ---------- */
+  function voiceSecHTML(c) {
     const cap = voiceCapOf();
     const def = voiceDefOf();
     const n = siteCountOf('voice', cap, def);
@@ -249,116 +287,136 @@ export function createDetail(ctx) {
       act: '出 ' + n + ' 条试听',
       why: '照「' + shortLab(ctx.kindFields(c).bio.lab) + '」这一句定音色',
     });
-    return '<section class="md-sec"><div class="md-sec-t">声音</div>'
-      + bar
-      + D.Cast.voiceRowHTML(ctx.REG, o, c, { waiting: ctx.genMsg('voicecands', c.id) })
-      + '</section>';
+    return bar + D.Cast.voiceRowHTML(ctx.REG, o, c, { waiting: ctx.genMsg('voicecands', c.id) });
   }
 
-  /* ---------- 文档那一栏（右边） ---------- */
-  function docHTML(c) {
-    const kf = ctx.kindFields(c);
-    const isActor = !D.isSceneItem(c) && !D.isPropItem(c);
-    const vo = isActor && D.voiceOnlyOf(c);
-    const out = [];
-    out.push('<section class="md-sec"><div class="md-sec-t">基本信息</div>'
-      + '<div class="md-row3">'
-      + '<label class="md-field"><span>名字</span><input class="ui-inp" data-f="name" value="' + esc(c.name || '') + '" maxlength="20"></label>'
-      + '<label class="md-field"><span>类型</span><select data-f="kind">'
-      + Object.keys(D.LIB_KINDS).map(k => '<option value="' + k + '"' + (k === D.libKindOf(c) ? ' selected' : '') + '>' + D.LIB_KINDS[k] + '</option>').join('')
-      + '</select></label>'
-      + '<label class="md-field"><span>分组</span><input class="ui-inp" data-f="group" value="' + esc(c.group || '') + '" maxlength="20" placeholder="例：校园篇主要角色"></label>'
-      + '</div>'
-      + (isActor ? '<label class="md-check"><input type="checkbox" data-f="voiceOnly"' + (D.voiceOnlyOf(c) ? ' checked' : '') + '> 只出声（不出镜）</label>' : '')
-      + '</section>');
-
-    out.push('<section class="md-sec"><div class="md-sec-t">描述</div>'
-      + '<label class="md-field"><span>' + esc(kf.look.lab) + '</span>'
-      + '<textarea class="ui-ta" data-f="look" rows="3" placeholder="' + esc(kf.look.ph) + '">' + esc(c.look || c.desc || '') + '</textarea></label>'
-      + (D.isSceneItem(c)
-        ? '<label class="md-field"><span>' + esc(kf.time.lab) + '</span><select data-f="time">' + D.Cast.timeOptsHTML(c) + '</select></label>'
-        : '')
-      + '<label class="md-field"><span>' + esc(kf.bio.lab) + '</span>'
-      + '<input class="ui-inp" data-f="bio" value="' + esc(c.bio || '') + '" placeholder="' + esc(kf.bio.ph) + '"></label>'
-      + (D.isPropItem(c) ? '<div class="ui-hint">道具只有这一张图。</div>' : '')
-      + '</section>');
-
-    if (isActor && !vo) out.push(assetSectionHTML(c));
-    if (isActor && !vo) out.push(voiceSectionHTML(c));
-
-    /* 使用关系：被引用过才有这一节 */
+  /* ---------- 使用关系：被引用过才有这一节 ---------- */
+  function useBody(c) {
     const uses = ctx.refUse.get(String(c.name || '')) || [];
-    if (uses.length) {
-      out.push('<section class="md-sec"><div class="md-sec-t">使用关系 · ' + uses.length + ' 个镜头</div>'
-        + uses.slice(0, 12).map(u => '<div class="insp-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
-        + (uses.length > 12 ? '<div class="ui-hint">还有 ' + (uses.length - 12) + ' 处</div>' : '')
-        + '</section>');
+    return uses.slice(0, 12).map(u => '<div class="pane-use"><span>' + esc(u.pname) + '</span><span>' + esc(u.shname) + '</span><span>' + esc(u.sname) + '</span></div>').join('')
+      + (uses.length > 12 ? '<div class="ui-hint">还有 ' + (uses.length - 12) + ' 处</div>' : '');
+  }
+
+  /* ---------- 各区标题行上的计数与生成中 ---------- */
+  function secMeta(c, sec) {
+    if (sec === 'pic') {
+      const faces = (c.faces || []).filter(x => x && x.src);
+      return { n: faces.length ? faces.length + ' 张候选' : '', busy: ctx.genHas('face', c.id) ? '正在出图…' : '' };
     }
-    return '<div class="md-doc-inner">' + out.join('') + '</div>';
+    if (sec === 'asset') {
+      const n = D.Cast.assetsOf(c).length;
+      /* GEN 键形如 asset#<id>#<cid> / asset#new:<tpl>#<cid>：这一条的任何一个资产位在跑都算。 */
+      let busy = '';
+      const tail = '#' + c.id;
+      for (const key of ctx.genKeys()) {
+        if (key.indexOf('asset#') === 0 && key.endsWith(tail)) { busy = '正在出资产…'; break; }
+      }
+      return { n: n ? n + ' 张' : '', busy: busy };
+    }
+    if (sec === 'voice') {
+      const busy = ctx.genHas('voicecands', c.id) ? '正在出声音…' : (ctx.genHas('voice', c.id) ? '正在合成…' : '');
+      const n = (c.voice || c.refAudio || String(c.voiceNote || '').trim()) ? '已定' : '';
+      return { n: n, busy: busy };
+    }
+    if (sec === 'use') {
+      const uses = ctx.refUse.get(String(c.name || '')) || [];
+      return { n: uses.length ? uses.length + ' 个镜头' : '', busy: '' };
+    }
+    return { n: '', busy: '' };
   }
 
   /* ---------- 整层 ---------- */
-  function layerHTML() {
+  function paneHTML() {
     const c = live;
-    const name = isNew ? '新建素材' : (c.name || '这条素材');
+    const name = isNew ? '新建素材' : (c.name || '（无名）');
     const kind = isNew ? draft.kind : D.libKindOf(c);
+    const isActor = !D.isSceneItem(c) && !D.isPropItem(c);
+    const vo = isActor && D.voiceOnlyOf(c);
     const tags = '<span class="ui-tag">' + esc(D.LIB_KINDS[kind] || kind) + '</span>'
       + (!isNew && c.group ? '<span class="ui-tag">' + esc(c.group) + '</span>' : '');
-    const stat = isNew ? '' : detailDots(D, c) + detailStat(D, c);
-    return '<header class="md-head">'
-      + '<button class="ghost md-back" type="button" data-d-act="close">' + (window.icon ? window.icon('arrowLeft', 13) : '') + (isNew ? '取消' : '返回素材库') + '</button>'
-      + '<div class="md-title"><span class="mname">' + esc(name) + '</span>' + tags + '</div>'
-      + stat
-      + '<span class="sp"></span>'
-      + (isNew
-        ? '<span class="md-saved is-new">还没存进库</span>'
-        : '<span class="md-saved">' + (window.icon ? window.icon('check', 12) : '') + '已存到本机 · 刚刚存过</span>')
+    const pic = isNew ? '' : D.picOf(c);
+    const thumb = pic
+      ? ctx.thumbImg(pic)
+      : (window.icon ? window.icon(isActor && vo ? 'mic' : 'image', 20) : '');
+    const secs = [];
+    secs.push(secHTML('profile', '资料', isNew ? '还没存进库' : '', '', profileBody(c)));
+    if (isActor && !vo) {
+      const pm = secMeta(c, 'pic');
+      secs.push(secHTML('pic', '画面', pm.n, pm.busy, picBody(c)));
+      const am = secMeta(c, 'asset');
+      secs.push(secHTML('asset', '角色资产', am.n, am.busy, assetBody(c)));
+      const vm = secMeta(c, 'voice');
+      secs.push(secHTML('voice', '声音', vm.n, vm.busy, voiceSecHTML(c)));
+    } else if (!vo) {
+      const pm = secMeta(c, 'pic');
+      secs.push(secHTML('pic', '画面', pm.n, pm.busy, picBody(c)));
+    }
+    if (!isNew) {
+      const um = secMeta(c, 'use');
+      if (um.n) secs.push(secHTML('use', '使用关系', um.n, '', useBody(c)));
+    }
+    const foot = isNew
+      ? '<button class="ghost" type="button" data-d-act="saveonly">只存文字</button><span class="sp"></span>'
+        + '<button class="pri" type="button" data-d-act="create">' + (window.icon ? window.icon('check', 12) : '') + '建好这一条</button>'
+      : '<button class="ghost danger" type="button" data-d-act="del">' + (window.icon ? window.icon('trash', 12) : '') + '从库里删掉</button>'
+        + '<span class="sp"></span>'
+        + '<span class="pane-foot-tip">改完就地存</span>';
+    return '<header class="pane-head">'
+      + '<span class="pane-thumb">' + thumb + '</span>'
+      + '<div class="pane-id"><span class="pane-name">' + esc(name) + '</span>'
+      + '<span class="pane-tags">' + tags + '</span></div>'
+      + (!isNew ? '<span class="pane-stat">' + dotsHTML(D, c) + statHTML(D, c) + '</span>' : '')
+      + '<button class="ghost pane-close" type="button" data-d-act="close" title="收起面板">' + (window.icon ? window.icon('close', 13) : '') + '</button>'
       + '</header>'
-      + '<div class="md-body"><aside class="md-media">' + mediaHTML(c) + '</aside>'
-      + '<div class="md-doc">' + docHTML(c) + '</div></div>'
-      + '<footer class="md-foot">'
-      + (isNew
-        ? '<button class="ghost" type="button" data-d-act="saveonly">只存文字</button><span class="sp"></span>'
-          + '<button class="pri" type="button" data-d-act="create">' + (window.icon ? window.icon('check', 12) : '') + '建好这一条</button>'
-        : '<button class="ghost danger" type="button" data-d-act="del">' + (window.icon ? window.icon('trash', 12) : '') + '从库里删掉</button>'
-          + '<span class="sp"></span>'
-          + '<span class="md-foot-tip">改完就地存</span>')
-      + '</footer>';
+      + '<div class="pane-scroll">' + secs.join('') + '</div>'
+      + '<footer class="pane-foot">' + foot + '</footer>';
   }
 
   function paint() {
-    if (!host || !live) return;
-    /* 整片重画罩在公共件里：真正在滚的是这一层里的两块（`.md-media` 与 `.md-doc` 各自 `overflow:auto`），
-       换掉节点之后它们的滚动位从 0 起 —— 表现是「详情里滚到描述中段改一个字，整块弹回顶」。
-       点名 host 而不是那两块的 id：重画之后旧句柄已经脱文档，公共件按路径在新树里找回容器。 */
+    const host = ctx.paneEl;
+    if (!host) return;
+    if (!live) { host.innerHTML = ''; return; }
+    /* 整片重画罩在公共件里：真正在滚的是 `.pane-scroll`，换掉节点之后它的滚动位从 0 起 ——
+       表现是「面板滚到描述中段点一颗按钮，整栏弹回顶」。点名 host 而不是那一格：
+       重画之后旧句柄已经脱文档，公共件按路径在新树里找回容器。 */
     window.Wb.viewport.keep(host, () => {
-      host.innerHTML = layerHTML();
+      host.innerHTML = paneHTML();
       if (window.Dropdowns) window.Dropdowns.build(host);
       if (window.Wb && window.Wb.thumbs) window.Wb.thumbs.bindAll(host);
     });
     syncAssetWhat();
     if (!isNew && ctx.measureQuality) ctx.measureQuality(live, host);
   }
+  /* 头上那几个字就地更新（只换内容，不碰表单）—— 打字过程中不能整栏重画。 */
+  function paintName() {
+    const host = ctx.paneEl;
+    if (!host || !live || isNew) return;
+    const el = host.querySelector('.pane-name');
+    if (el) el.textContent = live.name || '（无名）';
+  }
+
+  /* ---------- 生成跑进来的那一区自动展开 ---------- */
+  const SEC_OF_KIND = k =>
+    k === 'face' ? 'pic'
+      : k === 'voice' || k === 'voicecands' ? 'voice'
+        : k.indexOf('asset#') === 0 ? 'asset' : '';
+  function expandFor(kind) {
+    const sec = SEC_OF_KIND(String(kind || ''));
+    if (!sec || !FOLD.has(sec)) return;
+    FOLD.delete(sec);
+    paint();
+    const host = ctx.paneEl;
+    if (host) {
+      const el = host.querySelector('[data-sec="' + sec + '"] .pane-sec-h');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'nearest' });
+    }
+  }
 
   /* ---------- 开 / 关 ---------- */
-  function ensureHost() {
-    if (host && host.isConnected) return host;
-    host = document.createElement('div');
-    host.className = 'md-layer';
-    host.setAttribute('role', 'dialog');
-    host.setAttribute('aria-label', '素材详情');
-    (ctx.hostEl || document.body).appendChild(host);
-    host.addEventListener('click', onClick);
-    host.addEventListener('input', onInput);
-    host.addEventListener('change', onChange);
-    host.addEventListener('focusout', onFocusOut);
-    return host;
-  }
   function openItem(id) {
     const c = D.Lib.get(id);
     if (!c) { Toast.warn('这一条已经不在了'); return; }
     live = c; isNew = false; draft = null;
-    ensureHost();
     paint();
   }
   function openNew(fields) {
@@ -373,26 +431,31 @@ export function createDetail(ctx) {
     };
     draft = { kind: f.kind || 'actor' };
     isNew = true;
-    ensureHost();
     paint();
   }
-  function closeLayer() {
-    if (!host) return;
+  function closeSelf() {
     live = null; isNew = false; draft = null;
-    host.remove(); host = null;
+    const host = ctx.paneEl;
+    if (host) host.innerHTML = '';
     ctx.onClose && ctx.onClose();
   }
-  function layerIsOpen() { return !!live; }
+  
 
   /* ---------- 事件 ---------- */
   function saveItem(c) {
     const ok = ctx.libSave(c);
-    ctx.render && ctx.render();
+    ctx.afterFieldSave && ctx.afterFieldSave(c);
     return ok;
   }
-  /* 一张表：层里所有动作（数据层那几个标记与这一层自己那几个都从这里走） */
+  /* 一张表：面板里所有动作（数据层那几个标记与面板自己那几个都从这里走） */
   const ACTS = {
-    close: () => closeLayer(),
+    close: () => closeSelf(),
+    fold: (c, el) => {
+      const sec = el.dataset.sec;
+      if (!sec) return;
+      if (FOLD.has(sec)) FOLD.delete(sec); else FOLD.add(sec);
+      paint();
+    },
     pickface: (c) => pickFace(c),
     assetpick: (c) => pickAsset(c),
     morecand: (c, el) => moreCands(c, el.dataset.k || ctx.mainKind(c)),
@@ -435,7 +498,7 @@ export function createDetail(ctx) {
     vaudiopick: (c) => takeAudio(c),
     refaudio: (c) => pickRefAudio(c),
     refclear: (c) => clearRef(c),
-    del: (c) => del(c),
+    del: (c, el) => ctx.delItem(c, el),
     create: () => create(false),
     saveonly: () => create(true),
     gen: (c, el) => runGen(el.dataset.site),
@@ -443,7 +506,7 @@ export function createDetail(ctx) {
 
   async function onClick(e) {
     const t = e.target && e.target.closest ? e.target.closest('[data-d-act],[data-act],[data-a]') : null;
-    if (!t || !host.contains(t)) return;
+    if (!t || !ctx.paneEl || !ctx.paneEl.contains(t)) return;
     const c = live;
     if (!c) return;
     const a = t.dataset.dAct || t.dataset.act || t.dataset.a || '';
@@ -479,7 +542,6 @@ export function createDetail(ctx) {
       /* 新建态：只改草稿，不写库（建档是页脚那颗「建好这一条」的事）。 */
       if (isNew) {
         c[t.dataset.f] = t.type === 'checkbox' ? t.checked : t.value;
-        if (t.dataset.f === 'kind') { paint(); return; }
         paint();
         return;
       }
@@ -510,6 +572,7 @@ export function createDetail(ctx) {
   }
   /* 「自定义」那一档没有固定提示词 —— 只有选了自定义，「要画什么」那一格才用得上。 */
   function syncAssetWhat() {
+    const host = ctx.paneEl;
     const tpl = host && host.querySelector('[data-a="assettpl"]');
     const what = host && host.querySelector('[data-a="assetwhat"]');
     if (!tpl || !what) return;
@@ -524,10 +587,10 @@ export function createDetail(ctx) {
     if (t.dataset && t.dataset.f) {
       if (t.type === 'checkbox' || t.tagName === 'SELECT') return;
       ctx.saveField(c, t, t.dataset.f);
-      paint();
+      paintName();
       return;
     }
-    if (t.dataset && t.dataset.act === 'voicenote') { saveItem(c); paint(); }
+    if (t.dataset && t.dataset.act === 'voicenote') { saveItem(c); }
   }
 
   /* ---------- 生成条上的动作 ---------- */
@@ -575,15 +638,15 @@ export function createDetail(ctx) {
     paint();
   }
   function currentTpl() {
-    const el = host && host.querySelector('[data-a="assettpl"]');
+    const el = ctx.paneEl && ctx.paneEl.querySelector('[data-a="assettpl"]');
     return el ? el.value : 'three';
   }
   function currentName() {
-    const el = host && host.querySelector('[data-a="assetname"]');
+    const el = ctx.paneEl && ctx.paneEl.querySelector('[data-a="assetname"]');
     return el ? el.value.trim() : '';
   }
   function currentWhat() {
-    const el = host && host.querySelector('[data-a="assetwhat"]');
+    const el = ctx.paneEl && ctx.paneEl.querySelector('[data-a="assetwhat"]');
     return el ? el.value.trim() : '';
   }
 
@@ -621,8 +684,7 @@ export function createDetail(ctx) {
   function useCand(c, kind, s2) {
     if (!s2) return;
     D.setPic(c, s2);
-    const ok = !!ctx.libSave(c);
-    ctx.render && ctx.render();
+    const ok = saveItem(c);
     if (!ok) return;
     Toast.receipt('已经拍过的段还是旧参考图，要重拍那一段', 'ok', 4200);
     paint();
@@ -634,7 +696,7 @@ export function createDetail(ctx) {
     c.faces = next;
     if (D.picOf(c) === s2) D.setPic(c, next.length ? next[0].src : '');
     ctx.libSave(c);
-    ctx.render && ctx.render();
+    ctx.afterFieldSave && ctx.afterFieldSave(c);
     paint();
     Toast.receipt('删掉了这一张候选' + (next.length ? '，还剩 ' + next.length + ' 张' : '（这一类清空了）'));
   }
@@ -653,7 +715,8 @@ export function createDetail(ctx) {
     paint();
   }
   async function clearAsset(c, id, lab) {
-    const btn = host.querySelector('[data-a="assetclear"][data-id="' + CSS.escape(id) + '"]');
+    const host = ctx.paneEl;
+    const btn = host && host.querySelector('[data-a="assetclear"][data-id="' + CSS.escape(id) + '"]');
     if (window.Confirm.arm(btn || host, '确认去掉' + (lab || '这一张'),
       { note: '素材库里这一张会空出来' })) return;
     D.Cast.removeAsset(c, id);
@@ -739,20 +802,6 @@ export function createDetail(ctx) {
     saveItem(c);
     paint();
   }
-  async function del(c) {
-    const yes = await Confirm.ask({
-      title: '删掉「' + (c.name || '这条素材') + '」？',
-      body: '会从素材库删掉这条。',
-      okLabel: '删掉', danger: true,
-    });
-    if (!yes) return;
-    if (c.refAudio) { try { await D.Pipe.clearRefAudio(c); } catch (e) { /* 清不掉不拦删除本身 */ } }
-    const gone = D.Lib.remove(c.id);
-    const e = D.Lib.writeError();
-    if (e) Toast.err(e, 9000);
-    closeLayer();
-    if (gone) Toast.receipt('已删掉「' + (c.name || '这条素材') + '」');
-  }
 
   /* ---------- 新建：建档 ---------- */
   async function create(onlyText) {
@@ -773,17 +822,28 @@ export function createDetail(ctx) {
     const r = D.Lib.commitForm(f);
     if (!r || r.error) { Toast.err((r && r.error) || '没能建档'); return; }
     const saved = r.item;
-    closeLayer();
+    live = null; isNew = false; draft = null;
     Toast.receipt('建好了：' + saved.name + '。' + (r.tip || ''));
-    ctx.render && ctx.render();
     ctx.onCreated && ctx.onCreated(saved);
   }
 
   function shortLab(lab) { return String(lab || '').split('（')[0].trim(); }
 
+  function bindHost() {
+    const host = ctx.paneEl;
+    if (!host || host.__paneBound) return;
+    host.__paneBound = true;
+    host.addEventListener('click', onClick);
+    host.addEventListener('input', onInput);
+    host.addEventListener('change', onChange);
+    host.addEventListener('focusout', onFocusOut);
+  }
+
   return {
-    open: openItem, openNew, close: closeLayer, isOpen: layerIsOpen, paint,
+    open: (id) => { bindHost(); openItem(id); },
+    openNew: (fields) => { bindHost(); openNew(fields); },
+    close: closeSelf, isOpen: () => !!live, paint, expandFor, paintName,
     get live() { return live; },
-    destroy() { if (host) { host.remove(); host = null; } },
+    get isNew() { return isNew; },
   };
 }

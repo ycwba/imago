@@ -258,12 +258,12 @@ ok('查询结果预算按 tokens 估算', /chat\/text-util\.js/.test(chat) && /e
 ok('发给模型前抹掉密钥形状', /chat\/text-util\.js/.test(chat) && /redactSecrets/.test(chat) && /redactOf\(out\)/.test(chat));
 ok('当前界面快照带时间线只读上下文', /WBBridge\.get\('director'\)/.test(read('web/core/page-context.js')));
 
-/* ---------- 8. 素材库：批量 / 锚点 / 型号与张数 ---------- */
-group('§8 素材库（批量 / 锚点 / 默认值）');
+/* ---------- 8. 素材库：三栏主从 / 批量 / 锚点 / 型号与张数 ---------- */
+group('§8 素材库（面板 / 批量 / 锚点 / 默认值）');
 const charsJs = read('web/domain/chars.js');
 const charsPage = read('web/pages/chars.js');
-/* 详情层（新建 / 编辑一条素材）是素材库页的一部分，单独一个文件 —— 判据要连它一起读。 */
-const charsDetail = read('web/pages/chars/detail.js');
+/* 右栏素材面板（新建 / 编辑一条素材）是素材库页的一部分，单独一个文件 —— 判据要连它一起读。 */
+const charsPane = read('web/pages/chars/pane.js');
 ok('身份锚点只有一份读法 refPicOf', /function refPicOf\(/.test(charsJs)
   && /anchor: keep\(char\.anchor/.test(charsJs));
 ok('出资产与重出预览都走锚点', /const base = refPicOf\(item\)/.test(charsJs)
@@ -284,23 +284,28 @@ ok('改名回填读工作区真源（Kv / 桥），改写规则只有 Chars.rena
   && /renameShotRefs/.test(charsJs) && /renameShotRefs/.test(charsPage)
   && !/window\.projAll/.test(charsPage));
 ok('搜索走本地语义排序', /SemanticSearch/.test(charsPage) && /S\.rank/.test(charsPage));
-ok('新建 / 编辑在素材详情那一层（不塞回卡片里）', /createDetail/.test(charsPage)
-  && /export function createDetail/.test(charsDetail));
-ok('每个生成位自带型号与数量', /gen-bar/.test(charsDetail) && /gen-model/.test(charsDetail)
-  && /gen-count/.test(charsDetail));
+/* 三栏主从：点卡 = 选中，右栏面板就地编辑 —— 「看一条素材」只有一个地方。
+   旧的「浮动检查器 + 整屏详情层」两层（mat-insp / md-layer）撤掉后不许回来。 */
+ok('新建 / 编辑在右栏素材面板（不塞回卡片里）', /createPane/.test(charsPage)
+  && /export function createPane/.test(charsPane)
+  && /pane-on/.test(charsTpl) && /pane-on/.test(charsCss) && /mat-pane/.test(charsTpl));
+ok('看一条素材只有一个地方（检查器与详情整屏层不回来）',
+  !/mat-insp|md-layer|createDetail|toggleInsp|paintInsp/.test(charsPage + charsTpl + charsCss));
+ok('每个生成位自带型号与数量', /gen-bar/.test(charsPane) && /gen-model/.test(charsPane)
+  && /gen-count/.test(charsPane));
 /* 「本页默认」2026-10 撤掉：默认值改由设置页「素材库」那张卡管（默认生图型号 / 默认语音型号 /
    默认出几张），页面上每一处生成位仍能当场换 —— 换的那一次只管那一处。 */
 ok('素材库页面上没有「本页默认」这一块',
   !/本页默认/.test(read('tools/vue-templates/chars.html'))
   && !/rail-foot|rf-row|rf-hint/.test(charsPage)
   && !/本页默认/.test(read('web/styles/spa-chars.css'))
-  && !/gendef/.test(charsDetail));
+  && !/gendef/.test(charsPane));
 ok('素材页的默认型号与张数在设置页「素材库」那张卡里',
   /imgModel/.test(charsJs) && /ttsModel/.test(charsJs) && /kind: 'model'/.test(charsJs)
   && /modelCtl/.test(read('web/pages/settings.js'))
   && /defImgModel/.test(charsPage) && /defTtsModel/.test(charsPage));
 ok('语音条数是独立一项（与出图张数分开设）',
-  /voiceN/.test(charsJs) && /char_voice_n/.test(charsJs) && /voiceN\(\)/.test(charsDetail));
+  /voiceN/.test(charsJs) && /char_voice_n/.test(charsJs) && /voiceN\(\)/.test(charsPane));
 ok('不再往本机存「上次用的型号与张数」', !/saveOpts/.test(charsPage)
   && !/write\(\s*'char_opts'/.test(charsPage) && !/getItem\('char_opts'\)/.test(charsPage));
 
