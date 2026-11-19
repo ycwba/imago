@@ -564,7 +564,6 @@
 /* 筛选期间只藏这一栏（用类而不是 hidden：#cusCard 自己拿 hidden 表示「还没打开那张卡」，别抢同一个开关） */
 .settings-page .card.set-off { display: none; }
 
-.settings-page .okmsg { color: var(--ok); font-size: var(--fs-13); align-self: center; }
 /* 空提示不占位（否则会留下一条空灰条，看着像坏掉的组件） */
 .settings-page .hint:empty, .settings-page .sub:empty, .settings-page .pb-tip:empty { display: none; }
 /* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
@@ -724,7 +723,6 @@
 .settings-page .sk-pre { flex: 1 1 auto; margin: 0; overflow: auto; padding: var(--sp-12);
   font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: 1.6;
   color: var(--txt); white-space: pre-wrap; word-break: break-word; tab-size: 2; max-height: 420px; }
-.settings-page .sk-msg { margin-top: var(--sp-8); }
 
 /* ---------- 「全部 Skill」（原来的全量清单退到这里） ---------- */
 .settings-page .sk-filters { display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;

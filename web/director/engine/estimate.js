@@ -288,16 +288,8 @@ async function refreshEst() {
   estShown = txt;
   if (el.textContent !== txt) el.textContent = txt;
 }
-/* 审查弹窗（mode:'board'）顶部那句「估价」：整批问一次，算价仍然只有公共层那一份。
-   三条口径：
-   ① 按**秒数分档**合并（一份方案里几十镜常常只有三五档），每档只问一次 `estimateCost`、
-      把「这一档有几条」当 `count` 递过去 —— 逐镜问就是几十趟平台接口；
-   ② 规格取「这一台机器不挑型号时会落到哪一型」那一份默认（`newShot()` + `shotQuote`，
-      与右栏那一格同一套装配）。整批里不同镜头真生成时会分到不同平台，所以这句说的是量级、
-      不是账单，界面上那句「约」与平台结算那一句话一样都不能省；
-   ③ 问不到、档数超过 `EST_BAND_MAX`（那要几十趟接口）、或这一型只报「最低消费」而不给可相加的
-      金额（`amount` 缺失）—— 一律交回空串，由公共层显示「报价不可用」。
-      **绝不用其中一档的单价乘条数**冒充整批，也绝不因为估不到就不让拆。 */
+/* 审查弹窗的整批估价按秒数合并查询，规格取自动匹配的默认档，不预先写入镜头。
+   无法合计或档数超过上限时不报价；实际费用以各镜生成时的规格为准。 */
 const EST_BAND_MAX = 8;
 async function boardEstimate(list) {
   const rows = (list || []).filter(x => Number(x.dur) > 0);
@@ -306,22 +298,15 @@ async function boardEstimate(list) {
   rows.forEach(x => { const k = Math.round(Number(x.dur)); bands.set(k, (bands.get(k) || 0) + 1); });
   if (bands.size > EST_BAND_MAX) return '';
   const tpl = newShot();
-  let sum = 0, nm = '', cur = null;
+  let sum = 0, cur = null;
   for (const [sec, n] of bands) {
     setShotDur(tpl, sec);
     const q = await shotQuote(tpl, { count: n });
     if (!q.r || !q.r.ok || typeof q.r.amount !== 'number') return '';
     sum += q.r.amount;
-    nm = nm || (q.prov && q.prov.name) || (q.rm && q.rm.provider) || '';
     if (cur == null) cur = (q.prov && q.prov.pricing && q.prov.pricing.currency) || '';
   }
-  /* 金额取整到分：与公共层 `per_second_table` 那一档 `Math.round(x*100)/100` 同一个尺子，
-     这里不另发明一种小数位。
-     ⚠ 这一行问价用的是「默认型号 + 默认档」（审查弹窗里的镜头还没落型号）：
-       与真正落盘时各自解析到的型号未必是同一家 —— 所以文案里要写明「按默认档估算」，
-       不冒充精确报价。 */
-  return nm + ' · 约 ' + (Math.round(sum * 100) / 100) + (cur ? ' ' + cur : '')
-    + '（按默认型号档估算；各镜落盘时的型号可能不同）';
+  return '约 ' + (Math.round(sum * 100) / 100) + (cur ? ' ' + cur : '') + '（默认档估算）';
 }
 
 /* ---------- 时间切片参考图（画面素材）---------- */

@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-/* 视觉回归：九条路由（工作台按视频/图像/语音分三档）× 1024/1440 × 浅/深主题，
-   另加两处「只有状态才画」的界面：字幕编辑区、助手来源卡片。
+/* 视觉回归：七条路由（工作台按视频/图像/语音分三档 → 9 档，加字幕编辑区与助手来源卡片两档 = 11 档）
+   × 1024/1440 × 浅/深主题 = 44 个画面。
+   画面名单从路由表现取，下面两处是名单外的特例。
    不存整张截图：把画面缩成 24×14 的 RGB 指纹，和 tests/fixtures/visual/fingerprints.json 比。
    首次生成基线：UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs
    只补某一页：UI_VISUAL_WRITE=1 UI_VISUAL_PAGES=studio node tests/e2e/ui-visual.cjs（其余画面的基线原样留着）

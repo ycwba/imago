@@ -32,9 +32,7 @@ export function createScript(E, document, window) {
      videoDurSpan()       可用型号声明区间的**交集**（批量时不同镜头会落到不同平台，
                           取并集会产出「至少有一家收不了」的时长）
      boardDurNote()       把上面那个区间写成给 AI 的那句约束；区间算不出时**整句不加**
-     boardDurSub()        同一件事在审查弹窗里那句「区间从哪来」，与 hint 共用算式
      clampShotDurations() 落盘之后**逐镜**按「这一镜真由谁发出去」夹回它自己那一档，并报了改了哪几镜
-     suggestShots()       镜数的**软上限**：按剧本字数现算，只提示，不截断、不拦截
    ⚠ 交集不许拿 `resolvedModel(null)` 当基准：它取的是 `Api.pickable` 清单的第一项，而那份清单
      随「这台机器配了哪几家密钥」而变 —— 同一份剧本在 A 机器算 14 秒合法、在只配了上限 10 秒那家的
      B 机器就不合法。约束要跟着**路由**走，不是跟着账号的第一项走。 */
@@ -75,30 +73,6 @@ function boardDurNote() {
     + '真正需要更长时间的长镜头照常给足秒数：超过所有可用型号上限时，程序会按接续型号把它拆成几段，'
     + '第二段起自动接上一段的尾帧，你不用自己拆成多条。';
 }
-/* 区间从哪来，那句说明就得写从哪来 —— 表单 hint 与审查弹窗 sub 共用这一句，
-   否则「5–10 秒」在两处各拼一遍，其中一处迟早漏掉「按什么算的」。
-   「一家都没声明」与「声明了但互相没有交集」分两句话说：后者的镜头照样按自己那一档夹得住。 */
-function boardDurSub() {
-  const s = videoDurSpan();
-  /* 超出所有型号上限的长镜头会被程序拆成接续段（`splitLongShots`）：这是落盘前就会发生的事，
-     弹窗里只看得到「5–10 秒」会让人以为长镜头被截短了。 */
-  const splitNote = '；超过所有可用型号上限的长镜头会自动拆成接续段（第二段起接上一镜尾帧）';
-  if (s.n) return '时长 ' + s.min + '–' + s.max + ' 秒（按本机当前可用的 ' + s.n + ' 个视频型号共同支持范围）' + splitNote;
-  if (s.any) return '这 ' + s.any + ' 个可用型号的时长区间彼此没有交集，AI 不给区间、落盘时逐镜按各自型号夹回' + splitNote;
-  return '本机现在没有声明时长区间的可用视频型号，镜头的 duration 交给平台默认';
-}
-/* 镜数的软上限：按剧本字数现算。写死一个数会跟「上限只从声明来算」的口径打架。
-   它只是提醒用的档，不参与任何截断与拦截。 */
-const suggestShots = text => Math.max(4, Math.round(String(text || '').length / 200 * 9));
-/* 「这一段大概拆几镜」那一句话只写一次：`got` 为空 = 表单里还没 AI 结果，给了 = 审查弹窗那句。 */
-function softShotsNote(text, got) {
-  const n = suggestShots(text), L = String(text || '').length;
-  if (got == null) return '按这段长度（' + L + ' 字），预计拆 ' + n + ' 镜左右'
-    + (L > 2000 ? '；剧本较长，建议分批「接着往下拆」，一次补一段' : '');
-  if (got <= n) return '共 ' + got + ' 个镜头（这一段按字数预计 ' + n + ' 镜左右）';
-  return '这一段按字数预计 ' + n + ' 镜左右，这次给了 ' + got + ' 个：镜头多可以分批生成，'
-    + '也可以取消重拆（本次照常写入，一个都没截掉）';
-}
 /* 落盘之后的兜底：逐镜按「这一镜最终由谁发出去」判（同一份 AI 结果里不同镜头落到不同平台是常态），
    夹完必须报数，不悄悄改。尺子复用 `videoPlanOf` → `AdvParams.plan` 那一档「数字档夹到最近那一秒」，
    不在这页再写一份 min/max —— 那是同一件事的第二把尺子。
@@ -132,11 +106,9 @@ const clampNote = c => (!c || !c.fixed ? '' : '（其中 ' + c.fixed
 
   return {
     boardDurNote,
-    boardDurSub,
     clampNote,
     clampShotDurations,
     durWritable,
     setShotDur,
-    softShotsNote,
   };
 }

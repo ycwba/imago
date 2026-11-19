@@ -433,8 +433,7 @@ function logFaults(log) {
   return text.split(/\r?\n/).filter(l => re.test(l)).map(l => l.slice(0, 220));
 }
 
-/* 视觉指纹：整张图缩成 24×14 的平均色格。两种画面共用这一份 —— 整页截图（ui-visual）
-   与建模台活动机位出图（model-render）都缩成同一张网格，差异判据也一起住在这里。
+/* 视觉指纹：整张图缩成 24×14 的平均色格（整页截图 ui-visual 用这一份）。
    pngjs 是开发依赖，按需取：不起 Chrome 的判据不该被它拖住。 */
 function fingerprint(buf, grid) {
   const g = grid || { w: 24, h: 14 };

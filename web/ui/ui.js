@@ -676,12 +676,12 @@ window.ICONS = {
   video: '<rect x="3" y="5" width="12" height="14" rx="2"/><path d="m15 10 6-4v12l-6-4"/>',
   mic: '<rect x="9" y="2" width="6" height="13" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/>',
   box: '<path d="m12 3 9 5v8l-9 5-9-5V8zM3 8l9 5 9-5M12 13v8M7.5 5.5l9 5"/>',
-  /* 建模台：线框立方体 + 顶点（与 asset 的实心盒子区分开） */
-  model: '<path d="M4 7.5 12 3l8 4.5v9L12 21l-8-4.5zM4 7.5 12 12l8-4.5M12 12v9"/><circle cx="4" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="20" cy="7.5" r="1.2" fill="currentColor" stroke="none"/><circle cx="12" cy="3" r="1.2" fill="currentColor" stroke="none"/>',
   chart: '<path d="M3 3v18h18M8 16v-5M13 16V6M18 16v-8"/>',
   gear: '<path d="m10 3-.6 2.4-2.1 1.2L5 6l-2 3.5 1.7 1.8v2.4L3 15.5 5 19l2.3-.6 2.1 1.2L10 22h4l.6-2.4 2.1-1.2 2.3.6 2-3.5-1.7-1.8v-2.4L21 9.5 19 6l-2.3.6-2.1-1.2L14 3z"/><circle cx="12" cy="12.5" r="3"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/>',
   moon: '<path d="M20.8 13A9 9 0 0 1 11 3.2 9 9 0 1 0 20.8 13Z"/>',
+  /* 「跟随系统」那一档：半边实的圆 —— 日夜各一半。 */
+  auto: '<circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 0 0 18z" fill="currentColor" stroke="none"/>',
   coin: '<circle cx="12" cy="12" r="9"/><path d="M15 8.5H10.5a2 2 0 0 0 0 4h3a2 2 0 0 1 0 4H9M12 6v13"/>',
   sparkles: '<path d="m10 3 2.5 6.5L19 12l-6.5 2.5L10 21l-2.5-6.5L1 12l6.5-2.5zM19 2v4M17 4h4M20 17v4M18 19h4"/>',
   upload: '<path d="M12 16V3m-5 5 5-5 5 5M4 15v4a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-4"/>',
@@ -1219,6 +1219,32 @@ window.copyText = async function copyText(txt) {
    ========================================================================== */
 (function () {
   const pending = [];
+  let feedbackBox = null, feedbackDialog = null;
+  function feedbackHost() {
+    if (!feedbackBox) {
+      feedbackBox = document.createElement('div');
+      feedbackBox.className = 'toast-box';
+      feedbackBox.popover = 'manual';
+    }
+    const dialog = Array.from(document.querySelectorAll('dialog:modal')).at(-1) || null;
+    if (feedbackDialog !== dialog) {
+      if (feedbackDialog) feedbackDialog.removeEventListener('close', feedbackHost);
+      feedbackDialog = dialog;
+      if (dialog) dialog.addEventListener('close', feedbackHost);
+    }
+    const parent = dialog || document.body;
+    if (feedbackBox.matches(':popover-open')) feedbackBox.hidePopover();
+    if (feedbackBox.parentNode !== parent) parent.appendChild(feedbackBox);
+    if (feedbackBox.showPopover && !feedbackBox.matches(':popover-open')) feedbackBox.showPopover();
+    return feedbackBox;
+  }
+  window.UiFeedback = {
+    mount(el) {
+      const host = feedbackHost();
+      host.appendChild(el);
+      return host;
+    },
+  };
   function hostEl() {
     const old = document.getElementById('banner');
     if (old) return old;                     // 页面自己写了标记就用那一个（导演台）
@@ -1238,6 +1264,8 @@ window.copyText = async function copyText(txt) {
         b.className = kind === 'warn' ? 'warn' : 'err';
         b.innerHTML = '<span class="msg"></span><button type="button" class="bx" title="关闭">' + window.icon('close', 11) + '</button>';
         b.querySelector('.msg').innerHTML = window.sanitizeHTML(msg);
+        b.setAttribute('role', 'alert');
+        window.UiFeedback.mount(b);
         b.querySelector('.bx').onclick = () => { b.hidden = true; b.innerHTML = ''; };
       };
       if (document.body) put(); else pending.push(put);   // body 还没开始排时就先攒着
@@ -1366,7 +1394,7 @@ window.pageSizeOf = k => {
    DataSync 的同步名单、设置导出与恢复默认、助手可改白名单都问下面那几个派生读法
    （syncOf / exportOf / keepOf / assistOf）。三节是：
      · rows     —— 界面偏好（上面这批），默认同步 / 进导出 / 助手可改；
-     · setRows  —— 设置页「一行一个控件」的普通设置（网络 / 产物存放 / 助手 / 润色 / 建模台），
+     · setRows  —— 设置页「一行一个控件」的普通设置（网络 / 产物存放 / 助手 / 润色），
                    默认进设置导出、不进云同步、助手默认不能改；
      · families —— 不是「一行一个控件」、但同步 / 导出 / 恢复默认 / 助手白名单要认得出的键族
                    （数据本体、供应商与型号、分页、导演台与工作台的界面状态、缓存），
@@ -1450,15 +1478,6 @@ window.UI_PREFS = {
     { card: 'polish', kind: 'sel', key: 'sk_polish_ask', label: 'AI 动手前要不要先反问', def: 'ai',
       sync: 1, assist: 1, aName: 'AI 润色前是否反问', aSay: 'ai = 由文字 AI 自己判断要不要先问要点',
       opts: [['ai', 'AI 判断（推荐）'], ['on', '强制先问'], ['off', '从不问']] },
-    /* 建模台：视频转白模时「文字 AI 看不了视频要不要在本机取几帧」以及取几帧。
-       auto = 只在视频没能随消息附上时取帧；on = 不管支不支持都取；off = 不取。 */
-    { card: 'model', kind: 'sel', key: 'sk_model_vframes', label: '视频看不明白时取帧', def: 'auto',
-      sync: 1, assist: 1, aName: '建模台 · 视频看不明白时取帧',
-      aSay: 'auto = 只在视频没能随消息附上时在本机取帧；on = 总是取；off = 不取',
-      opts: [['auto', '看不了视频时取帧（推荐）'], ['on', '总是取帧'], ['off', '不取帧']] },
-    { card: 'model', kind: 'sel', key: 'sk_model_vframe_n', label: '一次取几帧', def: '4',
-      sync: 1, assist: 1, aName: '建模台 · 视频一次取几帧', aSay: '均匀取这个张数',
-      opts: [['2', '2 帧'], ['4', '4 帧'], ['6', '6 帧'], ['8', '8 帧']] },
   ],
   /* 键族：一类键的待遇。`key` 是精确键，`suffix` / `prefix` 是两头认；
      同一档里精确键优先，前缀取**最长**的那一条（sk_model_meta_ 因此压过 sk_model_）。
@@ -1487,8 +1506,6 @@ window.UI_PREFS = {
     { key: 'ai_chat', sync: 1 },
     { key: 'ai_chat_dock', sync: 1, export: 1 },
     { prefix: 'ai_chat_', sync: 0, export: 0 },
-    /* 建模台与工作台 / 导演台之间递东西的一次性口袋（带 10 分钟有效期，同一台机器上的事） */
-    { key: 'model3d_handoff' },
 
     /* —— 供应商与型号 —— */
     /* 密钥只在本机与 .data 之间走：换机器同步得过去，设置导出默认不带（导出时另问一次） */
@@ -1499,8 +1516,6 @@ window.UI_PREFS = {
     { prefix: 'sk_model_meta_', sync: 0, export: 0 },
     /* 每一家当前用哪个型号（含 sk_model_prefs 那份型号偏好）：换台机器要重选一遍，跟着走 */
     { prefix: 'sk_model_', sync: 1, export: 1, assist: 'model' },
-    /* 建模台的生成规矩（复用历史白膜那一档） */
-    { prefix: 'sk_model3d_', sync: 1, export: 1 },
     /* 导演台关键帧估算的生成规矩与参数草稿（sk_kf_model / sk_kf_params / sk_kf_adv_closed）：
        与 sk_polish_ 同一类「生成规矩，换台机器照旧」。 */
     { prefix: 'sk_kf_', sync: 1, export: 1 },
@@ -1830,6 +1845,16 @@ const LEGACY_KEYS = [
   /* 建模台「AI 可调用的白模库」多选撤掉（2026-11-09）：AI 自己按用户那句话在全部白模库里检索，
      「勾了哪几个库」这个状态没有了。`sk_model_ai_libs` 留着只会在镜像里恢复回来。 */
   'sk_model_ai_libs',
+  /* 建模台整页删除（2026-11-18）：这三族键再没有人写、没有人读。
+     `sk_model_vframes` / `sk_model_vframe_n` 是设置页「建模台」卡里的两行取帧偏好；
+     `model3d_handoff` 是建模台与工作台 / 导演台之间递东西的一次性口袋；
+     `sk_model3d_reuse` 是建模台的生成规矩（复用历史白膜那一档）。
+     注意 `sk_model_` 那条**前缀**待遇还在（每家文字型号偏好跟着走），LEGACY_KEYS 只认精确键，
+     不会误伤它。 */
+  'sk_model_vframes',
+  'sk_model_vframe_n',
+  'model3d_handoff',
+  'sk_model3d_reuse',
 ];
 async function sweepLegacyKeys() {
   if (!window.Store || !Store.available) return;

@@ -62,9 +62,6 @@
   border: 0; border-radius: var(--radius-6); font-size: var(--fs-14); font-family: inherit; resize: vertical; }
 .studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-12); line-height: 1.5; color: var(--sub); }
 .studio-page .prompt-hint.bad { color: var(--err); }
-/* 钉底栏的状态行只排一行：素材取帧那种长文案以前会把生成区撑高、把按钮顶开。
-   超出截断，全文挂在 title 上（setStatus 会把纯文本写进去）。 */
-.studio-page .wb-dock [data-r="status"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .studio-page .style-row { padding: 0 var(--sp-8) var(--sp-8); }
 .studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-4); }
 .studio-page .style-row input { width: 100%; }

@@ -54,7 +54,7 @@ const FAMILIES = [
   { doc: '.skills/', probe: '.skills/x/SKILL.md', label: '用户 Skill' },
   { doc: 'node_modules/', probe: 'node_modules/x/index.js', label: '依赖' },
   { doc: '.env', probe: '.env', label: '平台密钥' },
-  { doc: '成像/', probe: '成像/白膜/a.json', label: '库根顶层' },
+  { doc: '成像/', probe: '成像/a.json', label: '库根顶层' },
   { doc: '图片/', probe: '图片/a.png', label: '库根 · 图片' },
   { doc: '视频/', probe: '视频/a.mp4', label: '库根 · 视频' },
   { doc: '音频/', probe: '音频/a.wav', label: '库根 · 音频' },

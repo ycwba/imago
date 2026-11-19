@@ -14,7 +14,7 @@
        `window.setType(t, fromUser)` 的语义与地址同步照旧；
      · 按类型各存的提示词在切回来时真的恢复（旧页面只存不读，与它自己那句「切回来不该丢」对不上）；
      · 分页那几颗按钮的 id 加 `st` 前缀（同一份文档里还有收藏 / 资产库两套 pgInfo）。 */
-import { ref, inject, watch, nextTick, onMounted, onActivated, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
+import { ref, inject, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { createBand, createAssetMention, libraryPicChoices, libraryTokenOf } from '../ui/index.js';
 import { createCrossCol } from './studio/cross-col.js';
 import { createImageSplit } from './studio/split.js';
@@ -262,14 +262,7 @@ const StudioView = {
         return await AssetTransfer.toDataURL(await r.blob());
       };
       const dataURLToB64 = durl => String(durl || '').replace(/^data:[^;]*;base64,/, '');
-      /* 状态行是钉底栏里的一行：被长文案撑高就把生成按钮与估价顶开。
-         所以它只排一行、超出截断，全文挂在 title 上（悬停能看全）。 */
-      function setStatus(html) {
-        const el = $('status');
-        if (!el) return;
-        el.innerHTML = window.sanitizeHTML(html || '');
-        el.title = el.textContent || '';
-      }
+      function setStatus(html) { Toast.status(html); }
       function syncDropdowns() {
         if (window.Dropdowns && pageEl.value) { Dropdowns.build(pageEl.value); Dropdowns.sync(pageEl.value); }
       }
@@ -574,20 +567,7 @@ const StudioView = {
           ? '「' + blockers.join(' / ') + '」与「' + blocked.join(' / ') + '」不能同时使用，清空后可切换'
           : '';
       }
-      let slotHintTimer = null;
-      function flashSlotHint(msg) {
-        const el = $('inputArea') ? $('inputArea').querySelector('.conflict-hint') : null;
-        if (!el) { if (msg) setStatus('<span class="err">' + msg + '</span>'); return; }
-        if (msg) el.textContent = msg;
-        el.classList.remove('flash');
-        void el.offsetWidth;
-        el.classList.add('flash');
-        clearTimeout(slotHintTimer);
-        slotHintTimer = setTimeout(() => {
-          el.classList.remove('flash');
-          if (el.isConnected) el.textContent = conflictHint(blockedSlotKinds());
-        }, 2400);
-      }
+      function flashSlotHint(msg) { Toast.status(window.esc(msg || conflictHint(blockedSlotKinds())), 'warn'); }
       function slotRoom(sl) { return Math.max(0, sl.max - slotItems(sl.kind).length); }
       const unitOf = kind => (kind === 'video' || kind === 'audio') ? '段' : '张';
       function slotNote(sl) {
@@ -925,8 +905,6 @@ const StudioView = {
               area.appendChild(t);
             }
           });
-          const hint = conflictHint(blockedKinds);
-          if (hint) area.insertAdjacentHTML('beforeend', '<div class="hint conflict-hint">' + window.esc(hint) + '</div>');
           const gaps = shapeGaps();
           const gLines = gaps.lines;
           if (gLines.length) {
@@ -3341,36 +3319,6 @@ const StudioView = {
         confirm: Confirm, toast: Toast, setStatus, writeLS, cur, provGroups,
       });
       $('toImageBtn').onclick = () => { cross.promptIntoImage().catch(e => setStatus('<span class="err">' + window.esc(errText(e)) + '</span>')); };
-      /* ---------- 建模台：这句话带过去建模 · 白膜送回来落进参考槽 ----------
-         两个方向都只经 `window.Model3D`（web/model3d/bridge.js 那几十行）：
-         带过去 = 写一枚一次性口袋 + 跳页；送回来 = 目标页消费口袋，落槽仍走 refIntoSlot
-         这一条唯一出口（与拖放、与从资产库选是同一条）。 */
-      $('toModelBtn').onclick = () => {
-        const prompt = ($('prompt').value || '').trim();
-        if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
-        const images = polishImageList().map(x => ({ label: x.label, url: x.src }));
-        window.Model3D.handoffTo('model', { prompt, from: 'studio', type: TYPE, images });
-        window.GoPage.go('model.html');
-      };
-      async function consumeModelHandoff() {
-        const M = window.Model3D;
-        if (!M || !M.consume) return;
-        let box = null;
-        try { box = M.consume('studio'); } catch (e) { box = null; }
-        if (!box || !Array.isArray(box.assets) || !box.assets.length) return;
-        setStatus('正在把白膜加进参考素材…');
-        let ok = 0;
-        let fail = 0;
-        let lastName = '';
-        for (const a of box.assets) {
-          const r = await refIntoSlot(a.type === 'video' ? '视频' : '图片',
-            { assetId: a.assetId, src: a.url || a.src, name: a.name }, { autoSwitch: true });
-          if (r && r.ok) { ok += 1; lastName = r.name || a.name || lastName; }
-          else fail += 1;
-        }
-        if (ok) setStatus('<span class="ok">✓ 白膜「' + window.esc(lastName) + '」已加入参考素材' + (ok > 1 ? '（' + ok + ' 份）' : '') + (fail ? '；' + fail + ' 份没放进去' : '') + '</span>');
-        else setStatus('<span class="err">白膜没能加进来：' + (fail ? '这一型没有能收它的槽位' : '没有可回传的产物') + '</span>');
-      }
       /* 多选条上那颗：勾的图片里有才点得动（与「存回本机」同一个范围口径 —— 先勾选才有点的理由）。 */
       function paintToVideoBtn() {
         const btn = $('bulkToVideo');
@@ -3807,8 +3755,6 @@ const StudioView = {
           slots = modelSlots();
           $('splitBtn').hidden = TYPE !== 'image';
           $('toImageBtn').hidden = TYPE !== 'video';
-          /* 白膜只服务图像 / 视频：音频栏那一颗收起来（点了也没有对应的参考槽位） */
-          $('toModelBtn').hidden = TYPE === 'audio';
           if (TYPE !== 'image') $('splitInline').hidden = true;
           renderParams();
           renderInputArea();
@@ -3927,18 +3873,9 @@ const StudioView = {
       window.setType = (t, fromUser) => setType(t, fromUser);
       window.__studioRepaint = () => { paintLeft(); renderAll(); };
 
-      /* 口袋要等首帧落定再消费（槽位是 renderInputArea 画出来的，早一步就没有可落的格）。
-         再挂一次 onActivated：这一页在页面池里常驻，第二次从建模台回来时 setup 不会再跑。 */
-      const grabModel = () => setTimeout(() => {
-        consumeModelHandoff().catch(e => setStatus('<span class="err">白膜回传失败：' + window.esc(errText(e)) + '</span>'));
-      }, 0);
-      grabModel();
-      onActivated(grabModel);
-
       return () => {
         bootStopped = true;
         clearTimeout(promptLsTimer);
-        clearTimeout(slotHintTimer);
         dropClearShot();
         stopPendingTick();
         if (searchFb) searchFb.destroy();
@@ -3964,13 +3901,11 @@ const StudioView = {
           window.__spaLoadScript('web/ui/raw-request.js', () => window.RawRequest),
         ]);
       } catch (e) {
-        const st = pageEl.value.querySelector('[data-r="status"]');
-        if (st) st.innerHTML = '<span class="err">公共模块没有加载起来：' + window.esc(window.errText(e)) + '</span>';
+        Toast.err('公共模块没有加载起来：' + window.errText(e));
         return;
       }
       if (!window.Wb || !window.Api || !window.AssetLocal || !window.AssetLib) {
-        const st = pageEl.value.querySelector('[data-r="status"]');
-        if (st) st.innerHTML = '<span class="err">工作台依赖的公共模块没有就绪</span>';
+        Toast.err('工作台依赖的公共模块没有就绪');
         return;
       }
       if (disposed) return;

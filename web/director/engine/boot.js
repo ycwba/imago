@@ -1,5 +1,5 @@
 /* 导演台启动域：三栏比例把手、注册表与本地工作区读回（IndexedDB + 关标签兜底 + 数据文件对账）、
-   首屏渲染与首屏之后的后台补齐（能力重画 / 本机视频 blob / 余额 / 轮询 / 白膜回传）。
+   首屏渲染与首屏之后的后台补齐（能力重画 / 本机视频 blob / 余额 / 轮询）。
    区间内的代码由 engine.js 逐字搬出；REG / WS / proj / lastSavedJson / wsLoaded 是 engine
    继续持有的可变状态，经访问器读写，document / window 用参数名遮蔽全局。 */
 
@@ -11,7 +11,6 @@ export function createBoot(E, document, window) {
     K_WS_UNLOAD,
     Panel,
     allShots,
-    consumeModelHandoff,
     healStaleUrls,
     hydrateThumbFrames,
     loadCredits,
@@ -109,7 +108,6 @@ if (dirLayout) Wb.split.enable({
   restoreLocalBlobs().then(() => { try { renderAll(); } catch { /* 首屏重画抛错不打断后面的恢复流程 */ } }).catch(() => {});
   hydrateThumbFrames();        // 上次抽好的缩略图首帧：读出来直接当图片用，不再等视频出画
   healStaleUrls();             // 存过期的签名外链：后台按任务号换新地址并写回工作区
-  setTimeout(() => { consumeModelHandoff().catch(() => {}); }, 0);   // 建模台送回来的白膜
 })();
 
   return {

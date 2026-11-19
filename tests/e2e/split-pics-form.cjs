@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /* 拆分镜图片界面判据（PromptForm 的 pics 多图栏 + 审阅行的挂图缩略）：
-   ① Ctrl+V 粘贴一张图 → 缩略就地出现、textarea 光标处插「［图N］」占位；
+   ① Ctrl+V 粘贴一张图 → 缩略就地出现，正文与选区保持不变；
    ② 把图片文件拖进弹窗 → 第二张缩略出现（与粘贴同一副落点）、dragover 时缩略行亮描边；
    ③ 字节的 `onFile` 钩子被调（粘贴 / 拖入同走它 —— 拆分镜那一路在这里做压缩）；
    ④ × 摘一张：缩略与隐藏值一起少一张；
@@ -33,7 +33,7 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
         title: '判据：图片栏',
         okLabel: '确定',
         fields: [
-          { key: 'script', type: 'textarea', value: '', placeholder: '剧本' },
+          { key: 'script', type: 'textarea', value: '雨夜的路口，人物走过。', placeholder: '剧本' },
           { key: 'pics', type: 'pics', label: '参考图', value: [],
             onFile: async f => { window.__PF.onFile++; return 'data:image/png;base64,' + btoa('img' + window.__PF.onFile); },
             view: (it, all) => window.Wb.lightbox.open(it, all || [it]),
@@ -43,6 +43,12 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
       return true;
     });
     await page.waitFor(() => !!document.querySelector('#pfDlg'), 10000);
+    const originalText = await page.eval(() => {
+      const ta = document.querySelector('#pfDlg textarea');
+      window.focusQuiet(ta);
+      ta.setSelectionRange(3, 7);
+      return ta.value;
+    });
 
     /* ① 粘贴一张图（合成 ClipboardEvent 派发到 textarea——真实用户光标就在那里） */
     await page.eval(b64 => {
@@ -55,17 +61,29 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
       (ta || d).dispatchEvent(ev);
     }, PNG_B64);
     await page.waitFor(() => document.querySelectorAll('#pfDlg .pf-picit').length >= 1, 8000, 150);
+    const toastOnTop = await page.eval(() => {
+      const dlg = document.querySelector('#pfDlg');
+      const box = dlg.querySelector(':scope > .toast-box');
+      return { inside: !!box, open: !!box && box.matches(':popover-open'),
+        txt: box ? box.textContent : '' };
+    });
+    if (!toastOnTop.inside || !toastOnTop.open || !/已贴入/.test(toastOnTop.txt))
+      throw new Error('弹窗内的临时提示没有走悬浮层：' + JSON.stringify(toastOnTop));
     const p1 = await page.eval(() => ({
       n: document.querySelectorAll('#pfDlg .pf-picit').length,
       ta: document.querySelector('#pfDlg textarea').value,
+      start: document.querySelector('#pfDlg textarea').selectionStart,
+      end: document.querySelector('#pfDlg textarea').selectionEnd,
       onFile: window.__PF.onFile,
       hiddenVal: JSON.parse(document.querySelector('#pfDlg input[type="hidden"]').value || '[]').length,
     }));
     if (p1.n !== 1) throw new Error('粘贴后缩略没有出现：' + JSON.stringify(p1));
-    if (p1.ta.indexOf('［图1］') < 0) throw new Error('textarea 里没有插占位：' + JSON.stringify(p1.ta));
+    if (p1.ta !== originalText || p1.start !== 3 || p1.end !== 7)
+      throw new Error('粘贴附件改写了正文或选区：' + JSON.stringify(p1));
+    if (p1.hiddenVal !== 1) throw new Error('粘贴后的附件值没有同步');
     if (p1.onFile !== 1) throw new Error('粘贴的字节没有走 onFile 钩子');
 
-    /* ② 拖一张图进弹窗（dragover 高亮 + drop 落到 textarea 上：占位插进光标处） */
+    /* ② 拖一张图进弹窗，正文与选区不变。 */
     await page.eval(b64 => {
       const d = document.querySelector('#pfDlg');
       const ta = d.querySelector('textarea');
@@ -86,10 +104,24 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
       onFile: window.__PF.onFile,
       hot: !!document.querySelector('#pfDlg .pf-pics-t.hot'),
       ta: document.querySelector('#pfDlg textarea').value,
+      start: document.querySelector('#pfDlg textarea').selectionStart,
+      end: document.querySelector('#pfDlg textarea').selectionEnd,
+      hiddenVal: JSON.parse(document.querySelector('#pfDlg input[type="hidden"]').value || '[]').length,
     }));
     if (p2.onFile !== 2) throw new Error('拖入的字节没有走 onFile 钩子：' + JSON.stringify(p2));
     if (p2.hot) throw new Error('drop 之后高亮没还原（.hot 还挂着）');
-    if (p2.ta.indexOf('［图2］') < 0) throw new Error('拖入的占位没有插进 textarea：' + p2.ta);
+    if (p2.ta !== originalText || p2.start !== 3 || p2.end !== 7)
+      throw new Error('拖入附件改写了正文或选区：' + JSON.stringify(p2));
+    if (p2.n !== 2 || p2.hiddenVal !== 2) throw new Error('拖入后的附件值没有同步');
+    const textPaste = await page.eval(() => {
+      const dt = new DataTransfer();
+      dt.setData('text/plain', '普通文本');
+      const ev = new ClipboardEvent('paste', { bubbles: true, cancelable: true });
+      Object.defineProperty(ev, 'clipboardData', { value: dt });
+      document.querySelector('#pfDlg textarea').dispatchEvent(ev);
+      return ev.defaultPrevented;
+    });
+    if (textPaste) throw new Error('普通文本粘贴被附件接收逻辑拦截');
 
     /* ④ × 摘第一张 */
     await page.eval(() => document.querySelector('#pfDlg .pf-picrm').click());
@@ -112,7 +144,9 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
        body 下的灯箱会被整张表单盖住 —— 开着表单时灯箱必须搬进对话框，关掉再搬回 body。
        Esc 只关灯箱，不许把借宿的表单一起关掉。 */
     await page.eval(() => document.querySelector('#pfDlg .pf-picit').click());
-    await page.waitFor(() => document.getElementById('lightbox').style.display === 'flex', 8000, 100);
+    /* 灯箱是点开那一刻才建出来的：头几轮探针里它还不存在，谓词要能 tolerate null，
+       否则「元素还没建好」被当成「抛错了」直接判超时。 */
+    await page.waitFor(() => { const lb = document.getElementById('lightbox'); return !!lb && lb.style.display === 'flex'; }, 8000, 100);
     const lbIn = await page.eval(() => {
       const lb = document.getElementById('lightbox');
       return { inDlg: lb.parentNode === document.querySelector('#pfDlg'),
@@ -125,7 +159,7 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
       windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
     await page.cdp.send('Input.dispatchKeyEvent', { type: 'keyUp', key: 'Escape', code: 'Escape',
       windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 });
-    await page.waitFor(() => document.getElementById('lightbox').style.display === 'none', 8000, 100);
+    await page.waitFor(() => { const lb = document.getElementById('lightbox'); return !!lb && lb.style.display === 'none'; }, 8000, 100);
     /* 表单还开着时灯箱可以留在它里面（display:none、下次同表单预览复用）；
        表单关了它会被搬回 body —— 不变的账只有两条：表单没被 Esc 关掉、灯箱在开着的容器里。 */
     const lbOut = await page.eval(() => {
@@ -158,7 +192,8 @@ const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPh
     });
     if (!(pr.w === 44 && pr.h === 44)) throw new Error('审阅行挂图不是 44px 档（与表单不一致）：' + JSON.stringify(pr));
 
-    console.log('split-pics-form: 粘贴 / 拖入 / onFile / × 摘 / 44px 统一 / 灯箱借宿模态与 Esc ✓');
+    if (page.errors.length) throw new Error('控制台异常：' + page.errors.join('\n'));
+    console.log('split-pics-form: 粘贴 / 拖入保留正文选区 / 普通文本粘贴 / onFile / × 摘 / 44px 统一 / 灯箱借宿模态与 Esc通过');
   } finally {
     if (page) await page.close().catch(() => {});
     if (browser) await browser.close().catch(() => {});

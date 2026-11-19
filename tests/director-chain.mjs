@@ -73,6 +73,7 @@ const repick = (model, modelAuto, list, settled) => chainModelRepick({ model, mo
 assert.equal(repick('big', '', [mBothBig], true), null, '存过的型号能接首帧就不动');
 assert.equal(repick('nofirst', '', [mNoFirst, mFirstOnly], true), null, '用户挑的型号明确不支持首帧：只拦不改');
 assert.equal(repick('nofirst', 'chain', [mNoFirst, mFirstOnly], true).id, 'first', '程序挑的型号不支持首帧 → 重挑');
+assert.equal(repick('gone', '', [mBothBig], true), null, '用户指定的型号下架也不自动换型');
 assert.equal(repick('gone', 'chain', [mBothBig], true).id, 'big', '清单落定后还找不到 = 下架，重挑');
 assert.equal(repick('gone', 'chain', [mBothBig], false), null, '清单没到齐时「找不到」只是没到货，不下架、不重挑');
 assert.equal(repick('gone', '', [mBothBig], false), null, '用户存的型号同理：没到齐不下结论');

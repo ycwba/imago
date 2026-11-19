@@ -74,7 +74,6 @@
                   <div class="krow tight">
                     <button class="tool acc" :disabled="asrBusy" @click="saveAsr">{{ asrBusy ? '处理中…' : '保存' }}</button>
                     <button class="ghost" :disabled="asrBusy" @click="testAsr">测试识别</button>
-                    <span class="hint sm">{{ asrMsg }}</span>
                   </div>
                   <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
                 </div>
@@ -104,8 +103,7 @@
                     </div>
                     <div class="krow tight">
                       <button class="ghost" @click="testAsr">{{ asrBusy ? '取消识别' : '测试识别' }}</button>
-                      <span class="hint sm">{{ asrMsg }}</span>
-                    </div>
+                      </div>
                     <pre v-if="asrTestText" class="search-read">{{ asrTestText }}</pre>
                     <div class="hint sm" v-if="(asr.route === 'service' || asr.route === 'auto') && !asrOnlineReady">先接一家支持语音识别的供应商。</div>
                   </div>
@@ -150,7 +148,6 @@
                     <button class="tool acc" :disabled="searchBusy" @click="saveSearch">{{ searchBusy ? '处理中…' : '保存' }}</button>
                     <input v-model="searchTestQ" placeholder="试搜一句" style="flex:1 1 240px" @keydown.enter="testSearch">
                     <button class="ghost" :disabled="searchBusy" @click="testSearch">测试搜索</button>
-                    <span class="hint sm">{{ searchMsg }}</span>
                   </div>
                   <div v-if="searchResults.length" class="search-hits">
                     <div v-for="r in searchResults" :key="r.id" class="search-hit">
@@ -200,7 +197,6 @@
                   <button class="tool acc" @click="addCus">{{ cusAddText }}</button>
                   <button class="ghost" v-show="cusCancelShown" @click="cancelCus">取消编辑</button>
                   <span class="hint sm">{{ cusCount }}</span>
-                  <span class="okmsg" :class="cusMsgCls">{{ cusMsg }}</span>
                 </div>
                 <div class="krow thin" v-if="cusMineShown" style="align-items:flex-start">
                   <span class="kn">已添加</span>
@@ -252,11 +248,6 @@
               <div class="card card-surface" data-nav="chars">
                 <h2 class="card-h"><span class="card-ic" v-html="icUsers"></span>素材库</h2>
                 <div class="kcols" ref="charsBoxEl"></div>
-              </div>
-
-              <div class="card card-surface" data-nav="model">
-                <h2 class="card-h"><span class="card-ic" v-html="icLayers"></span>建模台</h2>
-                <div class="kcols" ref="modelBoxEl"></div>
               </div>
 
               <div class="card card-surface" data-nav="assistant">
@@ -460,7 +451,6 @@
                 </div>
 
                 <input type="file" ref="skillFileEl" accept=".md,.zip,application/zip" hidden @change="onImportSkillFile">
-                <div v-if="skillMsg" class="hint sm sk-msg">{{ skillMsg }}</div>
               </div>
             </section>
 
@@ -498,12 +488,10 @@
                   <button class="ghost" :disabled="dataBusy.exp" @click="exportAll"><span class="ic" data-icon="download" data-size="13"></span> 导出整包备份</button>
                   <button class="ghost" :disabled="dataBusy.imp" @click="pickImportAll"><span class="ic" data-icon="upload" data-size="13"></span> 导入整包备份</button>
                   <input type="file" ref="impAllFileEl" accept=".json,application/json" style="display:none" @change="onImportAllFile">
-                  <span class="hint sm">{{ dataMsg }}</span>
                 </div>
                 <div class="krow tight">
                   <button class="ghost" :disabled="backupBusy.create" @click="createBackup">立即留一份快照</button>
                   <button class="ghost" :disabled="backupBusy.verify" @click="verifyBackup">校验全部快照</button>
-                  <span class="hint sm">{{ backupMsg }}</span>
                 </div>
                 <!-- 快照列表来自 /backup/status：预览差异与一键恢复都在这里，不再往下载目录丢 JSON -->
                 <div ref="backupListEl"></div>
@@ -534,7 +522,6 @@
                     <input type="checkbox" id="cloudKeys" v-model="cloudKeys" @change="saveCloud"> 连密钥一起同步</label>
                   <label class="crow" title="只推不删">
                     <input type="checkbox" id="cloudPrompts" v-model="cloudPrompts" @change="saveCloud"> 连提示词归档一起</label>
-                  <span class="hint sm">{{ cloudMsg }}</span>
                 </div>
                 <div class="krow tight">
                   <span class="hint sm">{{ cloudState }}</span>
@@ -554,7 +541,6 @@
                 <div class="krow tight">
                   <button class="ghost" :disabled="promptOpenBusy" @click="openPromptDir">打开目录</button>
                   <button class="ghost" @click="promptRefresh">刷新清单</button>
-                  <span class="hint sm">{{ promptMsg }}</span>
                 </div>
                 <div ref="promptRecentEl" class="prompt-recent"></div>
               </div>
@@ -575,7 +561,7 @@
                     <button class="ghost" :disabled="sysBusy" @click="recheckSys">重新体检</button>
                     <button class="ghost" :disabled="sysCopyDisabled" @click="copySys"
                       :title="sysCopyDisabled ? '还没读到结果' : ''">复制体检结果</button>
-                    <span class="hint sm">{{ sysMsg }}</span>
+                    <span class="hint sm">{{ sysInfo }}</span>
                   </div>
                 </div>
 
@@ -587,7 +573,7 @@
                     <button class="ghost" :disabled="usageCopyDisabled" @click="copyUsage"
                       :title="usageCopyDisabled ? '还没读到结果' : ''">复制这份读数</button>
                     <span ref="usageGoSlotEl"></span>
-                    <span class="hint sm">{{ usageMsg }}</span>
+                    <span class="hint sm">{{ usageInfo }}</span>
                   </div>
                 </div>
 
@@ -613,7 +599,6 @@
                   </div>
                   <div ref="histBoxEl"></div>
                   <div class="hint sm cache-line" id="cacheUsage">{{ cacheUsage }}</div>
-                  <div class="hint sm cache-line" id="cacheMsg">{{ cacheMsg }}</div>
                 </div>
               </div>
             </section>

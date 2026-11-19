@@ -25,7 +25,6 @@ import { createRef } from './engine/ref.js';
 import { createEstimate } from './engine/estimate.js';
 import { createShell } from './engine/shell.js';
 import { createProjectFile } from './engine/projectfile.js';
-import { createModelHandoff } from './engine/modelhandoff.js';
 import { createSanitize } from './engine/sanitize.js';
 import { createMedia } from './engine/media.js';
 import { createToolbar } from './engine/toolbar.js';
@@ -474,7 +473,7 @@ function redo() {
 document.addEventListener('keydown', e => {
   if (!(e.ctrlKey || e.metaKey)) return;
   /* 页面没在前台就放行：KeepAlive 池里这份监听永远活着，不挡的话
-     在建模台 / 工作台按 Ctrl+Z 撤的是看不见的导演台时间线（还把别的撤销路径吞掉）。 */
+     在工作台按 Ctrl+Z 撤的是看不见的导演台时间线（还把别的撤销路径吞掉）。 */
   const act = window.__spaActivity;
   if (act && act.visible && !act.visible('director.html')) return;
   const t = e.target;
@@ -624,12 +623,10 @@ const Script = createScript({
 }, document, window);
 const {
   boardDurNote,
-  boardDurSub,
   clampNote,
   clampShotDurations,
   durWritable,
   setShotDur,
-  softShotsNote,
 } = Script;
 /* Split域（engine/split.js）：接续生成（尾帧当首帧）与拆分镜前「这次带哪些素材进来」那一整段
    搬进模块，这里只留接线。E 里那四位是 Panel 的解构结果（右栏建包之后才有值），包成箭头避开 TDZ；
@@ -672,8 +669,6 @@ const Apply = createApply({
   durWritable: durWritable,
   setShotDur: setShotDur,
   boardDurNote: boardDurNote,
-  boardDurSub: boardDurSub,
-  softShotsNote: softShotsNote,
   clampShotDurations: clampShotDurations,
   clampNote: clampNote,
   chainModelList: chainModelList,
@@ -1233,14 +1228,7 @@ function addShotToScene(sc, idx) {
   const ta = $('edPrompt');
   if (ta) { ta.scrollIntoView({ block: 'nearest' }); window.focusQuiet(ta); }
 }
-/* 顶部横幅只在出错 / 异常时出现（常驻、不会被错过）；普通提示走右下角 Toast。
-   以前这里把「非错误」的消息直接丢掉，于是「已定位到 8.2 秒」「✓ 已按镜头重建时间线」
-   这类中性反馈永远不会出现在界面上（调用方传了，用户看不到）。现在它们至少会弹一下。 */
-let opStateTimer = null;
-/* 顶部横幅**只报错**：出现后一直留着，直到点「×」关掉或被新的错误替换 ——
-   不自动消失，免得正在看别处时错过。
-   普通提示（「已定位到 8.2 秒」「✓ 已采用这条」这种）走工具栏那行小字，不弹任何浮层：
-   以前它们既被丢掉、后来又改成弹 Toast，都会打扰操作。 */
+let opStateTimer = null, opStateEl = null;
 function setStatus(t) {
   const html = window.sanitizeHTML(String(t == null ? '' : t)).trim();
   if (!html) return;                       // 空调用不再顺手收起错误横幅（错误要留在屏幕上）
@@ -1251,13 +1239,17 @@ function setStatus(t) {
     ErrBanner.show(html, errRe.test(html) ? 'err' : 'warn');
     return;
   }
-  const el = $('opState');
+  const el = opStateEl || (opStateEl = $('opState'));
   if (!el) return;
-  el.textContent = html.replace(/<[^>]*>/g, '').trim();
-  el.classList.toggle('ok', /^[✓✔]/.test(el.textContent) || /class="ok"/.test(html));
-  el.classList.add('show');
+  const content = document.createElement('div');
+  content.innerHTML = html;
+  el.textContent = content.textContent.trim();
+  el.className = 'toast ' + (/^[✓✔]/.test(el.textContent) || /class="ok"/.test(html) ? 'ok' : 'info');
+  el.setAttribute('role', 'status');
+  el.hidden = false;
+  window.UiFeedback.mount(el);
   clearTimeout(opStateTimer);
-  opStateTimer = setTimeout(() => el.classList.remove('show'), 4000);
+  opStateTimer = setTimeout(() => { el.hidden = true; }, 4000);
 }
 
 /* 工具栏事件域（engine/toolbar.js）：加场景 / 剧本查看与粘贴 / 拆分入口搬进模块，
@@ -1292,45 +1284,29 @@ const Gen = createGen({
 /* Gen 建好了：把 Mid 用的等待文案转发口接到它上面。 */
 genAllWaitOf = Gen.genAllWaitOf;
 
+let genAllBusy = false;
 $('genAll').onclick = async () => {
+  if (genAllBusy) return;
   const runProj = proj;
   const plan = Gen.genAllPlan();
-  if (!plan.ok.length && !plan.wait.length) {
-    if (!plan.todo.length) {
-      setStatus('<span class="err">所有镜头已有结果</span>');
-    } else {
-      const first = plan.bad[0] ? (plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0]) : '';
-      setStatus('<span class="err">这些镜头还不能生成' + (first ? '（' + first + '）' : '') + '</span>');
-    }
-    return;
-  }
+  if (!plan.todo.length) { setStatus('没有待生成镜头'); return; }
+  genAllBusy = true;
   $('genAll').disabled = true;
+  $('genAll').setAttribute('aria-busy', 'true');
   try {
-    /* 范围弹窗先行（与「润色全部文案」同一副骨架，两级：镜头 → 候选镜头）：
-       勾这一轮要生成哪些候选，确认之后才报价与提交。取消时一个占位都不建、一个请求都不发。 */
-    const sel = await Gen.genAllScopeDialog(plan);
-    if (!sel) return;
-    if (proj !== runProj || WS.curId !== runProj.id) return;
-    const plan2 = Gen.planForSelection(plan, sel);
-    if (!plan2.ok.length && !plan2.wait.length) {
-      setStatus('<span class="err">这一轮没有勾选能生成的镜头</span>');
-      return;
-    }
-    const q = await Gen.genAllQuote(plan2, { fresh: true });
-    if (proj !== runProj || WS.curId !== runProj.id) return;
-    if (!(await Gen.genAllConfirm(plan2, q))) return;
+    const plan2 = await Gen.genAllScopeDialog(plan);
+    if (!plan2) return;
     if (proj !== runProj || WS.curId !== runProj.id) { Toast.warn('短片切走了，这一批没有开始'); return; }
     await Gen.runGenAll(plan2);
   } catch (e) {
     setStatus('<span class="err">批量生成没能开始：' + esc(errText(e)) + '</span>');
   } finally {
+    genAllBusy = false;
+    $('genAll').setAttribute('aria-busy', 'false');
     $('genAll').disabled = false;
     Gen.refreshGenAllBtn();
   }
 };
-/* 批量动作是两颗通栏按钮：生成全部分镜（先范围勾选 → 报价 → 确认）与
-   润色全部文案（先范围与备注 → 整体问答 → 润色 → 审阅）—— 各走各的弹窗流程，
-   左栏不再用分裂按钮收尾项（exp-* 那一套还留给页头的导出拆分按钮）。 */
 /* 「润色全部文案」的批量入口（gen.js 的 runPolishAll）。
    运行中再点 = 停止（那一行的换面归 refreshPolishAllBtn 管，这里只转一手）。 */
 $('polishAll').onclick = () => { Gen.runPolishAll(); };
@@ -1354,23 +1330,16 @@ const Sanitize = createSanitize({
 const { sanitize } = Sanitize;
 
 /* 启动域（engine/boot.js）：注册表 / 工作区读回与首屏后的后台补齐搬进模块，这里只留接线。
-   REG / WS / proj / lastSavedJson / wsLoaded 走 getter / setter；consumeModelHandoff 的装配
-   在本段之后，启动那一趟的 setTimeout 经箭头迟取。 */
+   REG / WS / proj / lastSavedJson / wsLoaded 走 getter / setter；启动那一趟的
+   setTimeout 经箭头迟取。 */
 createBoot({
-  Gen, K_WS_UNLOAD, Panel, allShots, consumeModelHandoff: (...a) => consumeModelHandoff(...a),
+  Gen, K_WS_UNLOAD, Panel, allShots,
   healStaleUrls, hydrateThumbFrames, loadCredits, newShot, projOf: () => proj, regOf: () => REG,
   renderAll, restoreLocalBlobs, sanitize, setLastSavedJson: v => { lastSavedJson = v; },
   setProj: v => { proj = v; }, setReg: v => { REG = v; }, setStatus,
   setWs: v => { WS = v; }, setWsLoaded: v => { wsLoaded = v; }, snapOf, uid, wsKv,
   wsOf: () => WS,
 }, document, window);
-
-/* 白膜回传域（engine/modelhandoff.js）：建模台送回来的白膜挂进这一镜。
-   启动那一段的 setTimeout 经下面这枚 const 调用，外壳钩子同理。 */
-const ModelHandoff = createModelHandoff({
-  addRefImage, curShot, pickRefMedia, renderEditor, scheduleSave, setStatus, projOf: () => proj,
-}, document, window);
-const { consumeModelHandoff } = ModelHandoff;
 
 /* Bridge域（engine/bridge.js）：这一段搬进模块，这里只留一个访问器包（这一域不交名字回来）。
    接线放回区间原位，是让这一层其余代码读到的名字顺序不变；E 里每一位都包成箭头，

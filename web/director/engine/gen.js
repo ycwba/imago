@@ -6,7 +6,7 @@
 import { hasTailFrame, quoteKeyOf, sumQuotes, runWithDeps } from '../chain.js';
 import { candidateBase, voiceBase, shotCtxOf, candidateIndex } from '../naming.js';
 import {
-  cloneTakeOf, defaultTakeOf, originOf, setTakePrompt, shotHasVideo, shotVideoDone, shotPromptOf,
+  cloneTakeOf, defaultTakeOf, originOf, setTakePrompt, shotHasVideo, shotPromptOf,
   takeBatchOf, takePromptOf, takeStatusZh,
 } from '../takes.js';
 
@@ -500,70 +500,69 @@ function settleShot(sh) {
   return st;
 }
 
-/* 这一批到底要提交哪些镜头、每镜提交哪几条候选、谁在等谁、哪些现在就不能生成。
-   纯读（只顺带把接续型号落到候选上）。
-   `takes` / `fresh` / `counts` 是同一张计划里的三份：
-     · takes  = 这一镜**就地更新**的那几条已有候选（草稿 + 描述非空）—— 不另建替代品；
-     · fresh  = 还差多少张数才补建的克隆（克隆自带提示词与配置，是这一镜本来就该有的张数）；
-     · counts = 这一镜这次一共提交几条（报价、确认、执行共用同一份快照）。 */
-function genAllPlan() {
+function generationFingerprint(sh, c, choice) {
+  const draft = { ...c };
+  if (!choice.model) ensureChainModel(sh, draft);
+  const take = Panel.plannedTake(sh, draft, choice), extra = shotAdvExtras(take);
+  return JSON.stringify([take.model, take.combo, take.tier, take.res, take.ar, take.size, take.dur,
+    take.prompt, take.firstFrame, take.lastFrame, take.linkPrev, take.refImages, take.refVideo,
+    take.refAudio, take.keyframes, extra.params, extra.topBools, extra.shapeFields]);
+}
+function generationBatchOf(sh) {
+  const batch = takeBatchOf(sh);
+  return { pending: batch.pending, need: !hasRealCandidate(sh) || shotAllFailed(sh) ? batch.need : 0 };
+}
+function genAllPlan(choices = new Map(), selection = null) {
   const all = allShots();
-  all.forEach(sh => (sh.candidates || []).forEach(c => ensureChainModel(sh, c)));
-  const todo = all.filter(sh => !hasRealCandidate(sh) || shotAllFailed(sh));
-  const inBatch = new Set(todo);
-  const prevOf = sh => { const i = all.indexOf(sh); return i > 0 ? all[i - 1] : null; };
+  const todo = all.filter(sh => { const b = generationBatchOf(sh); return b.pending.length || b.need; });
+  const inBatch = new Set(selection ? todo.filter(sh => selection.has(sh)) : todo);
   const ok = [], wait = [], bad = [];
-  const deps = new Map(), badWhy = new Map();
+  const deps = new Map(), badWhy = new Map(), prevMap = new Map();
   const takes = new Map(), fresh = new Map(), counts = new Map();
-  /* 计划时的上一镜：执行到某一镜时拿它和「现在的顺序」再比一次（用户中途改顺序 / 删镜头）。 */
-  const prevMap = new Map();
+  const drafts = new Map(), sources = new Map(), takeWhy = new Map();
   todo.forEach(sh => {
-    prevMap.set(sh, prevOf(sh));
-    /* 这一镜这次提交哪几条：已有的待生成候选（就地更新状态）+ 还差张数才补建的克隆。 */
-    const b = takeBatchOf(sh);
-    const list = b.usable;
-    takes.set(sh, list);
-    fresh.set(sh, b.need);
-    counts.set(sh, list.length + b.need);
-    /* 可生成性按这一镜**会真的发出去的第一句**判（提示词字数上限、空提示词都是逐句的事）。 */
-    const firstText = list.length ? takePromptOf(sh, list[0]) : '';
-    const why = list.length
-      ? shotBlockReason(sh, null, firstText, list[0])
-      : shotBlockReason(sh, null, '', cfg(sh));
-    if (!why) { ok.push(sh); return; }
-    /* 只有「纯等待」能进 wait：上一镜在本批、或正在跑。别的都是现在真的不能生成
-       （提示词空 / 素材冲突 / 型号接不了首帧 / 上一镜失败…）。
-       接续标记在候选身上：这一镜里只要有一条候选挂着接续，就等上一镜出画面。 */
-    const chained = list.filter(c => c.linkPrev === 'tail' && !c.firstFrame);
-    const cw = chained.length ? chainWaitWhy(sh, chained[0]) : '';
-    const prev = prevOf(sh);
-    if (cw && why === cw && prev && (inBatch.has(prev) || chainStateOf(prev) === 'running')) {
-      wait.push(sh); deps.set(sh, prev); return;
+    const i = all.indexOf(sh), prev = i > 0 ? all[i - 1] : null;
+    prevMap.set(sh, prev);
+    const choice = choices.get(sh) || {};
+    const batch = generationBatchOf(sh);
+    const selected = selection ? selection.get(sh) : { takes: batch.pending, fresh: batch.need };
+    const list = selected ? selected.takes.filter(c => batch.pending.includes(c)) : [];
+    const freshN = selected ? Math.min(selected.fresh || 0, batch.need) : 0;
+    takes.set(sh, list); fresh.set(sh, freshN); counts.set(sh, list.length + freshN);
+    let why = '', waiting = false;
+    const units = [...new Set([...batch.pending, defaultTakeOf(sh)].filter(Boolean))];
+    for (const c of units) {
+      let draft = { ...c };
+      if (!choice.model) ensureChainModel(sh, draft);
+      draft = Panel.plannedTake(sh, draft, choice);
+      drafts.set(c, draft); sources.set(c, generationFingerprint(sh, c, choice));
+      const reason = shotBlockReason(sh, null, takePromptOf(sh, draft), draft);
+      const cw = draft.linkPrev === 'tail' && !draft.firstFrame ? chainWaitWhy(sh, draft) : '';
+      const canWait = !!(cw && reason === cw && prev
+        && (inBatch.has(prev) || chainStateOf(prev) === 'running'));
+      takeWhy.set(c, canWait ? '' : reason);
+      if (!list.includes(c) && !(freshN && c === defaultTakeOf(sh))) continue;
+      if (canWait) waiting = true;
+      else if (reason && !why) why = reason;
     }
-    bad.push(sh); badWhy.set(sh, why);
+    if (!list.length && !freshN) return;
+    if (why) { bad.push(sh); badWhy.set(sh, why); }
+    else if (waiting) { wait.push(sh); deps.set(sh, prev); }
+    else ok.push(sh);
   });
-  /* 上一镜不能生成 → 等它的那些也一样不能：先级联完，别让用户点下去之后才看见一片「等待失败」。 */
   let changed = true;
   while (changed) {
     changed = false;
     for (let i = wait.length - 1; i >= 0; i--) {
-      const sh = wait[i], p = deps.get(sh);
-      if (!bad.includes(p)) continue;
-      wait.splice(i, 1); deps.delete(sh);
-      bad.push(sh);
-      badWhy.set(sh, '上一镜不能生成（' + (p.name || '未命名镜头') + '：' + badWhy.get(p) + '）');
+      const sh = wait[i], prev = deps.get(sh);
+      if (!bad.includes(prev)) continue;
+      wait.splice(i, 1); deps.delete(sh); bad.push(sh);
+      badWhy.set(sh, '上一镜不能生成：' + (prev.name || '未命名镜头'));
       changed = true;
     }
   }
-  /* `ok` 里接续镜的上一镜按定义已经有尾帧（否则 `shotBlockReason` 会拦），这里再按现状态兜一次：
-     刚好在这一刻被删掉 / 候选被清空的，执行时仍要等它。 */
-  ok.forEach(sh => {
-    const list = takes.get(sh) || [];
-    if (!list.some(c => c.linkPrev === 'tail' && !c.firstFrame)) return;
-    const prev = prevOf(sh);
-    if (prev && chainStateOf(prev) !== 'done') deps.set(sh, prev);
-  });
-  return { todo, ok, wait, bad, badWhy, deps, prevMap, takes, fresh, counts };
+  return { todo, ok, wait, bad, badWhy, deps, prevMap, takes, fresh, counts,
+    drafts, sources, takeWhy, choices: new Map([...choices].map(([sh, choice]) => [sh, { ...choice }])) };
 }
 
 /* 整批报价：同一份「影响价钱的输入」合并成一次询价（`quoteKeyOf` 不含 count，
@@ -590,8 +589,8 @@ async function genAllQuote(plan, opts) {
     const def = defaultTakeOf(sh);
     const freshN = (plan.fresh && plan.fresh.get(sh)) || 0;
     if (freshN && def) for (let k = 0; k < freshN; k++) units.push(def);
-    units.forEach(u => {
-      ensureChainModel(sh, u);
+    units.forEach(source => {
+      const u = plan.drafts.get(source);
       const rm = resolvedModel(u) || {};
       const prov = provOf(rm.provider);
       const ex = shotAdvExtras(u);
@@ -630,10 +629,6 @@ async function genAllQuote(plan, opts) {
     groups: groups.size,
   };
 }
-/* 「生成全部分镜」按钮的文案与可用状态跟生成计划**同一份**（genAllPlan）：计划一变，两处一起变，
-   不会出现「写着可生成 2 镜，按钮却说是全部」。1.5s 去抖、只在前台改 —— 计划本身不便宜
-   （逐候选收正接续型号），updateProjUI 在每一轮轮询与每次重画后都会被叫。
-   状态区只有进度条，不写文案：不能生成的原因与条数都放进按钮的 title。 */
 let gaEstTimer = null;
 function dirForeground() {
   try { return window.__spaActivity.visible('director.html'); } catch (e) { return true; }
@@ -644,22 +639,11 @@ function refreshGenAllBtn() {
   gaEstTimer = setTimeout(() => {
     gaEstTimer = null;
     const btn = $('genAll');
-    if (!btn || !dirForeground()) return;
+    if (!btn || !dirForeground() || genAllRun || btn.getAttribute('aria-busy') === 'true') return;
     const plan = genAllPlan();
-    const can = plan.ok.length + plan.wait.length;
-    const reuseN = plan.ok.concat(plan.wait).reduce((a, sh) => a + ((plan.takes.get(sh)) || []).length, 0);
-    const freshN = plan.ok.concat(plan.wait).reduce((a, sh) => a + ((plan.fresh.get(sh)) || 0), 0);
-    btn.textContent = can ? ('生成 ' + can + ' 个分镜') : '生成全部分镜';
-    btn.disabled = !can;
-    btn.title = can
-      ? ('这一轮会提交 ' + can + ' 个分镜' + (reuseN || freshN
-        ? '（共 ' + (reuseN + freshN) + ' 条候选镜头：' + (reuseN ? reuseN + ' 条就地更新已有候选' : '')
-          + (reuseN && freshN ? '，' : '') + (freshN ? freshN + ' 条按张数补建' : '') + '）' : '')
-        + (plan.bad.length ? '，另有 ' + plan.bad.length + ' 镜现在不能生成' : ''))
-      : !allShots().length ? '还没有分镜'
-      : !plan.bad.length ? '全部镜头已生成，要重跑先删掉那一镜的候选'
-      : (plan.bad.length + ' 镜不能生成：'
-        + (plan.bad[0].name || '未命名镜头') + '：' + plan.badWhy.get(plan.bad[0]));
+    btn.textContent = '生成全部分镜';
+    btn.disabled = !plan.todo.length;
+    btn.title = plan.todo.length ? '' : '没有待生成镜头';
     /* 润色那颗与它同一时机刷（同一帧读数）：文案/镜头一变，两颗按钮一起说真话。 */
     refreshPolishAllBtn();
   }, 1500);
@@ -680,203 +664,245 @@ function genAllWaitOf(sh) {
   return '等待上一镜生成中' + (prev && prev.name ? '（等「' + prev.name + '」出画面再接尾帧）' : '');
 }
 
-/* ---------------- 生成全部分镜的范围选择 ----------------
-   与「润色全部文案」的范围弹窗同一副骨架（芯片切显示、勾选跨芯片保留），也是**两级**：
-   镜头行管它名下所有候选（头上的勾一按全开 / 全关），候选行各自可勾 ——
-   已有的待生成候选一条一行；「按张数补建 N 条」也是一行（整行开关，克隆自默认候选）。
-   不能生成的镜头整组置灰并写明原因（不列候选行 —— 它们这一轮发不出去）。
-   返回 Map（镜头 → { takes: [候选], fresh: n }，只含勾了东西的镜头）；null = 取消。
-   勾完还有报价与确认两道闸，这里不发任何请求。 */
-async function genAllScopeDialog(plan) {
-  const kindOf = new Map();
-  plan.ok.forEach(sh => kindOf.set(sh, 'ok'));
-  plan.wait.forEach(sh => kindOf.set(sh, 'wait'));
-  plan.bad.forEach(sh => kindOf.set(sh, 'bad'));
-  const zhKind = k => k === 'wait' ? '等上一镜' : k === 'bad' ? '不能生成' : '可生成';
-  const rows = (plan.todo || []).map(sh => {
-    const kind = kindOf.get(sh) || 'ok';
-    const on = kind !== 'bad';
-    return {
-      sh, kind,
-      takes: (plan.takes.get(sh) || []).map(c => ({ c, on })),
-      fresh: (plan.fresh.get(sh) || 0),
-      freshOn: on && (plan.fresh.get(sh) || 0) > 0,
-    };
-  });
-  const byId = new Map(rows.map(r => [r.sh.id, r]));
-  const onCount = () => rows.reduce((n, r) => n + r.takes.filter(x => x.on).length
-    + ((r.kind !== 'bad' && r.freshOn && r.fresh) ? r.fresh : 0), 0);
-  const totalCount = () => rows.reduce((n, r) => n + r.takes.length + r.fresh, 0);
-  let listEl = null, sumEl = null, syncGo = () => {};
-  const paintScopeSum = () => {
-    sumEl.textContent = '已勾选 ' + onCount() + ' / ' + totalCount() + ' 条候选'
-      + (onCount() ? '' : '（至少勾一条才能开始）');
-    syncGo();
-  };
-  const v = await window.UiDialog.open({
-    title: '生成全部分镜',
-    sub: '先勾这一轮要生成哪些候选镜头（镜头行上的勾一键全开 / 全关；不能生成的写明原因）；'
-      + '勾完还要报价与确认两步，确认之前不发任何请求。',
-    body(el) {
-      el.innerHTML = '<div class="pl-scope">'
-        + '<div class="pl-scope-chips">'
-        + '<button type="button" class="ui-seg on" data-f="all">全部</button>'
-        + '<button type="button" class="ui-seg" data-f="can">可生成</button>'
-        + '<button type="button" class="ui-seg" data-f="bad">不能生成</button>'
-        + '</div>'
-        + '<div class="pl-scope-list"></div>'
-        + '<div class="dlg-hint pl-scope-sum"></div>'
-        + '</div>';
-      listEl = el.querySelector('.pl-scope-list');
-      sumEl = el.querySelector('.pl-scope-sum');
-      const chips = el.querySelectorAll('.pl-scope-chips .ui-seg');
-      let filter = 'all';
-      const paint = () => {
-        const vis = rows.filter(r => filter === 'all'
-          || (filter === 'can' ? r.kind !== 'bad' : r.kind === 'bad'));
-        listEl.innerHTML = vis.length ? vis.map(r => {
-          const sh = r.sh;
-          const why = r.kind === 'bad' ? (plan.badWhy.get(sh) || '现在不能生成') : '';
-          const waitTag = r.kind === 'wait' ? ' · 等上一镜出画面后提交' : '';
-          /* 镜头头的勾 = 全开；一半开一半关摆半选态（与润色范围弹窗同一画法）。 */
-          const allOn = r.takes.every(t => t.on) && (r.fresh === 0 || r.freshOn);
-          const anyOn = r.takes.some(t => t.on) || (r.freshOn && r.fresh > 0);
-          const head = '<label class="pl-shot-head">'
-            + '<input type="checkbox" data-role="shot" data-sh="' + esc(sh.id) + '"'
-            + (allOn ? ' checked' : '') + (r.kind === 'bad' ? ' disabled' : '') + '>'
-            + '<b>' + esc(sh.name || '未命名镜头') + '</b>'
-            + '<span class="meta">' + zhKind(r.kind) + ' · ' + (r.takes.length + r.fresh) + ' 条' + waitTag
-            + (why ? ' · ' + esc(why) : '') + '</span>'
-            + '</label>';
-          if (r.kind === 'bad') {
-            return '<div class="pl-shot" data-shot="' + esc(sh.id) + '" style="opacity:.6">' + head + '</div>';
-          }
-          const takeRows = r.takes.map((t, i) => '<label class="pl-take">'
-            + '<input type="checkbox" data-role="take" data-sh="' + esc(sh.id) + '" data-i="' + i + '"'
-            + (t.on ? ' checked' : '') + '>候选 ' + (i + 1) + '（草稿）'
-            + '<span class="meta">' + esc(String((t.c && t.c.prompt) || '').slice(0, 40)) + '</span>'
-            + '</label>').join('');
-          const freshRow = r.fresh > 0 ? '<label class="pl-take">'
-            + '<input type="checkbox" data-role="fresh" data-sh="' + esc(sh.id) + '"'
-            + (r.freshOn ? ' checked' : '') + '>按张数补建 ' + r.fresh + ' 条'
-            + '<span class="meta">克隆这一镜的默认候选（带全套配置）</span>'
-            + '</label>' : '';
-          return '<div class="pl-shot" data-shot="' + esc(sh.id) + '" data-any="' + (anyOn ? '1' : '') + '"'
-            + ' data-all="' + (allOn ? '1' : '') + '">' + head
-            + '<div class="pl-takes">' + takeRows + freshRow + '</div></div>';
-        }).join('') : '<div class="empty">这一档没有镜头</div>';
-        /* 半选态在重建后补：indeterminate 是属性，进不了 innerHTML 字符串。 */
-        [...listEl.querySelectorAll('.pl-shot[data-any]')].forEach(g => {
-          const inp = g.querySelector('input[data-role="shot"]');
-          if (inp && !inp.disabled && g.dataset.any && !g.dataset.all) inp.indeterminate = true;
-        });
-        paintScopeSum();
-      };
-      el.querySelector('.pl-scope-chips').addEventListener('click', e => {
-        const b = e.target.closest('button[data-f]');
-        if (!b) return;
-        filter = b.dataset.f;
-        [...chips].forEach(x => x.classList.toggle('on', x === b));
-        paint();
-      });
-      listEl.addEventListener('change', e => {
-        const inp = e.target;
-        if (!inp || inp.tagName !== 'INPUT' || inp.disabled) return;
-        const r = byId.get(inp.dataset.sh);
-        if (!r || r.kind === 'bad') return;
-        if (inp.dataset.role === 'shot') {
-          const on = inp.checked;
-          r.takes.forEach(t => { t.on = on; });
-          r.freshOn = on && r.fresh > 0;
-          paint();
-          return;
-        }
-        if (inp.dataset.role === 'take') {
-          const t = r.takes[+inp.dataset.i];
-          if (t) t.on = inp.checked;
-        } else if (inp.dataset.role === 'fresh') {
-          r.freshOn = inp.checked;
-        }
-        /* 候选行的勾选也要整列重画：镜头头上的勾（全开 / 半选）跟着这一变化走。 */
-        paint();
-      });
-      paint();
-    },
-    onOpen(el) {
-      const dlg = el.closest('dialog');
-      const go = dlg && dlg.querySelector('.pr-foot .pri');
-      syncGo = () => { if (go) go.disabled = !onCount(); };
-      syncGo();
-    },
-    actions: [{ label: '取消', value: null }, { label: '下一步（报价）', value: 'go', primary: true }],
-  });
-  if (v !== 'go') return null;
-  const sel = new Map();
-  rows.forEach(r => {
-    const takes = r.takes.filter(t => t.on).map(t => t.c);
-    const fresh = (r.kind !== 'bad' && r.freshOn) ? r.fresh : 0;
-    if (takes.length + fresh > 0) sel.set(r.sh, { takes, fresh });
-  });
-  return sel;
+function takePromptHTML(text, key, views) {
+  const prompt = String(text || '').trim();
+  if (!prompt) return '<div class="pl-prompt-empty">暂无描述</div>';
+  return '<details class="pl-prompt" data-prompt="' + esc(key) + '"' + (views.get(key)?.open ? ' open' : '') + '>'
+    + '<summary><span class="pl-prompt-preview">' + esc(prompt.slice(0, 120)) + (prompt.length > 120 ? '…' : '')
+    + '</span><span class="pl-prompt-expand">展开</span><span class="pl-prompt-collapse">收起</span></summary>'
+    + '<div class="pl-prompt-body" tabindex="0" aria-label="完整提示词">' + esc(prompt) + '</div></details>';
 }
-/* 按勾选收窄计划：ok / wait 只留「勾了东西」的镜头；takes / fresh / counts 按勾选重建
-   （原计划的三份账不动）。依赖里上一镜没进批、又不在跑 / 没画面的，等它的那些级联进 bad
-   （不然会干等一个永远不会提交的镜头）。返回与 genAllPlan 同形状的一份新计划。 */
-function planForSelection(plan, sel) {
-  const selMap = sel instanceof Map ? sel : new Map();
-  const inBatch = sh => {
-    const e = selMap.get(sh);
-    return !!e && (e.takes.length + (e.fresh || 0)) > 0;
+function keepPromptViews(root, views) {
+  root.querySelectorAll('[data-prompt]').forEach(el => views.set(el.dataset.prompt,
+    { open: el.open, top: el.querySelector('.pl-prompt-body').scrollTop }));
+}
+function restorePromptViews(root, views) {
+  root.querySelectorAll('[data-prompt]').forEach(el => {
+    el.querySelector('.pl-prompt-body').scrollTop = views.get(el.dataset.prompt)?.top || 0;
+  });
+}
+const BATCH_CONFIG_FIELDS = ['model', 'modelAuto', 'combo', 'tier', 'res', 'ar', 'size', 'dur'];
+function applyBatchConfig(target, draft) {
+  BATCH_CONFIG_FIELDS.forEach(key => {
+    if (Object.hasOwn(draft, key)) target[key] = draft[key]; else delete target[key];
+  });
+  if (Object.hasOwn(draft, 'adv')) target.adv = structuredClone(draft.adv); else delete target.adv;
+}
+async function genAllScopeDialog(plan) {
+  const runProj = projOf(), choices = new Map(), views = new Map();
+  const groups = Panel.shotModels(null);
+  const models = groups.flatMap(g => g.models.map(m => ({ ...m, group: g.displayName || g.name })));
+  const checked = new Map(), freshChecked = new Map();
+  let root, go, save, quotedPlan = null, quoteSeq = 0, filter = 'all', result = null;
+  const sameProject = () => projOf() === runProj && wsOf().curId === runProj.id;
+  const selectionOf = () => {
+    const sel = new Map();
+    plan.todo.forEach(sh => {
+      const takes = (plan.takes.get(sh) || []).filter(c => checked.get(c));
+      const fresh = freshChecked.get(sh) ? plan.fresh.get(sh) || 0 : 0;
+      if (takes.length + fresh) sel.set(sh, { takes, fresh });
+    });
+    return sel;
   };
-  const ok = plan.ok.filter(inBatch);
-  const deps = new Map();
-  const wait = [];
-  const bad = plan.bad.slice();
-  const badWhy = new Map(plan.badWhy);
-  plan.wait.forEach(sh => {
-    if (!inBatch(sh)) return;
-    const prev = plan.deps.get(sh) || null;
-    if (prev && !inBatch(prev) && chainStateOf(prev) !== 'done' && chainStateOf(prev) !== 'running') {
-      bad.push(sh);
-      badWhy.set(sh, '上一镜「' + (prev.name || '未命名镜头') + '」这一轮没有勾选，接不了它的尾帧');
+  const unitsOf = (p, sh) => [...new Set([...(p.takes.get(sh) || []),
+    ...(p.fresh.get(sh) ? [defaultTakeOf(sh)] : [])])];
+  const refreshChecks = () => {
+    plan.todo.forEach(sh => {
+      (plan.takes.get(sh) || []).forEach(c => { if (!checked.has(c)) checked.set(c, true); });
+      if (!freshChecked.has(sh)) freshChecked.set(sh, true);
+    });
+  };
+  const modelOptions = value => '<option value="">沿用候选型号</option>' + models.map(m =>
+    '<option value="' + esc(m.id) + '"' + (m.id === value ? ' selected' : '') + '>'
+    + esc(m.group + ' · ' + (m.name || m.id)) + '</option>').join('');
+  const modeOptions = (model, value) => '<option value="">按素材匹配</option>' + Capabilities.combos(model).map(c =>
+    '<option value="' + esc(c.id) + '"' + (c.id === value ? ' selected' : '') + '>'
+    + esc(Capabilities.comboLabel(c)) + '</option>').join('');
+  const configHTML = sh => {
+    const choice = choices.get(sh) || {};
+    const ids = new Set(unitsOf(plan, sh).map(c => resolvedModel(plan.drafts.get(c))?.id));
+    const model = models.find(m => m.id === (choice.model || (ids.size === 1 ? [...ids][0] : '')));
+    const prefix = 'batch-' + sh.id;
+    return '<div class="batch-settings pl-shot-settings"><div class="pf-field"><label for="' + esc(prefix + '-model') + '">视频型号</label>'
+      + '<select id="' + esc(prefix + '-model') + '" data-role="model" data-sh="' + esc(sh.id) + '">'
+      + modelOptions(choice.model) + '</select></div>'
+      + (Capabilities.combos(model).length ? '<div class="pf-field"><label for="' + esc(prefix + '-mode') + '">生成模式</label>'
+        + '<select id="' + esc(prefix + '-mode') + '" data-role="mode" data-sh="' + esc(sh.id) + '">'
+        + modeOptions(model, choice.combo) + '</select></div>' : '') + '</div>';
+  };
+  const stale = p => p.todo.some(sh => unitsOf(p, sh).some(c => !allShots().includes(sh)
+    || !(sh.candidates || []).includes(c) || (p.takes.get(sh).includes(c) && c.status !== 'draft')
+    || p.sources.get(c) !== generationFingerprint(sh, c, p.choices.get(sh) || {})));
+  const replan = () => { plan = genAllPlan(choices); refreshChecks(); paint(); };
+  const paint = () => {
+    const selection = selectionOf(), selectedPlan = genAllPlan(choices, selection);
+    const list = root.querySelector('.pl-scope-list');
+    const focus = document.activeElement;
+    const focusInput = focus?.matches('.dd-btn') ? focus.closest('.dd').querySelector('select') : focus;
+    const focusKey = focusInput && list.contains(focusInput)
+      ? [focusInput.dataset.sh, focusInput.dataset.role, focusInput.dataset.i || ''] : null;
+    keepPromptViews(list, views);
+    Wb.viewport.keep(list, () => {
+      list.innerHTML = plan.todo.map(sh => {
+        const takes = plan.takes.get(sh) || [], freshN = plan.fresh.get(sh) || 0;
+        const showTake = c => filter === 'all' || filter === 'draft' || (filter === 'can' ? !plan.takeWhy.get(c) : !!plan.takeWhy.get(c));
+        const shown = takes.filter(showTake);
+        const showFresh = freshN && filter !== 'draft' && showTake(defaultTakeOf(sh));
+        if (!shown.length && !showFresh) return '';
+        const sel = selection.get(sh), n = sel ? sel.takes.length + sel.fresh : 0;
+        const total = takes.length + freshN;
+        const checkbox = (role, i, on, label) => '<input type="checkbox" data-sh="' + esc(sh.id)
+          + '" data-role="' + role + '" data-i="' + i + '" aria-label="' + esc(label) + '"' + (on ? ' checked' : '') + '>';
+        const name = sh.name || '未命名镜头';
+        const takeRows = shown.map(c => {
+          const i = takes.indexOf(c), why = plan.takeWhy.get(c) || '', draft = plan.drafts.get(c);
+          const model = resolvedModel(draft);
+          const meta = [model?.name || draft.model, comboLabel(shotCombo(draft)), draft.dur ? draft.dur + ' 秒' : ''].filter(Boolean).join(' · ');
+          const label = '候选 ' + ((sh.candidates || []).indexOf(c) + 1) + ' · 草稿';
+          return '<div class="pl-take"' + (why ? ' data-blocked="1"' : '') + '><label class="pl-take-check">'
+            + checkbox('take', i, checked.get(c), name + ' · ' + label) + '<span>' + esc(label) + '</span></label>'
+            + takePromptHTML(c.prompt, sh.id + ':' + c.vid, views)
+            + '<span class="meta">' + esc([meta, why].filter(Boolean).join(' · ')) + '</span></div>';
+        }).join('');
+        return '<section class="pl-shot" data-shot="' + esc(sh.id) + '" data-any="' + (n > 0 ? '1' : '')
+          + '" data-all="' + (n === total && n ? '1' : '') + '"><label class="pl-shot-head">'
+          + checkbox('shot', '', n === total && n > 0, name + ' · 全部候选') + '<b>' + esc(name)
+          + '</b><span class="meta">' + total + ' 条候选' + (selectedPlan.wait.includes(sh) ? ' · 等待上一镜' : '')
+          + '</span></label>' + configHTML(sh) + '<div class="pl-takes">' + takeRows
+          + (showFresh ? '<div class="pl-take"><label class="pl-take-check">'
+            + checkbox('fresh', '', freshChecked.get(sh), name + ' · 补建候选') + '<span>补建 ' + freshN + ' 条</span></label>'
+            + takePromptHTML(defaultTakeOf(sh)?.prompt, sh.id + ':fresh', views)
+            + '<span class="meta">' + esc(plan.takeWhy.get(defaultTakeOf(sh)) || '') + '</span></div>' : '') + '</div></section>';
+      }).join('') || '<div class="empty">没有匹配的候选</div>';
+      list.querySelectorAll('.pl-shot').forEach(el => {
+        el.querySelector('[data-role="shot"]').indeterminate = el.dataset.any === '1' && el.dataset.all !== '1';
+      });
+      Dropdowns.build(list);
+      restorePromptViews(list, views);
+    });
+    if (focusKey) {
+      const next = [...list.querySelectorAll('input, select')].find(el => el.dataset.sh === focusKey[0]
+        && el.dataset.role === focusKey[1] && (el.dataset.i || '') === focusKey[2]);
+      if (next) window.focusQuiet(next.closest('.dd')?.querySelector('.dd-btn') || next);
+    }
+    const count = [...selectedPlan.counts.values()].reduce((n, v) => n + v, 0);
+    const selectedUnits = selectedPlan.todo.flatMap(sh => unitsOf(selectedPlan, sh).map(c => ({ sh, c })));
+    const configBad = selectedUnits.some(({ sh, c }) => Panel.shotConfigReason(sh, selectedPlan.drafts.get(c)));
+    const configChanged = selectedUnits.some(({ c }) => BATCH_CONFIG_FIELDS.some(k => c[k] !== selectedPlan.drafts.get(c)[k]));
+    if (save) save.disabled = !count || configBad || !configChanged;
+    root.querySelector('.pl-scope-sum').textContent = '已选 ' + count + ' 条候选';
+    quotedPlan = null;
+    if (go) go.disabled = true;
+    const seq = ++quoteSeq, price = root.querySelector('.batch-price');
+    price.setAttribute('aria-busy', 'true');
+    if (!count || selectedPlan.bad.length) {
+      price.textContent = selectedPlan.bad.length ? '有候选尚未就绪' : '未选择候选';
+      price.setAttribute('aria-busy', 'false');
       return;
     }
-    wait.push(sh);
-    if (prev) deps.set(sh, prev);
+    price.textContent = '报价中…';
+    genAllQuote(selectedPlan).then(q => {
+      if (seq !== quoteSeq || !root.isConnected || !sameProject()) return;
+      price.innerHTML = genAllPriceHTML(q);
+      price.setAttribute('aria-busy', 'false');
+      quotedPlan = selectedPlan;
+      if (go) go.disabled = false;
+    }).catch(e => {
+      if (seq !== quoteSeq || !root.isConnected) return;
+      price.textContent = errText(e, '报价失败，请重新选择');
+      price.setAttribute('aria-busy', 'false');
+    });
+  };
+  const value = await UiDialog.open({
+    size: 'workflow',
+    title: '生成全部分镜',
+    body(el) {
+      root = el;
+      el.innerHTML = '<div class="batch-settings"><div class="pf-field"><label for="batchModel">统一型号</label>'
+        + '<select id="batchModel">' + modelOptions('') + '</select></div>'
+        + '<div class="pf-field" data-batch-mode hidden><label for="batchMode">统一模式</label><select id="batchMode"></select></div></div>'
+        + '<div class="pl-scope"><div class="pl-scope-chips"><div class="ui-seg" role="group" aria-label="候选状态">'
+        + [['all', '全部'], ['draft', '草稿'], ['can', '可生成'], ['bad', '未就绪']].map(([f, name]) => '<button type="button" class="'
+          + (f === 'all' ? 'on' : '') + '" data-f="' + f + '" aria-pressed="' + (f === 'all') + '">' + name + '</button>').join('')
+        + '</div></div><div class="pl-scope-list"></div></div>'
+        + '<div class="batch-summary"><span class="pl-scope-sum"></span><div class="batch-price" aria-live="polite"></div></div>';
+      Dropdowns.build(el);
+      el.querySelector('#batchModel').onchange = e => {
+        const model = e.target.value, m = models.find(x => x.id === model);
+        plan.todo.forEach(sh => { if (model) choices.set(sh, { model, combo: '' }); else choices.delete(sh); });
+        const mode = el.querySelector('#batchMode');
+        mode.innerHTML = modeOptions(m, '');
+        el.querySelector('[data-batch-mode]').hidden = !Capabilities.combos(m).length;
+        Dropdowns.sync(mode);
+        replan();
+      };
+      el.querySelector('#batchMode').onchange = e => {
+        const model = el.querySelector('#batchModel').value;
+        plan.todo.forEach(sh => choices.set(sh, { model, combo: e.target.value }));
+        replan();
+      };
+      el.querySelector('.pl-scope-chips').onclick = e => {
+        const b = e.target.closest('[data-f]'); if (!b) return;
+        filter = b.dataset.f;
+        el.querySelectorAll('[data-f]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); });
+        paint();
+      };
+      el.querySelector('.pl-scope-list').onchange = e => {
+        const input = e.target, sh = plan.todo.find(s => s.id === input.dataset.sh);
+        if (!sh || input.disabled) return;
+        const takes = plan.takes.get(sh) || [], role = input.dataset.role;
+        if (role === 'model') {
+          if (input.value) choices.set(sh, { model: input.value, combo: '' }); else choices.delete(sh);
+          replan(); return;
+        }
+        if (role === 'mode') {
+          choices.set(sh, { ...choices.get(sh), combo: input.value }); replan(); return;
+        }
+        if (role === 'shot') {
+          takes.forEach(c => checked.set(c, input.checked)); freshChecked.set(sh, input.checked);
+        } else if (role === 'take') checked.set(takes[Number(input.dataset.i)], input.checked);
+        else freshChecked.set(sh, input.checked);
+        paint();
+      };
+      refreshChecks();
+    },
+    onOpen(el) {
+      const footer = el.closest('dialog').querySelector('.pr-foot');
+      go = footer.querySelector('.pri'); save = footer.querySelectorAll('button')[1]; paint();
+    },
+    actions: [{ label: '取消', value: null }, { label: '仅保存配置', value: 'save',
+      onClick() {
+        if (!sameProject() || save.disabled) return false;
+        const selected = selectionOf();
+        if (stale({ ...plan, takes: new Map([...selected].map(([sh, s]) => [sh, s.takes])),
+          fresh: new Map([...selected].map(([sh, s]) => [sh, s.fresh])) })) {
+          replan(); Toast.warn('候选已变化，请重新确认'); return false;
+        }
+        const p = genAllPlan(choices, selected);
+        const units = p.todo.flatMap(sh => unitsOf(p, sh).map(c => ({ sh, c })));
+        if (units.some(({ sh, c }) => Panel.shotConfigReason(sh, p.drafts.get(c)))) {
+          replan(); return false;
+        }
+        units.forEach(({ c }) => applyBatchConfig(c, p.drafts.get(c)));
+        renderAll(); scheduleSave(); Toast.show('已保存配置'); return true;
+      } }, { label: '开始生成', value: 'go', primary: true,
+      onClick() {
+        if (!quotedPlan || !sameProject()) return false;
+        if (stale(quotedPlan)) {
+          replan(); Toast.warn('候选已变化，请确认新报价'); return false;
+        }
+        result = quotedPlan; return true;
+      } }],
   });
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (let i = wait.length - 1; i >= 0; i--) {
-      const sh = wait[i], p = deps.get(sh);
-      if (!bad.includes(p)) continue;
-      wait.splice(i, 1); deps.delete(sh);
-      bad.push(sh);
-      badWhy.set(sh, '上一镜不能生成（' + (p.name || '未命名镜头') + '：' + (badWhy.get(p) || '') + '）');
-      changed = true;
-    }
-  }
-  const takes = new Map(), fresh = new Map(), counts = new Map();
-  ok.concat(wait).forEach(sh => {
-    const e = selMap.get(sh) || { takes: [], fresh: 0 };
-    takes.set(sh, e.takes.slice());
-    fresh.set(sh, e.fresh || 0);
-    counts.set(sh, e.takes.length + (e.fresh || 0));
-  });
-  return { todo: plan.todo, ok, wait, bad, badWhy, deps, prevMap: plan.prevMap, takes, fresh, counts };
+  quoteSeq++;
+  return value === 'go' ? result : null;
 }
-/* ---------------- 润色全部文案 ----------------
-   「生成全部分镜」分裂按钮的尾项：对选中的每一条描述各润一遍（**不反问** —— 批量
-   没有一排人等着答题，固定走「跳过问答直接润」）。
-   范围弹窗按镜头勾选（每条候选各自成条），过程 4 路并发、逐行流式，
-   结束后同一张弹窗换成审阅清单，确认才写回。
-   每条的素材附带与系统提示词和单镜润色是同一份（ref.js 的 shotPolishOf），这里不拼第二套。
-   与 genAll 并行无害：它只发文字 AI 的请求，不建占位、不发生成任务、不碰 genAllRun。 */
+/* 批量润色：镜头 / 候选两级选择，整批问答，逐条流式；审阅确认后才写回。
+   素材与系统提示词沿用单镜的 shotPolishOf，文字请求独立于视频生成批次。 */
 const POLISH_CONCUR = 4;
 let polishAllRun = null;         // { ab, runProj, results, failed }
-/* 目标集合：每条有描述的候选一条（默认候选也是一条普通目标）。
-   auto 候选就是基准本身，不单列；没有文字的目标也不进（没有可润的）。
-   key 是写回时的稳定身份（b:<shotId> / t:<shotId>:<vid>），seq 决定结果排序。 */
+/* 每条候选都进范围列表；空描述只展示，不参加润色。
+   key 是写回时的稳定身份，seq 决定结果排序。 */
 function polishAllTargets() {
   const all = allShots();
   const targets = [];
@@ -886,14 +912,13 @@ function polishAllTargets() {
        默认候选（这一镜的主描述）也是一条普通目标 —— 它同样可以单独润。 */
     (sh.candidates || []).forEach((c, i) => {
       if (!c) return;
-      const own = String(c.prompt == null ? '' : c.prompt).trim();
-      if (!own) return;
+      const own = String(c.prompt == null ? '' : c.prompt);
       const short = '候选 ' + (i + 1) + '（' + takeStatusZh(c) + '）';
       targets.push({ key: 't:' + sh.id + ':' + c.vid, kind: 'take', shot: sh, cand: c, vid: c.vid,
-        text: own, short, label: (sh.name || '未命名镜头') + ' · ' + short, seq: seq++ });
+        text: own, canPolish: !!own.trim(), short, label: (sh.name || '未命名镜头') + ' · ' + short, seq: seq++ });
     });
   });
-  return { targets, skipped: all.length - new Set(targets.map(t => t.shot)).size };
+  return { targets, skipped: all.length - new Set(targets.filter(t => t.canPolish).map(t => t.shot)).size };
 }
 function refreshPolishAllBtn() {
   const btn = $('polishAll');
@@ -901,26 +926,25 @@ function refreshPolishAllBtn() {
   if (polishAllRun) {
     btn.textContent = '停止润色';
     btn.disabled = false;
-    btn.title = '正在润色；停下后已润好的那几条仍会摆出来确认';
+    btn.removeAttribute('title');
     return;
   }
   const { targets } = polishAllTargets();
-  const baseN = targets.filter(t => t.kind === 'base').length;
-  const takeN = targets.length - baseN;
   /* 同步近似「能不能润」：选中一家 + 本机有它的密钥（或环境密钥探到过）。
      环境密钥档在点击后还会被 TextAI.canRun 真判一次 —— 这里的闸只管把按钮的话说准。 */
   const pv = window.TextAI ? TextAI.prov(regOf()) : null;
   const hasAI = !!(pv && (TextAI.key(pv)
     || (TextAI._envIds && TextAI._envIds[TextAI.keyId(pv)])));
+  const hasText = targets.some(t => t.canPolish);
   btn.textContent = '润色全部文案';
-  btn.disabled = !targets.length || !hasAI;
-  btn.title = !targets.length ? '还没有写好描述的镜头'
-    : !window.TextAI || !pv ? '没有可用的文字 AI 供应商'
-    : !hasAI ? '请先在「设置」填文字 AI 密钥'
-    : '对 ' + targets.length + ' 条描述各润一遍（画面 ' + baseN + ' 条 / 候选 ' + takeN
-      + ' 条；不反问；润完先审阅，确认才写回）';
+  btn.disabled = !hasText || !hasAI;
+  const why = !hasText ? '暂无候选描述'
+    : !window.TextAI || !pv ? '请在设置中选择文字 AI'
+    : !hasAI ? '请在设置中填写文字 AI 密钥' : '';
+  if (why) btn.title = why;
+  else btn.removeAttribute('title');
 }
-/* 范围弹窗：芯片只切镜头列表的显示（勾选集合跨芯片保留）；镜头行管它名下所有目标，
+/* 范围弹窗：芯片只切候选列表的显示（勾选集合跨芯片保留）；镜头行管它名下可润色目标，
    目标行各自可勾。底部那格「发给 AI 的备注」整批共用（与拆分镜同一句式，只进这一次请求）。
    一条都没勾时「开始润色」禁用 —— 主按钮在 body 画完之后才建，所以那道闸接在 onOpen 里。 */
 async function polishAllScope(targets, skipped) {
@@ -929,72 +953,97 @@ async function polishAllScope(targets, skipped) {
   targets.forEach(t => {
     let g = byShot.get(t.shot.id);
     if (!g) {
-      g = { shot: t.shot, items: [], done: shotVideoDone(t.shot) };
+      g = { shot: t.shot, items: [] };
       byShot.set(t.shot.id, g);
       groups.push(g);
     }
     g.items.push(t);
   });
-  const picked = new Set(targets.map(t => t.key));
+  const eligible = targets.filter(t => t.canPolish);
+  const picked = new Set(eligible.map(t => t.key));
+  const views = new Map();
   let sumEl = null, listEl = null, noteEl = null, syncGo = () => {};
   const v = await window.UiDialog.open({
-    title: '润色全部文案',
-    sub: '逐条请 AI 润一遍；先按状态筛选、再逐条勾选。可以备注整批的取向，'
-      + 'AI 也可能先问几句整体风格（可在设置里关掉），润完先审阅再写回。'
-      + (skipped ? '另有 ' + skipped + ' 镜没有可润的描述，跳过。' : ''),
+    size: 'workflow',
+    title: '润色文案',
     body(el) {
       el.innerHTML = '<div class="pl-scope">'
-        + '<div class="pl-scope-chips">'
-        + '<button type="button" class="ui-seg on" data-f="all">全部</button>'
-        + '<button type="button" class="ui-seg" data-f="done">视频已生成</button>'
-        + '<button type="button" class="ui-seg" data-f="todo">还没视频</button>'
+        + '<div class="pl-scope-chips ui-seg" role="group" aria-label="候选状态">'
+        + '<button type="button" class="on" data-f="all" aria-pressed="true">全部</button>'
+        + '<button type="button" data-f="done" aria-pressed="false">视频已生成</button>'
+        + '<button type="button" data-f="todo" aria-pressed="false">未生成视频</button>'
+        + '<button type="button" data-f="draft" aria-pressed="false">草稿</button>'
         + '</div>'
         + '<div class="pl-scope-list"></div>'
-        + '<textarea class="pl-note" placeholder="发给 AI 的备注（可选）—— 例：整体偏写实 · 光偏黄昏 · 镜头别太晃"></textarea>'
-        + '<div class="dlg-hint pl-scope-sum"></div>'
+        + '<label class="pgroup"><span>润色备注（可选）</span><textarea class="ui-inp pl-note" rows="2"></textarea></label>'
+        + '<div class="dlg-hint pl-scope-sum" role="status"></div>'
         + '</div>';
       listEl = el.querySelector('.pl-scope-list');
       sumEl = el.querySelector('.pl-scope-sum');
       noteEl = el.querySelector('.pl-note');
-      const chips = el.querySelectorAll('.pl-scope-chips .ui-seg');
+      const chips = el.querySelectorAll('.pl-scope-chips.ui-seg > button');
       let filter = 'all';
       const paint = () => {
-        const vis = groups.filter(g => filter === 'all' || (filter === 'done' ? g.done : !g.done));
-        listEl.innerHTML = vis.length ? vis.map(g => {
-          const allOn = g.items.every(t => picked.has(t.key));
-          return '<div class="pl-shot" data-shot="' + esc(g.shot.id) + '">'
-            + '<label class="pl-shot-head"><input type="checkbox" data-role="shot"'
-            + (allOn ? ' checked' : '') + '>'
-            + '<b>' + esc(g.shot.name || '未命名镜头') + '</b>'
-            + '<span class="meta">' + g.items.length + ' 条 · ' + (g.done ? '视频已生成' : '还没视频') + '</span>'
-            + '</label>'
-            + '<div class="pl-takes">' + g.items.map(t =>
-              '<label class="pl-take"><input type="checkbox" data-role="take" data-key="' + esc(t.key) + '"'
-              + (picked.has(t.key) ? ' checked' : '') + '>' + esc(t.short) + '</label>').join('')
-            + '</div></div>';
-        }).join('') : '<div class="empty">这一档没有可润色的条目</div>';
-        [...listEl.querySelectorAll('input[data-role="shot"]')].forEach(inp => {
-          const g = byShot.get(inp.closest('.pl-shot').dataset.shot);
-          inp.indeterminate = !!(g && !inp.checked && g.items.some(t => picked.has(t.key)));
-        });
-        sumEl.textContent = '已勾选 ' + picked.size + ' / ' + targets.length + ' 条'
-          + (picked.size ? '' : '（至少勾一条才能开始）');
-        syncGo();
+        keepPromptViews(listEl, views);
+        const active = document.activeElement;
+        const focus = active && listEl.contains(active) ? {
+          role: active.dataset.role, key: active.dataset.key,
+          shot: active.closest('.pl-shot')?.dataset.shot,
+        } : null;
+        const vis = groups.map(g => ({ g, items: g.items.filter(t => filter === 'all'
+          || (filter === 'draft' ? t.cand.status === 'draft'
+            : filter === 'done' ? t.cand.status === 'succeeded' : t.cand.status !== 'succeeded')) }))
+          .filter(v => v.items.length);
+        Wb.viewport.keep(el, () => {
+          listEl.innerHTML = vis.length ? vis.map(({ g, items }) => {
+            const name = g.shot.name || '未命名镜头';
+            const ready = g.items.filter(t => t.canPolish);
+            const allOn = ready.length && ready.every(t => picked.has(t.key));
+            return '<div class="pl-shot" data-shot="' + esc(g.shot.id) + '">'
+              + '<label class="pl-shot-head"><input type="checkbox" data-role="shot" aria-label="' + esc(name + ' · 全部候选') + '"'
+              + (allOn ? ' checked' : '') + (!ready.length ? ' disabled' : '') + '>'
+              + '<b>' + esc(name) + '</b>'
+              + '<span class="meta">' + ready.length + ' 可润色</span>'
+              + '</label>'
+              + '<div class="pl-takes">' + items.map(t =>
+                '<div class="pl-take"><label class="pl-take-check"><input type="checkbox" data-role="take" data-key="' + esc(t.key) + '" aria-label="' + esc(t.label) + '"'
+                + (picked.has(t.key) ? ' checked' : '') + (!t.canPolish ? ' disabled' : '') + '><span>' + esc(t.short) + '</span></label>'
+                + takePromptHTML(t.text, t.key, views) + '</div>').join('')
+              + '</div></div>';
+          }).join('') : '<div class="empty">暂无候选</div>';
+          restorePromptViews(listEl, views);
+          [...listEl.querySelectorAll('input[data-role="shot"]')].forEach(inp => {
+            const g = byShot.get(inp.closest('.pl-shot').dataset.shot);
+            inp.indeterminate = !!(g && !inp.checked && g.items.some(t => t.canPolish && picked.has(t.key)));
+          });
+          sumEl.textContent = '已选 ' + picked.size + ' / ' + eligible.length + ' 项'
+            + (skipped ? ' · 无描述 ' + skipped + ' 镜' : '');
+          syncGo();
+        }, { absolute: true });
+        if (focus) {
+          const next = [...listEl.querySelectorAll('input')].find(inp => inp.dataset.role === focus.role
+            && inp.dataset.key === focus.key && inp.closest('.pl-shot').dataset.shot === focus.shot);
+          if (next) window.focusQuiet(next);
+        }
       };
       el.querySelector('.pl-scope-chips').addEventListener('click', e => {
         const b = e.target.closest('button[data-f]');
         if (!b) return;
         filter = b.dataset.f;
-        [...chips].forEach(x => x.classList.toggle('on', x === b));
+        [...chips].forEach(x => {
+          x.classList.toggle('on', x === b);
+          x.setAttribute('aria-pressed', String(x === b));
+        });
         paint();
+        window.focusQuiet(b);
       });
       listEl.addEventListener('change', e => {
         const inp = e.target;
-        if (!inp || inp.tagName !== 'INPUT') return;
+        if (!inp || inp.tagName !== 'INPUT' || inp.disabled) return;
         const g = byShot.get(inp.closest('.pl-shot').dataset.shot);
         if (!g) return;
         if (inp.dataset.role === 'shot') {
-          g.items.forEach(t => { if (inp.checked) picked.add(t.key); else picked.delete(t.key); });
+          g.items.filter(t => t.canPolish).forEach(t => { if (inp.checked) picked.add(t.key); else picked.delete(t.key); });
         } else if (inp.checked) picked.add(inp.dataset.key);
         else picked.delete(inp.dataset.key);
         paint();
@@ -1010,7 +1059,7 @@ async function polishAllScope(targets, skipped) {
     actions: [{ label: '取消', value: null }, { label: '开始润色', value: 'go', primary: true }],
   });
   return v === 'go'
-    ? { targets: targets.filter(t => picked.has(t.key)), note: noteEl ? noteEl.value.trim() : '' }
+    ? { targets: eligible.filter(t => picked.has(t.key)), note: noteEl ? noteEl.value.trim() : '' }
     : null;
 }
 /* 润色前那一轮**整体**问答（与拆分镜同一套两段式）：问的是影响整批的取向
@@ -1020,8 +1069,8 @@ async function polishAskRound(chosen) {
   if (!TextAI.shouldAsk()) return '';
   const ask = { dead: false, resolve: null };
   const dlg = window.PromptReview.openProcess({
-    title: 'AI 正在准备润色…',
-    sub: '先判断要不要问几个整体取向的问题；跳过就直接开始润色。',
+    size: 'workflow',
+    title: '润色问答',
     onAbort() {
       ask.dead = true;
       const u = ask.resolve; ask.resolve = null;
@@ -1029,7 +1078,7 @@ async function polishAskRound(chosen) {
     },
   });
   const body = dlg.querySelector('#prBody');
-  InlinePolish.loading(body, '正在读这一批镜头的提示词，判断要不要先问几个问题…');
+  InlinePolish.loading(body, '加载中…');
   const sys = '你是专业视频提示词指导。用户即将对一批镜头的画面提示词做整体润色（每条各润一遍）。'
     + '请先判断要不要先问几个问题 —— 只问影响**整批**的问题（画风与视觉基调、光线与时段、'
     + '镜头语言取向、要不要统一的氛围词）；单条镜头自己的细节不用问。';
@@ -1043,20 +1092,18 @@ async function polishAskRound(chosen) {
   const qs = (r && r.need && Array.isArray(r.questions)) ? r.questions : [];
   if (!qs.length) { window.PromptReview.closeProcess(dlg); return ''; }
   InlinePolish.ask(body, {
-    title: '润色前，AI 想先问几个问题',
-    intro: '点一个候选，或在输入框里自己写；没答的题按 AI 的默认理解走。'
-      + '回答对**这一批每一条**都生效。',
+    title: '整体取向',
     questions: qs,
     state: [],
     onChange: st => {},
-    submitLabel: '按这些回答开始润色',
-    skipLabel: '跳过，直接润色',
+    submitLabel: '开始润色',
+    skipLabel: '跳过问答',
     onSubmit: t => { if (!ask.dead && ask.resolve) { const u = ask.resolve; ask.resolve = null; u(t || ''); } },
     onSkip: () => { if (!ask.dead && ask.resolve) { const u = ask.resolve; ask.resolve = null; u(''); } },
   });
   const t = await new Promise(res => { ask.resolve = res; });
   window.PromptReview.closeProcess(dlg);
-  return t || '';
+  return t === null ? null : t || '';
 }
 /* 整批问答的 focus：只问影响整批的取向（每条自己的细节不问）。 */
 const POLISH_ASK_FOCUS = '整批镜头共同的画风与视觉基调、光线与时段、'
@@ -1064,21 +1111,25 @@ const POLISH_ASK_FOCUS = '整批镜头共同的画风与视觉基调、光线与
 async function runPolishAll() {
   /* 运行中再点 = 停止（按钮文案已换成「停止润色」） */
   if (polishAllRun) { polishAllRun.ab.abort(); return; }
+  const runProj = projOf();
+  const sameProject = () => projOf() === runProj && wsOf().curId === runProj.id;
   const { targets, skipped } = polishAllTargets();
-  if (!targets.length) { setStatus('<span class="err">没有可润色的描述</span>'); return; }
+  if (!targets.some(t => t.canPolish)) { setStatus('<span class="err">暂无候选描述</span>'); return; }
   /* 真判一次：供应商选没选、密钥（本机 / 服务端 .env）有没有 —— 与单镜润色同一把尺。 */
   if (!(window.TextAI && await TextAI.canRun(regOf()))) {
-    setStatus('<span class="err">没有可用的文字 AI（先在「设置」配好供应商与密钥）</span>');
+    setStatus('<span class="err">文字 AI 未配置，请前往设置</span>');
     return;
   }
+  if (!sameProject()) { setStatus('短片已切换，润色已取消'); return; }
   const scope = await polishAllScope(targets, skipped);
   if (!scope || !scope.targets.length) return;
+  if (!sameProject()) { setStatus('短片已切换，润色已取消'); return; }
   const chosen = scope.targets;
   const batchNote = scope.note || '';
   /* 润前一轮整体问答：回答对整批生效（polishExtra 把它拼成硬约束）；null = 取消，整批不开跑。 */
   const batchAnswers = await polishAskRound(chosen);
   if (batchAnswers === null) { setStatus('已取消'); return; }
-  const runProj = projOf();
+  if (!sameProject()) { setStatus('短片已切换，润色已取消'); return; }
   const ab = new AbortController();
   const run = { ab, runProj, results: [], failed: [] };
   polishAllRun = run;
@@ -1086,8 +1137,9 @@ async function runPolishAll() {
   /* 过程弹窗与随后的审阅是同一张：结束后把 dlg 交给 openList 就地换内容。
      停止只掐在途请求、不关弹窗（keepOpenOnAbort）—— 已经润好的那几条还要摆出来审阅。 */
   const dlg = window.PromptReview.openProcess({
-    title: '润色全部文案',
-    sub: '共 ' + chosen.length + ' 条；' + POLISH_CONCUR + ' 路并发，可随时停止；润完先审阅再写回。',
+    size: 'workflow',
+    title: '润色中…',
+    sub: chosen.length + ' 条',
     keepOpenOnAbort: true,
     cancelLabel: '停止',
     onAbort: () => { ab.abort(); },
@@ -1171,26 +1223,25 @@ async function runPolishAll() {
     window.PromptReview.closeProcess(dlg);
     const why = run.failed.length ? ('：' + run.failed[0].why) : '';
     setStatus(ab.signal.aborted
-      ? '已停止，文案没有动'
-      : '<span class="err">' + chosen.length + ' 条都没润出来' + esc(why) + '，文案没有动</span>');
+      ? '已停止'
+      : '<span class="err">润色失败 ' + run.failed.length + ' 条' + esc(why) + '；请重试</span>');
     return;
   }
   /* 审阅清单：同一张弹窗就地换标题与内容；取消一个字不动。 */
   const reviewed = await window.PromptReview.openList({
+    size: 'workflow',
     shell: dlg,
-    title: '润色结果（确认后写回）',
-    sub: (ab.signal.aborted ? '已停止；' : '') + '润好 ' + run.results.length + ' 条'
-      + (run.failed.length ? '；有 ' + run.failed.length + ' 条没润出来，保持原文' : '')
-      + (skipped ? '；' + skipped + ' 镜没有可润的描述，跳过' : '')
-      + '；可就地改，写入后每条仍能在右栏单独再改',
+    title: '润色结果',
+    sub: (ab.signal.aborted ? '已停止 · ' : '') + '完成 ' + run.results.length + ' 条'
+      + (run.failed.length ? ' · 失败 ' + run.failed.length + ' 条' : ''),
     items: run.results.map(r => ({ key: r.key, kind: r.kind, shotId: r.shotId, vid: r.vid,
       label: r.label, text: r.text })),
-    applyLabel: '写回这些条目',
-    hint: '画面写回这一镜的基准描述；候选只改那一条自己的描述，别的候选不受影响；生成仍按「生成全部分镜」来',
+    applyLabel: '写入文案',
+    hint: run.failed.map(f => f.label + '：' + f.why).join('；'),
   });
-  if (!reviewed || !reviewed.length) { setStatus('已取消，文案没有动'); return; }
-  if (projOf() !== runProj) {
-    setStatus('<span class="err">已切换短片，润色结果没有写回</span>');
+  if (!reviewed || !reviewed.length) { setStatus('已取消'); return; }
+  if (!sameProject()) {
+    setStatus('<span class="err">短片已切换，未写入</span>');
     return;
   }
   const live = [];
@@ -1207,9 +1258,9 @@ async function runPolishAll() {
     n++;
   });
   renderAll(); scheduleSave();
-  setStatus('<span class="ok">✓ 已写回 ' + n + ' 条描述</span>'
-    + (gone ? '<span class="meta"> · ' + gone + ' 条在润色期间被删掉，没有写</span>' : '')
-    + (run.failed.length ? '<span class="meta"> · ' + run.failed.length + ' 条没润出来，保持原文</span>' : ''));
+  setStatus('<span class="ok">已写入 ' + n + ' 条</span>'
+    + (gone ? '<span class="meta"> · 已删除 ' + gone + ' 条</span>' : '')
+    + (run.failed.length ? '<span class="meta"> · 失败 ' + run.failed.length + ' 条</span>' : ''));
 }
 function abortGenAll(why) {
   if (!genAllRun) return;
@@ -1221,6 +1272,9 @@ function abortGenAll(why) {
   chainWaits.clear();
 }
 async function runGenAll(plan) {
+  if (genAllRun) return;
+  clearTimeout(gaEstTimer);
+  gaEstTimer = null;
   const runProj = projOf();
   const run = { runProj, abort: '', waitSince: new Map(), targets: plan.ok.concat(plan.wait) };
   genAllRun = run;
@@ -1245,39 +1299,35 @@ async function runGenAll(plan) {
       },
       onBlocked: sh => { settleShot(sh); },
       run: async sh => {
-        if (!alive()) throw new Error('已停止（切换了短片）');
-        /* 计划里带候选的那一镜**就地更新**那几条（各自带上自己那句描述）；
-           候选是计划时刻的快照，真轮到时要逐条核对还在不在、还是不是草稿 ——
-           用户刚删过 / 改空过就这一镜不提交，不拿别的候选顶替。 */
-        const planned = plan.takes.get(sh) || [];
-        if (planned.length) {
-          const live = sh.candidates || [];
-          const still = planned.every(c => live.includes(c) && c.status === 'draft'
-            && String(takePromptOf(sh, c)).trim());
-          if (!still) {
-            throw new Error('候选镜头在生成期间被删掉或改空了，这一镜没有提交；请重新点「生成全部分镜」');
-          }
-          planned.forEach(c => { c.status = 'creating'; c.error = null; c.progress = null; });
-          renderAll(); scheduleSave();
-        }
-        /* 还差张数才补建的克隆：占位只在真正轮到这一镜时才建（等待中的镜头提前冒出「创建中」，
-           用户会以为已经在花钱了）。克隆自带提示词与配置，不是空壳。 */
-        const freshN = (plan.fresh && plan.fresh.get(sh)) || 0;
-        const fresh = freshN ? pushPlaceholders(sh, freshN) : [];
-        const phs = planned.concat(fresh);
-        /* 计划是一分钟前算的：真轮到这一镜时按**现在**的顺序再认一次上一镜。
-           用户改了顺序 / 删了镜头就宁可不生成，也不能把 A 的尾帧接到 B 上。 */
-        if (phs.some(c => c.linkPrev === 'tail' && !c.firstFrame)) {
-          const live = allShots();
-          const li = live.indexOf(sh);
-          const livePrev = li > 0 ? live[li - 1] : null;
-          if (livePrev !== (plan.prevMap.get(sh) || null)) {
-            throw new Error('镜头顺序在生成期间变了，这一镜没有提交；请重新点「生成全部分镜」');
-          }
-        }
-        const stopErr = new Error('已停止（切换了短片）');
-        let okN = 0, firstErr = null;
         try {
+          if (!alive()) throw new Error('已停止（切换了短片）');
+          const planned = plan.takes.get(sh) || [];
+          const freshN = plan.fresh.get(sh) || 0, def = defaultTakeOf(sh);
+          const units = [...new Set([...planned, ...(freshN ? [def] : [])])];
+          if (!allShots().includes(sh) || planned.some(c => !(sh.candidates || []).includes(c) || c.status !== 'draft')
+            || units.some(c => plan.sources.get(c) !== generationFingerprint(sh, c, plan.choices.get(sh) || {}))) {
+            throw new Error('候选已变化，请重新确认生成');
+          }
+          if (units.some(c => c.linkPrev === 'tail' && !c.firstFrame)) {
+            const live = allShots(), i = live.indexOf(sh);
+            if ((i > 0 ? live[i - 1] : null) !== plan.prevMap.get(sh)) throw new Error('镜头顺序已变化，请重新确认生成');
+          }
+          for (const c of units) {
+            const draft = plan.drafts.get(c), current = Panel.plannedTake(sh, draft, plan.choices.get(sh) || {});
+            const reason = shotBlockReason(sh, null, takePromptOf(sh, draft), draft);
+            if (reason) throw new Error(reason);
+            if (BATCH_CONFIG_FIELDS.some(key => current[key] !== draft[key])) throw new Error('型号能力已变化，请重新确认生成');
+          }
+          planned.forEach(c => {
+            applyBatchConfig(c, plan.drafts.get(c));
+            c.status = 'creating'; c.error = null; c.progress = null;
+          });
+          const fresh = freshN ? pushPlaceholders(sh, freshN) : [];
+          fresh.forEach(c => applyBatchConfig(c, plan.drafts.get(def)));
+          const phs = planned.concat(fresh);
+          renderAll(); scheduleSave();
+          const stopErr = new Error('已停止（切换了短片）');
+          let okN = 0, firstErr = null;
           for (let i = 0; i < phs.length; i++) {
             if (!alive()) {
               /* 没提交的那几条不能留着「创建中」：它们永远拿不到任务号。
@@ -1341,49 +1391,21 @@ async function runGenAll(plan) {
   if (failedShots) {
     setStatus('<span class="err">有 ' + failedShots + ' 镜提交失败：它们现在算「一条都没成」，'
       + '再点「生成全部分镜」只会补它们（已成功的镜头不会重投）</span>'
-      + (blockedShots ? '<br>另有 ' + blockedShots + ' 镜等着接上一镜的尾帧 —— 上一镜失败了，这一次没有提交；上一镜补好后再点一次' : ''));
+      + '<br>' + outs.filter(r => r && r.error).map(r => esc((r.item.name || '未命名镜头') + '：' + errText(r.error))).join('；')
+      + (blockedShots ? '<br>另有 ' + blockedShots + ' 镜未提交' : ''));
   } else if (blockedShots) {
     setStatus('<span class="meta">另有 ' + blockedShots + ' 镜等着接上一镜的尾帧，这一次没有提交</span>');
   }
 }
 /* 点「生成全部分镜」：先按**眼下**的镜头重算计划、现问一次价，再让用户确认。
    取消时一个占位都不建、一个请求都不发。 */
-async function genAllConfirm(plan, q) {
-  const n = plan.ok.length + plan.wait.length;
-  const runList = plan.ok.concat(plan.wait);
-  const cands = runList.reduce((a, sh) => a + (Number(plan.counts.get(sh)) || 0), 0);
-  const reuseN = runList.reduce((a, sh) => a + ((plan.takes.get(sh)) || []).length, 0);
-  const freshN = runList.reduce((a, sh) => a + ((plan.fresh.get(sh)) || 0), 0);
+function genAllPriceHTML(q) {
   const price = q.sum.mixed
-    ? '<span class="dlg-warn">多币种，无法合计：' + q.sum.byCurrency.map(x => esc((x.currency || '?') + ' ' + x.amount)).join(' / ') + '</span>'
-    : q.sum.priced
-      ? '预计 <b>' + q.sum.total + '</b> ' + esc(q.sum.currencies[0] || '')
-      : '<span class="dlg-warn">报价不可用' + (q.firstWhy ? '：' + esc(q.firstWhy) : '') + '</span>';
-  const badHTML = plan.bad.length
-    ? '<div class="dlg-warn">不能生成 ' + plan.bad.length + ' 镜：'
-      + plan.bad.slice(0, 5).map(sh => esc((sh.name || '未命名') + '（' + plan.badWhy.get(sh) + '）')).join('；')
-      + (plan.bad.length > 5 ? '；等共 ' + plan.bad.length + ' 镜' : '') + '</div>'
-    : '';
-  const v = await UiDialog.open({
-    title: '生成全部分镜',
-    sub: '先看清这一次要提交多少、花多少；取消不会建占位、也不会发请求。',
-    body(el) {
-      el.innerHTML = '<div class="dlg-line">将生成 <b>' + n + '</b> 镜'
-        + (cands > n ? '（共 ' + cands + ' 条候选镜头）' : '') + '。' + price + '</div>'
-        + (reuseN ? '<div class="dlg-line">其中 <b>' + reuseN + '</b> 条是**已有候选就地更新**'
-          + '（各自带自己那句描述与配置）。</div>' : '')
-        + (freshN ? '<div class="dlg-line">另有 <b>' + freshN + '</b> 条按这一镜的张数补建'
-          + '（克隆自默认候选，带全套配置）。</div>' : '')
-        + (plan.wait.length ? '<div class="dlg-line">其中 <b>' + plan.wait.length + '</b> 镜要等上一镜出画面后才提交：'
-          + plan.wait.slice(0, 4).map(sh => esc((sh.name || '未命名') + ' ← ' + ((plan.deps.get(sh) || {}).name || '上一镜'))).join('；')
-          + (plan.wait.length > 4 ? '；等 ' + plan.wait.length + ' 镜' : '') + '。</div>' : '')
-        + (q.unpriced ? '<div class="dlg-warn">另有 ' + q.unpriced + ' 镜报价不可用' + (q.firstWhy ? '（' + esc(q.firstWhy) + '）' : '') + '；它们照常生成，按平台实际结算。</div>' : '')
-        + badHTML
-        + '<div class="dlg-hint">报价为平台参数询价，不等于最终结算。</div>';
-    },
-    actions: [{ label: '取消', value: null }, { label: '开始生成', value: 'go', primary: true }],
-  });
-  return v === 'go';
+    ? q.sum.byCurrency.map(x => esc((x.currency || '') + ' ' + x.amount)).join(' / ')
+    : q.sum.priced ? '<b>' + esc(q.sum.total) + '</b> ' + esc(q.sum.currencies[0] || '') : '';
+  return (price ? '<span>' + (q.unpriced ? '已报价部分 ' : '预计 ') + price + '</span>' : '')
+    + (q.unpriced ? '<span class="dlg-warn" title="' + esc(q.firstWhy || '') + '">'
+      + q.unpriced + ' 条报价不可用 · 按平台结算</span>' : '');
 }
   /* 上次没跑完的画面切片：任务号在创建那一刻就落在关键帧上（kfGenOpts 的 onTask），
      开机时把「还在排队 / 生成中」的那几张认回来（AI 生成要几十秒，关页 / 换设备很常见）。
@@ -1472,7 +1494,7 @@ async function genAllConfirm(plan, q) {
     voiceAssetBase, announceDoneCandidates, submitCandidate, drawShot, shotHasVideo, genBtnLabel,
     spawnCandidateShot, pollKick: () => poller.kick(), resumeKeyframes, reconcilePendingPics,
     /* 接续与批量：状态、计划、报价、执行与停止；genAllRun 只以「有没有在跑」出去，批次对象不外泄 */
-    chainStateOf, genAllPlan, genAllScopeDialog, planForSelection, genAllQuote, genAllConfirm, runGenAll, refreshGenAllBtn,
+    chainStateOf, genAllPlan, genAllScopeDialog, runGenAll, refreshGenAllBtn,
     abortGenAll, genAllRunning: () => !!genAllRun, genAllWaitOf,
     /* 润色全部文案：批量入口与按钮刷新（挂在 genAll 同一帧，同一处读数） */
     runPolishAll, refreshPolishAllBtn,

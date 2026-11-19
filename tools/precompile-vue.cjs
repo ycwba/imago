@@ -11,9 +11,9 @@ const OUT_DIR = path.join(root, 'web', 'render');
 const VUE_RUNTIME = '../../vue.runtime.esm-browser.prod.js';
 const NAMES = [
   'app-loading', 'app-error', 'app-shell',
-  /* 画布页已下线（2026-10-24）：模板、页面、样式与那一族测试一并删除，
-     预编译清单里也就不再有它 —— 清单里留着一条会去找一份不存在的模板，直接构建失败。 */
-  'assets', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director', 'model',
+  /* 建模台已下线（2026-11-18）：模板、页面、样式与那一族测试一并删除，预编译清单里也就不再有它。
+     画布页更早下线（2026-10-24），同一件事。 */
+  'assets', 'chars', 'favorites', 'settings', 'studio', 'usage', 'director',
 ];
 
 function getCompiler() {

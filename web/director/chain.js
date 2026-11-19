@@ -116,7 +116,7 @@ export function chainModelRepick(c, list, settled) {
   if (stored) {
     if (stored.first) return null;
     if (c.modelAuto !== 'chain') return null;
-  } else if (c.model && c.model !== 'auto' && !settled) {
+  } else if (c.model && c.model !== 'auto' && (c.modelAuto !== 'chain' || !settled)) {
     return null;
   }
   return pickChainModel(list || [], '', 0, null);

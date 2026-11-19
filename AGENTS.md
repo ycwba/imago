@@ -17,9 +17,9 @@
 - 本地优先的 AI 创作工作台：Vue 3 SPA + 本地 Node 代理（`proxy.js` → `server/app.js`，默认 `http://localhost:5175`）。
 - 页面只与同源地址通信；平台密钥只保存在代理侧；数据默认留本机。
 - 业务数据只有两份文件：`.data/state.json`（设置、密钥、云同步状态、ASR / 搜索 / Skill 状态）与 `.data/backup.json`（最多 5 份带 sha256 的快照）。
-- 另有本机资产账 `.data/local-assets/`、白模索引 `.data/model-index/`、模型缓存 `.data/models/`、用户 Skill `.skills/`。
+- 另有本机资产账 `.data/local-assets/`、模型缓存 `.data/models/`、用户 Skill `.skills/`。
 - 用户产物落在库根 `下载\成像\`：`图片/` `视频/` `音频/` `其他/`，提示词归档 `提示词/`。库根算法只有 `server/local-root.js`：`ASSETS_DIR` > `sk_local_dir` > `下载\成像`。
-- 八个页面（侧栏 7 + 设置）：导演台、工作台、素材库、建模台、收藏、资产库、用量、设置。路由表只有 `web/core/routes.js`。
+- 七个页面（侧栏 6 + 设置）：导演台、工作台、素材库、收藏、资产库、用量、设置。路由表只有 `web/core/routes.js`。
 
 ## 目录结构
 
@@ -42,7 +42,7 @@ server/
   health.js / lock.js / zip.js
   providers/validate.js   供应商声明校验
   routes/                 system / static / capabilities / registry / relay / outbound / local-assets /
-                          model3d / usage / cache / skills / fcpxml / pick-dir / asr / models / search /
+                          usage / cache / skills / fcpxml / pick-dir / asr / models / search /
                           http（唯一 JSON 回包口径 sendJson / fail）
 shell.html                SPA 外壳（CSP、启动脚本、公共模块）
 web/
@@ -61,13 +61,11 @@ web/
                           local / capabilities / text-ai / gen-rules / fav / prompt-log / asset-picker /
                           ai-find / chars / ident / asset-ref / identity / semantic / asr / search /
                           zip-read / chat/text-util / chat/contracts
-  model3d/                schema / dsl / entities / mannequin / rig / crowd / scene / loader / clip /
-                          anim / view / palette / vault / ai / capture / quick / bridge
   features/               chat.js（助手外壳）/ chat-tools.js（工具循环与动作目录）
   styles/                 tokens / ui / wb / sidebar / chat / spa-*.css
-tools/                    precompile-vue / vendor-three / tokenize-css / token-lib / check-vars /
+tools/                    precompile-vue / tokenize-css / token-lib / check-vars /
                           sync-skill-contracts / vue-templates/
-skills/<id>/SKILL.md      内置 Skill；skills/model3d/ 是建模契约正文
+skills/<id>/SKILL.md      内置 Skill
 tests/                    常驻判据、单元、e2e、fixtures、数据基线
 启动.bat / launcher.ps1 / 更新.bat / update.ps1
 ```
@@ -78,8 +76,7 @@ tests/                    常驻判据、单元、e2e、fixtures、数据基线
 - 运行时零构建：Vue 3.5.44 runtime-only，`shell.html` 原生 ESM 引 `web/app.js`，页面按需 `import()`。
 - 模板源只在 `tools/vue-templates/*.html`；改模板跑 `npm run build`（模板 → `web/render/*.js` + Skill 契约副本）。
 - `npm run build:check` 必须绿；生成物不手改。页面组件统一 `render: SomeRender`。
-- vendored 依赖只有 `vue.runtime.esm-browser.prod.js`、`web/vendor/mediabunny*`、`web/vendor/asr/`、`web/vendor/three/`；必须留在库里，不许被忽略。
-- three 只进建模台（路由表 `heavy: true`），首屏与开机预取不碰；蒙皮克隆必须 `SkeletonUtils.clone`。
+- vendored 依赖只有 `vue.runtime.esm-browser.prod.js`、`web/vendor/mediabunny*`、`web/vendor/asr/`；必须留在库里，不许被忽略。
 
 ### 严格 CSP
 `shell.html` meta 与 `server/static.js` 响应头同发：
@@ -131,6 +128,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 ### 主题
 - 两根轴：`html[data-theme]` 只放 `light` / `dark`；`html[data-palette]` 放配色名。
 - 解析只有 `web/shell-boot.js` 的 `window.__themeApply`（含跟随系统）；直接写 `dataset.theme` 会绕过它。
+- 日夜三档（浅色 / 深色 / 跟随系统）只有设置页「外观与界面」与左下角那颗主题按钮两处入口，写的是同一个键 `dir_theme`；左下角那颗点一下换一档（浅色 → 深色 → 跟随系统），当前档由 `__sbThemePaint` 画成图标与名字。
 - `tokens.css` 同时按两轴声明 `color-scheme`。
 
 ### 布局
@@ -186,7 +184,6 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 - 静态判据存量表只减不增；`GUARD_WRITE=1` 重打表时每条补原因。
 - 视觉基线只在有意改版后更新：`UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs`；`UI_VISUAL_SAVE=1` 只留底。
-- 建模台出图有独立像素基线：`tests/e2e/model-render.cjs`。
 
 ## 文案
 - 只写按钮自明之外的信息；说明句 ≤15 字；title 补充动作名之外的信息。
@@ -355,7 +352,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 字数闸 / 配音设置 | `CharLimits` / `TtsAdv` / `AdvExtras` |
 | 音色说明 / 克隆 / 写回 | `VoiceNote.run` / `runClone`；`Chars.Pipe.saveVoiceNote` / `cloneFromCands` / `cloneFromLibEntry` |
 | 格式化 / 文件名 / 设置项 | `Wb.fmtSec` 一族 / `fileSafe`（浏览器与 Node 各一份，登记例外）/ `UI_PREFS` |
-| 主题解析 / 侧栏图标 | `__themeApply` / `__sbThemeIcon` |
+| 主题解析 / 侧栏主题档 | `__themeApply` / `__sbThemePaint` |
 | 余额取数 / 生成规则 | `balRowOf` + `SbBalance` / `GenRules` |
 | 客户端错误 | `PageReport` |
 | 视口滚动位 / 页头几何 | `Wb.viewport` / `Wb.pageHead` |
@@ -364,32 +361,16 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | 业务数据 / 原子写 / 索引写入口 | `server/data-hub.js` / `atomicWrite` 一族 / `server/index-store.js` |
 | 素材身份键 | `AssetLib.entryKey` / `Wb.taskKey` |
 | 整包备份 | `PACK_VERSION` / `assertPack` / `describePack` |
-| 建模：关节 / 动画播放 | `rig.js` 的 `applyPose` 一族 / `clip.js` |
-| 建模：文档形状 / ops / 采样 | `schema.js` 的 `normalizeDoc` / `applyDocOps`；`anim.js` |
-| 建模：模型 ↔ 实体 | `entities.js` |
-| 建模：时间轴坞 | `web/pages/model/dock.js` |
 | 命令面板 | `window.CommandPalette` |
 
 ## Vue SPA
 - `web/app.js` 是唯一外壳：hash 路由 + `<KeepAlive>` 页面池；切页只离屏、不销毁。
 - `WB_ROUTES` 是唯一路由表：页面文件 / id / 侧栏名 / 图标 / `src` / `css` / `root` / `needs` / `chunk` / `nav` / 别名。新增页面只改这一处。
 - 每页加载链只在 `app.js` loader 拼一次：`preloadModule` + `chunk` 先发，`needs` 与 `import(src)` 并行。
-- 预取：`window.__spaPrefetch(file)`；`load` 后按 250ms 一页（当前页与 `heavy` 除外）+ 侧栏 hover / focus。
-- `heavy` 只有建模台。切页可见性走 `spa:page` / `window.__spaActivity.visible()`。
+- 预取：`window.__spaPrefetch(file)`；`load` 后按 250ms 一页（当前页除外）+ 侧栏 hover / focus。
+- 切页可见性走 `spa:page` / `window.__spaActivity.visible()`。
 - `window.__*` 是跨脚本唯一钩子面；页面自己挂的钩子在卸载时清掉（G8）。
 - 助手读当前页快照走 `page-context.js` 的 `__acPageCtx`。
-
-## 建模台
-- 唯一带三维运行时的页面；three 只在这一页的 ESM 图里。
-- 白模库布局：`白膜\<库>\模型\<组>\<名>.json`（+同名 `.png`）、`白膜\<库>\场景\<场景组>\<场景>.json`、导入文件 `白膜\<库>\_模型文件\`；旧布局首次扫描整体迁进 `默认库\`。
-- 文档 v3：`kind:'model'|'scene'`；`scene.cams[] + active`；`scene.lights[] + light`（缺省 = 主光 + 补光；空数组 = 只留半球光）；`anim.tracks[]` 用 `of:{kind:'node'|'cam'|'light',id}` 统一驱动；`anim.loop`；`out[]` 固定出片条。
-- 场景实体是普通节点：从库放模型 = 深拷贝并重发 id，`fromModel` 记来源；存回库时根 transform 归零。灯只有 `sun` / `point` / `spot`；节点 `color` 沿父子树继承；`array` / `repeat` / `mirror` 在 `dsl.js` 的 `variantsOf` 按此序展开。
-- AI 唯一入口：没选中交整份 `model` 新增；选中后交带 scope 的 `ops`；没选中时 ops 只收场景级（cam / light / anim / track）；参考素材走 `AssetPicker`。
-- 几何体检 `lint.js` 在进场景前修悬空 / 身高 / 出画幅；问题随结果回传。
-- 检索：`GET /model3d/catalog` 在全部库按用户那句话检索（索引 `.data/model-index/`）；`save` / `delete` 增量维护，改名 / 删库 / 删组整表重扫。
-- 时间轴坞 `web/pages/model/dock.js` 是播放时钟 / 轨道行 / 播放头 / 关键帧的唯一所有者；关键帧稀疏，空字段不改。
-- 骨架两套（参数化人台 + 导入 clip），都不做真蒙皮；`rig.js` 的 `applyPose` 是唯一写回口；`clip.js` 只 `mixer.setTime`；不做 IK / 物理 / 布料重定向。
-- 数据 / 渲染 / AI / UI 不设人为数量上限；只留数学 / 物理约束与引用防环。
 
 ## 导演台
 
@@ -397,7 +378,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - `index.js`（Vue 壳 + 作用域岛）、`template.html`（真实 DOM 模板 + 内嵌 `<style>`）、`engine.js`（命令式热路径）。
 - 模板内嵌样式由 `style-scope.js` 的 `scopeCss` 加 `:where(.director-page)` 前缀后注入；取值走令牌。
 - 页头同样走 `.phead` 四槽；整页不滚；横向留白取 `--shell-px`。
-- engine 按域拆到 `web/director/engine/*.js`：`gen` / `shots` / `frames` / `timeline` / `strip` / `edit` / `play` / `caption` / `voice` / `render` / `mid` / `panel` / `script` / `split` / `apply` / `estimate` / `api` / `import` / `ref` / `media` / `export` / `shell` / `toolbar` / `projectfile` / `modelhandoff` / `exportwire` / `sanitize` / `boot` / `bridge`。
+- engine 按域拆到 `web/director/engine/*.js`：`gen` / `shots` / `frames` / `timeline` / `strip` / `edit` / `play` / `caption` / `voice` / `render` / `mid` / `panel` / `script` / `split` / `apply` / `estimate` / `api` / `import` / `ref` / `media` / `export` / `shell` / `toolbar` / `projectfile` / `exportwire` / `sanitize` / `boot` / `bridge`。
 - engine 新增依赖名必须与模块顶部解构逐名对齐（`tests/director-e-deps.cjs`）。
 - 纯算法按域拆模块；engine 只调用。改算法先改模块。
 
@@ -437,7 +418,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 润色每一轮都重新准备随附素材（图片缩到 1024，音视频按 `prepareMedia` 能力闸）。
 - 助手抽屉浮窗贴球；拖标题栏挪球；`ai_chat_w` / `ai_chat_h` / `ai_chat_dock` 记本机。
 - 拖素材到球 = 引用：载荷只经 `AssetRef`，队列 `ai_chat_refs` 上限 20。
-- 只读工具 `task_detail`；建模台 `model_list` / `model_read` / `model_view` / `model_edit` / `model_new` / `model_add_to_scene` / `model_undo` 一律走 `WBBridge.model3d`。
+- 只读工具 `task_detail`。
 - 写动作只经 `ActionRegistry`；`inject` 不提供；内容写动作必须有 `undo` 或显式 `irreversible`；花钱动作声明 `cancel`。
 - Skill：`skills/<id>/SKILL.md`，按页面 + 触发词自动加载（最多 2 个）；内置正文退回副本由 `sync-skill-contracts` 生成，别手抄。
 - 项目引用规则 = `{cast}` `{what}` `{board}` `{assets}` `{dur}` 等占位符，由 `TplVars.fill` 填；`@素材` 是另一件事。

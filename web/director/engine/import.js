@@ -227,7 +227,7 @@ async function libEntryToAssetId(it, name, contentType, provId, role) {
   if (aid && sameAssetSpace(it.provider, to) && !(template && template.requiresAudio)) return aid;
   return await AssetTransfer.toAsset(to, it.dl || it.src, { reg: regOf(), name, contentType, role, onStage: dlStage('素材') });
 }
-/* `preset`：从别处（建模台回传）已经定好的那一条，有了就不弹选择器、直接走下面的上传 / 登记。 */
+/* `preset`：调用方已经定好的那一条，有了就不弹选择器、直接走下面的上传 / 登记。 */
 async function pickRefMedia(sh, kind, preset) {
   const isAudio = kind === 'refaudio';
   const role = isAudio ? 'reference_audio' : 'reference_video';

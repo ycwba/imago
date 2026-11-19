@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /* 把 TextAI.DEF 里的 Skill 正文副本与 GLOSSARY 从磁盘上的 Skill 文件重新生成。
    为什么要工具：正文有两份（skills/<id>/SKILL.md 是用户可改的真源，text-ai.js 的 DEF 是
-   没加载到 Skill 时的退回副本），手抄 14 份逐字节相同的正文迟早漂。这个工具只替换
+   没加载到 Skill 时的退回副本），手抄 12 份逐字节相同的正文迟早漂。这个工具只替换
    `key: <值>` 的值部分，键与注释一个都不动。
 
    用法：

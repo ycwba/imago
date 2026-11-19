@@ -3,6 +3,45 @@
 版本号以 `package.json` 的 `version` 为唯一真相；本文件按批次记「改了什么 / 影响什么 / 要不要重打基线」。
 提交历史里的 C / S / F / B / G 是批次代号，不是版本号。
 
+## 0.4.0 — 2026-11-19（左栏主题三挡）
+
+左下角那颗亮暗按钮多一个「跟随系统」挡位 —— 点一下换一档，三档轮着来；与设置页
+「外观与界面 → 日间 / 夜间」同一个键、同一套三档、同一个解析口。
+
+- **左下角**：那颗按钮从「亮 / 暗」两档变成三档（浅色 → 深色 → 跟随系统 → 浅色），
+  点一下换一档。按钮上写着当前那一档的名字（浅色 / 深色 / 跟随系统），图标跟着换
+  （日 / 月 / 半边实的圆 —— 新加 `auto` 这枚）；窄形态只留图标，悬停出那一档的名字。
+- **解析口径不动**：主题两根轴仍只有 `web/shell-boot.js` 的 `__themeApply` 一处（跟随系统在那里
+  解成 light / dark，`data-theme` 里永远不出现 system）；侧栏只负责把**偏好那一档**画出来，
+  钩子 `__sbThemeIcon` 改名 `__sbThemePaint`（它画的已经不是一颗日 / 月图标，而是当前那一档）。
+- **判据**：`tests/e2e/theme-modes.cjs` 的 ⑤ 那一段改成三档轮换（点一下换一档、名字与图标跟着走、
+  跟回系统、坏值回落写回缺省档），并加一条「设置页改完，左下角那颗按钮跟着变」。
+- **基线重打**：左下角变了 → `UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs` 重打 44 档
+  （`tests/fixtures/visual/fingerprints.json`）。
+
+## 0.4.0 — 2026-11-18（删除建模台批次）
+
+整个建模台下线，产品从 8 个页面降为 7 个（侧栏 6 + 设置）。**只删代码，不删用户数据**：
+`下载\成像\白膜\`（模型 / 场景文件）、`.data/model-index/`（索引）、本机资产账与密钥全部原样保留；
+历史方案文档（`docs/`）与本文件的历史条目不动。
+
+- **删除范围**：路由页 `model.html`（`web/pages/model.js` + `dock.js`、`web/render/model.js`、
+  `tools/vue-templates/model.html`、`web/styles/spa-model.css`）；三维运行时 `web/model3d/`（19 个模块）；
+  three.js vendored 依赖（`web/vendor/three/`、`three.LICENSE.txt`、`tools/vendor-three.cjs`）；
+  `/model3d` 本机路由（`server/routes/model3d.js` 与 `server/app.js` 装配）；
+  助手建模动作与写入桥（`chat-tools.js` 的页面能力声明生成机制、`bridges.js` 的 `declare`、
+  `text-ai.js` 的 `DEF.model3d` / `model3d.json` 契约、`skills/model3d/`、`data-hub.js` 的 `CONTRACTS`）；
+  工作台 / 导演台的「建模」回传入口（`toModelBtn`、`modelhandoff.js`、`Model3D.handoffTo` /
+  `consumeModelHandoff` / `__directorModelHandoff`）；素材选择器的「3D 白膜」来源与快速弹窗
+  （`asset-picker.js` 的 `want3d`、`.mq-*` 样式与 `--sz-mq-*` 五枚令牌）；设置页「建模台」卡
+  （`sk_model_vframes` / `sk_model_vframe_n` / `sk_model3d_` 键族，旧键进 `LEGACY_KEYS` 精确清理）；
+  `media-export.js` 只被建模出图调用的 `exportCanvas`；一次性迁移 `tools/migrate-model.cjs`。
+- **数量变化**：视觉回归 48 → 44 个画面（`UI_VISUAL_WRITE=1 node tests/e2e/ui-visual.cjs` 重打
+  `tests/fixtures/visual/fingerprints.json`）；e2e 判据 68 → 66 个 `.cjs`；Skill 契约 13 → 12 份；
+  `metrics-baseline.json` 与 `dup-baseline.json` 已随删码重打。
+- **vendored 依赖**只剩三类：Vue / mediabunny（含 AAC 编码器）/ ASR（transformers + ONNX Runtime）。
+- 参考项目一节删掉 agentic-3d-director（只被建模台参考）。
+
 ## 0.4.0 — 2026-11-19（文案硬约束）
 
 「尽可能减少文案，让组件本身体现功能」写入硬约束，不再靠自觉（范围 = 所有文案所有组件）：

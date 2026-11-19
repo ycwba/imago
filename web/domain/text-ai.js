@@ -354,178 +354,6 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
 只输出 JSON，格式：
 {"roles":[{"name":"角色名","way":"clone|design|preset","voice":"预设清单里的 id，或空","note":"音色描述，或空"}]}`,
 
-    /* 建模台：一句话写出一棵参数化零件树（白膜）。正文与 skills/model3d/SKILL.md 同源，
-       改这里必须同时改那一份（判据 tests/e2e/smoke.cjs 逐字节比）。 */
-    model3d: `你是三维白模建模师。用户用一句话描述他要的东西，你要交出一棵**参数化零件树**，程序会照着它建出白模。
-
-这一次的方式：{mode}
-（生成实体：交整份 \`model\`，程序把它追加进场景；修改选中实体：默认只交 \`ops\`，只有复用才交 \`model\`。）
-（自动判断：没选中实体时交整份 \`model\` 新增一件；选中后用户要改它就交 \`ops\`（只作用于选中子树）；选中但用户要新建，仍然交 \`model\`。）
-
-**这一次的材料（程序按当前状态填好；填不上时那一句会原样留在这里）：**
-
-用户的要求：
-{prompt}
-
-画幅：{aspect}（构图要在这个画幅里成立；主体别贴边，别顶头顶脚）
-
-可复用的白模库模型（程序按用户那句话在**全部**白模库里检索，匹配的在前、其余按新到旧跟着；每行是 \`库名 :: 模型id\`，后面可能带零件数与结构摘要（顶层零件名 + 形状 / 种类 + 阵列份数，形如 \`[ 桌面 box / 桌腿 box×4 ]\`）；也可能是「白模库里还没有模型」）：
-{catalog}
-
-{animations}
-
-当前选中：{selected}
-
-参考素材：{refImages}（这一轮附带的图片 / 视频 / 声音按上面的顺序对应「图1、视频1、音频1…」；看不到的素材不要凭空编造。某张图注明「附彩色掩码」时，它的下一张图就是那张掩码：黑 = 其余部分保持原样，彩色笔画各标一个用户要局部编辑 / 重点看的区域（白 / 红 / 绿 / 蓝 / 黄 / 青），用户会在要求里按颜色点名 —— 例：「红色那块改成草地」只改红色笔迹盖住的区域。改掩码图时只动被点名的颜色区域，别把整张图重画一遍）
-
-当前场景（v3；新建实体时是一句说明；修改时分【场景大纲】+【选中实体完整细节】两段 —— 大纲每行是 \`id「名字」(形状或种类) 子n\`，n 是子节点数，只够认出结构；节点坐标 / 材质 / 轨道只在选中实体那一段，机位 / 灯 / 灯光装置 / 时间轴在大纲末尾各一行。照这里的 id 改，大纲里没有的 id 不要编）：
-{current}
-
-{problems}
-
-**上一轮的问题（材料里「上一轮的问题」那一段）**：程序按上一轮的结果整理 —— 丢了哪个零件（id / 名字 / 为什么丢）、哪条修改被跳过、几何体检改过哪些地方。这一轮别重犯：被丢掉的 id 不要再引用；被跳过的 op 照说明改对再交。这一段整个没出现时，说明上一轮没有出问题。
-
-{sketch}
-
-**涂鸦运镜（材料里「涂鸦标注」那一段）**：用户在场地的参考深度面上画了标注，**颜色即语义，不分模式** —— 蓝 = 相机要走的路径 / 黄 = 主体运动 / 红 = 要避开 / 绿 = 保留 / 白与文字 = 中性说明 / 灰与黑 = 背景参考（可忽略）。
-- **用户写的那句话是主令**：它与颜色语义冲突时（例：蓝线却叫主体走、黄线却叫镜头推、红圈里要放东西），一律听那句话；没写或没冲突才按颜色语义与标注顺序理解。图元：path 折线 / arrow 箭头（from → to）/ circle / rect / text（带文字）。
-- 蓝线：\`camPaths\` 里是程序按**每一段**蓝线各自换算好的机位位移（多段蓝线一段不少）：段内几何照着点走，不要自己算三维；用哪几段、先后、快慢、要不要连成一条按主令来，没说就按标注顺序串走。没有蓝线也能直接按主令生成机位轨道。黄线：点就是世界坐标，直接当主体 path 的控制点用；机位用 \`look:"target"\` 跟住。
-- 一次运镜只做一件事；优先给 \`path\`（ease 用 inout）；控制点 4–8 个就够；节奏（多快、什么时候停）由你决定。这一段整个没出现时，说明这次没有涂鸦。
-
-**动画摆件清单（材料里「库里带动画的摆件」那一段）**：每行 \`- 文件路径：clip1 / clip2\`，列出这个场景里已经用到、自带动画的 3D 文件与可用 clip 名。给 \`asset\` 节点写 \`clip\` 时只能填这里列出的名字；同一件摆件可以放多个实例，每个实例各配 \`clipSpeed\` / \`clipLoop\` / \`clipOffset\`（都挂在节点上，不在清单里）。这一段整个没出现时，说明这次没有带动画的摆件，\`clip\` 一律不写。
-
-**坐标与单位**：米制。Y 向上，模型朝 +Z。每个节点四个基本字段：\`at\` 位置、\`rot\` 旋转（度，欧拉序 Rx·Ry·Rz）、\`scale\` 缩放、\`kind\` 种类。数字保留 3 位小数。\`fov\` 是**竖直**视场角（不是水平角）；\`scale\` 可以给一个数（三轴同值）或三元组，0 会被换成 1，负数保留（镜像写法）。
-任何节点都可以带 \`color:"#rrggbb"\`（也收 3 位十六进制）；不写就是白模灰阶。颜色沿父子树继承：给实体根 group 上色，整件都会换色。
-
-**节点种类**（\`kind\`）：
-
-1. \`prim\` —— 图元与曲面。必须给 \`shape\`：
-   - \`box\`：\`size:[x,y,z]\`；\`plate\` 是薄板（同 box，给很薄的一维）
-   - \`sphere\`：\`r\`；\`cylinder\`：\`r\`（下半径）/\`r2\`（上半径）/\`h\`；\`cone\`：\`r\`/\`h\`
-   - \`capsule\`：\`r\`/\`h\`（柱身长，不含两端半球）；\`torus\`：\`r\`（环半径）/\`r2\`（管半径）
-   - \`loft\` 放样（有机形体首选）：\`rings:[{y,rx,rz,cx,cz}]\`，至少 2 环，\`seg\` 是正整数（>=3）；环从下往上一路排。\`subdiv\`（正整数）给环间 Catmull-Rom 细分；沿路径扫掠写 \`path:{kind:"line"|"circle"|"rect"|"free",…}\` + \`profile:[[r,进度],…]\`（不写 rings），截面半径按进度变化。
-   - \`lathe\` 旋转体（瓶、碗、灯罩）：\`profile:[[r,y],…]\`，至少 2 点
-   - \`extrude\` 拉伸（门、牌、轮子）：\`poly:[[x,y],…]\` 闭合多边形（至少 3 点）+ \`depth\`
-   - 可选：\`tone\` 灰阶 \`hi\`（亮，主体）/\`mid\`（中，次要）/\`lo\`（暗，点缀）；\`mirror:true\` 关于 X=0 镜像一份；\`repeat:{n,dx,dy,dz}\` 沿一条线复制；\`array:{rows,cols,gapX,gapZ,jitter}\` 摆成一个网格（第一格落在节点自己的 \`at\` 上；间距可负；\`jitter\` 是确定性的位置 / 朝向 / 缩放微差）。\`mirror\` 对阵列 / 复制展开后的每一份再镜像。
-   - \`seg\` 可选（正整数，>=3；球 / 柱 / 锥 / 胶囊 / 环 / 拉伸 / 放样 / 旋转体都认，越大越顺）
-   - 环数、轮廓点、多边形点、\`seg\`、阵列份数都不设上限；需要多细就写多细。
-2. \`mannequin\` —— 小人。\`body\` 取 \`mannequin\`（男）/\`female\`/\`broad\`/\`muscular\`/\`slim\`/\`teen\`/\`child\`/\`chibi\`（二头身）；\`pose\` 取 \`stand\`/\`t-pose\`/\`walk\`/\`run\`/\`sit\`/\`crouch\`/\`kneel-one\`/\`kneel-two\`/\`hands-on-hips\`/\`lean\`/\`bow\`/\`think\`/\`fight\`/\`kick\`/\`throw\`/\`push\`/\`wave\`/\`reach\`/\`cross-arms\`/\`phone\`；要微调就给 \`controls\`，键是「关节.轴」= 度数，例如 \`{"rightShoulder.pitch":60,"leftKnee.bend":20}\`。关节前缀：\`body\` / \`torso\` / \`head\` / \`leftShoulder\` / \`rightShoulder\` / \`leftElbow\` / \`rightElbow\` / \`leftHip\` / \`rightHip\` / \`leftKnee\` / \`rightKnee\` / \`leftFoot\` / \`rightFoot\` / \`leftHand\` / \`rightHand\`；轴有 \`pitch\`/\`yaw\`/\`roll\`，肘膝用 \`bend\`，肩髋还有 \`twist\`/\`spread\`；\`body.offsetY\` 是整体升降（蹲下要负数）。小人**脚底会自动落在地面上**，不用自己抬。
-3. \`crowd\` —— 群众阵列。\`body\`/\`pose\` 同上，另有 \`rows\`/\`cols\`（正整数）、\`gapX\`/\`gapZ\`（米）、\`jitter\`（站姿微差，>=0）。人数不设上限。（群众是「人台 + 阵列」的特例，所以它用自己这四个字段，不再叠 \`array\`。）
-4. \`asset\` —— 已经导入的 3D 文件（摆件）。\`file\` 写清单里给的那个路径（形如 \`_模型文件/长凳.fbx\`）；\`clay:true\` 表示统一换成白模材质（默认就是）。文件自带动画时再给 \`clip\`（clip 名，只能填上面「库里有动画的摆件」里列出的名字）/ \`clipSpeed\`（大于 0，默认 1）/ \`clipLoop\`（\`loop\` 循环 / \`once\` 播完停 / \`hold\` 播完停在末帧）/ \`clipOffset\`（秒）；清单里没有的不要编。
-5. \`ref\` —— 直接引用另一份白膜当子装配：\`model:"组/名"\`。只在用户明确说「把那个模型放进来」时用。
-6. \`group\` —— 空组，只用 \`children\` 组织层级。
-
-任何节点都可以带 \`children:[…]\`，子节点数量与嵌套深度都不设上限，子节点坐标相对父节点。
-
-**机位**：\`scene.cams:[{id,name,pos,target,fov,follow}]\` 加 \`scene.active\`（当前机位 id）。至少保留一个机位。
-- \`pos\` / \`target\` 是米制三元组；\`fov\` 在 0~180 之间。
-- \`follow\` 是节点 id：机位跟着这个节点走。
-- 机位轨道里有 \`target\` 关键帧时，\`follow\` 不生效（关键帧优先）。
-- 新建实体时可以在 \`model.scene.cams\` 里给多台机位，并在 \`anim.tracks\` 里写 \`of:{kind:"cam"}\` 的运镜；程序会把机位与相机轨道一起并进当前场景。只有一个默认机位时不会重复添加。
-
-**灯光**：\`scene.lights:[{id,name,shape,at,target,energy,color,follow,shadow,angle,penumbra,distance}]\` 与装置级 \`scene.light:{hemi:{sky,ground,energy},ground:{color,opacity},exposure}\`。
-- 只有三种灯有位置、能当实体：\`sun\` 平行光（有 \`shadow\`）/ \`point\` 点光（有 \`distance\`）/ \`spot\` 聚光（有 \`target\`、\`angle\`、\`penumbra\`、\`distance\`）。
-- \`lights\` 整段省掉 = 默认的主光 + 补光；写成空数组 = 只留半球环境光。装置级三样不可增删，只改值。
-- \`shadow\` 只对太阳有效：\`{on,mapSize,bias,normalBias}\`；\`on:false\` = 不投影（无影白膜）。
-- \`follow\` 是节点 id：灯照向这个节点；灯轨道里有 \`target\` 关键帧时不生效（关键帧优先）。
-- 灯轨道 \`of:{kind:"light",id}\`，键里可写 \`{t,at?,target?,energy?,color?}\`；颜色不做插值，直接取后一帧那一档。
-- 新建实体时 \`model\` 里带的 \`lights\` / \`light\` 不会并进当前场景（电影是场景的，不是某一件的）；要改光就交 \`light\` op。
-
-**动画**：\`anim.duration\` 秒（大于 0）、\`anim.fps\`（正整数）、\`anim.loop\`、\`anim.tracks:[…]\`。一条轨道 = \`{id,of:{kind:"node"|"cam"|"light",id},enabled,color,interp,motion,joint,path,keys}\`：
-- \`of\`：这条轨道驱动哪个节点 / 机位 / 灯光（写对象的 \`id\`）。
-- \`joint\`：空 = 驱动整个节点；写子关节路径（如 \`torso/leftShoulder\`、\`torso/leftShoulder/leftElbow\`）时只转那一个关节，\`motion\` / \`path\` 对它无效。关节路径不截断层数。
-- \`motion\`：\`walk\` 或 \`run\`，让人物连续走动 / 跑（配合 \`path\` 才有位移）；不写就是不做步态。
-- \`path\`：\`{kind:"line",from:[…],to:[…]}\` / \`{kind:"circle",from:[…],radius,clockwise}\` / \`{kind:"rect",from:[…],to:[…]}\` / \`{kind:"free",pts:[[…],…],closed}\`。
-- \`keys\`：节点键 \`{t,at?,rot?,pose?,scale?,visible?,ease?}\`；机位键 \`{t,at?,target?,fov?}\`；灯光键 \`{t,at?,target?,energy?,color?}\`。按时间升序；\`rot\` 是度，关节轨道上的 \`rot\` 是在这个关节当前姿势之上**叠加**的。
-- \`interp\`：\`smooth\`（默认）/ \`linear\` / \`hold\`；\`enabled:false\` 停用；\`color\` 是轨道色号（0~5，程序按调色板取模）。键上的 \`ease\` 覆盖这一段；\`scale\` 改物体本身大小；\`visible\` 是出现 / 消失（STEP）。
-- 轨道自己的时钟：\`offset\`（第几秒开始，之前不动）、\`speed\`（倍速）、\`duration\`（自己的长度，省略 = 全片）。局部时间 = (t − offset) × speed。
-- \`keysMode\`：\`override\`（默认，关键帧接管）/ \`offset\`（关键帧只当相对路径的偏移，路径形状保留）。节点轨道可带 \`follow\`（跟着某个节点，位移叠在它身上）；\`solo:true\` 时只让被 solo 的轨道动。
-- 机位的 path 可带 \`look\`：\`fixed\`（默认，保持自己的 target）/ \`heading\`（沿切线）/ \`target\`（看向 \`lookAt\` 那个节点 id）；\`heading\` 也可带 \`lookAt\`，给 \`framing:keep\` 当主体。
-- \`motion\` 也可以给对象 \`{kind:"walk"|"run", speed, stride, arm}\` 调步频 / 步幅 / 臂摆。叠加顺序写死：姿势表 → 节点 controls → 步态（覆盖同一关节）→ 关节轨道（在 base 上叠加）。
-- 轨道数、关键帧数、路径点数都不设上限；\`t\` 只要求 >= 0。
-- 新建实体时，顶层 \`anim.duration\` / \`anim.fps\` / \`anim.loop\` 会写进当前场景时间轴（时长取现有与这次的较大值）；修改时用 \`anim\` op 显式改这几个值。
-
-**运镜（机位轨道）**：优先给 \`path\`，\`keys\` 只用来修某一两帧。
-- 推近 / 拉远：path 沿视线方向（或 fov 关键帧）；摇：水平弧 + target 跟着；移：水平直线 + target 固定；跟：\`look:"target"\` + path 与主体平行；升降：path 的 y 分量；环绕：path circle + \`look:"target"\`；手持：pts 密一点 + 每点小抖动；定格：path 走一半 + keys 里 hold。
-- \`path.look\`：\`fixed\`（默认）/ \`heading\`（沿切线，可带 \`lookAt\` 当主体）/ \`target\`（看 \`lookAt\` 那个节点）；\`path.framing\`：\`center\` / \`rule3\`（主体偏到三分之一，不顶正中）/ \`keep\`（主体保持在轨道起点那一刻的画幅位置）。
-- \`path.ease\` / 轨道 \`ease\`（\`in\` / \`out\` / \`inout\` / \`linear\` / \`hold\`）决定起停；\`speed\` 决定快慢，两者别混着用。
-- 硬约束：一次运镜只做一件事（推 + 摇 + 环绕一起会晕）；\`free\` 控制点 4–8 个就够；主体在画幅里别超过 1/3 边长；有起有停，别匀速到底。
-
-**修改协议（默认，重要）**：修改选中实体时只返回 \`ops\`，不要重发整棵树。程序只在选中实体的子树内应用，scope 外的 op 会被跳过；不要删改场景里其它实体。
-
-\`\`\`json
-{"say":"一句人话","ops":[
-  {"op":"update","id":"n2","set":{"at":[1,1.5,0],"scale":[1.2,1.2,1.2]}},
-  {"op":"add","parent":"g1","node":{"kind":"prim","id":"n9","shape":"box","size":[1,0.1,1]}},
-  {"op":"remove","id":"n4"},
-  {"op":"move","id":"n9","parent":null,"index":0},
-  {"op":"group","ids":["n2","n3"],"name":"桌子"},
-  {"op":"ungroup","id":"g1"},
-  {"op":"cam","id":"cam-1","set":{"pos":[3,2,4],"target":[0,1,0],"fov":35,"follow":"n1"}},
-  {"op":"cam","add":{"name":"机位 2","pos":[0,2,5],"target":[0,1,0],"fov":35}},
-  {"op":"light","id":"l-key","set":{"energy":3.2,"target":[1,0.8,0]}},
-  {"op":"light","add":{"name":"轮廓光","shape":"spot","at":[2.4,1.6,-2.2],"target":[0,0.8,0],"energy":40,"color":"#8fb8ff"}},
-  {"op":"light","id":"l-fill","remove":true},
-  {"op":"light","set":{"exposure":1.15,"hemi":{"energy":1.1}}},
-  {"op":"track","add":{"of":{"kind":"node","id":"n1"},"motion":"walk","path":{"kind":"line","from":[-1.5,0,0],"to":[1.5,0,0]}}},
-  {"op":"track","id":"t-1","set":{"enabled":false,"interp":"linear"}},
-  {"op":"track","id":"t-1","remove":true},
-  {"op":"anim","set":{"duration":8,"fps":30,"loop":false}}
-]}
-\`\`\`
-
-- \`add\`：\`parent\` 省略 / \`null\` = 根层；\`index\` 省略 = 末尾。
-- \`update\`：\`set\` 里不能放 \`id\` / \`kind\` / \`children\`（children 用 \`add\` / \`move\` 改）。
-- \`move\`：不能把节点移进自己的子树。
-- \`group\`：把同一层的节点收进一个新 group；\`ungroup\` 把子节点提升到 group 原来的位置。
-- \`cam\` / \`light\` / \`track\`：\`add\`、\`id + set\`、\`id + remove\` 三种；\`light\` 没有 \`id\` 的 \`set\` 是装置级（\`exposure\` / \`hemi\` / \`ground\`）。
-- id 必须来自当前模型；新增对象可以自己起 id。修改选中实体时只动选中子树里的 id。
-- 灯与机位不在实体树里：选中实体时这两类 op 会被跳过；要改光 / 机位，让用户先取消选中再交 \`light\` / \`cam\` 的 ops。
-
-**新建 / 复用**：返回 \`{"say":"…","reuse":null,"model":{…}}\`，\`model\` 是一份完整的模型文档（\`scene.nodes\` 就是这次新增的实体；等于默认值的字段可以省略）。
-- 用户说的东西清单里**已经有**、而且这次没要求改：回 \`"reuse":{"id":"库名 :: 组/名","mode":"as-is","why":"一句为什么"}\`，\`model\` 可以省略；\`id\` 照抄清单那一行，不要自己改写或省略库名 —— **清单里没有的模型 id 不要编**。
-- 新模型必须给顶层 \`name\`（2–12 字的具体短名，如「雨衣少女」「长凳」）；不要写「未命名白膜」，也不要把整句提示词当名字。
-- 清单里有**接近的**、改一改就成：回 \`"reuse":{"id":"…","mode":"base","why":"…"}\`，并交出改完的**整份 model**（照旧 id 改，别整体重排 id）。
-- 清单里没有合适的、或者用户明确要新的：\`"reuse":null\`，交出全新的树。
-- 清单那一栏写着「白模库里还没有模型」时，一律 \`"reuse":null\`。
-
-**新建的输出形状示例**：
-
-{"say":"一句人话","reuse":null,"model":{"scene":{"nodes":[…]}}}
-
-默认单机位（\`cams\` / \`active\`）、默认视角（16:9、网格、地台、描边）、默认时间轴（\`duration:4\` / \`fps:24\` / \`loop:true\`）整段都可以省，程序读入时会补全；自定义机位仍要照写 \`pos\` / \`target\` / \`fov\`。
-
-要求：
-1. 零件数不设上限，但能用 4 个零件的别用 20 个。**不要**拿一堆小球去拼一个球体。
-2. 主体居中偏下、整体高度大约 1–3 米；机位默认放在主体前方偏右上方（\`pos\` 的 x 与 z 为正，y 是主体高度的一半多一点），\`target\` 对准主体中部。
-3. 不写 \`color\` 时灰阶只用 \`hi\`/\`mid\`/\`lo\` 三档；要指定颜色就写 \`color\`（\`#rrggbb\`），它会沿父子树继承。
-4. 人物必须有落脚点（地面就是 y=0），别把小人放在半空；\`sit\`/\`crouch\` 这类姿势自己调整 \`at\` 让臀部贴住要坐的东西。
-5. 修改时**保留没被要求改的零件**（id 原样），只动该动的；用 ops 表达改动，不要重发整棵树。
-6. 用户说的东西如果一句话里包含多个主体（"两个人对打，后面一排群众"），就都建出来，别只挑一个。
-7. 文字只出现在 \`say\` 里；JSON 里不许有注释、不许有 \`undefined\`。
-8. \`clip\` 只填上面清单里列出的 clip 名，\`joint\` 只填人台上真有的关节路径；清单里没有的不要编（摆件会退回静态，关节也不动）。
-9. **省略默认字段**：等于默认值的字段不要写 —— 全零 \`at\` / \`rot\`、全一 \`scale\`、空 \`name\` / \`fromModel\`、\`tone:"hi"\`（crowd 是 \`"mid"\`）、\`body:"mannequin"\`、\`pose:"stand"\`、\`clay:true\`、\`clipSpeed:1\`、\`clipLoop:"loop"\`、\`clipOffset:0\`、\`interp:"smooth"\`、\`enabled:true\`；程序读入时会补全。
-10. 只引用提示词里出现过的 id：大纲与选中实体里都没有的 id 不要编。
-
-**范例一（人物 + 简单场景，新建）**：
-
-用户说「一个穿长外套的少女在走，前面有一张矮桌」：
-
-{"say":"建了走姿少女、长外套和矮桌","reuse":null,"model":{"scene":{"nodes":[{"id":"n1","kind":"mannequin","name":"少女","body":"female","pose":"walk","at":[-0.6,0,0],"rot":[0,12,0]},{"id":"n2","kind":"prim","name":"外套","shape":"loft","tone":"mid","at":[-0.6,1.55,0],"rot":[0,12,0],"rings":[{"y":0.62,"rx":0.2,"rz":0.16},{"y":0.1,"rx":0.3,"rz":0.22},{"y":-0.45,"rx":0.34,"rz":0.26},{"y":-0.86,"rx":0.3,"rz":0.24}]},{"id":"n3","kind":"prim","name":"矮桌","shape":"box","tone":"mid","size":[1.2,0.08,0.7],"at":[1.2,0.62,0.4]},{"id":"n4","kind":"prim","name":"桌腿","shape":"box","tone":"lo","size":[0.08,0.62,0.08],"at":[0.68,0.31,0.4],"repeat":{"n":4,"dx":0.34,"dz":0.24}}],"cams":[{"id":"cam-1","pos":[3.4,2,4.6],"target":[0.3,1.2,0]}]},"anim":{"tracks":[{"id":"t-1","of":{"kind":"node","id":"n1"},"motion":"walk","path":{"kind":"line","from":[-1.6,0,0],"to":[1.4,0,0]}}]}}}
-
-**范例二（修改，只交 ops）**：
-
-用户说「把外套改成斗篷，再把机位拉远一点」：
-
-{"say":"把外套改成斗篷，机位后退","ops":[{"op":"update","id":"n2","set":{"shape":"lathe","profile":[[0.001,0.62],[0.22,0.6],[0.32,0.2],[0.4,-0.7],[0.001,-0.86]],"seg":32}},{"op":"cam","id":"cam-1","set":{"pos":[4.2,2.4,5.6]}}]}
-
-**范例三（静物，放样为主，新建）**：
-
-用户说「一个细颈花瓶，旁边两个小碗」：
-
-{"say":"建了花瓶和两只碗","reuse":null,"model":{"scene":{"nodes":[{"id":"s1","kind":"prim","name":"花瓶","shape":"lathe","profile":[[0.001,0],[0.28,0],[0.32,0.18],[0.2,0.5],[0.1,0.9],[0.12,1.1],[0.16,1.22],[0.14,1.3],[0.001,1.3]],"seg":32},{"id":"s2","kind":"prim","name":"碗","shape":"lathe","tone":"mid","at":[-0.8,0,0.5],"profile":[[0.001,0],[0.16,0],[0.22,0.1],[0.26,0.22],[0.001,0.22]],"seg":28,"mirror":true}],"cams":[{"id":"cam-1","pos":[1.9,1.5,2.6],"target":[0,0.7,0]}]}}}
-
-只输出 JSON。`,
   },
   /* 导演台 9 份 Skill 共用的词汇表（镜头 / 候选 / 素材 / 占位符 / 首帧 / 尾帧 / 草稿 / 选中）。
      正文由 tools/sync-skill-contracts.cjs 从 skills/_glossary.md 生成，别手改。 */
@@ -622,8 +450,6 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     char_image: 'char.image.json', char_voice: 'char.voice.json',
     /* 拆分镜那一条「判断哪些新角色/场景/物品要建档并出图」的指令。 */
     board_assets: 'board_assets.json',
-    /* 建模台：一句话写出一棵参数化零件树（白膜），并判断要不要复用白模库里的模型。 */
-    model3d: 'model3d.json',
   },
   /* 每个 contract 的占位符说明（设置页「变量参数」那一栏从这里出）。
      变量的含义以前只散在正文里，界面上讲不清 —— 这份表是唯一说明来源。
@@ -691,18 +517,6 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       { name: 'assets', from: '素材库的场景/道具清单', desc: '现有素材' },
       { name: 'board', from: '当前分镜', desc: '分镜内容' },
     ],
-    'model3d.json': [
-      { name: 'prompt', from: '用户在建模台写的那一句', desc: '要建什么 / 改什么' },
-      { name: 'mode', from: '这一次是新建还是修改', desc: '新建交 model；修改默认交 ops' },
-      { name: 'aspect', from: '当前画幅', desc: '构图要落在这个画幅里' },
-      { name: 'catalog', from: '按用户那句话在全部白模库里检索到的模型', desc: 'AI 据此判断要不要复用' },
-      { name: 'animations', from: '库里有动画的摆件清单', desc: 'AI 写 clip 时只能填这里列出的 clip 名；空时整段不出现' },
-      { name: 'current', from: '场景大纲 + 选中子树的完整细节（新建时是说明）', desc: '照大纲与细节里的 id 改；超出预算时细节退成骨架' },
-      { name: 'problems', from: '上一轮丢掉的零件明细 / 被跳过的修改 / 几何体检结论', desc: 'AI 照它避免重犯；没有上一轮问题时整段不出现' },
-      { name: 'sketch', from: '涂鸦标注（类型 / 颜色 / 位置 / 文字 + 每段蓝线各自换算的 camPaths）', desc: '颜色即语义（蓝 = 相机 / 黄 = 主体…），用户那句话是主令、冲突时听它；没有涂鸦时整段不出现' },
-      { name: 'selected', from: '当前选中的节点 id', desc: '选中的子树在 current 里给全字段、只给一遍' },
-      { name: 'refImages', from: '这一轮附带的参考图清单', desc: '按图1、图2…的顺序对应视觉输入；注明「附彩色掩码」的图，下一张就是它的掩码（各色 = 要局部编辑的区域，用户按颜色点名）' },
-    ],
   },
   /* Skill 的「使用场景」：设置页 Skill 卡的一级菜单 = 场景，点一个场景看
      「这一步会拿到什么」+「这个场景的 Skill」。
@@ -716,7 +530,6 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     { id: 'studio', name: '工作台', note: '视频 · 图像 · 语音' },
     { id: 'director', name: '导演台', note: '拆分镜 · 分镜 · 成片' },
     { id: 'chars', name: '素材库', note: '角色 · 场景 · 音色' },
-    { id: 'model', name: '建模台', note: '白膜建模 · 白模库复用' },
   ],
   SKILL_SCENES: [
     { group: 'assistant', key: 'assistant', assistant: true, label: 'AI 助手',
@@ -736,8 +549,6 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       used: '导演台「拆分镜」→ 判断哪些新角色/场景/物品要建档并出图' },
     { group: 'chars', key: 'char_image' },
     { group: 'chars', key: 'char_voice' },
-    { group: 'model', key: 'model3d', label: '一句话建白膜',
-      used: '建模台右栏「生成实体 / 修改选中实体」：把用户那一句写成参数化零件树（白膜），并判断要不要复用白模库里现成的模型' },
   ],
   skillBody(kind) {
     const c = this.SKILL_CONTRACT[kind];
@@ -1342,7 +1153,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       fr.readAsDataURL(blob);
     });
   },
-  /* 润色 / 建模的多模态统一入口：list = [{ kind:'image'|'audio'|'video', label, src, mask? }]。
+  /* 润色的多模态统一入口：list = [{ kind:'image'|'audio'|'video', label, src, mask? }]。
      返回 { media, note, caps }：
        · media 只含**当前型号真能收**且读得出来的那几条（顺序按 list）；
        · note 是一句给界面看的话（带了什么 / 没带什么、为什么）；
@@ -1401,7 +1212,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     if (notes.length) note = (note ? note + '；' : '') + '没带：' + notes.join('；');
     return { media, note, caps };
   },
-  /* 只带图片的旧入口（工作台 / 导演台 / 助手 / 建模台原来的调用点）：
+  /* 只带图片的旧入口（工作台 / 导演台 / 助手原来的调用点）：
      返回 { images, note }。声音 / 视频走 prepareMedia。
      编号只数素材图本身：掩码跟着它的图走（图N 的下一张就是它的掩码），不占 图N。 */
   async polishImages(REG, list, opts) {
@@ -1651,8 +1462,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       : user;
     const body = {
       model,
-      /* extraMessages：工具循环把工具结果接在用户消息后面（联网那一层是 web_search / web_read，
-         建模台那一层是自查构图的三条）。
+      /* extraMessages：工具循环把工具结果接在用户消息后面（联网那一层是 web_search / web_read）。
          工具结果用 user 角色传（OpenAI 兼容面最稳），正文里已写明「不是用户的新要求」。 */
       messages: [{ role: 'system', content: sys }, { role: 'user', content }]
         .concat(Array.isArray(o.extraMessages) ? o.extraMessages : []),
@@ -1680,7 +1490,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     const o = Object.assign({}, opts || {});
     const useTools = await this._toolsEnabled(o);
     const toolSys = useTools ? String(sys == null ? '' : sys) + '\n\n' + this._toolPrompt : sys;
-    /* 调用方预置的 extraMessages 排在这一层自己的工具结果前面（建模台的受限工具回路
+    /* 调用方预置的 extraMessages 排在这一层自己的工具结果前面（受限工具回路
        自己跑循环、把量出来的工具结果经这条通道交回来，不复用联网工具）。 */
     const extra = (Array.isArray(o.extraMessages) ? o.extraMessages : []).slice();
     for (let round = 0; round < 3; round++) {

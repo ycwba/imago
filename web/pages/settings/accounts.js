@@ -36,7 +36,7 @@ export function createAccountCards(deps) {
     provEpoch, setDocEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
     asrFormEl, asrLocalFormEl, searchFormEl, cusCardEl, cusShown,
     regOf, envOf, textFormOf,
-    markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
+    markChanged, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
     syncServiceProvs, openCus, hideCus, pickCusCap, editCus, removeCus, afterCustomChanged,
     asr, asrLocal, asrBrowser, search,
   } = deps;
@@ -396,7 +396,6 @@ export function createAccountCards(deps) {
         ? '<div class="mpanel-h"><span class="t">型号的输入能力</span><span class="sp"></span>'
           + '<span class="hint">每行右侧 图 / 音 / 视：自动 → 支持 → 不支持</span></div>'
         : '')
-      + '<div class="msg" data-pmsg="' + es + '"></div>'
       + '</div>';
   }
 
@@ -457,8 +456,7 @@ export function createAccountCards(deps) {
       + '<button class="ghost" type="button" data-vfy="' + kid + '" title="只读验证，不扣费">验证</button>'
       + '</div>'
       + '<div class="krow thin"><span class="hint sm" data-ksrc="' + kid + '"'
-        + ' title="' + window.esc(keySourceOf(m.keyId).tip) + '">' + window.esc(keySourceNote(m.keyId)) + '</span></div>'
-      + '<div class="msg" data-msg="' + kid + '"></div>';
+        + ' title="' + window.esc(keySourceOf(m.keyId).tip) + '">' + window.esc(keySourceNote(m.keyId)) + '</span></div>';
   }
   function keyBadge(m) {
     const s = keyState(m);
@@ -550,7 +548,6 @@ export function createAccountCards(deps) {
           ? '<button class="ghost mini" type="button" data-cedit="' + kid + '">编辑</button>'
             + '<button class="ghost mini danger" type="button" data-cdel="' + kid + '">删除</button>'
           : '')
-        + '<span class="hint sm" data-acctmsg="' + kid + '"></span>'
         + balChipHTML(m)
       + '</div></div>';
   }
@@ -715,17 +712,7 @@ export function createAccountCards(deps) {
   }
 
   let acctWired = false;
-  function setMsg(kid, text, cls) {
-    const el = msgOf(kid);
-    if (!el) return;
-    el.className = cls; el.textContent = text;
-  }
-  function acctMsg(kid, text, cls) {
-    const el = q('[data-acctmsg="' + window.esc(kid) + '"]');
-    if (!el) return;
-    el.className = 'hint sm ' + (cls || '');
-    el.textContent = text;
-  }
+  function setMsg(text, kind) { Toast.status(window.esc(text), kind); }
   const MOVERS = () => [['asr', asrFormEl.value], ['asrLocal', asrLocalFormEl.value],
     ['search', searchFormEl.value], ['cus', cusCardEl.value]];
   function placeForms() {
@@ -745,7 +732,7 @@ export function createAccountCards(deps) {
     const via = window.Api ? Api.verifyTarget(p) : { via: '', label: '' };
     const to = p && p.base;
     if (!via.via) {
-      setMsg(kid, via.label || '', 'msg');
+      setMsg(via.label || '', 'msg');
       let r = { state: 'unknown', text: '' };
       try {
         useFormCreds(p);
@@ -753,15 +740,15 @@ export function createAccountCards(deps) {
       } catch (e) { r.text = errText(e); }
       btn.disabled = false;
       const ok = r.state === 'ok';
-      setMsg(kid, (ok ? '✓ ' : r.state === 'invalid' ? '✗ ' : '· ') + (r.text || '') + '（转发到 ' + to + '）',
+      setMsg((ok ? '✓ ' : r.state === 'invalid' ? '✗ ' : '· ') + (r.text || '') + '（转发到 ' + to + '）',
         'msg ' + (ok ? 'ok' : r.state === 'invalid' ? 'err' : ''));
       return;
     }
-    setMsg(kid, '正在问「' + via.label + '」…', 'msg');
+    setMsg('正在问「' + via.label + '」…', 'msg');
     let r = { ok: false, detail: '', why: '' };
     try { r = await Api.verify(p, { key: draftKey(kid), base: null }); } catch (e) { r.why = errText(e); }
     btn.disabled = false;
-    setMsg(kid, (r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + to + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
+    setMsg((r.ok ? '✓ ' : '✗ ') + (r.ok ? r.detail : r.why) + '（转发到 ' + to + '）', 'msg ' + (r.ok ? 'ok' : 'err'));
   }
 
   function openCusForm() {
@@ -906,7 +893,7 @@ export function createAccountCards(deps) {
     provGroups, provUsable, curTextId, autoServiceKid, hostKidOf, allCaps, acctAll,
     draftKey, keyFor, keyCleared, keyDraft, acctOffSet, panelOpen, fetchNote,
     slotKey, slotKid, slotCap, slotOfProv, provBySlot,
-    renderProv, refreshProvNotes, paintAccountBalances, acctMsg,
+    renderProv, refreshProvNotes, paintAccountBalances,
     textPick, setTextPick,
   };
 }

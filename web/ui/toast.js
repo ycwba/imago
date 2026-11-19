@@ -1,14 +1,7 @@
 /* Toast — 全站统一的轻提示。
    从 web/ui/ui.js 拆出；加载顺序在 ui.js 之后、页面脚本之前。 */
 (function () {
-let box = null, last = { t: '', ts: 0 };
-  function host() {
-    if (box && box.isConnected) return box;
-    box = document.createElement('div');
-    box.className = 'toast-box';
-    document.body.appendChild(box);
-    return box;
-  }
+let last = { t: '', ts: 0 };
   const ICON = { ok: '✓', err: '!', warn: '!', info: 'i' };
   /* 「右上角弹窗」的两档安静：
        · err / warn  → 一定弹。出错与警告是**必须看见**的（弹窗是它们唯一的出口）；
@@ -43,13 +36,23 @@ let box = null, last = { t: '', ts: 0 };
       el.innerHTML = `<span class="ic"></span><span class="tx"></span>`;
       el.querySelector('.ic').textContent = ICON[kind];
       el.querySelector('.tx').textContent = msg;
-      const h = host();
-      h.appendChild(el);
-      while (h.children.length > 4) h.firstElementChild.remove();
+      el.setAttribute('role', kind === 'err' || kind === 'warn' ? 'alert' : 'status');
+      const h = window.UiFeedback.mount(el);
+      Array.from(h.querySelectorAll(':scope > .toast:not([id])')).slice(0, -4).forEach(item => item.remove());
       const life = ms || (kind === 'err' ? 6000 : 3200);
       const kill = () => { el.classList.add('out'); setTimeout(() => el.remove(), 200); };
       el.onclick = kill;
       setTimeout(kill, life);
+    },
+    status(html, type) {
+      const content = document.createElement('div');
+      content.innerHTML = window.sanitizeHTML(String(html == null ? '' : html));
+      const text = content.textContent.trim();
+      if (!text) return;
+      const tag = String(type || '');
+      const kind = ICON[tag] ? tag : /\berr\b/.test(tag) || /失败|错误|异常|无法|超时|中断|出错/.test(text) ? 'err'
+        : /\bwarn\b/.test(tag) ? 'warn' : /\bok\b/.test(tag) || /^[✓✔]/.test(text) ? 'ok' : 'info';
+      this.show(text, kind, kind === 'err' || kind === 'warn' ? 6000 : 4000, true);
     },
     ok(t, ms) { this.show(t, 'ok', ms); },
     err(t, ms) { this.show(typeof t === 'object' ? Net.errorText(t) : t, 'err', ms); },
@@ -76,9 +79,9 @@ let box = null, last = { t: '', ts: 0 };
           el.innerHTML = `<span class="ic"></span><span class="tx"></span>`;
           el.querySelector('.ic').textContent = '…';
           st.el = el;
-          const h = host();
-          h.appendChild(el);
-          while (h.children.length > 4) h.firstElementChild.remove();
+          el.setAttribute('role', 'status');
+          const h = window.UiFeedback.mount(el);
+          Array.from(h.querySelectorAll(':scope > .toast:not([id])')).slice(0, -4).forEach(item => item.remove());
           el.onclick = () => { clearTimeout(st.timer); st.el = null; el.remove(); };
         }
         st.el.querySelector('.tx').textContent = msg;

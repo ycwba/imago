@@ -51,7 +51,7 @@ for (const [key, contract] of Object.entries(TextAI.SKILL_CONTRACT)) {
   ok(TextAI.DEF[key] === tool.normalized(file), key + ' 的内置副本与 ' + path.basename(path.dirname(file)) + '/SKILL.md 逐字节相同');
   checked += 1;
 }
-ok(checked === 13, '13 份 Skill 正文全部对上：' + checked);
+ok(checked === 12, '12 份 Skill 正文全部对上：' + checked);
 ok(TextAI.GLOSSARY === tool.normalized(path.join(root, 'skills', '_glossary.md')), 'GLOSSARY 与 skills/_glossary.md 一致');
 ok(TextAI.GLOSSARY.includes('**镜头（shot）**') && TextAI.GLOSSARY.includes('**草稿（draft）**'), '词汇表覆盖镜头 / 草稿等术语');
 

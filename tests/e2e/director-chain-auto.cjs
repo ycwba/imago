@@ -120,23 +120,22 @@ const pickShotRow = (page, idx) => page.eval(i => {
     /* ---------- 档 1：三镜链自动逐级生成 ---------- */
     let page = await boot(proxy, browser, 'ok');
     await page.eval(() => { const b = document.getElementById('genAll'); if (b) b.click(); });
-    await page.waitFor(() => !!document.querySelector('dialog.ui-dlg .pl-scope'), 8000);
-    await page.eval(() => { const b = document.querySelector('dialog.ui-dlg .pr-foot .pri'); if (b) b.click(); });
     await page.waitFor(() => {
-      const d = Array.from(document.querySelectorAll('dialog.ui-dlg'))
-        .find(x => /开始生成/.test(x.textContent || ''));
-      return !!d;
-    }, 8000, 200);
-    await page.eval(() => {
-      const dlg = Array.from(document.querySelectorAll('dialog.ui-dlg'))
-        .find(x => /开始生成/.test(x.textContent || ''));
-      const b = dlg && dlg.querySelector('.pr-foot .pri');
-      if (b) b.click();
-    });
+      const b = document.querySelector('dialog.ui-dlg:has(.pl-scope) .pr-foot .pri');
+      return b && !b.disabled;
+    }, 8000);
+    await page.eval(() => document.querySelector('dialog.ui-dlg .pr-foot .pri').click());
 
     /* ① 先只提交镜 1；镜 2 / 镜 3 一个都不发 */
     await page.waitFor(() => window.__CHAIN.create.length >= 1, 10000);
-    await sleep(1200);
+    await sleep(1800);
+    const busy = await page.eval(() => ({ disabled: document.getElementById('genAll').disabled,
+      busy: document.getElementById('genAll').getAttribute('aria-busy') }));
+    if (!busy.disabled || busy.busy !== 'true') throw new Error('接续批次等待中按钮被重新启用');
+    await page.eval(() => { void document.getElementById('genAll').onclick(); });
+    if (await page.eval(() => !!document.querySelector('dialog.ui-dlg:has(.pl-scope)'))) {
+      throw new Error('接续批次等待中重复打开了生成弹窗');
+    }
     let c = await page.eval(() => window.__CHAIN.create);
     if (c.length !== 1) throw new Error('启动批只该提交镜 1，实际发了 ' + c.length + ' 条：'
       + JSON.stringify(c.map(x => String(x.body && x.body.prompt))));
@@ -154,7 +153,14 @@ const pickShotRow = (page, idx) => page.eval(i => {
 
     /* ② 镜 1 出画面后镜 2 自动提交，且提交体带上一镜尾帧（dataURL），
        提交时刻必须晚于镜 1 被判成功的时刻（逐级等待，不是一开始就并发发出）。 */
-    await page.waitFor(() => window.__CHAIN.create.length >= 2, 60000, 300);
+    try {
+      await page.waitFor(() => window.__CHAIN.create.length >= 2, 60000, 300);
+    } catch (e) {
+      console.error(await page.eval(() => ({ status: document.getElementById('opState')?.textContent,
+        tasks: window.__CHAIN.tasks, pane: document.getElementById('midBody')?.textContent })));
+      console.error(page.errors);
+      throw e;
+    }
     await sleep(400);
     c = await page.eval(() => window.__CHAIN.create);
     const fr2 = inputFramesOf(c[1].body);
@@ -199,19 +205,11 @@ const pickShotRow = (page, idx) => page.eval(i => {
     page = await boot(proxy, browser, 'fail');
     await page.eval(() => { window.__CHAIN.fail = true; });
     await page.eval(() => { const b = document.getElementById('genAll'); if (b) b.click(); });
-    await page.waitFor(() => !!document.querySelector('dialog.ui-dlg .pl-scope'), 8000);
-    await page.eval(() => { const b = document.querySelector('dialog.ui-dlg .pr-foot .pri'); if (b) b.click(); });
     await page.waitFor(() => {
-      const d = Array.from(document.querySelectorAll('dialog.ui-dlg'))
-        .find(x => /开始生成/.test(x.textContent || ''));
-      return !!d;
-    }, 8000, 200);
-    await page.eval(() => {
-      const dlg = Array.from(document.querySelectorAll('dialog.ui-dlg'))
-        .find(x => /开始生成/.test(x.textContent || ''));
-      const b = dlg && dlg.querySelector('.pr-foot .pri');
-      if (b) b.click();
-    });
+      const b = document.querySelector('dialog.ui-dlg:has(.pl-scope) .pr-foot .pri');
+      return b && !b.disabled;
+    }, 8000);
+    await page.eval(() => document.querySelector('dialog.ui-dlg .pr-foot .pri').click());
     await page.waitFor(() => window.__CHAIN.create.length >= 1, 10000);
     /* 镜 1 三轮后判失败；接续镜必须保持 1 条（不发）。等一段真实轮询窗口再数。 */
     await sleep(9000);

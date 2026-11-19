@@ -25,7 +25,7 @@
   }
 
   /* 把两根轴的偏好解析成 DOM 上的两个属性 —— 全站唯一一处。
-     别处（侧栏那颗日 / 夜按钮、设置页改动、助手改设置）都只调 window.__themeApply，
+     别处（侧栏那三档、设置页改动、助手改设置）都只调 window.__themeApply，
      不再自己写 dataset.theme：那会绕过「system 要先解析」这一步。 */
   function resolveTheme() {
     var root = document.documentElement;
@@ -33,8 +33,8 @@
     root.dataset.theme = mode === 'system' ? (mq && mq.matches ? 'dark' : 'light') : mode;
     var pal = readPref('dir_palette');
     root.dataset.palette = PALETTES.indexOf(pal) >= 0 ? pal : 'ocean';
-    try { if (window.__sbThemeIcon) window.__sbThemeIcon(); } catch (e) {
-      /* 侧栏还没装上（或图标画失败）：图标停在旧档不影响配色，下一次解析会再画。 */
+    try { if (window.__sbThemePaint) window.__sbThemePaint(); } catch (e) {
+      /* 侧栏还没装上（或画失败）：档位高亮停在旧格不影响配色，下一次解析会再画。 */
     }
     try { document.dispatchEvent(new CustomEvent('sb:theme-applied')); } catch (e) {
       /* 极老的浏览器没有 CustomEvent：设置页那两格高亮退化成下次进页时正确。 */

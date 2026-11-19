@@ -201,8 +201,6 @@
     return { 条数: rows.length, 条目: rows };
   }
   const TOOLS = {
-    /* 建模台那一族（model_list / model_read / model_view）不手写：由页面能力声明现拼，
-       见下面的 syncBridgeDecls（声明住在 web/model3d/assistant.js）。 */
     skill: {
       arg: '{ "id": "Skill 的 id" }',
       doc: '读一份 Skill 的正文（这一类提示词/流程该怎么写）。本轮已加载的那两份可以直接读；没加载的你自己判断要不要读（清单在【可用 Skill】里）——回合内最多再读 2 份、按需总额度约 1000 token，超了会回「预算用完了」。加载后照它的写法，但输出契约与格式优先',
@@ -625,10 +623,6 @@
         const dropped = ((r.custom && r.custom.dropped) || []).map(x => x.id + '：' + x.why);
         if (dropped.length) out.添加未生效 = dropped;
         if (r.custom && r.custom.reason) out.自定义清单读不了 = r.custom.reason;
-        /* 页面能力声明拼失败的那几份照实念：声明坏了那一页的工具整族不进目录，
-           界面上却看不出少了什么 —— 与「动作目录没装齐」同一类静默坏，这里点名。 */
-        const dErrs = Object.keys(declErrs);
-        if (dErrs.length) out.能力声明没拼成 = dErrs.map(k => k + '：' + declErrs[k]);
         /* 下面这几项各打一个本机接口，任何一项取不到都只写「取不到 + 原因」，
            不让一个慢接口把整份体检拖没（用户要的是「哪里坏了」，不是一个转圈的界面）。 */
         try { const d = await Net.json('/data', { timeout: 8000, retry: 0 }); out.数据目录 = { 路径: d.dir, 文件数: (d.files || []).length }; }
@@ -1978,8 +1972,6 @@
         + '典型用法：先 cut 切开，再对后半段 set speed。',
       check: timelineApplyCheck, run: timelineApplyRun,
     },
-    /* 建模台那一族写入动作（model_edit / model_new / model_add_to_scene / model_undo）不手写：
-       由页面能力声明现拼（syncBridgeDecls），op 词汇与建模 AI 同一套，校验全在页面那一份桥里。 */
     /* ---------- 字幕三条写动作：都落桥的 set + kind:'subtitle' ----------
        字幕挂在整份成片上，时间就是成片秒（与 SRT / 导出同一把尺子）。 */
     subtitle_update: {
@@ -2118,14 +2110,14 @@
     const r = TOOL_ROUTE[id] || '*';
     return r === '*' || !route || r === route;
   }
-  const visibleTools = route => { syncBridgeDecls(); return Object.keys(TOOLS).filter(k => toolVisible(k, route)); };
+  const visibleTools = route => Object.keys(TOOLS).filter(k => toolVisible(k, route));
   /* 动作的作用域只有一份：ACTION_META 的 route（见下面那张策略表）。
      以前这里读 `ACTS[k].route` —— 字面量里根本没这个字段，永远是 undefined，
      于是「按当前页过滤」从来没生效过，模型在设置页也看得见 select_take。 */
-  const visibleActs = route => { syncBridgeDecls(); return Object.keys(ACTS).filter(k => {
+  const visibleActs = route => Object.keys(ACTS).filter(k => {
     const r = actRoute(k);
     return r === '*' || !route || r === route;
-  }); };
+  });
   /* 写动作的参数形状：`operationId` **不放进 schema** ——
      它由助手在画卡片那一刻生成补上（见 stampWrite）。
      让模型填这个 id，结果只有两种：抄上一轮的旧值（每次都是「同一意图」），或编一个（当场被拒）。 */
@@ -2230,7 +2222,6 @@
     };
   }
   function registerActions(reg) {
-    syncBridgeDecls();
     for (const [id, d] of Object.entries(ACTS)) {
       if (!d || typeof d.run !== 'function') continue;
       reg.register(actDefOf(id, d));
@@ -2254,106 +2245,10 @@
     }).catch(e => { actionReg = null; actionRegErr = cap(errText(e), 200); return null; });
   } catch (e) { actionRegReady = Promise.resolve(null); }
 
-  /* ---------- 页面能力声明 → 助手目录（唯一生成口）----------
-     页面把「给助手哪些工具」写成纯数据声明（WBBridge.declare），这里现拼成 TOOLS / ACTS
-     与那几张侧表。新增一页的能力只改那一页的声明，助手代码一个字不动。
-     声明在页面模块求值时登记，助手装载时多半还没轮到那一页 —— 所以同步是惰性的：
-     建目录末尾先收一遍，之后每轮 visibleTools / visibleActs 再收一遍新到的声明。
-     校验全部前置（id 不撞、字段齐、effect 合法），任一不过整份声明不进表（半份比没有更坏）。 */
-  const declDone = new Set();
-  const declErrs = {};
-  function declBridge(name) {
-    const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get(name) : null;
-    return (A && typeof A.check === 'function' && typeof A.run === 'function') ? A : null;
-  }
-  /* 写动作的 check / run 只转发给桥：校验在页面那一份，这里只换外壳形状。
-     与导演台那两枚（directorCheck / directorRun）同一副做法，只是页名与桥名由声明给。 */
-  function declCheck(page, name, op, a) {
-    const A = declBridge(name);
-    if (!A) return { err: page + '这一层还没加载（或者你不在' + page + '）：先切到' + page + '再让我动手' };
-    let r = null;
-    try { r = A.check(op, a); } catch (e) { r = { ok: false, err: errText(e) }; }
-    if (!r || r.ok === false) return { err: (r && (r.err || r.text)) || page + '拒绝了这次操作' };
-    return { 说明: r.text || '页面操作', 人话: r.lines || [r.text || ''] };
-  }
-  async function declRun(page, name, op, a) {
-    const A = declBridge(name);
-    if (!A) throw new Error(page + '这一层还没加载：先切到' + page);
-    const r = await A.run(op, a);
-    if (!r || r.ok === false) throw new Error((r && (r.err || r.text)) || page + '拒绝了这次操作');
-    return { ok: true, text: r.text || '做完了' };
-  }
-  /* 视口查询：拍活动机位当前画面交给看图那一份（lookAtImage），与建模 AI 的 render_thumbnail 同源。 */
-  async function declView(page, name, a) {
-    const A = window.WBBridge && window.WBBridge.get ? window.WBBridge.get(name) : null;
-    if (!A || typeof A.thumbnail !== 'function' || (typeof A.ready === 'function' && !A.ready())) {
-      return { 错误: page + '现在拿不到视口（先切到' + page + '并打开场景）' };
-    }
-    let url = '';
-    try { url = await A.thumbnail(); } catch (e) { url = ''; }
-    if (!url) return { 错误: '视口画面没拍出来（画布还没起来，或这一页不在前台）' };
-    const r = await lookAtImage(page + '当前视口', url, a && a.ask);
-    return r.err ? { 错误: r.err } : { 视口: r.text, 型号: r.model };
-  }
-  function genBridgeDecl(name, decl) {
-    const page = String(decl.page || '');
-    const route = String(decl.route || '');
-    if (!page || !route) throw new Error('能力声明缺 page / route');
-    const reads = Array.isArray(decl.reads) ? decl.reads : [];
-    const acts = Array.isArray(decl.acts) ? decl.acts : [];
-    const view = decl.view || null;
-    const seen = new Set();
-    const claimId = id => {
-      if (!id || typeof id !== 'string') throw new Error('能力声明里有一条没给 id');
-      if (seen.has(id) || TOOLS[id] || ACTS[id]) throw new Error('工具 id 撞了：' + id);
-      seen.add(id);
-    };
-    for (const r of reads) { claimId(r.id); if (!r.method || !r.arg || !r.doc) throw new Error('查询 ' + r.id + ' 缺 method / arg / doc'); }
-    if (view) { claimId(view.id); if (!view.arg || !view.doc) throw new Error('视口查询 ' + view.id + ' 缺 arg / doc'); }
-    for (const c of acts) {
-      claimId(c.id);
-      if (!c.op || !c.arg || !c.doc || !c.title) throw new Error('动作 ' + c.id + ' 缺 op / arg / doc / title');
-      if (!['read', 'ui', 'write', 'cost'].includes(c.effect)) throw new Error('动作 ' + c.id + ' 没声明 effect（read / ui / write / cost）');
-    }
-    /* 校验全过才进表：注册表已装好（惰性同步那一路）就顺手补登记，没装好留给 registerActions 统一收。 */
-    for (const r of reads) {
-      TOOLS[r.id] = { arg: r.arg, doc: r.doc, run: a => bridgeRead(page, name, r.method, a) };
-      TOOL_ROUTE[r.id] = route;
-      if (r.cap) TOOL_CAP[r.id] = r.cap;
-      if (r.input) TOOL_INPUT[r.id] = r.input;
-      if (actionReg) actionReg.register(toolDefOf(r.id, TOOLS[r.id]));
-    }
-    if (view) {
-      TOOLS[view.id] = { arg: view.arg, doc: view.doc, run: a => declView(page, name, a) };
-      TOOL_ROUTE[view.id] = route;
-      if (view.cap) TOOL_CAP[view.id] = view.cap;
-      if (view.input) TOOL_INPUT[view.id] = view.input;
-      if (actionReg) actionReg.register(toolDefOf(view.id, TOOLS[view.id]));
-    }
-    for (const c of acts) {
-      ACTS[c.id] = { arg: c.arg, title: c.title, doc: c.doc,
-        check: a => declCheck(page, name, c.op, a), run: a => declRun(page, name, c.op, a) };
-      ACTION_META[c.id] = Object.assign({ effect: c.effect, route }, c.undo ? { undo: c.undo } : {});
-      if (c.input) TOOL_INPUT[c.id] = c.input;
-      if (actionReg) actionReg.register(actDefOf(c.id, ACTS[c.id]));
-    }
-  }
-  function syncBridgeDecls() {
-    const B = window.WBBridge;
-    if (!B || typeof B.declarations !== 'function') return;
-    for (const { name, decl } of B.declarations()) {
-      if (declDone.has(name)) continue;
-      declDone.add(name);
-      try { genBridgeDecl(name, decl); } catch (e) { declErrs[name] = cap(errText(e), 200); }
-    }
-  }
-  syncBridgeDecls();
-
       return {
         TOOLS, ACTS, ACTION_META, TOOL_INPUT, visibleActs, visibleTools, regClosed,
         TOOL_ROUTE, actMeta, actRoute, actUndo, stampWrite, toolZh, toolCap,
         registry: () => actionReg, regError: () => actionRegErr, ready: () => actionRegReady,
-        declErrors: () => declErrs,
       };
     },
   };

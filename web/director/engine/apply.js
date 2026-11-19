@@ -26,8 +26,6 @@ export function createApply(E, document, window) {
     splitSysOf,
     durWritable,
     boardDurNote,
-    boardDurSub,
-    softShotsNote,
     clampNote,
     chainModelList,
     ensureChainModel,
@@ -68,7 +66,7 @@ async function prepareAttachments(list) {
 function mediaInfoOf(mediaPrep, unknown, unused, chainDrop) {
   const bits = [];
   if (mediaPrep.pics.length) {
-    let s = '随附参考图 ' + mediaPrep.pics.length + ' 张，由 AI 决定挂到哪几镜';
+    let s = '随附参考图 ' + mediaPrep.pics.length + ' 张';
     if (unused && unused.length) s += '；图' + unused.map(i => i + 1).join('、图') + ' 没挂到任何镜头';
     if (unknown) s += '；有 ' + unknown + ' 个图号没对上，没挂';
     if (chainDrop) s += '；' + chainDrop + ' 张图挂在接上一镜的镜头上没挂（首尾帧不收参考图）';
@@ -114,6 +112,7 @@ function splitHost(run) {
   splitDlgRun = run;
   /* 拆分常从空项目发起：弹窗挂在 body 上，谁重画都摘不掉它。 */
   splitDlg = PromptReview.openProcess({
+    size: 'workflow',
     title: 'AI 正在拆分镜…',
     onAbort() {
       if (run) run.dead = true;
@@ -126,16 +125,25 @@ function splitHost(run) {
   });
   return splitDlg.querySelector('#prBody');
 }
-function splitAlive(run) { return !!run && splitRun === run && !run.dead; }
+function splitAlive(run) {
+  if (!run || splitRun !== run || run.dead) return false;
+  if (projOf() !== run.project) { splitEnd(run); return false; }
+  return true;
+}
 function splitEnd(run) {
   if (run) run.dead = true;
+  if (splitRun !== run) return;
+  const ui = splitUI, d = splitDlg, review = splitDlgReview;
   splitUI = null;
-  const d = splitDlg;
   splitDlg = null; splitDlgRun = null; splitDlgReview = false;
-  if (d) PromptReview.closeProcess(d);
+  if (ui && typeof ui.resolve === 'function') ui.resolve('');
+  if (d) {
+    if (review) d.dispatchEvent(new Event('cancel', { cancelable: true }));
+    PromptReview.closeProcess(d);
+  }
 }
 function renderSplitPanel() {
-  if (!splitUI) return;
+  if (!splitAlive(splitRun) || !splitUI) return;
   if (splitUI.phase === 'stream') return;    // 面板本体归 AiStream 管（宿主已交给它），这里不插手
   if (splitDlgReview) return;                // 审阅已经接手这张弹窗：加载态不再盖它的清单
   const host = splitHost(splitRun);
@@ -147,9 +155,7 @@ function renderSplitPanel() {
   splitUI.painted = true;
   const mine = splitUI;
   InlinePolish.ask(host, {
-    title: mine.title || '拆分镜前，AI 想先问几个问题',
-    intro: '点一个候选，或在输入框里自己写；没答的题按 AI 的默认理解走。'
-      + '回答会当作硬约束带进这一次拆分。',
+    title: mine.title || '补充要求',
     questions: mine.questions,
     state: mine.state || [],
     onChange: st => { if (splitUI === mine) mine.state = st; },
@@ -187,9 +193,9 @@ async function askRound(o) {
   setStatus('AI 有几个问题想先问清楚（也可以跳过）');
   mine.phase = 'ask'; mine.busy = false;
   mine.questions = qs; mine.state = [];
-  mine.title = '拆分镜前，AI 想先问几个问题';
-  mine.submitLabel = '按这些回答开始拆分';
-  mine.skipLabel = '跳过，直接拆分';
+  mine.title = '补充要求';
+  mine.submitLabel = '开始拆分';
+  mine.skipLabel = '跳过';
   renderSplitPanel();
   const t = await new Promise(resolve => { mine.resolve = resolve; });
   return t || '';
@@ -223,8 +229,17 @@ async function maybeFillNewAssetPics(saved) {
   let done = 0;
   const failed = [];
   for (const item of saved) {
-    try { await D.Pipe.drawPreview(reg, drama, item, { count: 1 }); done++; }
-    catch (e) { failed.push((item && item.name) || '?'); }
+    try {
+      const result = await D.Pipe.drawPreview(reg, drama, item, { count: 1 });
+      const desc = D.descOf(item);
+      if (result.prompt && !desc.includes(result.prompt)) {
+        item.look = [desc, result.prompt].filter(Boolean).join('\n\n');
+      }
+      D.Lib.save(item, { exact: true });
+      const err = D.Lib.writeError();
+      if (err) throw new Error(err);
+      done++;
+    } catch (e) { failed.push((item && item.name) || '?'); }
   }
   Toast[(failed.length ? 'warn' : 'ok')](
     '新素材出图：' + done + ' 条已发（出完自动补进参考图）'
@@ -307,7 +322,9 @@ async function aiStoryboard() {
   if (splitUI && splitUI.busy) { Toast.warn('上一趟拆分还在跑，等它出结果再来'); return; }
   /* 「项目引用规则」：已启用的 Skill 声明了哪些素材组 / 引用写成什么样子（设置页可改）。
      读不到就当没有声明（默认写法、全部组都在下拉里）—— 读不到不是错，按默认走。 */
+  const project = projOf();
   const refRule = (window.WbSkills && WbSkills.refRule) ? await WbSkills.refRule() : { assetGroups: [] };
+  if (projOf() !== project) return;
   /* 「素材范围」那一排的名单这一刻现数（新加了素材不必重开页面）；
      库还是空的就整项不画 —— 只有一项可选的下拉等于一颗点下去什么都不会变的按钮。
      Skill 声明的组**排在前面**（不排除其它组）。 */
@@ -322,15 +339,12 @@ async function aiStoryboard() {
     return { kind, label: (f && f.name) || '素材', src: await AssetTransfer.toDataURL(blob) };
   };
   const fields = [
-    { key: 'script', type: 'textarea', label: '剧本 / 文案 · 修改要求',
-      placeholder: '把故事、旁白、分镜草稿粘进来；或对着现有分镜说一句要怎么改…',
-      hint: '' },
+    { key: 'script', type: 'textarea', label: '剧本 / 修改要求', placeholder: '故事、旁白或分镜草稿' },
     /* 随附素材：图片 / 视频 / 音频一起收。挑图时就地定型 dataURL（blob: 地址必须当场定型，
        对齐 ref.js 那条 applyFrameEntry 的做法）；读不出来的照实报数，不带残条。
        缩略点开走公共灯箱（view 交给页面）；文字型号不支持的种类由能力闸逐件说清「没带」。 */
-    { key: 'media', type: 'pics', label: '随附素材（给 AI 看）', value: [],
+    { key: 'media', type: 'pics', label: '随附素材', value: [], pickLabel: '添加素材',
       kinds: ['image', 'video', 'audio'],
-      hint: '挑图片 / 视频 / 音频、粘贴或拖进这一格；AI 判断哪些贴题，图片挂进对应镜头的参考图槽（文字型号需支持）',
       view: (it, all) => { try { window.Wb.lightbox.open(it, all || [it]); } catch (e) { /* 灯箱没就绪就当没点 */ } },
       onFile: async f => toMediaEntry(f, kindOfFile(f)),
       pick: async api => {
@@ -356,18 +370,17 @@ async function aiStoryboard() {
       } },
   ];
   if (scopes.length) fields.push({ key: 'assetSrc', type: 'select', label: '素材范围',
-    value: SplitAssets.last(), options: scopes,
-    hint: '写进提示词的 @名字 在确认写入时挂成参考图（选「不导入素材」就一个字也不喂）' });
-  fields.push({ key: 'note', type: 'text', label: '发给 AI 的备注（可选）',
-    placeholder: '例：整体偏冷色 · 节奏快一点', hint: '只给 AI 看，不进提示词' });
+    value: SplitAssets.last(), options: scopes });
+  fields.push({ key: 'note', type: 'text', label: '备注（可选）',
+    placeholder: '风格、节奏等要求', hint: '不写入提示词' });
   const v = await PromptForm.open({
-    title: 'AI 分镜',
-    sub: '新剧情直接拆；对着现有分镜说一句就改 —— AI 按输入自己决定改哪几镜、加哪几镜',
+    size: 'workflow',
+    title: '拆分镜',
     okLabel: '开始',
-    fields: fields,
+    fields,
     validate: o => splitScriptGate(o.script),
   });
-  if (!v) return;
+  if (!v || projOf() !== project) return;
   if (v.assetSrc) SplitAssets.remember(v.assetSrc);
   /* 「素材范围优先」跟着这一趟走（Skill 声明了哪些组排在前面）。 */
   v.refRule = refRule;
@@ -402,7 +415,7 @@ function boardListOfItems(items) {
 /* 统一链：素材挑选 → 反问 → 一次 AI 调用（split 契约）→ 审查 → 落盘。 */
 async function aiBoardRun(v) {
   /* 这一趟的身份：用户点取消 / 新一轮顶掉它之后，每个 await 回来都靠它认出「这趟已经不作数」 */
-  const run = { dead: false };
+  const run = { dead: false, project: projOf() };
   splitRun = run;
   /* 随附素材 → 多模态输入（挑的时候已定型 dataURL，这里只过能力闸）。 */
   const mediaPrep = await prepareAttachments(v.media);
@@ -436,7 +449,7 @@ async function aiBoardRun(v) {
     renderSplitPanel();
     staged = await SplitAssets.stage(REGOf(), v.script, v.assetSrc, v.refRule);
     if (splitUI === mine) splitUI = null;
-    if (staged.warn) Toast.warn(staged.warn);
+    if (splitAlive(run) && staged.warn) Toast.warn(staged.warn);
     return staged;
   };
   /* 现有清单是不是只有空占位：每一场都还是默认名、每一镜都还没动过 ——
@@ -544,34 +557,32 @@ ${fillSkillVars(splitSysOf(), varsOf())}
   }
   /* 按停止（面板上那颗「停止」）与真失败分开收尾：停止是主动收尾，不摆红条 */
   catch (e) {
+    if (!splitAlive(run)) return;
     splitEnd(run);
     setStatus(e && e.name === 'AbortError' ? '<span class="meta">已停止</span>'
       : '<span class="err">' + e.message + '</span>');
     return;
   }
+  const boardReviewSummary = rows => [
+    '改 ' + rows.filter(it => it.upd).length + ' 镜 · 新增 ' + rows.filter(it => !it.upd).length + ' 镜',
+    lastParsed.unknownRefs ? lastParsed.unknownRefs + ' 个 ref 对不上，按新镜头写入' : '',
+    splitInfo && splitInfo.split ? '长镜头拆分 ' + splitInfo.split + ' 镜' : '',
+    mediaInfoOf(mediaPrep, draftPicUnknown, unusedPicsOf(mediaPrep.pics, rows.map(it => it.pics)),
+      draftPicChain.length + ((splitInfo && splitInfo.picDropped) || []).length),
+    staged.sub].filter(Boolean).join(' · ');
   /* 审阅就地接手这张弹窗（shell）：不关不重开，屏幕中间只换一层内容。 */
   splitDlgReview = true;
   const reviewed = await PromptReview.openList({
-    title: 'AI 分镜方案（确认后写入项目）',
+    size: 'workflow',
+    title: '分镜方案',
     shell: splitDlg,
-    sub: ((lastParsed && lastParsed.title ? ['短片名：' + lastParsed.title] : [])
-      .concat(['改 ' + lastParsed.updN + ' 镜 · 新增 ' + lastParsed.addN + ' 镜'
-        + (lastParsed.kept ? '；现有 ' + lastParsed.kept + ' 镜未提及，写入后原样保留' : ''),
-        lastParsed.unknownRefs ? lastParsed.unknownRefs + ' 个 ref 对不上，按新镜头写入' : '',
-        softShotsNote(v.script, items.length), boardDurSub(),
-        splitInfo && splitInfo.note ? splitInfo.note : '',
-        splitInfo && splitInfo.impossible.length
-          ? '其中 ' + splitInfo.impossible.length + ' 个长镜头没有能拆成合法接续片段的型号，已原样保留（写入后按各自型号上限夹回）'
-          : '',
-        mediaInfoOf(mediaPrep, draftPicUnknown,
-          unusedPicsOf(mediaPrep.pics, items.map(it => it.pics)
-            .concat([draftPicChain, (splitInfo && splitInfo.picDropped) || []])),
-          draftPicChain.length + ((splitInfo && splitInfo.picDropped) || []).length),
-        staged.sub, '按场景分组，可逐条改名字、秒数、提示词'])).filter(Boolean).join(' · '),
+    sub: boardReviewSummary(items),
+    describe: boardReviewSummary,
+    validate: () => splitAlive(run) ? '' : '项目已切换，请重新拆分',
     items, applyLabel: '写入这份分镜',
     /* 行上挂图缩略图要从这张表里取（src）—— AI 点的图按这一格渲染、可就地摘。 */
     pics: mediaPrep.pics,
-    hint: '写入后每个镜头都能单独生成、多条生成、剪辑', retry: ask,
+    retry: ask,
     mode: 'board', durEditable: durWritable(), estimate: boardEstimate,
     /* 「待建素材」那块（可逐条改 / 可删）：确认后建档到项目组同名素材组 + 出图 + 绑音色描述。 */
     assetEditable: true,
@@ -588,8 +599,9 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
         + (answers ? '\n\n' + TextAI.answersNote(answers) : '');
       const txt = await TextAI.chatStream(REGOf(), sys, msg,
         { signal: ctl.signal, media: mediaPrep.media }, ctl.push);
+      if (!splitAlive(run)) throw new Error('项目已切换或拆分已取消');
       const j = parseJsonLoose(txt);
-      const parsed2 = boardFullItemsOf(j, snapBoard(projOf().scenes), mediaPrep.pics);
+      const parsed2 = boardFullItemsOf(j, snapBoard(run.project.scenes), mediaPrep.pics);
       if (!parsed2.items.length) throw new Error('AI 的调整结果里没有镜头');
       draftPicUnknown = parsed2.unknownRefs;
       draftPicChain = parsed2.picChain;
@@ -602,6 +614,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       newAssets = null;
       if (typeof ctl.note === 'function') ctl.note('正在看这份方案里有哪些要新建的素材…');
       await stageAssetsOf(next);
+      if (!splitAlive(run)) throw new Error('项目已切换或拆分已取消');
       /* 这一轮 AI 又把图点给接续镜时，弹窗底行照实说一句（清单里那些图已经摘掉）。 */
       const chainDropN = draftPicChain.length + ((splitInfo && splitInfo.picDropped) || []).length;
       if (chainDropN && typeof ctl.note === 'function') {
@@ -609,7 +622,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       }
       return { items: next, assets: (newAssets && newAssets.plan) || [] };
     },
-    followPlaceholder: '还要怎么改？例：第 3 镜短一点 / 结尾加一个雨夜空镜 / 整体再紧凑一点',
+    followPlaceholder: '调整要求',
     retryAssets: async () => {
       /* 「重新规划」只重问**第 4 段**（新素材判定，stageAssetsOf）：
          以前整体重跑 ask()，把拆分镜那次文字 AI 也再花一遍钱。 */
@@ -618,6 +631,8 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
       return (newAssets && newAssets.plan) || [];
     },
   });
+  if (!splitAlive(run)) return;
+  run.dead = true;
   /* 弹窗在确认 / 取消那一下已经自己关了：这一趟的句柄一起清掉（留着的只是过期节点） */
   splitDlg = null; splitDlgRun = null; splitDlgReview = false; splitUI = null;
   /* 空数组也要当「没采纳」接住：openList 的确认会把正文为空的条目滤掉。 */
@@ -692,7 +707,7 @@ ${fillSkillVars(TextAI.prompt('split_follow'), varsOf(boardListOfItems(current),
     + chainNote + chainRefusedNote + overwriteNote
     + (nameBits.length ? '；' + nameBits.join('；') : '')
     + assetNote + clampNote(r0.clamped),
-    SplitAssets.bind(r0.touched, staged.picked),
+    SplitAssets.bind(r0.touched.map(sh => ({ ...sh, candidates: [defaultTakeOf(sh)] })), staged.picked),
     { n: r0.picN, shots: r0.picShots, dup: r0.picDup, why: r0.picWhy, unknown: r0.picUnknown });
   renderAll(); scheduleSave();
   /* 新素材可以顺便出预览图（确认框勾了才排队 —— 花钱任务不自动发）。

@@ -536,11 +536,12 @@ function keepBodyScroll(el, fn) {
            一个字节都没动 —— 这是这一条的红线（时间切片、图像拆段都在那一边）。
    ========================================================================== */
 (function () {
-  function mount(title, sub, shell) {
+  function mount(title, sub, shell, size) {
     /* 过程面板 → 审阅是同一张弹窗：拆完换标题接着用（关掉再开屏幕中间会闪一下）。
        接手时把过程期的取消出口摘掉，foot 恢复成调用方要画的样子。 */
     if (shell && shell.isConnected && shell.open) {
       shell.__prAbort = null;
+      shell.classList.toggle('ui-dlg-workflow', size === 'workflow');
       const head = shell.querySelector('.pr-head');
       const t = head && head.querySelector('b');
       if (t) t.textContent = title || '';
@@ -561,7 +562,7 @@ function keepBodyScroll(el, fn) {
     document.querySelectorAll('dialog#prDlg').forEach(d => { try { d.close(); } catch (e) { /* 已经关掉了，接着摘节点 */ } d.remove(); });
     const dlg = document.createElement('dialog');
     dlg.id = 'prDlg';
-    dlg.className = 'ui-dlg';
+    dlg.className = 'ui-dlg' + (size === 'workflow' ? ' ui-dlg-workflow' : '');
     dlg.innerHTML = `<div class="pr-head"><b>${window.esc(title)}</b>${sub ? `<div class="sub">${window.esc(sub)}</div>` : ''}</div>
       <div class="pr-body" id="prBody"></div>
       <div class="pr-foot"><button type="button" class="ghost" id="prRetry">${icon('refresh', 13)} 重新润色</button>
@@ -659,6 +660,8 @@ function keepBodyScroll(el, fn) {
       };
       try {
         const r = await o.onFollow(askText, ctl, hooks.snapshot());
+        if (!dlg.isConnected) return;
+        if (ab && ab.signal.aborted) throw new DOMException('已停止', 'AbortError');
         const fresh = (r && typeof r === 'object' && !Array.isArray(r)) ? r : { items: r };
         hooks.install(fresh.items || fresh, fresh.assets);
         rounds.push(askText); paintTalk();
@@ -730,6 +733,9 @@ function keepBodyScroll(el, fn) {
       });
     }
     rows = normAll(o.items);
+    const snapshot = () => rows.map(r => Object.assign({}, r.raw, {
+      key: r.key, scene: r.scene, name: r.name, dur: r.dur, text: r.text,
+      chain: r.chain, chainModel: r.chainModel, pics: (r.pics || []).slice() }));
     const byU = u => { for (const r of rows) if (r.u === u) return r; return null; };
 
     /* 三个读数摆在标题与清单之间：`mount()` 那份外壳里没有这一行（平铺那一路零足迹），
@@ -842,7 +848,7 @@ function keepBodyScroll(el, fn) {
           r.pics = (r.pics || []).filter(x => x !== +b.dataset.picrm);
           const cell = b.closest('.pr-pic');
           if (cell) cell.remove();          // 就地摘一枚，不整行重画（与改格那一族同一立场）
-          markPin(r);
+          markPin(r); paintSum();
         };
       });
       bindDrag();
@@ -891,6 +897,10 @@ function keepBodyScroll(el, fn) {
     }
     /* 读数：条数与秒数同步改，估价异步问（见下面 queueEst）。 */
     function paintSum() {
+      if (typeof o.describe === 'function') {
+        const sub = dlg.querySelector('.pr-head .sub');
+        if (sub) sub.textContent = o.describe(snapshot()) || '';
+      }
       qN.textContent = String(rows.length);
       if (canDur) {
         let tot = 0, miss = 0;
@@ -910,23 +920,24 @@ function keepBodyScroll(el, fn) {
       const sig = rows.length + '|' + rows.map(r => (r.dur == null ? '' : r.dur)).join(',');
       if (sig === estSig) return;
       estSig = sig;
+      estSeq++;
       if (qEst) qEst.textContent = '估价中…';
       if (estTimer) clearTimeout(estTimer);
       estTimer = setTimeout(() => { estTimer = null; runEst(); }, 500);
     }
     async function runEst() {
       const my = ++estSeq;
-      const list = rows.map(r => ({ key: r.key, scene: r.scene, name: r.name, dur: r.dur, text: r.text }));
+      const list = snapshot();
       let t = '';
       try { t = String((await o.estimate(list)) || ''); } catch { t = ''; }
-      if (my !== estSeq) return;
-      if (qEst) qEst.textContent = t.trim() || '报价不可用';
+      if (my !== estSeq || !dlg.isConnected) return;
+      if (qEst) qEst.textContent = t.trim() || '待报价';
     }
     /* 「重新规划」：新方案覆盖上来，但**用户改过的那几条原样留着**（判据是「改过没有」，不是第几条）。
        归并按场走：新方案里还在的场按新顺序摆，改过的那几条接在本场新条目之后；
        只剩钉住条目的场（新方案里没有这一场了）整组追加到表尾并计数说明。 */
-    function mergeFresh(fresh) {
-      const pinned = rows.filter(r => r.edited);
+    function mergeFresh(fresh, previous) {
+      const pinned = previous.filter(r => r.edited);
       const pk = new Set(pinned.map(r => r.key));
       const fmap = new Map(), pmap = new Map(), scenes = [];
       const put = (m, r) => { if (!m.has(r.scene)) m.set(r.scene, []); m.get(r.scene).push(r); };
@@ -1015,6 +1026,10 @@ function keepBodyScroll(el, fn) {
         };
         out.push(Object.assign({}, r.raw, row));
       });
+      if (typeof o.validate === 'function') {
+        const why = o.validate(out);
+        if (why) { note(why, true); return; }
+      }
       /* 「待建素材」那一份交给调用方（拆分镜那一条要拿去建档出图）。
          用回调而不是改返回值形状 —— 返回值是数组，改形状会破坏现有那些调用方。 */
       if (canAssets && typeof o.onAssets === 'function') {
@@ -1030,10 +1045,7 @@ function keepBodyScroll(el, fn) {
        那份新方案不认识用户的手改）。待建素材照旧保住手改的那几条（与重新规划同一立场）。 */
     const follow = mountFollow(dlg, o, okBtn, () => !rows.length, {
       /* 快照带 raw（ref / shotId 在里面）：follow 轮回来时「改哪一镜」的锚点不能丢。 */
-      snapshot: () => rows.map(r => Object.assign({}, r.raw, {
-        key: r.key, scene: r.scene, name: r.name, dur: r.dur,
-        text: r.text, chain: r.chain, chainModel: r.chainModel,
-        pics: (r.pics || []).slice() })),
+      snapshot,
       install: (freshItems, freshAssets) => {
         rows = normAll(freshItems || []);
         if (canAssets && Array.isArray(freshAssets)) {
@@ -1056,11 +1068,12 @@ function keepBodyScroll(el, fn) {
         rows = []; paint();
         let fresh = null, why = '';
         try { fresh = normAll(await o.retry()); } catch (e) { why = errText(e); }
+        if (!dlg.isConnected) return;
         if (why) {
           rows = mine; paint();
           note('重新规划失败：' + why, true);
         } else {
-          const m = mergeFresh(fresh);
+          const m = mergeFresh(fresh, mine);
           rows = m.out;
           /* 待建素材：新一轮的清单也换掉，但**用户改过的那几条原样留着**
              （与镜头的 mergeFresh 同一立场：改过的不被新一轮冲掉）。 */
@@ -1068,6 +1081,7 @@ function keepBodyScroll(el, fn) {
             const editedNames = new Set(mineAssets.filter(a => a.edited).map(a => nameKeyOf(a.name)));
             let fa = null;
             try { fa = await o.retryAssets(); } catch (e) { fa = null; }
+            if (!dlg.isConnected) return;
             if (Array.isArray(fa)) {
               const keep = mineAssets.filter(a => editedNames.has(nameKeyOf(a.name)));
               const seen = new Set(keep.map(a => nameKeyOf(a.name)));
@@ -1097,7 +1111,7 @@ function keepBodyScroll(el, fn) {
        按钮当场换面并停用，连点不会重复中止。 */
     openProcess(o) {
       o = o || {};
-      const dlg = mount(o.title || 'AI 正在准备…', o.sub);
+      const dlg = mount(o.title || 'AI 正在准备…', o.sub, null, o.size);
       dlg.querySelector('#prOk').style.display = 'none';
       dlg.querySelector('#prRetry').style.display = 'none';
       dlg.__prAbort = typeof o.onAbort === 'function' ? o.onAbort : null;
@@ -1123,7 +1137,7 @@ function keepBodyScroll(el, fn) {
 
     open(o) {
       return new Promise(resolve => {
-        const dlg = mount(o.title || 'AI 润色结果', o.sub);
+        const dlg = mount(o.title || 'AI 润色结果', o.sub, null, o.size);
         const body = dlg.querySelector('#prBody');
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用这段提示词';
@@ -1158,7 +1172,7 @@ function keepBodyScroll(el, fn) {
 
     openList(o) {
       return new Promise(resolve => {
-        const dlg = mount(o.title || 'AI 规划结果', o.sub, o.shell);
+        const dlg = mount(o.title || 'AI 规划结果', o.sub, o.shell, o.size);
         const body = dlg.querySelector('#prBody');
         const okBtn = dlg.querySelector('#prOk');
         okBtn.textContent = o.applyLabel || '采用并开始生成';
@@ -1425,7 +1439,7 @@ function keepBodyScroll(el, fn) {
       return new Promise(resolve => {
         const dlg = document.createElement('dialog');
         dlg.id = o.id || 'uiDlg';
-        dlg.className = 'ui-dlg';
+        dlg.className = 'ui-dlg' + (o.size === 'workflow' ? ' ui-dlg-workflow' : '');
         const head = document.createElement('div');
         head.className = 'pr-head';
         const b = document.createElement('b'); b.textContent = o.title || '';
@@ -1500,7 +1514,7 @@ function keepBodyScroll(el, fn) {
         document.querySelectorAll('dialog#pfDlg').forEach(d => { try { d.close(); } catch (e) {} d.remove(); });
         const dlg = document.createElement('dialog');
         dlg.id = 'pfDlg';
-        dlg.className = 'ui-dlg';
+        dlg.className = 'ui-dlg' + (o.size === 'workflow' ? ' ui-dlg-workflow' : '');
         /* 开窗前记下触发它的那个节点：关掉之后还给它的焦点（见下面 done）。
            必须在这里记 —— 关窗那一刻 activeElement 已经是弹窗里的按钮了。 */
         const pfOpener = document.activeElement;
@@ -1525,7 +1539,7 @@ function keepBodyScroll(el, fn) {
                 ? `<span class="av">${icon('mic', 16)}<i>音频</i></span>`
                 : `<img src="${esc(p.src)}" alt="">`)
             + `<button type="button" class="pf-picrm" data-picrm="${i}" title="摘掉这份">${icon('close', 10)}</button></span>`
-          : '')).join('') || '<span class="none">还没有素材：挑图 / 粘贴 / 拖进这里</span>');
+          : '')).join('') || '<span class="none">还没有素材</span>');
         /* 剪贴板里的图 → dataURL：粘贴走这一份。公共层不压缩、不认资产库，
            原样读字节 —— 与挑图那一路「取消 = 不动」同一立场，读不出来就当没贴。 */
         const pfBlobURL = file => new Promise(res => {
@@ -1562,9 +1576,9 @@ function keepBodyScroll(el, fn) {
                 + `<button type="button" class="ghost mini" data-picpick="${id}">${esc(f.pickLabel || '挑图')}</button></div>`;
             }
             else ctl = `<input id="${id}" type="${f.type || 'text'}" value="${esc(f.value == null ? '' : String(f.value))}" placeholder="${esc(f.placeholder || '')}">`;
-            return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"${f.required ? ' data-required="1"' : ''}><label>${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
+            return `<div class="pf-field"${f.hidden ? ' hidden' : ''} data-key="${esc(f.key)}"${f.required ? ' data-required="1"' : ''}><label for="${id}">${esc(f.label || '')}</label>${ctl}${f.hint != null ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
           }).join('')}</div>
-          <div class="pf-foot"><span class="hint" id="pfMsg"></span><span class="sp"></span>
+          <div class="pf-foot"><span class="sp"></span>
             <button type="button" class="ghost" id="pfCancel">取消</button><button type="button" class="pri" id="pfOk">${esc(o.okLabel || '确定')}</button></div>`;
         document.body.appendChild(dlg);
         dlg.showModal();
@@ -1625,8 +1639,7 @@ function keepBodyScroll(el, fn) {
           const f = picOf[btn.dataset.picpick];
           if (!f || typeof f.pick !== 'function') { btn.hidden = true; return; }
           btn.onclick = async () => {
-            const msg = dlg.querySelector('#pfMsg');
-            try { await f.pick(api); } catch (e) { if (msg) msg.textContent = '选图失败：' + errText(e); }
+            try { await f.pick(api); } catch (e) { Toast.err('选图失败：' + errText(e)); }
           };
         });
         /* 多图栏缩略上的 ×：从数组里摘掉那一张再 set 回去 —— 隐藏值与缩略行一起就地更新。
@@ -1657,13 +1670,6 @@ function keepBodyScroll(el, fn) {
           arr.splice(+b.dataset.picrm, 1);
           api.set(row.dataset.key, arr);
         });
-        /* 直接把素材交给多图栏的两条路：Ctrl+V 粘贴 / 把文件拖进弹窗。
-           落点都是第一格 pics 栏（缩略就地出现）；焦点若在某格 textarea，光标处再插一个
-           「［图N］／［视频N］／［音频N］」文字占位 —— 这份素材在正文里的位置由此看得见，
-           N 就是消息末尾【随附素材】清单里的那个编号（各按自己的种类数，与 mediaLegend 同一把尺子）。
-           字节过字段的 `onFile`（调用方给压缩 / 转存，可回对象带上 kind）；没给就原样 dataURL。
-           收哪些种类由字段的 `kinds` 说（缺省只收图片）；不在名单里的文件完全不接
-           （preventDefault 也不做，文字照常贴）。 */
         const pfKindOfFile = f => /^video\//.test(f && f.type) || /\.(mp4|mov|webm|m4v)$/i.test((f && f.name) || '') ? 'video'
           : /^audio\//.test(f && f.type) || /\.(mp3|wav|m4a|ogg|oga|flac|aac)$/i.test((f && f.name) || '') ? 'audio' : 'image';
         const PF_KIND_ZH = { image: '图片', video: '视频', audio: '音频' };
@@ -1685,17 +1691,11 @@ function keepBodyScroll(el, fn) {
           }
           return out;
         };
-        const addPicsFiles = async (key, files, atTa) => {
+        const addPicsFiles = async (key, files) => {
           const pf = picOf[parts[key].ctl.id] || {};
           const toSrc = typeof pf.onFile === 'function' ? pf.onFile : pfBlobURL;
-          const msg = dlg.querySelector('#pfMsg');
           const arr = pfPicsVal(parts[key].ctl.value);
-          const baseN = arr.length;
-          /* 每个种类各数各的：占位编号与消息末尾【随附素材】的图N / 视频N / 音频N 一致。 */
-          const cnt = { image: 0, video: 0, audio: 0 };
-          arr.forEach(p => { cnt[pfKindOf(p)]++; });
-          const added = [];
-          let fail = 0;
+          let added = 0, fail = 0;
           for (const f of files) {
             try {
               const r = await toSrc(f);
@@ -1703,29 +1703,13 @@ function keepBodyScroll(el, fn) {
               const it = typeof r === 'string'
                 ? { kind: pfKindOfFile(f), label: '粘贴的' + (PF_KIND_ZH[pfKindOfFile(f)] || '素材'), src: r }
                 : r;
-              arr.push(it); added.push(it);
+              arr.push(it); added++;
             } catch (e) { fail++; }
           }
-          if (fail && msg) msg.textContent = fail + ' 份素材读不出来，没带上';
-          if (!added.length) return;
+          if (fail) Toast.warn(fail + ' 份素材读不出来，没带上');
+          if (!added) return;
           api.set(key, arr);
-          const ta = atTa && dlg.contains(atTa) ? atTa : null;
-          const n = added.length;
-          if (ta) {
-            const tokens = added.map(it => {
-              const k = pfKindOf(it);
-              cnt[k]++;
-              return '［' + (k === 'image' ? '图' : k === 'audio' ? '音频' : '视频') + cnt[k] + '］';
-            }).join('');
-            const st = ta.selectionStart == null ? ta.value.length : ta.selectionStart;
-            const en = ta.selectionEnd == null ? st : ta.selectionEnd;
-            ta.value = ta.value.slice(0, st) + tokens + ta.value.slice(en);
-            const np = st + tokens.length;
-            ta.setSelectionRange(np, np);
-            if (msg && !fail) msg.textContent = '已贴入 ' + n + ' 份素材，占位已插进光标处';
-          } else if (msg && !fail) {
-            msg.textContent = '已贴入 ' + n + ' 份素材';
-          }
+          if (!fail) Toast.status('已贴入 ' + added + ' 份素材', 'ok');
         };
         const firstPicsKey = () => Object.keys(parts).find(k => {
           const c = parts[k].ctl, pf = c && picOf[c.id];
@@ -1738,10 +1722,8 @@ function keepBodyScroll(el, fn) {
           const files = picsFilesOf(e.clipboardData, pf);
           if (!files.length) return;
           e.preventDefault();
-          const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
-          addPicsFiles(key, files, ta).catch(err => {
-            const msg = dlg.querySelector('#pfMsg');
-            if (msg) msg.textContent = '贴入失败：' + errText(err);
+          addPicsFiles(key, files).catch(err => {
+            Toast.err('贴入失败：' + errText(err));
           });
         });
         /* 拖图进弹窗与粘贴同一副落点：dragover 必须拦默认（否则 drop 不触发），
@@ -1772,10 +1754,8 @@ function keepBodyScroll(el, fn) {
           const files = picsFilesOf(e.dataTransfer, pf);
           if (!files.length) return;
           e.preventDefault();
-          const ta = e.target && e.target.closest ? e.target.closest('textarea') : null;
-          addPicsFiles(key, files, ta).catch(err => {
-            const msg = dlg.querySelector('#pfMsg');
-            if (msg) msg.textContent = '拖入失败：' + errText(err);
+          addPicsFiles(key, files).catch(err => {
+            Toast.err('拖入失败：' + errText(err));
           });
         });
         dlg.addEventListener('dragend', () => { const box = hotBox(); if (box) box.classList.remove('hot'); });
@@ -1815,10 +1795,10 @@ function keepBodyScroll(el, fn) {
               miss.push((lab && lab.textContent) || k);
             }
           });
-          if (miss.length) { dlg.querySelector('#pfMsg').textContent = '先把「' + miss.join('」「') + '」填上'; return; }
+          if (miss.length) { Toast.warn('先把「' + miss.join('」「') + '」填上'); return; }
           if (o.validate) {
             const err = o.validate(out);
-            if (err) { dlg.querySelector('#pfMsg').textContent = err; return; }
+            if (err) { Toast.err(err); return; }
           }
           done(out);
         };

@@ -129,6 +129,7 @@ function resolvedModel(sh) {
   if (!sh) return groups[0] ? { ...groups[0].models[0], provider: groups[0].id, keyId: groups[0].keyId, options: groups[0].models[0].options || groups[0].options } : null;
   if (cfg(sh).model && cfg(sh).model !== 'auto') {
     for (const g of groups) { const m = g.models.find(m => m.id === cfg(sh).model); if (m) return { ...m, provider: g.id, keyId: g.keyId, options: m.options || g.options }; }
+    return null;
   }
   const g0 = groups[0]; if (!g0) return null;
   const m0 = g0.models[0];
@@ -510,6 +511,20 @@ function videoPlanOf(sh, c) {
     units: { count: '条' },
   });
 }
+function plannedTake(sh, c, choice = {}) {
+  const take = structuredClone(c);
+  if (choice.model) { take.model = choice.model; take.modelAuto = ''; }
+  if (choice.model || Object.hasOwn(choice, 'combo')) take.combo = choice.combo || '';
+  if (!resolvedModel(take)) return take;
+  const plan = videoPlanOf(sh, take);
+  const fields = { tier: 'tier', resolution: 'res', aspect_ratio: 'ar', size: 'size', duration: 'dur' };
+  for (const [kind, key] of Object.entries(fields)) {
+    const spec = plan.kinds[kind];
+    if (!spec || !spec.list.length) delete take[key];
+    else take[key] = kind === 'duration' ? Number(spec.value) : spec.value;
+  }
+  return take;
+}
 /* 折叠行那一句摘要 = AdvParams 四档的摘要 + 三排里**真进提交体**的那几项（同一个 `AdvExtras.read` 的产物）。
    两句必须同源：以前摘要只写四档，于是勾了「平台自动润色」之后折叠行一个字不提，
    而提交体里带着它 —— 用户只能猜自己勾的东西到底发没发。
@@ -691,7 +706,11 @@ function shotBlockReason(sh, ic, promptText, c) {
   /* 长度闸在这一句之后：空提示词是初始态（标题栏那句就够），写过字才按这一家的区间判 */
   const limWhy = promptLimitWhy(cc, text);
   if (limWhy) return limWhy;
-  /* 接续型号接不了首帧：比「素材说不通」更靠前，因为这一条是明确的手选冲突。 */
+  const configWhy = shotConfigReason(sh, cc, ic);
+  if (configWhy) return configWhy;
+  return chainWaitWhy(sh, cc) || '';
+}
+function shotConfigReason(sh, cc, ic) {
   const chainModel = chainModelWhy(sh, cc);
   if (chainModel) return chainModel;
   const caps = ic || shotInputCaps(cc);
@@ -706,10 +725,6 @@ function shotBlockReason(sh, ic, promptText, c) {
      不拦的话按钮是亮的、点下去才在提交时报错，而那句报错来自上游，看着像「平台坏了」。 */
   const bad = shotAdvExtras(cc).bad;
   if (bad.length) return bad.join('、');
-  /* 接续的最后一道闸：上一镜还没出画面时这一镜不是「不能生成」，只是「还没轮到」。
-     genAll 靠这句话单独归类成等待，不把它算成永久不可生成。 */
-  const chainWhy = chainWaitWhy(sh, cc);
-  if (chainWhy) return chainWhy;
   return '';
 }
 /* 底部那行「为什么还不能生成」跟三个工作台同一套规矩（见 workbench.js 的 Wb.ready）：
@@ -748,26 +763,7 @@ function canAddSlot(sh, slotKey) {
   }
   return true;
 }
-/* 互斥说明就地反馈：闪一下编辑器里那行红色说明（编辑器没渲染这一镜时才退回横幅） */
-let conflictFlashTimer = null;
-function flashConflict(msg) {
-  const el = document.getElementById('conflictHint');
-  if (!el) {
-    if (msg) setStatus('<span class="err">' + msg + '</span>');
-    return;
-  }
-  if (msg) el.textContent = msg;
-  el.classList.remove('flash');
-  void el.offsetWidth;                 // 重排一次，让动画能重复触发
-  el.classList.add('flash');
-  el.scrollIntoView({ block: 'nearest' });
-  clearTimeout(conflictFlashTimer);
-  conflictFlashTimer = setTimeout(() => {
-    el.classList.remove('flash');
-    const sh = curShot();
-    if (sh && el.isConnected) el.textContent = conflictNote(shotInputCaps(sh));
-  }, 2400);
-}
+function flashConflict(msg) { if (msg) Toast.warn(msg); }
 
 function modelOptionsFor(sh) {
   // 必须选具体模型（不再提供「自动」），未选时默认第一个可用模型
@@ -1568,8 +1564,6 @@ function renderEditor() {
         <!-- 与三个工作台同一颗按钮：名字、外观与忙时那一句话都取自公共层 InlinePolish.btnHTML，
              这里只说清「改的是这一镜的提示词」。 -->
         ${InlinePolish.btnHTML({ id: 'polishBtn', scope: '这一镜的提示词' })}
-        <!-- 建模台入口：把这一镜的提示词带过去生成白膜，回来再挂成参考图 / 参考视频 -->
-        <button class="ghost" type="button" id="toModelBtn" title="把这一镜的提示词带到建模台，生成白膜参考素材">${icon('model', 13)} 建模</button>
       </div>
       <div id="polishInline" hidden></div>
       ${/* 「输入模式」：平台把「一次请求能同时用哪些素材」写在能力声明里（Capabilities.combos），
@@ -1652,7 +1646,6 @@ function renderEditor() {
         }).join('') : ''}
         ${ic.ref && cfg(sh).refImages.length < ic.maxRef ? `<div class="asset-slot${bRef ? (cfg(sh).refImages.length ? ' conflict' : ' blocked') : ''}" data-slot="ref"${bRef ? ' title="与已选素材互斥，不能同时使用"' : ''}><span class="ic">${icon('image', 16)}</span>参考图<span class="sub">已有 ${cfg(sh).refImages.length} / ${ic.maxRef} 张${ic.slotNote('reference_image') ? ' · ' + esc(ic.slotNote('reference_image')) : ''}</span></div>` : ''}
       </div>
-      ${cNote ? `<div class="hint conflict-hint" id="conflictHint">${cNote}</div>` : ''}
       ${/* 「没有素材槽」有两种原因，得说清是哪一个：这个型号压根不收参考素材，
            还是这一镜选的这一档本来就不用素材（选了「视频换人」以外不带素材的那一档）。
            把后者说成「模型不支持」是替型号编了一句它没说过的话。 */
@@ -1875,17 +1868,6 @@ function renderEditor() {
   };
   if (durNumEl) durNumEl.onchange = () => { durNumEl.value = cfg(sh).dur; renderMid(); };
   $('polishBtn').onclick = polishPrompt;
-  /* 带这一镜的提示词去建模台（写一枚一次性口袋 + 跳页；回来的路是引擎启动时消费同一枚口袋） */
-  if ($('toModelBtn')) $('toModelBtn').onclick = () => {
-    const sh = curShot();
-    if (!window.Model3D) { setStatus('<span class="err">建模台入口没装上：刷新页面再试</span>'); return; }
-    const images = ((sh && cfg(sh).refImages) || []).map((url, i) => ({
-      label: (cfg(sh).refMeta && cfg(sh).refMeta[i] && cfg(sh).refMeta[i].label) || ('参考图 ' + (i + 1)),
-      url,
-    }));
-    window.Model3D.handoffTo('model', { prompt: (sh && cfg(sh).prompt) || '', from: 'director', shot: sh ? sh.id : '', images });
-    window.GoPage.go('model.html');
-  };
   /* 那颗「按描述生成这一镜的画面」是开关：点开这一排选项，选完由「开始规划」发请求。
      跑着的时候它整颗是禁的（busyOn 画进 disabled），所以这里不必再判一次 kfRun。 */
   $('kfGenBtn').onclick = () => { setKfSplitOpen(!kfSplitOpenOf()); renderEditor(); };
@@ -2123,6 +2105,8 @@ function installCapRepaint() {
     ROLE_ZH,
     comboLabel,
     shotUsedRoles,
+    shotRoleCounts,
+    plannedTake,
     shotCombo,
     shotInputCaps,
     shotAdvCtx,
@@ -2132,6 +2116,7 @@ function installCapRepaint() {
     shotInputEntries,
     NO_PROMPT_WHY,
     shotBlockReason,
+    shotConfigReason,
     syncGenGate,
     canAddSlot,
     provOf,

@@ -246,41 +246,6 @@ run('tests/local-byte-reclaim.cjs', process.execPath, ['tests/local-byte-reclaim
 run('tests/read-cache.cjs', process.execPath, ['tests/read-cache.cjs']);
 run('tests/core.mjs', process.execPath, ['tests/core.mjs']);
 run('tests/ui-catalog.cjs', process.execPath, ['tests/ui-catalog.cjs']);
-/* 建模台：模型文件归一化兜底 / 流式节点抓取与坏节点计数 / 小人 20 姿势落地与步态 /
-   群众阵列与合批 / 图元与引用展开 / 3D 文件导入与归一 / 动画采样 /
-   关节写回（路径与短名两套键、限位夹取、子关节叠加）/ 导入件 clip 播放（只按绝对时间、蒙皮克隆互不串骨）/
-   白膜库服务端路由（隔离库根，不碰用户目录）/
-   v3 磁盘格式（Schema 枚举与 schema.js 同源、合法文档全过、坏形状被拒、v1/v2 迁移器真跑一遍）。 */
-run('tests/model3d-schema.mjs', process.execPath, ['tests/model3d-schema.mjs']);
-run('tests/model3d-format.mjs', process.execPath, ['tests/model3d-format.mjs']);
-run('tests/model3d-sparse.mjs', process.execPath, ['tests/model3d-sparse.mjs']);
-run('tests/model3d-entities.mjs', process.execPath, ['tests/model3d-entities.mjs']);
-run('tests/model3d-dsl.mjs', process.execPath, ['tests/model3d-dsl.mjs']);
-run('tests/model3d-mannequin.mjs', process.execPath, ['tests/model3d-mannequin.mjs']);
-run('tests/model3d-crowd.mjs', process.execPath, ['tests/model3d-crowd.mjs']);
-run('tests/model3d-scene.mjs', process.execPath, ['tests/model3d-scene.mjs']);
-run('tests/model3d-loader.mjs', process.execPath, ['tests/model3d-loader.mjs']);
-run('tests/model3d-anim.mjs', process.execPath, ['tests/model3d-anim.mjs']);
-run('tests/model3d-rig.mjs', process.execPath, ['tests/model3d-rig.mjs']);
-/* 时间轴坞的关键帧编辑：改时间只经一份（夹非负 / 两位小数 / 排序 / 撞时刻只留正在挪的那帧 /
-   身份不变），逐帧颜色只认 #rgb 与 #rrggbb、写错当没写。 */
-run('tests/model3d-dock.mjs', process.execPath, ['tests/model3d-dock.mjs']);
-run('tests/model3d-clip.mjs', process.execPath, ['tests/model3d-clip.mjs']);
-/* 几何体检：悬空落地 / 身高夹取 / 出画幅缩放 / 单件离谱只提醒 / 入参不改 / 第二遍不再动；
-   包围盒与 three 现造的渲染结果逐项对账（小人按零件树、群众按 at 叠两次）。 */
-run('tests/model3d-lint.mjs', process.execPath, ['tests/model3d-lint.mjs']);
-/* 丢件明细回灌：坏节点 / 机位 / 轨道 / 出片记录各留 id 与原因，整理成「上一轮的问题」
-   存进结果、下一轮原样进系统提示词（没问题时整段消失）；两份契约同源走快档。 */
-run('tests/model3d-problems.mjs', process.execPath, ['tests/model3d-problems.mjs']);
-/* 自查构图工具回路：场景 / 选中子树包围盒、视口缩略图（图进下一轮）、轮次收尾、坏工具不接。 */
-run('tests/model3d-tools.mjs', process.execPath, ['tests/model3d-tools.mjs']);
-/* 灯光实体化：默认灯装置与旧画面逐参数一致、归一化 / 灯轨道采样 / 稀疏写盘 /
-   light op（含装置级与 scope 拒绝）/ AI 场景级 ops / 渲染侧灯与标识 / 契约同源。 */
-run('tests/model3d-lights.mjs', process.execPath, ['tests/model3d-lights.mjs']);
-/* loft 两条增强：subdiv（Catmull-Rom 环间细分，默认仍是旧的 4 段平滑）与 path + profile 扫掠。 */
-run('tests/model3d-loft.mjs', process.execPath, ['tests/model3d-loft.mjs']);
-/* 涂鸦标注：颜色语义 / 蓝线 → camPath / 提示词里的涂鸦段 / 契约同源。 */
-run('tests/model3d-sketch.mjs', process.execPath, ['tests/model3d-sketch.mjs']);
 /* 文字 AI 的多模态：图片 / 声音 / 视频三类能力判定（设置 > 接口 > 声明）、
    content part 形状、编号说明、润色提示与 prepareMedia 的逐条放行 / 拒绝。 */
 run('tests/text-ai-media.mjs', process.execPath, ['tests/text-ai-media.mjs']);
@@ -288,11 +253,8 @@ run('tests/text-ai-media.mjs', process.execPath, ['tests/text-ai-media.mjs']);
 run('tests/model-prefs.mjs', process.execPath, ['tests/model-prefs.mjs']);
 /* 提示词 @素材的纯件（工作台与导演台共用）：@ 判定、插入位置、素材 token、同一条的图册。 */
 run('tests/asset-mention.mjs', process.execPath, ['tests/asset-mention.mjs']);
-/* 助手进建模台：TOOLS / ACTS / 路由 / 策略表、check/run 只转发桥、分档裁剪与兜底反馈接线。 */
-run('tests/chat-model-actions.mjs', process.execPath, ['tests/chat-model-actions.mjs']);
-/* Skill 正文副本构建期生成：14 份 DEF == skills/<id>/SKILL.md；9 份导演台共用 {glossary}。 */
+/* Skill 正文副本构建期生成：12 份 DEF == skills/<id>/SKILL.md；9 份导演台共用 {glossary}。 */
 run('tests/skill-sync.cjs', process.execPath, ['tests/skill-sync.cjs']);
-run('tests/model3d-vault.cjs', process.execPath, ['tests/model3d-vault.cjs']);
 run('tests/editor-media.mjs', process.execPath, ['tests/editor-media.mjs']);
 run('tests/local-edit.cjs', process.execPath, ['tests/local-edit.cjs']);
 run('tests/fcpxml-client.mjs', process.execPath, ['tests/fcpxml-client.mjs']);
@@ -409,12 +371,6 @@ if (process.argv.includes('--e2e') || process.env.ALL_E2E === '1' || process.arg
   run('tests/e2e/smoke.cjs', process.execPath, ['tests/e2e/smoke.cjs'], { tier: 'browser' });
   run('tests/e2e/ui-visual.cjs', process.execPath, ['tests/e2e/ui-visual.cjs'], { tier: 'browser' });
   run('tests/e2e/proxy.cjs', process.execPath, ['tests/e2e/proxy.cjs'], { tier: 'browser' });
-  /* 建模台时间轴坞的关键帧编辑：选帧出表单 / 写缩放·显隐·缓入 / 清字段 ≠ 删帧、清空即删帧 /
-     拖菱形改时间 / 输入框改时间 / 删帧后帧数读数跟着变。 */
-  run('tests/e2e/model-dock.cjs', process.execPath, ['tests/e2e/model-dock.cjs'], { tier: 'browser' });
-  /* 建模台出图的像素基线：不带 lights / light 段的存量白膜按内置主光 + 补光出图，与基线逐像素比；
-     另打一条灯轨道证明逐帧灯光真的进画面。真 WebGL（WARP）出图跨进程逐字节一致，所以阈值比整页截图紧。 */
-  run('tests/e2e/model-render.cjs', process.execPath, ['tests/e2e/model-render.cjs'], { tier: 'browser' });
   /* RefView 灯箱：fitCanvas 时序（P0-1 回归闸：打开即画布按图片真实尺寸）/ Esc 丢弃确认 / 完成 PNG。 */
   run('tests/e2e/ref-view.cjs', process.execPath, ['tests/e2e/ref-view.cjs'], { tier: 'browser' });
 /* 静态预压缩的线上那一半（同一份判据文件，`--live` 才起隔离实例）：响应头与三档体积真的到了线上。 */

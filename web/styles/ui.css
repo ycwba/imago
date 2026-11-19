@@ -1022,7 +1022,7 @@ button.armed { min-width: 4.6em; }
 #apDlg .ap-foot .sp { flex: 1; }
 
 /* ---------- AI 润色预览确认弹窗（先看结果，再决定是否采用） ---------- */
-#prDlg { width: min(900px, 94vw); position: fixed; inset: 0; margin: auto;
+#prDlg:not(.ui-dlg-workflow) { width: min(900px, 94vw); position: fixed; inset: 0; margin: auto;
   height: fit-content; max-height: 88vh; display: none; flex-direction: column; }
 /* ---------- 通用弹窗外壳（UiDialog / AI 润色 / 确认 / 通用表单共用） ----------
    四张弹窗都挂 ui-dlg 类（id 只留给 JS 钩子），头/体/脚的皮肤只有这一份。
@@ -1083,15 +1083,60 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
   word-break: break-word; font-size: var(--fs-12); line-height: 1.6; color: var(--sub); }
 /* 范围选择弹窗：芯片只切镜头列表的显示，勾选集合跨芯片保留；
    镜头行管名下全部目标（不定态 = 勾了一部分），目标行各自可勾。 */
-.pl-scope .pl-scope-chips { display: flex; gap: var(--sp-4); }
-.pl-scope-list { margin-top: var(--sp-8); max-height: 52vh; overflow-y: auto;
-  display: flex; flex-direction: column; gap: var(--sp-4); }
-.pl-shot { border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); }
-.pl-shot-head { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); cursor: pointer; }
+dialog.ui-dlg.ui-dlg-workflow { width: min(calc(var(--sz-card) * 3), 94vw); height: min(calc(var(--sz-ctl) * 22), 88dvh);
+  max-width: 94vw; max-height: 88dvh; box-sizing: border-box; position: fixed; inset: 0; margin: auto; overflow: hidden; }
+dialog.ui-dlg-workflow > :is(.pr-head, .pf-head, .pr-foot, .pf-foot, .pr-sum) { flex-shrink: 0; }
+dialog.ui-dlg-workflow > :is(.pr-body, .pf-body) { min-height: 0; min-width: 0; scrollbar-gutter: stable; overscroll-behavior: contain; }
+dialog.ui-dlg-workflow > :is(.pr-foot, .pf-foot) { flex-wrap: wrap; }
+dialog.ui-dlg-workflow > .pr-follow { flex-shrink: 0; max-height: 30%; overflow-y: auto; scrollbar-gutter: stable; }
+dialog.ui-dlg:has(.pl-scope) .pr-foot { justify-content: flex-end; }
+.pl-scope .pl-scope-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
+.pl-scope-chips .ui-seg { height: auto; min-height: var(--sz-ctl); flex-wrap: wrap; }
+.pl-scope-chips .ui-seg > button { min-height: var(--sz-ctl-sm); }
+.pl-scope-list { margin-top: var(--sp-12); max-height: 44vh; overflow-y: auto;
+  display: flex; flex-direction: column; gap: var(--sp-8); scrollbar-gutter: stable; }
+.pl-shot { border: var(--hair) solid var(--line); border-radius: var(--radius-10); overflow: hidden; flex-shrink: 0; }
+.pl-shot:has(input:checked) { border-color: var(--acc-line-32); }
+.pl-shot-head { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-8); font-size: var(--fs-13);
+  padding: var(--sp-12); background: var(--panel2); cursor: pointer; }
 .pl-shot-head b { color: var(--txt); font-weight: 600; }
-.pl-shot-head .meta { color: var(--sub); font-size: var(--fs-11); }
-.pl-takes { display: flex; flex-direction: column; gap: var(--sp-4); padding: var(--sp-4) 0 0 var(--sp-16); }
-.pl-take { display: flex; align-items: center; gap: var(--sp-8); font-size: var(--fs-12); color: var(--sub); cursor: pointer; }
+.pl-shot-head .meta { color: var(--sub); font-size: var(--fs-12); flex: 1; min-width: var(--sz-card-sm); }
+.pl-takes { display: flex; flex-direction: column; padding: var(--sp-4) var(--sp-12); }
+.pl-take { display: flex; flex-direction: column; align-items: stretch; gap: var(--sp-8); font-size: var(--fs-13); color: var(--sub);
+  padding: var(--sp-12) 0; min-height: var(--sz-ctl); }
+.pl-take + .pl-take { border-top: var(--hair) solid var(--line); }
+.pl-take-check { display: flex; align-items: center; gap: var(--sp-8); cursor: pointer; }
+.pl-take .meta { font-size: var(--fs-12); overflow-wrap: anywhere; }
+.pl-prompt { min-width: 0; color: var(--txt); }
+.pl-prompt summary { display: flex; align-items: center; gap: var(--sp-8); min-height: var(--sz-ctl-sm); cursor: pointer;
+  border-radius: var(--radius-6); padding: var(--sp-4) var(--sp-8); background: var(--panel2); }
+.pl-prompt summary:hover { background: var(--acc-tint-10); }
+.pl-prompt summary:active { background: var(--sel-bg); }
+.pl-prompt-preview { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pl-prompt-expand, .pl-prompt-collapse { flex-shrink: 0; color: var(--acc); font-size: var(--fs-12); }
+.pl-prompt-collapse, .pl-prompt[open] .pl-prompt-expand { display: none; }
+.pl-prompt[open] .pl-prompt-collapse { display: inline; }
+.pl-prompt-body { height: calc(var(--sz-ctl) * 5); overflow-y: auto; overscroll-behavior: contain; white-space: pre-wrap;
+  overflow-wrap: anywhere; padding: var(--sp-8); margin-top: var(--sp-4); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-6); background: var(--input); scrollbar-gutter: stable; }
+.pl-prompt-empty { color: var(--sub); font-size: var(--fs-12); }
+.pl-take[data-blocked] .meta { color: var(--warn); }
+.pl-take:has(input:disabled), .pl-shot-head:has(input:disabled) { cursor: default; }
+.pl-take:hover:has(input:not(:disabled)), .pl-shot-head:hover:has(input:not(:disabled)) { background: var(--acc-tint-10); }
+.pl-take:active:has(input:not(:disabled)), .pl-shot-head:active:has(input:not(:disabled)) { background: var(--sel-bg); }
+.pl-scope input[type="checkbox"] { flex-shrink: 0; accent-color: var(--acc); }
+.batch-settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--sz-card-sm)), 1fr));
+  gap: var(--sp-12); margin-bottom: var(--sp-16); }
+.batch-settings .pf-field { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
+.batch-settings .pf-field[hidden] { display: none; }
+.batch-settings label { color: var(--sub); font-size: var(--fs-12); }
+.batch-settings .dd { width: 100%; }
+.pl-shot-settings { padding: var(--sp-12); margin-bottom: 0; border-bottom: var(--hair) solid var(--line); }
+.batch-summary { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
+  gap: var(--sp-12); margin-top: var(--sp-16); font-size: var(--fs-13); }
+.batch-price { display: flex; flex-direction: column; align-items: flex-end; gap: var(--sp-4); }
+.batch-price b { color: var(--acc); }
+.batch-price[aria-busy="true"] { color: var(--sub); }
 /* ---------- 「按这句再改」那一行（openList 的 onFollow；分组 / 平铺两种审阅共用） ----------
    润色结果面板 .pinl-chat 的同款搬进弹窗：对话记录、就地流式面板、输入行。 */
 #prDlg .pr-follow { padding: var(--sp-8) var(--sp-16) 0; border-top: var(--hair) solid var(--line); }
@@ -1204,7 +1249,7 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #cfDlg .cf-opt span { display: block; font-size: var(--fs-12); color: var(--sub); margin-top: var(--sp-4); }
 
 /* ---------- 通用表单弹窗 PromptForm ---------- */
-#pfDlg { width: min(760px, 94vw); position: fixed; inset: 0; margin: auto;
+#pfDlg:not(.ui-dlg-workflow) { width: min(760px, 94vw); position: fixed; inset: 0; margin: auto;
   height: fit-content; max-height: 88vh; display: none; flex-direction: column; }
 #pfDlg[open] { display: flex; }
 #pfDlg .pf-field { margin-bottom: var(--sp-16); }
@@ -1270,8 +1315,12 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 .dp-pop .dp-foot .ghost.mini { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-8); border-radius: var(--radius-6); }
 
 /* ---------- Toast 轻提示（全站统一：右上角堆叠，几秒自动消失） ---------- */
-.toast-box { position: fixed; top: var(--sp-16); right: var(--sp-16); z-index: 200; display: flex; flex-direction: column;
+.toast-box { position: fixed; inset: var(--sp-16) var(--sp-16) auto auto; z-index: 200; display: flex; flex-direction: column;
+  margin: 0; padding: 0; border: 0; background: transparent; overflow: visible;
   gap: var(--sp-8); align-items: flex-end; pointer-events: none; max-width: min(420px, 92vw); }
+.toast-box::backdrop { background: transparent; pointer-events: none; }
+.toast-box > * { max-width: 100%; box-sizing: border-box; }
+.toast[hidden] { display: none; }
 .toast { pointer-events: auto; cursor: pointer; display: flex; align-items: flex-start; gap: var(--sp-8);
   background: var(--panel); border: var(--hair) solid var(--line); border-left-width: 3px;
   border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); font-size: var(--fs-13); line-height: 1.5; color: var(--txt);
@@ -1291,8 +1340,9 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 /* ---------- 顶部错误横幅（全站统一，由 ui.js 的 ErrBanner 写；样式原在 director.html 的 <style> 里） ----------
    平常完全隐藏（不占头部空间），只有出错 / 异常时才出现。
    页面没有写 <div id="banner"> 也能用 —— ErrBanner 第一次要显示时自己插一个。 */
-#banner { margin: var(--sp-8) var(--sp-24) 0; padding: var(--sp-8) var(--sp-16); border-radius: var(--radius-4); font-size: var(--fs-13);
-  background: var(--warn-tint); color: var(--warn); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-26), transparent); flex: 0 0 auto; }
+#banner { margin: 0; padding: var(--sp-8) var(--sp-16); border-radius: var(--radius-10); font-size: var(--fs-13);
+  background: var(--warn-tint); color: var(--warn); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-26), transparent);
+  box-shadow: var(--shadow-2); pointer-events: auto; max-height: calc(100dvh - var(--sp-32)); overflow-y: auto; flex: 0 0 auto; }
 #banner[hidden] { display: none; }
 #banner { display: flex; align-items: flex-start; gap: var(--sp-8); }
 #banner .msg { flex: 1; overflow-wrap: anywhere; }
@@ -1309,7 +1359,6 @@ dialog.ui-dlg .dlg-hint { margin-top: var(--sp-8); font-size: var(--fs-11); colo
 #banner .bx:hover { opacity: 1; background: color-mix(in srgb, var(--pal-gray) var(--a-14), transparent); }
 #banner.warn { background: var(--warn-tint); color: var(--warn); border-color: color-mix(in srgb, var(--warn) var(--a-26), transparent); }
 #banner.err { background: var(--err-tint); color: var(--err); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
-@media (max-width: 1200px) { #banner { margin: var(--sp-8) var(--sp-16) 0; } }
 
 /* ---------- 资产库批量操作条 ---------- */
 .bulkbar { position: sticky; top: 0; z-index: 30; display: flex; align-items: center; gap: var(--sp-8);
@@ -1647,41 +1696,6 @@ button.phead-chip:hover b { color: var(--acc); }
   border-left: var(--sp-4) solid transparent; border-right: var(--sp-4) solid transparent;
   border-bottom: var(--sp-4) solid var(--acc); }
 
-/* ---------- 「3D 白膜」快速弹窗（素材选择器 / 工作台共用；样式必须在公共层：
-   这几页各自的私有样式表在别的页面上不加载，弹窗就会变成一堆没有排版的文字） ---------- */
-dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
-.mq-body { display: grid; grid-template-columns: var(--sz-mq-rail) minmax(0, 1fr); gap: var(--sp-12); }
-.mq-rail { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
-.mq-rail .search { width: 100%; }
-.mq-list { flex: 1; min-height: var(--sz-mq-list-min); max-height: var(--sz-mq-list-max); overflow: auto;
-  display: flex; flex-direction: column; gap: var(--sp-4); }
-.mq-item {
-  display: flex; align-items: center; gap: var(--sp-8);
-  padding: var(--sp-4); border: var(--hair) solid var(--line); border-radius: var(--radius-6);
-  background: var(--panel2); color: var(--txt); cursor: pointer; text-align: left; font-size: var(--fs-12);
-}
-.mq-item:hover { background: var(--acc-tint-10); }
-.mq-item.on { border-color: var(--acc); background: var(--sel-bg); }
-.mq-item img, .mq-item .ph {
-  width: var(--sz-chip); height: var(--sz-chip); border-radius: var(--radius-4);
-  background: var(--media-bg); object-fit: cover; display: block;
-}
-.mq-item .ph { display: flex; align-items: center; justify-content: center; color: var(--sub); }
-.mq-item .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.mq-stage { display: flex; flex-direction: column; gap: var(--sp-8); min-width: 0; }
-.mq-view { height: var(--sz-mq-view); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  background: var(--media-bg); overflow: hidden; }
-.mq-view .mm-canvas { width: 100%; height: 100%; display: block; }
-.mq-bar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); }
-.mq-say { min-height: var(--sz-chip); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
-.mq-say.err { color: var(--err); }
-.mq-say.ok { color: var(--ok); }
-.mq-field { display: flex; flex-direction: column; gap: var(--sp-4); }
-.mq-field > label { font-size: var(--fs-12); color: var(--sub); }
-.mq-chips { display: flex; flex-wrap: wrap; gap: var(--sp-4); }
-.mq-empty { color: var(--sub); font-size: var(--fs-12); line-height: 1.7; }
-.mq-row { display: flex; align-items: center; gap: var(--sp-8); }
-
 /* ---------- 提示词里的 @素材（工作台与导演台共用；浮层由 web/ui/asset-mention.js 画） ----------
    镜像层铺在 textarea 底下，只给 @片段 画底；字号 / 行高 / 内边距由脚本按那一只
    textarea 现算并写在行内样式上（两个页面的输入框不是同一套尺寸）。 */
@@ -1774,7 +1788,7 @@ dialog.mq.ui-dlg { width: min(var(--sz-mq-dlg), calc(100vw - var(--sp-64))); }
 .mask-echo { position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; opacity: .6; mix-blend-mode: screen; pointer-events: none; }
 
-/* 素材槽上「已画掩码」的角标（studio 槽位；建模台的 chip 用文字后缀，两种形状各自一份） */
+/* 素材槽上「已画掩码」的角标（studio 槽位；附件 chip 用文字后缀，两种形状各自一份） */
 .asset-slot .maskbadge { position: absolute; top: var(--sp-4); left: var(--sp-4); padding: 0 var(--sp-4);
   border-radius: var(--radius-999); background: var(--acc-tint-18); color: var(--acc);
   font-size: var(--fs-11); line-height: var(--sz-chip); pointer-events: none; }

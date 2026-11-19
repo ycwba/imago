@@ -302,7 +302,7 @@ function applyBoardFull(items, scenes, pics) {
   const picRes = { n: 0, shots: 0, dup: 0, why: '', unknown: 0 };
   if (typeof bindShotPics === 'function' && picJobs.length && pics) {
     picJobs.forEach(j => {
-      const x = bindShotPics(j.sh, j.idxs, pics);
+      const x = bindShotPics(defaultTakeOf(j.sh), j.idxs, pics);
       if (x.n) { picRes.n += x.n; picRes.shots++; }
       picRes.dup += x.dup || 0; picRes.unknown += x.unknown || 0;
       if (x.why && !picRes.why) picRes.why = x.why;
@@ -321,7 +321,7 @@ function applyBoardFull(items, scenes, pics) {
     skipped: r.skipped, chained: r.chained, unchained: r.unchained, chainRefused: r.chainRefused,
     pics: scenePics, at, touched,
     picN: picRes.n, picShots: picRes.shots, picDup: picRes.dup, picWhy: picRes.why, picUnknown: picRes.unknown,
-    clamped: clampShotDurations(touched) };
+    clamped: clampShotDurations(touched.map(sh => ({ ...sh, candidates: [defaultTakeOf(sh)].filter(Boolean) }))) };
 }
   return { snapBoard, boardListText, boardFullItemsOf, applyBoardFull };
 }

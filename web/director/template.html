@@ -38,11 +38,6 @@
   /* 那颗按钮与它点开的菜单共用一个定位容器；按钮要能在窄窗里被压短，容器得允许缩。 */
   .phead-proj { position: relative; min-width: 0; }
   header .saved { color: var(--ok); font-size: var(--fs-12); white-space: nowrap; }
-  /* 顶部那行操作提示：低调的小字，出现几秒后自己淡出，不打断操作 */
-  header .opstate { font-size: var(--fs-12); color: var(--sub); opacity: 0; transition: opacity var(--dur-280);
-    max-width: 42ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  header .opstate.show { opacity: 1; }
-  header .opstate.ok { color: var(--ok); }
   header .bal { font-size: var(--fs-12); color: var(--sub); }
   header .bal b { color: var(--txt); }
   /* 页头那颗比例下拉：外面是 Dropdowns 包出来的 .dd，按页头按钮的高度压扁一档，
@@ -108,7 +103,6 @@
      窄到三栏摆不下时整体堆叠成单列、页面本身滚动；再窄/再矮就收紧留白。 */
   @media (max-width: 1200px) {
     .layout { gap: var(--sp-12); padding: var(--sp-12) var(--shell-px); }
-    header .opstate { display: none; }
   }
   @media (max-width: 1100px) {
     /* 窄窗口下顶部按钮换到第二行，别把「导演台」与它右边那一格短片名挤成竖排。
@@ -1287,8 +1281,7 @@
   </div>
   <span class="phead-sub"></span>
   <div class="phead-acts">
-    <!-- 普通提示就写在这行小字里，几秒后淡出：不再每点一下都弹浮层 -->
-    <span class="opstate" id="opState"></span>
+    <span class="toast" id="opState" hidden></span>
     <!-- 导出入口只剩中栏的「导入视频 / 素材」（同一份 AssetPicker）。
          导出出口（成片 / FCPXML / 媒体包 / 工程目录）由 web/domain/export-formats.js 那张表现画现绑：
          一颗拆分按钮 —— 主钮「导出成片」，尾部 chevron 的浮层里收其余三种去向。

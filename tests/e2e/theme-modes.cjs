@@ -6,7 +6,7 @@
      ② 设置页「外观与界面」里两行都在（配色 5 档 / 日夜 3 档），点一下当场生效并落盘
      ③ 5 套配色 × 浅/深：强调色两两不同，中性色逐字节不动（换配色只换强调色那一族）
      ④ 跟随系统：偏好 system 时由系统的深色档决定 data-theme，系统档一变当场跟着变
-     ⑤ 侧栏那颗「换背景」：跟随系统时点一下 = 按**解析后**的那一档取反并钉住，不再跟系统
+     ⑤ 左下角那颗主题按钮：三档（浅色 / 深色 / 跟随系统）轮着来，点一下换一档；设置页改的那一档它跟着变
      ⑥ 坏值回落：存储里是认不出的名字时退回缺省（跟随系统 → 系统档浅色 = light）/ 海洋，data-theme 里永远不出现 system
      ⑦ 深色确实是「深色」：底与字的亮度掉转过来；换配色不动底色（深色档也一样）
      ⑧ 强调色墨压在**组件真正用的那几块底**上仍然读得出来：淡底（选中态 / 软底 / 描边）压在表面上、
@@ -261,6 +261,9 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
       await sleep(200);
     }
     must(darkOk, '在设置页点「深色」之后 8 秒内 data-theme 没变成 dark（落盘 / 解析断了一处）');
+    /* 设置页改完，左下角那颗按钮要跟着变成那一档（同一个键、同一个解析口）。 */
+    const sbLabel = await page.eval(() => ((document.querySelector('#sbTheme .lb') || {}).textContent || ''));
+    must(sbLabel === '深色', '设置页点完「深色」之后左下角那颗按钮没跟着写「深色」（实际「' + sbLabel + '」）');
     /* 回外壳：后面几组在没人抢焦点的页面里跑。 */
     await page.goto(proxy.base + '/shell.html');
     await page.waitFor(() => !!window.__themeApply, 30000);
@@ -353,7 +356,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     }
     must(live, '系统换成浅色之后「跟随系统」没有当场跟过去（data-theme 仍是 dark）');
 
-    /* ── ⑤ 侧栏那颗「换背景」：按解析后那一档取反并钉住 ──────────── */
+    /* ── ⑤ 左下角那颗主题按钮：点一下换一档 ─────────────────────── */
     await page.cdp.send('Emulation.setEmulatedMedia', {
       media: '', features: [{ name: 'prefers-color-scheme', value: 'dark' }],
     });
@@ -365,22 +368,34 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     }
     seen = await readTheme();
     must(seen.theme === 'dark', '回到系统深色之后「跟随系统」没跟上（' + JSON.stringify(seen) + '）');
-    /* 点的是侧栏那颗按钮：等它挂上（外壳回来时可能刚换过文档，脚本还在排队）。 */
+    /* 那颗按钮：等它挂上（外壳回来时可能刚换过文档，脚本还在排队）。 */
     await page.waitFor(() => !!document.querySelector('#sbTheme'), 30000, 100);
+    const readBtn = () => page.eval(() => {
+      const b = document.querySelector('#sbTheme');
+      return {
+        stored: localStorage.getItem('dir_theme'),
+        applied: document.documentElement.dataset.theme,
+        label: ((b.querySelector('.lb') || {}).textContent || '').trim(),
+        icon: ((b.querySelector('.ic') || {}).innerHTML || '').trim(),
+      };
+    });
+    /* 偏好落在「跟随系统」时，按钮上写的就是那一档的名字。 */
+    await page.eval(() => { window.LS.set('dir_theme', 'system'); window.__themeApply(); });
+    let btn = await readBtn();
+    must(btn.stored === 'system' && btn.label === '跟随系统', '偏好是「跟随系统」时按钮上该写「跟随系统」：' + JSON.stringify(btn));
+    const iconSystem = btn.icon;
+    /* 点一下 → 下一档（浅色）；再点 → 深色；再点 → 回到跟随系统。 */
     await page.eval(() => { const b = document.querySelector('#sbTheme'); if (b) b.click(); });
-    const pinned = await page.eval(() => ({
-      stored: localStorage.getItem('dir_theme'),
-      applied: document.documentElement.dataset.theme,
-    }));
-    must(pinned.stored === 'light', '跟随系统时点「换背景」该把它钉成 light（系统是深色，取反就是浅色），实际存的是「' + pinned.stored + '」');
-    must(pinned.applied === 'light', '钉成 light 之后 data-theme 仍是「' + pinned.applied + '」');
-    /* 系统仍是深色，但偏好已经钉住 —— 再点一次必须回 dark（说明它不再跟着系统，而是按当前档取反）。 */
+    btn = await readBtn();
+    must(btn.stored === 'light' && btn.applied === 'light' && btn.label === '浅色', '点一下该从「跟随系统」换到「浅色」：' + JSON.stringify(btn));
+    const iconLight = btn.icon;
     await page.eval(() => { const b = document.querySelector('#sbTheme'); if (b) b.click(); });
-    const pinned2 = await page.eval(() => ({
-      stored: localStorage.getItem('dir_theme'),
-      applied: document.documentElement.dataset.theme,
-    }));
-    must(pinned2.stored === 'dark' && pinned2.applied === 'dark', '再点一次「换背景」该回到 dark：' + JSON.stringify(pinned2));
+    btn = await readBtn();
+    must(btn.stored === 'dark' && btn.applied === 'dark' && btn.label === '深色', '再点一下该换到「深色」：' + JSON.stringify(btn));
+    must(btn.icon !== iconLight && btn.icon !== iconSystem, '三档的图标没跟着换：' + JSON.stringify({ iconLight, iconDark: btn.icon, iconSystem }));
+    await page.eval(() => { const b = document.querySelector('#sbTheme'); if (b) b.click(); });
+    btn = await readBtn();
+    must(btn.stored === 'system' && btn.applied === 'dark' && btn.label === '跟随系统', '第三下该回到「跟随系统」（系统此刻是深色）：' + JSON.stringify(btn));
     /* ⑥ 要在确定的系统档下判缺省回落：把系统档仿成浅色再进（不清空仿真）。 */
     await page.cdp.send('Emulation.setEmulatedMedia', {
       media: '', features: [{ name: 'prefers-color-scheme', value: 'light' }],
@@ -390,6 +405,9 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     seen = await applyTheme('neon', 'lava');
     must(seen.theme === 'light', 'dir_theme 是认不出的「neon」时该退回缺省（跟随系统 → 系统档浅色）= light，实际「' + seen.theme + '」');
     must(seen.palette === 'ocean', 'dir_palette 是认不出的「lava」时该退回 ocean，实际「' + seen.palette + '」');
+    /* 认不出的偏好名 = 缺省档（跟随系统）：那颗按钮也该写回缺省那一档。 */
+    const badLabel = await page.eval(() => ((document.querySelector('#sbTheme .lb') || {}).textContent || '').trim());
+    must(badLabel === '跟随系统', '偏好是认不出的名字时按钮该写回「跟随系统」，实际「' + badLabel + '」');
     seen = await applyTheme('system', 'violet');
     must(seen.theme === 'light' || seen.theme === 'dark', 'system 被原样写进了 data-theme（「' + seen.theme + '」）：那里只放解析后的一档');
 

@@ -40,7 +40,8 @@
     ).join('') + '</nav>'
     + '<div class="sb-bottom" id="sbBalance"></div>'
     + '<div class="sb-bottom"><a href="' + hrefOf('settings.html') + '" data-page="settings.html" class="sb-set" aria-label="' + window.esc(setPg.label) + '"><span class="ic">' + svgIc('gear') + '</span><span class="lb">' + window.esc(setPg.label) + '</span></a>'
-    + '<button type="button" class="sb-set" id="sbTheme"><span class="ic">' + svgIc('moon') + '</span><span class="lb">换背景</span></button></div>';
+    /* 左下角那颗主题按钮：三档（浅色 / 深色 / 跟随系统）轮着来，点一下换一档。 */
+    + '<button type="button" class="sb-set" id="sbTheme"><span class="ic">' + svgIc('auto') + '</span><span class="lb">跟随系统</span></button></div>';
 
   /* 点导航：不跳转整页，只让 web/app.js 切内容页（侧栏保持不动）；
      窄窗口里侧栏是浮层，选完就自动收回，否则内容一直被盖着一块。 */
@@ -116,7 +117,7 @@
     sb.querySelectorAll('a[data-page]').forEach(a => a.classList.toggle('active', a.dataset.page === file));
     if (setLink) setLink.classList.toggle('active', file === 'settings.html');
   };
-  sbTip.on(sb.querySelector('#sbTheme'), '换背景（亮 / 暗）');
+  sbTip.on(sb.querySelector('#sbTheme'), '主题（浅色 / 深色 / 跟随系统）');
   const setLink = sb.querySelector('a.sb-set[data-page="settings.html"]');
   sbTip.on(setLink, setPg.label);
   if (setLink) {
@@ -189,28 +190,40 @@
   const brand = sb.querySelector('.sb-brand');
   asButton(brand, toggle);
   if (brand) brand.title = '收起 / 展开侧边栏';
-  // 换背景（亮 / 暗主题）：全站统一放在左下角
+  /* 左下角那颗主题按钮：三档（浅色 / 深色 / 跟随系统）轮着来，点一下换一档。
+     与设置页「外观与界面 → 日间 / 夜间」同一个键（dir_theme），那边改完这边跟着走。
+     解析主题只有 web/shell-boot.js 的 __themeApply 那一处（跟随系统要在那里解成 light / dark）；
+     这里只负责把**偏好那一档**画成图标与名字，每次解析完成后由它回调。 */
   const themeBtn = sb.querySelector('#sbTheme');
-  const themeIcon = dark => svgIc(dark ? 'sun' : 'moon');
-  /* 图标只有这里知道怎么画，别处再拼一份 svg 就是第二份实现。
-     解析主题（含「跟随系统」）只有 web/shell-boot.js 的 __themeApply 那一处；
-     这里只负责把当前**解析后**的那一档画成日 / 月图标，每次解析完成后由它回调。 */
-  window.__sbThemeIcon = () => {
-    try { if (themeBtn) themeBtn.querySelector('.ic').innerHTML = themeIcon(document.documentElement.dataset.theme === 'dark'); } catch (e) {
-      /* 图标画不出来不影响切换本身，下一次解析会再试。 */
+  const THEME_MODES = ['light', 'dark', 'system'];
+  const THEME_ICON = { light: 'sun', dark: 'moon', system: 'auto' };
+  const THEME_NAME = { light: '浅色', dark: '深色', system: '跟随系统' };
+  /* 偏好没设过 / 是认不出的名字 = 跟随系统（与 shell-boot.js 的 prefMode 同一口径）。 */
+  const themeMode = () => {
+    const v = window.LS.get('dir_theme');
+    return THEME_MODES.indexOf(v) < 0 ? 'system' : v;
+  };
+  window.__sbThemePaint = () => {
+    if (!themeBtn) return;
+    const m = themeMode();
+    try {
+      themeBtn.querySelector('.ic').innerHTML = svgIc(THEME_ICON[m]);
+      themeBtn.querySelector('.lb').textContent = THEME_NAME[m];
+      themeBtn.setAttribute('aria-label', '主题：' + THEME_NAME[m]);
+    } catch (e) {
+      /* 画不出来不影响切换本身，下一次解析会再试。 */
     }
   };
   if (themeBtn) themeBtn.onclick = () => {
-    /* 「跟随系统」时按**解析后**的那一档取反，并把它钉成明确的一档 ——
-       点一下就是「我要另一档」，不再继续跟系统。 */
-    const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+    /* 点一下换一档：浅色 → 深色 → 跟随系统 → 浅色。 */
+    const next = THEME_MODES[(THEME_MODES.indexOf(themeMode()) + 1) % THEME_MODES.length];
     window.LS.set('dir_theme', next);
-    window.__themeApply();
+    window.__themeApply();     /* 解析与重画只有这一处 */
   };
   /* 设置页改完「侧栏默认展开」要当场重排一次，不能等下次进页面：
      栏宽、收起态、悬浮球避让全在 apply() 里算，所以把这个钩子递出去（和 __themeApply 同一类）。 */
   window.__sbApplyOpen = apply;
-  if (themeBtn) window.__sbThemeIcon();
+  window.__sbThemePaint();
   window.addEventListener('resize', apply);
   apply();
   /* 窄窗口里展开 = 浮层盖在内容上。点内容区要能把它收回去，但内容页的点击不冒泡到外壳，

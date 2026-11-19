@@ -1,6 +1,6 @@
 /* 导演台纯工具：秒数取整与上下文裁剪（不依赖 DOM / 工程状态）。
-   宽松 JSON 解析搬去 `web/domain/json-loose.js`（建模台与导演台共用同一份），
-   这里只把它再导出一次 —— 导演台的调用点与判据一行都不用改。 */
+   宽松 JSON 解析在 `web/domain/json-loose.js`，
+   这里把它再导出一次 —— 导演台的调用点与判据一行都不用改。 */
 export { parseJsonLoose } from '../domain/json-loose.js';
 
 export const num = (v, fallback = 0) => (Number.isFinite(Number(v)) ? Number(v) : fallback);

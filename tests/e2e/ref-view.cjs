@@ -15,7 +15,7 @@ const h = require('./harness.cjs');
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.skipDataSyncBoot();
-    await page.goto(proxy.base + '/shell.html#model.html');
+    await page.goto(proxy.base + '/shell.html#favorites.html');
     await page.waitFor(() => document.body.innerText.length > 0, 20000);
 
     await page.eval(async () => {

@@ -142,11 +142,11 @@ for (const g of ['G18', 'G19', 'G20', 'G21', 'G22', 'G23', 'G24', 'G25']) {
   ok(guardSrc.includes("key: '" + g + "'"), '判据 ' + g + ' 不在了（设计规范点名了它）');
 }
 const nVis = Object.keys(JSON.parse(read('tests/fixtures/visual/fingerprints.json')).screens).length;
-ok(nVis === 48, '视觉画面应为 48 档，实际 ' + nVis);
+ok(nVis === 44, '视觉画面应为 44 档，实际 ' + nVis);
 const nE2e = fs.readdirSync(path.join(ROOT, 'tests/e2e')).filter(f => f.endsWith('.cjs')).length;
 /* 口径：tests/e2e/ 里的 .cjs 文件数（判据 + harness）。新增一条判据要在这里改数字，
    文档里的条数也得跟着改 ——「文档不许说谎」。 */
-ok(nE2e === 68, 'e2e 应为 68 条，实际 ' + nE2e);
+ok(nE2e === 66, 'e2e 应为 66 条，实际 ' + nE2e);
 
 /* ---------- 版本与清单：README / CHANGELOG 不许与代码漂移 ----------
    和上面那几档同一个立场：只盯「能对着代码数出来」的陈述。 */

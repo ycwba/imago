@@ -89,8 +89,7 @@ const KEEP_WANT = ['dir_palette', 'dir_theme', 'sb_open', 'dir_asset_view', 'dir
   'sk_media_local', 'sk_media_prefer', 'sk_media_badge', 'sk_media_cloud_hide',
   'sk_media_local_scope', 'sb_bal_on', 'sb_mirror_on', 'ai_chat_off', 'sk_local_dir'];
 const ASSIST_WANT = [...UP.rows.map(r => r.key),
-  'sk_polish_ask', 'sk_model_vframes', 'sk_model_vframe_n',
-  'sk_text_vision', 'sk_text_audio', 'sk_text_video'];
+  'sk_polish_ask', 'sk_text_vision', 'sk_text_audio', 'sk_text_video'];
 
 /* ---------- 节默认与三节待遇 ---------- */
 ok('rows 精确键三档全开（同步 / 导出 / 恢复默认不清）',
@@ -137,7 +136,6 @@ ok('普通设置行（setRows）默认进导出', UP.setRows.every(r => UP.expor
 ok('型号面板的本机草稿不进导出，型号偏好照走',
   UP.exportOf('sk_model_meta_x') === false && UP.exportOf('sk_model_gpt-4') === true,
   [UP.exportOf('sk_model_meta_x'), UP.exportOf('sk_model_gpt-4')].join(','));
-ok('建模台的生成规矩进导出', UP.exportOf('sk_model3d_reuse') === true);
 ok('导演台底栏坞档跟着走', UP.syncOf('dir_dock') === true);
 ok('dock_h 死值与工作区救生包都不算设置', UP.exportOf('dir_dock_h') === false && UP.exportOf('dir_ws_unload') === false,
   [UP.exportOf('dir_dock_h'), UP.exportOf('dir_ws_unload')].join(','));

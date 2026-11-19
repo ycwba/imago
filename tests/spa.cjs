@@ -381,7 +381,7 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
         命令面板上下键选中行 scrollIntoView —— 都是常驻件的字节。实跑 30 枚 / 874139 字节（登记上限 876000）。
      ·  +7.6KB（2026-11-16，拆分镜图片输入）：`web/ui/forms.js` —— PromptForm 新 'pics' 多图栏
         （隐藏 input 存 JSON、缩略行逐张 × 摘、AssetPicker 多选接线）＋ 弹窗级「粘贴图片进输入框」
-        （剪贴板图转 dataURL 落进多图栏、textarea 光标处插［图N］占位）＋ PromptReview 分镜行上的
+        （剪贴板图转 dataURL 落进多图栏）＋ PromptReview 分镜行上的
         挂图缩略格（AI 分配、就地摘、列位不挪）。这两只弹窗是全站公共件，导演台拆分镜三档之外
         别处也在用，按需拆载没有意义。实跑 30 枚 / 883754 字节（登记上限 886000）。
      ·  +0.3KB（2026-11-17，拆分镜过程面板与审阅合成同一张弹窗）：`web/ui/forms.js` ——

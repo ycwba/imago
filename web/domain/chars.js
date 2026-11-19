@@ -1057,7 +1057,8 @@ window.Chars = (function () {
     item.faces = merged.slice(0, FACE_CAP);
     if (dropped) notes.push('候选最多留 ' + FACE_CAP + ' 张：这次换掉了最早的 ' + dropped + ' 张');
     if (!picOf(item) || (o && o.replace)) setPic(item, list[0].src);
-    return { src: list[0].src, n: list.length, cap: previewCap(v.model), notes: notes, want: total, dropped: dropped };
+    const prompt = usePrompts[settled.findIndex(r => r.status === 'fulfilled' && r.value.length)];
+    return { src: list[0].src, prompt, n: list.length, cap: previewCap(v.model), notes: notes, want: total, dropped: dropped };
   }
   /* 一次能出几张候选：只问能力声明（max_outputs），没声明就当 1 张。
      界面上那颗「一次出 N 张」的按钮文字也用这一条，不要页面自己写个 3。 */

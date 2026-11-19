@@ -14,7 +14,7 @@
    卡顶能力格、卡里的档位行与状态牌、密钥 / 停用 / 文字档那一份草稿、手动档位声明、
    型号面板的槽名、整片重画与事件委托）；这一页留下注册表 / 环境密钥 / 自动保存 / 两条通道的设置 /
    型号面板的读写 / 目录轨，并把它们经 createAccountCards(deps) 递进去。 */
-import { ref, reactive, computed, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
+import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from '../../vue.runtime.esm-browser.prod.js';
 import { render } from '../render/settings.js';
 import { capZh, capGlyph, createAccountCards } from './settings/accounts.js';
 
@@ -64,7 +64,6 @@ const SettingsView = {
     const storeRowsEl = ref(null);
     const assistantBoxEl = ref(null);
     const polishBoxEl = ref(null);
-    const modelBoxEl = ref(null);
     const sysRowsEl = ref(null);
     const usageRowsEl = ref(null);
     const usageGoSlotEl = ref(null);
@@ -123,8 +122,6 @@ const SettingsView = {
     const cusBase = ref('');
     const cusKey = ref('');
     const cusKeyShown = ref(false);
-    const cusMsg = ref('');
-    const cusMsgCls = ref('');
     const cusCount = ref('');
     const cusAddText = ref('添加这一家');
     const cusCancelShown = ref(false);
@@ -168,7 +165,7 @@ const SettingsView = {
       }
       return c;
     }
-    function cusSetMsg(text, cls) { cusMsg.value = text || ''; cusMsgCls.value = cls || ''; }
+    function cusSetMsg(text, kind) { Toast.status(window.esc(text || ''), kind); }
 
     /* 只认新形状：启动时 `migrateProviderStorage` 已把旧条目抬成 caps[]。 */
     function cusCapsOfEntry(e) {
@@ -265,7 +262,6 @@ const SettingsView = {
       cusShown.value = false;
       if (cusEditing.value) cusReset();
       renderProv();
-      cusSetMsg('', '');
     }
     function renderCus() {
       paintCusCaps();
@@ -347,19 +343,12 @@ const SettingsView = {
             : '<button class="ghost mini" type="button" data-cfg-fetch="' + es + '"'
               + (cusFetchBusy.value === kind ? ' disabled' : '') + '>' + (cusFetchBusy.value === kind ? '获取中…' : '取一次') + '</button>')
           + '</div>'
-        + '<div class="msg" data-cfg-msg="' + es + '"></div>'
         + '</section>';
     }
     function paintCusCapBlocks() {
       const el = cusCapsBoxEl.value;
       if (!el) return;
       el.innerHTML = cusCaps.value.map(capBlockHTML).join('');
-    }
-    function cusCfgMsg(kind, text, cls) {
-      const el = cusCapsBoxEl.value && cusCapsBoxEl.value.querySelector('[data-cfg-msg="' + window.esc(kind) + '"]');
-      if (!el) { cusSetMsg(text, cls); return; }
-      el.className = 'msg ' + (cls || '');
-      el.textContent = text;
     }
     function cusAddIds(kind, raw) {
       const cfg = cusCfgOf(kind);
@@ -373,15 +362,15 @@ const SettingsView = {
     }
     async function fetchCusModelsFor(kind, btn) {
       if (kind === 'asr' || kind === 'search') {
-        cusCfgMsg(kind, '这一档没有型号清单接口：直接在下面添加型号。', '');
+        cusSetMsg('这一档没有型号清单接口：直接在下面添加型号。', '');
         return;
       }
       const t = cusTplOf(kind);
-      if (!t) { cusCfgMsg(kind, '先选一个「接口形状」。', 'err'); return; }
+      if (!t) { cusSetMsg('先选一个「接口形状」。', 'err'); return; }
       const base = String(cusBase.value || '').trim().replace(/\/+$/, '');
-      if (!httpsBaseOk(base)) { cusCfgMsg(kind, '先填接口地址（要 https:// 开头）。', 'err'); return; }
+      if (!httpsBaseOk(base)) { cusSetMsg('先填接口地址（要 https:// 开头）。', 'err'); return; }
       const key = String(cusKey.value || '').replace(/^\s*Bearer\s+/i, '').replace(/\s+/g, '').trim();
-      if (!key) { cusCfgMsg(kind, '先填密钥。', 'err'); if (cusKeyEl.value) window.focusQuiet(cusKeyEl.value); return; }
+      if (!key) { cusSetMsg('先填密钥。', 'err'); if (cusKeyEl.value) window.focusQuiet(cusKeyEl.value); return; }
       cusFetchBusy.value = kind;
       if (btn) { btn.disabled = true; btn.textContent = '获取中…'; }
       try {
@@ -402,8 +391,8 @@ const SettingsView = {
           else cfg.models.push({ id, name: String((m && m.name) || ''), on: true });
         });
         paintCusCapBlocks();
-        cusCfgMsg(kind, '从「' + (d.from || base) + '」拿到 ' + list.length + ' 个型号，已全部勾上。', 'ok');
-      } catch (e) { cusCfgMsg(kind, '获取失败：' + errText(e), 'err'); }
+        cusSetMsg('从「' + (d.from || base) + '」拿到 ' + list.length + ' 个型号，已全部勾上。', 'ok');
+      } catch (e) { cusSetMsg('获取失败：' + errText(e), 'err'); }
       finally {
         cusFetchBusy.value = '';
         if (btn) { btn.disabled = false; btn.textContent = '取一次'; }
@@ -498,7 +487,7 @@ const SettingsView = {
     }
     async function editCus(kid) {
       const e = Api.customList().find(x => x && x.id === kid);
-      if (!e) { acctMsg(kid, '清单里找不到这一条，刷新一次页面。', 'err'); return; }
+      if (!e) { cusSetMsg('清单里找不到这一条，刷新一次页面。', 'err'); return; }
       loadCusEntry(e);
       cusShown.value = true;
       /* 「哪一张卡里有这一格」要重画网格才知道：添加卡里那个落点是 cusShown 变了才画出来的。 */
@@ -827,16 +816,10 @@ const SettingsView = {
       return blk ? blk.dataset.mblk : '';
     };
     const selOf = kid => q('[data-tmodel="' + kid + '"]');
-    const msgOf = kid => q('[data-msg="' + kid + '"]');
     const countOf = slot => q('[data-mcount="' + window.esc(slot) + '"]');
     const noteOf = slot => q('[data-mnote="' + window.esc(slot) + '"]');
     const fetchOf = slot => q('[data-mfetch="' + window.esc(slot) + '"]');
-    /* 面板里那一行的回执：面板开着就写在面板底下，只点了「测试」这种没开面板的写在卡底。 */
-    function panelMsg(slot, text, cls) {
-      const el = q('[data-pmsg="' + window.esc(slot) + '"]');
-      if (el) { el.className = 'msg ' + (cls || ''); el.textContent = text; return; }
-      acctMsg(slotKid(slot), text, cls);
-    }
+    function panelMsg(text, kind) { Toast.status(window.esc(text), kind); }
     /* 面板顶部那一枚状态牌 + 计数（四态：还没取过 / 正在取 / 取回 n 个·耗时 / 取失败：原因）。 */
     function paintFetchNote(slot) {
       const el = fetchOf(slot);
@@ -930,16 +913,6 @@ const SettingsView = {
         : '<option value="">（还没有这家接口的型号）</option>';
       const list = ids.length ? ids : [];
       sel.value = list.includes(prev) ? prev : (list[0] || '');
-      /* 一个型号都还没有：只有面板开着时才补那句说明（面板没开时，这一行自己的占位选项与
-         「型号 0/0」已经说清，卡底再挂一段只是噪音）。 */
-      if (!list.length) {
-        const mEl = q('[data-pmsg="' + window.esc(slot) + '"]');
-        const cur = (mEl && mEl.textContent) || '';
-        if (mEl && (!cur || cur.indexOf('还没有型号') === 0)) {
-          mEl.className = 'msg';
-          mEl.textContent = '还没有型号。';
-        }
-      }
       const row = sel.closest('.crow') || sel.closest('.krow');
       if (window.Dropdowns && row) { Dropdowns.build(row); Dropdowns.sync(row); }
     }
@@ -1033,7 +1006,7 @@ const SettingsView = {
       const m = String(id || '');
       if (!p || !sel || !m) return;
       if (![...sel.options].some(o => o.value === m)) {
-        panelMsg(slot, '这一行不在下拉的选项里，点「取一次型号清单」重新取一次。', 'msg err');
+        panelMsg('这一行不在下拉的选项里，点「取一次型号清单」重新取一次。', 'msg err');
         return;
       }
       if (sel.value === m && modelDraft.get(kid) === m) return;
@@ -1043,7 +1016,7 @@ const SettingsView = {
       modelDraft.set(kid, m);
       renderModelRows(slot);
       paintFetchNote(slot);
-      panelMsg(slot, '已选择型号：' + m + '（全站润色都用它）', 'msg');
+      panelMsg('已选择型号：' + m + '（全站润色都用它）', 'msg');
       markChanged();
     }
     /* 文字档改单选之后，「藏起来」在这一档不再有界面 —— 旧版本留下的 off 记录要摘掉。
@@ -1176,7 +1149,7 @@ const SettingsView = {
       const kid = slotKid(slot);
       const prov = provBySlot(slot);
       if (!prov) {
-        panelMsg(slot, '没认出这一档，先刷新一下页面再填。', 'msg err');
+        panelMsg('没认出这一档，先刷新一下页面再填。', 'msg err');
         return;
       }
       if (b.dataset.tdel != null) {
@@ -1188,7 +1161,7 @@ const SettingsView = {
         fillModelOptions(slot);
         setCount(slot);
         if (was) fillModelOptions(slot);
-        panelMsg(slot, '已移除型号「' + id2 + '」（只清本机记录）', 'msg ok');
+        panelMsg('已移除型号「' + id2 + '」（只清本机记录）', 'msg ok');
         return;
       }
       if (b.dataset.tadd != null) {
@@ -1203,7 +1176,7 @@ const SettingsView = {
         renderModelRows(slot);
         fillModelOptions(slot, ids[ids.length - 1]);
         setCount(slot);
-        panelMsg(slot, '已添加 ' + ids.join('、') + '（只属于「' + (prov.name || '这一家') + '」这一家）', 'msg ok');
+        panelMsg('已添加 ' + ids.join('、') + '（只属于「' + (prov.name || '这一家') + '」这一家）', 'msg ok');
         return;
       }
       if (b.dataset.tfetch != null) {
@@ -1212,7 +1185,7 @@ const SettingsView = {
         try {
           const list = await runFetchModels(p, slot, b);
           const from = (p.kind === 'text' ? (TextAI.base(p) || p.base) : (p.base || '')) || '这一家的默认地址';
-          panelMsg(slot, '从「' + from + '」取回 ' + list.length + ' 个型号，当前选中 '
+          panelMsg('从「' + from + '」取回 ' + list.length + ' 个型号，当前选中 '
             + (((selOf(kid) || {}).value) || '—'), 'msg ok');
           markChanged();
           if (p.kind === 'text') {
@@ -1225,7 +1198,7 @@ const SettingsView = {
         } catch (e) {
           const hint = p.kind === 'text' ? ''
             : '（刚贴的密钥要等状态行变成「刚刚存过」再取）';
-          panelMsg(slot, '取型号清单失败：' + errText(e) + hint, 'msg err');
+          panelMsg('取型号清单失败：' + errText(e) + hint, 'msg err');
         }
         finally { b.disabled = false; }
         return;
@@ -1241,8 +1214,8 @@ const SettingsView = {
             throw new Error('「' + model + '」不属于「' + (p.name || '这一家') + '」的型号列表，重新选一个或点「取一次型号清单」');
           }
           const out = await TextAI.chat(await Api.registry(), '你是助手，回答要极简。', '只回复：ok', { model, noTools: true }, p);
-          panelMsg(slot, '✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
-        } catch (e) { panelMsg(slot, '✗ 测试失败：' + errText(e), 'msg err'); }
+          panelMsg('✓ 测试成功（' + (p.name || '') + ' · ' + model + '）：' + out.slice(0, 60), 'msg ok');
+        } catch (e) { panelMsg('✗ 测试失败：' + errText(e), 'msg err'); }
         finally { b.disabled = false; b.textContent = label0; }
       }
     }
@@ -1254,7 +1227,7 @@ const SettingsView = {
         const p = provBySlot(slot);
         if (!p || !window.ModelPrefs) {
           cb.checked = !cb.checked;
-          panelMsg(slot, '没认出这一档，刷新再试。', 'msg err');
+          panelMsg('没认出这一档，刷新再试。', 'msg err');
           return;
         }
         const hide = !cb.checked;
@@ -1266,7 +1239,7 @@ const SettingsView = {
         setCount(slot);
         const sel2 = selOf(kid);
         if (sel2) modelDraft.set(kid, sel2.value);
-        panelMsg(slot, (hide ? '已隐藏 ' : '已展示 ') + id2 + '（按账号存）'
+        panelMsg((hide ? '已隐藏 ' : '已展示 ') + id2 + '（按账号存）'
           + (hide && wasCur ? '　|　它原本是选中的型号，下拉已换到清单里的第一个' : ''),
           'msg ok');
         return;
@@ -1278,7 +1251,7 @@ const SettingsView = {
       const slot = slotKey(kid, 'text');
       renderModelRows(slot);
       setCount(slot);
-      panelMsg(slot, '已选择型号：' + (s.value || '（空）') + '（全站润色都用它）', 'msg');
+      panelMsg('已选择型号：' + (s.value || '（空）') + '（全站润色都用它）', 'msg');
     }
     function initTextForm() {
       textForm = {
@@ -1675,7 +1648,7 @@ const SettingsView = {
         if (top.__sbApplyOpen) top.__sbApplyOpen();
       } catch (e) {}
     }
-    /* 主题两根轴的高亮以**存储**为准重画：解析可能来自别处（侧栏那颗日 / 夜按钮、
+    /* 主题两根轴的高亮以**存储**为准重画：解析可能来自别处（左下角那颗主题按钮、
        系统深色档变化），这时两排分段要跟着亮到新档位，而不是停在旧的那一格。 */
     function syncThemePrefs() {
       const rows = (window.UI_PREFS && UI_PREFS.rows) || [];
@@ -1799,7 +1772,6 @@ const SettingsView = {
     /* ---------- SET_ROWS 的渲染与写盘（一处声明，两处现取） ---------- */
     const MANIFEST_HOSTS = () => ({
       net: netBoxEl.value, store: storeRowsEl.value, assistant: assistantBoxEl.value, polish: polishBoxEl.value,
-      model: modelBoxEl.value,
     });
     function checkedOf(r) {
       const v = window.LS.get(r.key);
@@ -2118,7 +2090,7 @@ const SettingsView = {
             + (st.fsyncDegraded ? ' · 落盘同步退化：' + st.fsyncDegraded : '')
           : '⚠ ' + (bad.join('；') || '备份状态异常，先别覆盖数据');
         backupRows.value = st.snapshots || [];
-        if (st.legacy && st.legacy.migrated) backupMsg.value = '旧数据文件已转成 state.json（' + st.legacy.migrated + ' 个业务键），原文件已删除';
+        if (st.legacy && st.legacy.migrated) backupInfo.value += ' · 旧数据文件已转成 state.json（' + st.legacy.migrated + ' 个业务键），原文件已删除';
       } catch (e) {
         backupInfo.value = '读不到备份状态（代理没在运行？）';
         backupRows.value = [];
@@ -2345,7 +2317,6 @@ const SettingsView = {
       if (okAll) return true;
       cloudMsg.value = '✗ 云端设置没存进本机：本机存储写不进去。'
         + '这一次仍按当前填的走，但刷新后会回到旧配置。';
-      Toast.warn('云端设置没存进本机 —— 刷新后会回到旧配置');
       return false;
     }
     function cloudHeaders() {
@@ -2501,7 +2472,7 @@ const SettingsView = {
     }
 
     /* ---------- 本机环境（GET /sys-status，纯读） ---------- */
-    const sysMsg = ref('');
+    const sysInfo = ref('');
     const sysCopyDisabled = ref(true);
     const sysBusy = ref(false);
     let lastSys = null;
@@ -2536,7 +2507,7 @@ const SettingsView = {
       sysCopyDisabled.value = !lastSys;
     }
     async function refreshSys(fresh) {
-      sysMsg.value = '';
+      sysInfo.value = '';
       let s = null;
       try { s = await Api.sysStatus(fresh); }
       catch (e) {
@@ -2590,7 +2561,7 @@ const SettingsView = {
       html += dirRow('成片目录', dirs.渲染);
       if (old) html += '<div class="ui-note err">' + window.esc(old) + '</div>';
       if (sysRowsEl.value) window.Wb.viewport.keep(setDocEl.value, () => { sysRowsEl.value.innerHTML = html; });
-      sysMsg.value = '上次体检：' + window.fmtHMS(s.at || Date.now())
+      sysInfo.value = '上次体检：' + window.fmtHMS(s.at || Date.now())
         + (fresh ? ' · 刚重新探过' : ' · 这一轮是代理缓存的（换过浏览器请点「重新体检」）');
     }
     async function recheckSys() {
@@ -2599,14 +2570,14 @@ const SettingsView = {
       try { await refreshSys(true); } finally { sysBusy.value = false; }
     }
     async function copySys() {
-      if (!lastSys) { sysMsg.value = '✗ 现在没有可复制的体检结果：先点「重新体检」'; return; }
+      if (!lastSys) { Toast.status('现在没有可复制的体检结果：先点「重新体检」', 'err'); return; }
       const okc = await window.copyText(sysText(lastSys));
-      sysMsg.value = okc ? '✓ 已复制 ' + sysText(lastSys).split('\n').length + ' 行体检结果'
-        : '✗ 浏览器不让写剪贴板；体检结果还在上面这一栏，手动选也行';
+      Toast.status(okc ? '已复制 ' + sysText(lastSys).split('\n').length + ' 行体检结果'
+        : '浏览器不让写剪贴板；体检结果还在上面这一栏，手动选也行', okc ? 'ok' : 'err');
     }
 
     /* ---------- 资产库磁盘用量（GET /assets-usage，纯读） ---------- */
-    const usageMsg = ref('');
+    const usageInfo = ref('');
     const usageCopyDisabled = ref(true);
     const usageBusy = ref(false);
     let lastUsage = null;
@@ -2622,7 +2593,7 @@ const SettingsView = {
       const writeRows = html => {
         if (usageRowsEl.value) window.Wb.viewport.keep(setDocEl.value, () => { usageRowsEl.value.innerHTML = html; });
       };
-      usageMsg.value = '';
+      usageInfo.value = '';
       let u = null;
       try { u = await Api.assetsUsage(); }
       catch (e) {
@@ -2643,7 +2614,7 @@ const SettingsView = {
       html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top: var(--sp-4)">'
         + window.esc(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
       writeRows(html);
-      usageMsg.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
+      usageInfo.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
     }
     async function recountUsage() {
       if (usageBusy.value) return;
@@ -2651,11 +2622,11 @@ const SettingsView = {
       try { await refreshUsage(); } finally { usageBusy.value = false; }
     }
     async function copyUsage() {
-      if (!lastUsage) { usageMsg.value = '✗ 现在没有可复制的读数：先点「重新数一遍」'; return; }
+      if (!lastUsage) { Toast.status('现在没有可复制的读数：先点「重新数一遍」', 'err'); return; }
       const txt = usageText(lastUsage);
       const okc = await window.copyText(txt);
-      usageMsg.value = okc ? '✓ 已复制 ' + txt.split('\n').length + ' 行读数'
-        : '✗ 浏览器不让写剪贴板；读数还在上面这一栏，手动选也行';
+      Toast.status(okc ? '已复制 ' + txt.split('\n').length + ' 行读数'
+        : '浏览器不让写剪贴板；读数还在上面这一栏，手动选也行', okc ? 'ok' : 'err');
     }
 
     /* ---------- 清理缓存 ---------- */
@@ -3081,7 +3052,6 @@ const SettingsView = {
         const dis = (r && r.displaced) || [];
         const tail = dis.length ? '（原来的 ' + dis.join('、') + ' 已自动停用）' : '';
         skillMsg.value = '✓ ' + (on ? '已启用 ' : '已停用 ') + id + tail + '：下一轮助手请求生效';
-        Toast.receipt((on ? '已启用 ' : '已停用 ') + id + tail + '：下一轮助手请求生效');
         await reloadSkills(true);
       } catch (e) {
         Toast.err(errText(e) || '切换失败');
@@ -3179,7 +3149,6 @@ const SettingsView = {
           } catch (e) { /* 读不到附属文件就只更新 SKILL.md */ }
           await window.WbSkills.update(id, files.concat(extra), skillFormHash);
           skillMsg.value = '✓ 已更新 ' + id;
-          Toast.receipt('已更新 ' + id);
         } else {
           const r = await window.WbSkills.install(files, { enable: true });
           const s = r.skill || {};
@@ -3188,7 +3157,6 @@ const SettingsView = {
           const dis = (r && r.displaced) || [];
           const tail = dis.length ? '（并已启用：原来的 ' + dis.join('、') + ' 已自动停用）' : '（并已启用）';
           skillMsg.value = '✓ 已新建 ' + s.id + tail;
-          Toast.receipt('已新建 ' + s.id + tail);
         }
         skillMode.value = 'scene';
         await reloadSkills(true);
@@ -3244,13 +3212,11 @@ const SettingsView = {
         if (target) {
           await window.WbSkills.update(target, next, skillExpectedHash);
           skillMsg.value = '✓ 已更新 ' + target;
-          Toast.receipt('已更新 ' + target);
           await reloadSkills(true);
         } else {
           const r = await window.WbSkills.importBundle(next, { enable: false });
           const s = r.skill || {};
           skillMsg.value = '✓ 已导入 ' + s.id + '（默认停用）';
-          Toast.receipt('已导入 ' + s.id + '（默认停用）');
           await reloadSkills(true);
         }
       } catch (err) {
@@ -3283,7 +3249,6 @@ const SettingsView = {
         /* 删的是场景里最后那份启用时，服务端已把内置份顶回来 —— 回执要点名。 */
         const tail = d.restored ? '（内置 ' + d.restored + ' 已顶回来）' : '';
         skillMsg.value = '✓ 已卸载 ' + id + tail;
-        Toast.receipt('已卸载 ' + id + tail);
         if (skillSelId.value === id) {
           skillSelId.value = '';
           skillFiles.value = [];
@@ -4039,6 +4004,15 @@ const SettingsView = {
       syncNav();
     }
 
+    /* 临时回执只进浮层；消费后清空，同一句操作结果再次发生时也能显示。 */
+    [dataMsg, backupMsg, cloudMsg, cacheMsg, promptMsg, skillMsg, asrMsg, searchMsg].forEach(message => {
+      watch(message, text => {
+        if (!text) return;
+        message.value = '';
+        Toast.status(window.esc(text));
+      }, { flush: 'sync' });
+    });
+
     /* ---------- 挂载 ---------- */
     onMounted(async () => {
       await nextTick();
@@ -4142,14 +4116,14 @@ const SettingsView = {
       provGroups, provUsable, curTextId, autoServiceKid, hostKidOf, allCaps, acctAll,
       draftKey, keyFor, keyCleared, keyDraft, acctOffSet, panelOpen, fetchNote,
       slotKey, slotKid, slotCap, slotOfProv, provBySlot,
-      renderProv, refreshProvNotes, paintAccountBalances, acctMsg,
+      renderProv, refreshProvNotes, paintAccountBalances,
       textPick, setTextPick,
     } = createAccountCards({
       ic, q, qa,
       provEpoch, setDocEl, acctToolsEl, provListEl, provErrEl, acctParkEl,
       asrFormEl, asrLocalFormEl, searchFormEl, cusCardEl, cusShown,
       regOf: () => REG, envOf: () => envInfo, textFormOf: () => textForm,
-      markChanged, msgOf, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
+      markChanged, useFormCreds, autofetchTried, onPanelClick, onPanelChange, afterPanelOpen,
       syncServiceProvs, openCus, hideCus, pickCusCap, editCus, removeCus, afterCustomChanged,
       asr, asrLocal, asrBrowser, search,
     });
@@ -4165,22 +4139,22 @@ const SettingsView = {
       cusCardEl, cusShown, cusMineShown, cusMineGroups, cusEditing, editCus, removeCus, hideCus,
       cusCapEl, cusCapsBoxEl, cusNamePh,
       cusNameEl, cusName, cusBaseEl, cusBase, cusKeyEl, cusKey, cusKeyShown,
-      cusFetchBusy, addCus, cusAddText, cusCancelShown, cancelCus, cusCount, cusMsg, cusMsgCls,
+      cusFetchBusy, addCus, cusAddText, cusCancelShown, cancelCus, cusCount,
       pageBoxEl, uiPrefsBoxEl, storePrefsBoxEl, charsBoxEl,
-      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl, modelBoxEl,
-      dataInfo, dataInfoTitle, dataMsg, persistInfo, persistGranted, dataBusy,
+      netBoxEl, storeRowsEl, assistantBoxEl, polishBoxEl,
+      dataInfo, dataInfoTitle, persistInfo, persistGranted, dataBusy,
       copyDataDir, reloadDataInfo, askPersist, pushData, pullData, exportAll, pickImportAll, onImportAllFile,
-      backupInfo, backupMsg, backupRows, backupBusy, backupListEl, refreshBackupCenter, createBackup, verifyBackup,
+      backupInfo, backupRows, backupBusy, backupListEl, refreshBackupCenter, createBackup, verifyBackup,
       impAllFileEl,
       cloudUrl, cloudUrlHint, cloudUser, cloudPass, cloudKeys, cloudPrompts,
-      saveCloud, cloudMsg, cloudState,
+      saveCloud, cloudState,
       cloudBusy, cloudCall, cloudAbort, cloudPush, cloudSync, cloudPull, cloudConflictsEl,
-      sysRowsEl, sysMsg, sysCopyDisabled, sysBusy, recheckSys, copySys,
-      usageRowsEl, usageMsg, usageCopyDisabled, usageBusy, recountUsage, copyUsage, usageGoSlotEl,
-      cacheBusy, clearApiCache, clearMetaCache, clearThumbCache, clearMissedCache, histBoxEl, cacheUsage, cacheMsg,
-      promptDir, promptInfo, promptMsg, promptRefresh,
+      sysRowsEl, sysInfo, sysCopyDisabled, sysBusy, recheckSys, copySys,
+      usageRowsEl, usageInfo, usageCopyDisabled, usageBusy, recountUsage, copyUsage, usageGoSlotEl,
+      cacheBusy, clearApiCache, clearMetaCache, clearThumbCache, clearMissedCache, histBoxEl, cacheUsage,
+      promptDir, promptInfo, promptRefresh,
       openPromptDir, promptOpenBusy, promptRecentEl,
-      skillItems, skillMsg, skillBusy, skillFileEl, skillChipsEl,
+      skillItems, skillBusy, skillFileEl, skillChipsEl,
       skillMode, skillTree, skillScene, skillSceneNow, skillSceneVars, skillSceneUnknown,
       skillSceneState, isSceneActive, isLastEnabled, pickSkillScene, openSkillAll, closeSkillAll, skillSceneNameOf,
       skillQ, skillAllQ, skillAllFiltered, skillSelId,
@@ -4188,10 +4162,10 @@ const SettingsView = {
       onSkillSearch, onSkillAllSearch, toggleSkillOpen, setSkillPreEl,
       openSkillFile, toggleSkillEnabled, pickSkillFile, onImportSkillFile, removeSkill, fmtSkillSize,
       skillForm, openSkillNew, openSkillEdit, saveSkillNew, cancelSkillNew,
-      asr, asrKey, asrLocalText, asrBrowserText, asrBusy, asrMsg, asrTestText, asrProvOpts, asrProvEl,
+      asr, asrKey, asrLocalText, asrBrowserText, asrBusy, asrTestText, asrProvOpts, asrProvEl,
       asrModelPh, asrProviderText, asrOnlineReady, onAsrProvChange, onAsrRouteChange,
       loadAsr, saveAsr, clearAsrKey, testAsr,
-      search, searchKey, searchBusy, searchMsg, searchTestQ, searchResults, searchTested, searchRead,
+      search, searchKey, searchBusy, searchTestQ, searchResults, searchTested, searchRead,
       searchChannelOpts, searchChannelEl, searchCredText, searchEngineName, searchNeedsModel,
       saveSearch, clearSearchKey, onSearchKeyInput, onSearchProvChange, testSearch, readFirstSearch,
       exportSetup, pickImportSetup, onImportSetupFile, resetSetup, impSetFileEl,
