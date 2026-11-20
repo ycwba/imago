@@ -1743,6 +1743,11 @@ button.phead-chip:hover b { color: var(--acc); }
 .am-sub .ms-k { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); }
 
 /* 全局命令面板（外壳级浮层，由 web/ui/command.js 第一次唤起时才画出来） */
+@media (max-width: 760px) {
+  .lb-ann-tools { left: var(--sp-4); width: calc(var(--sp-64) + var(--sp-16)); }
+  .lb-ann-list { right: var(--sp-4); width: calc(var(--sp-64) * 3); }
+  .lb-ann-inline input { width: calc(var(--sp-64) * 2); }
+}
 .cmd-palette { position: fixed; inset: 0; z-index: 60; display: flex; align-items: flex-start;
   justify-content: center; padding-top: var(--sp-64); background: var(--pal-scrim); }
 .cmd-palette[hidden] { display: none; }
@@ -1762,28 +1767,48 @@ button.phead-chip:hover b { color: var(--acc); }
 .cmd-foot { padding: var(--sp-8) var(--sp-16); border-top: var(--hair) solid var(--line);
   color: var(--sub); font-size: var(--fs-11); }
 
-/* 灯箱掩码绘画共享件（web/ui/lb-mask.js 按需补载）：色块 / 工具组 / 提示 / 自绘笔刷光标 */
-.rv-tools { display: inline-flex; gap: var(--sp-4); }
-.rv-tools .mini.on { border-color: var(--acc); color: var(--acc); }
-.rv-hint { color: var(--sub); font-size: var(--fs-11); }
-.rv-swatch { width: var(--sz-chip); height: var(--sz-chip); padding: 0;
-  border: var(--hair) solid var(--line); border-radius: var(--radius-4); cursor: pointer; }
-/* 色块的选中态与键盘焦点环同形（都借 --focus-shadow）会分不清：选中改内圈描边 */
-.rv-swatch.on { border-color: var(--acc); box-shadow: inset 0 0 0 var(--hair) var(--panel); }
-/* 自绘笔刷光标：圆圈直径 = 笔迹直径，画笔显当前色、橡皮虚线；difference 混色保证任何底上看得见 */
-.rv-ghost { position: absolute; pointer-events: none; display: none;
-  border: var(--hair) solid white; border-radius: var(--radius-999); mix-blend-mode: difference; }
-.rv-ghost.erase { border-style: dashed; }
-/* 灯箱掩码绘画（web/ui/lb-mask.js 按需补载；在灯箱 stage 上叠画布 + 工具条） */
-.lb-mask-bar { position: fixed; bottom: var(--sp-16); left: 50%; transform: translateX(-50%);
-  z-index: 11; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap;
-  max-width: min(calc(var(--sp-64) * 17), 94vw); padding: var(--sp-8) var(--sp-12);
-  background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10);
-  box-shadow: var(--shadow-3); pointer-events: auto; }
-.lb-mask-cv { position: absolute; cursor: crosshair; touch-action: none; z-index: 5; }
-/* 独立回显层（LbMask.echo，✓ 完成后与重开旧掩码共用）：黑底抠成透明、白染主题红，
-   半透明叠在图上 —— 标记一直看得见，又盖不住原图 */
-.lb-mask-echo { position: absolute; z-index: 5; pointer-events: none; opacity: .55; }
+/* 灯箱编号批注（web/ui/lb-mask.js 按需补载）：左右面板挂在 #lightbox，覆盖层挂在 #lbStage。
+   面板不进 stage —— 灯箱 show()/close() 会清空 stage，而面板要跟着编辑态一起收放。 */
+.lb-ann-tools, .lb-ann-list { position: absolute; top: var(--sp-16); bottom: var(--sp-16);
+  z-index: 12; display: flex; flex-direction: column; gap: var(--sp-8); overflow: auto;
+  padding: var(--sp-12); background: var(--panel); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-14); box-shadow: var(--shadow-3); }
+.lb-ann-tools { left: var(--sp-16); width: calc(var(--sp-64) + var(--sp-32)); }
+.lb-ann-list { right: var(--sp-16); width: calc(var(--sp-64) * 4); }
+.lb-ann-hd { display: flex; align-items: center; gap: var(--sp-8); color: var(--sub);
+  font-size: var(--fs-12); line-height: var(--sz-ctl-sm); }
+.lb-ann-hd .pri { margin-left: auto; }
+.lb-ann-count { color: var(--acc); }
+.lb-ann-tool.on { border-color: var(--acc); color: var(--acc); background: var(--sel-bg); }
+.lb-ann-sep { height: var(--hair); background: var(--line); }
+.lb-ann-empty { padding: var(--sp-16) var(--sp-4); color: var(--sub); font-size: var(--fs-12); }
+.lb-ann-row { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-4);
+  border-radius: var(--radius-6); font-size: var(--fs-12); cursor: pointer; }
+.lb-ann-row:hover { background: var(--panel2); }
+.lb-ann-row.is-sel { background: var(--sel-bg); color: var(--acc); }
+.lb-ann-num { flex: none; width: var(--sz-chip); height: var(--sz-chip);
+  line-height: var(--sz-chip); text-align: center; border-radius: var(--radius-999);
+  background: var(--err); color: var(--on-acc); }
+.lb-ann-txt { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-ann-del { flex: none; width: var(--sz-ctl-sm); height: var(--sz-ctl-sm); padding: 0;
+  border: 0; background: transparent; color: var(--sub); font-size: var(--fs-16); cursor: pointer; }
+.lb-ann-del:hover { color: var(--err); }
+.lb-ann-add { margin-top: auto; }
+.lb-ann-note { width: 100%; }
+/* SVG 覆盖层与图片显示矩形重合：坐标归一化后按原图尺寸 viewBox，随图一起缩放 */
+.lb-ann-overlay { position: absolute; z-index: 6; cursor: crosshair; touch-action: none; }
+/* 完成后的编号图回显与旧 PNG 参考层：黑底靠 screen 混色消失，标记留在原图上 */
+.lb-ann-echo, .lb-ann-legacy { position: absolute; z-index: 5; pointer-events: none;
+  object-fit: fill; opacity: var(--a-60); }
+.lb-ann-legacy { mix-blend-mode: screen; }
+.lb-ann-inline { position: absolute; z-index: 13; display: flex; align-items: center; gap: var(--sp-4);
+  padding: var(--sp-4); background: var(--panel); border: var(--hair) solid var(--line);
+  border-radius: var(--radius-10); box-shadow: var(--shadow-3); }
+.lb-ann-inline[hidden] { display: none; }
+.lb-ann-inline-n { flex: none; width: var(--sz-chip); height: var(--sz-chip);
+  line-height: var(--sz-chip); text-align: center; border-radius: var(--radius-999);
+  background: var(--err); color: var(--on-acc); font-size: var(--fs-12); }
+.lb-ann-inline input { width: calc(var(--sp-64) * 3); }
 /* 缩略图上的掩码回显（素材槽 / 附件 chip）：screen 混色让黑底消失、彩色笔画留在预览图上 */
 .mask-echo { position: absolute; inset: 0; width: 100%; height: 100%;
   object-fit: cover; opacity: .6; mix-blend-mode: screen; pointer-events: none; }

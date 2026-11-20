@@ -291,6 +291,59 @@ const StudioView = {
         Store.write(PICK_KEY, all, { label: '工作台记住的型号' });
       }
 
+      /* 图上批注跟着条目走：素材本体（File / blob:）不能序列化，所以只存结构化文档与导出的编号图，
+         按条目的稳定身份索引。刷新后先按身份回填，再让用户点开接着画。
+         存储写不进去时 Store 自己会提示；这里不额外吞错。 */
+      const ANN_KEY = 'studio_annots';
+      function annKeyOf(it) {
+        if (!it) return '';
+        return String(it.la || it.assetId || (it.src ? String(it.src).split('?')[0] : '')
+          || (String(it.name || '') + ':' + String(it.size || '')));
+      }
+      function annotsAll() {
+        const v = Store.read(ANN_KEY, null);
+        return v && typeof v === 'object' && !Array.isArray(v) ? v : {};
+      }
+      function saveAnnots(it, doc, png) {
+        const k = annKeyOf(it);
+        if (!k || !doc) return;
+        const all = annotsAll();
+        all[k] = { doc, png: png || '', name: String(it.name || ''), at: Date.now(),
+          /* 工作台的参考素材本身不落盘，所以连条目身份一起记一份：刷新后把有稳定来源
+             （本机资产 / 平台 assetId / 普通 http 地址）的那几条放回图片槽，批注才能接着画。
+             blob: 地址活不过刷新，就不放回去。 */
+          entry: { name: String(it.name || ''), type: String(it.type || '图片'),
+            src: String(it.src || ''), url: String(it.url || ''),
+            assetId: String(it.assetId || ''), la: String(it.la || ''),
+            size: Number(it.size) || 0, fromLib: !!it.fromLib } };
+        Store.write(ANN_KEY, all, { label: '工作台记住的批注' });
+      }
+      function restoreAnnots(it) {
+        const k = annKeyOf(it);
+        if (!k) return;
+        const rec = annotsAll()[k];
+        if (!rec) return;
+        const doc = window.TextAI && TextAI.readAnnots ? TextAI.readAnnots(rec.doc) : rec.doc;
+        it.annots = doc || null;
+        it.mask = rec.png || it.mask || '';
+      }
+      /* 刷新后先把「有稳定来源」的批注条目放回图片槽；没有本机身份的（blob:）放回也没图可看。 */
+      function restoreAnnotatedSlots() {
+        const box = cur().inputs.image || (cur().inputs.image = []);
+        Object.keys(annotsAll()).forEach(k => {
+          const rec = annotsAll()[k];
+          if (!rec || !rec.entry || box.some(x => annKeyOf(x) === k)) return;
+          const e = rec.entry;
+          if (!e.assetId && !e.la && /^blob:/.test(e.src)) return;
+          const doc = window.TextAI && TextAI.readAnnots ? TextAI.readAnnots(rec.doc) : rec.doc;
+          if (!doc) return;
+          box.push({ name: e.name || '批注图片', type: e.type || '图片', src: e.src || '',
+            url: e.url || '', assetId: e.assetId || '', la: e.la || '',
+            size: Number(e.size) || 0, fromLib: !!e.fromLib, annots: doc, mask: rec.png || '' });
+        });
+      }
+      restoreAnnotatedSlots();
+
       /* ============================ ③ 注册表与型号 ============================ */
       const groups = () => Api.pickable((REG.providers || []).filter(p => p.kind === TYPES[TYPE].provKind));
       function provLabelOf(id) {
@@ -720,7 +773,7 @@ const StudioView = {
           : Wb.thumbs.mediaHTML(mediaOf(it), { type: window.mediaKindOf(it.type) === 'video' ? undefined : 'image' });
         return '<div class="asset-slot' + (blocked ? ' conflict' : '') + '" data-slot="' + sl.kind + '" data-i="' + i + '"'
           + ' title="' + window.esc(cap + '：' + name + fromVid + '（点开查看 / × 移除）') + '">'
-          + body + Wb.thumbs.maskHTML(it.mask) + (it.mask ? '<span class="maskbadge">已标记</span>' : '')
+          + body + Wb.thumbs.maskHTML(it.mask) + ((it.mask || it.annots) ? '<span class="maskbadge">已批注</span>' : '')
           + '<button type="button" class="x iconbtn on-dark" title="移除这个素材">' + icon('close', 11) + '</button><span class="cap">' + window.esc(cap) + '</span></div>';
       }
       function wideSlotHTML(sl, it, i, blocked) {
@@ -754,6 +807,7 @@ const StudioView = {
         if (!it || !(it.file || it.src || it.url)) return;
         const kind = window.isAudioType(it.type) ? 'audio'
           : window.mediaKindOf(it.type) === 'video' ? 'video' : 'image';
+        if (kind === 'image') restoreAnnots(it);
         const src = it.file ? URL.createObjectURL(it.file) : mediaOf(it);
         if (!window.Wb) { Toast.err('灯箱没加载起来'); return; }
         /* 总是设 ref 友好的 cfg：别的页留下的 cfg 的 srcOf / kindOf 不认 {src,kind} 形状的条目 */
@@ -768,9 +822,12 @@ const StudioView = {
           ? await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
             .then(() => !!window.LbMask).catch(() => false)
           : false;
-        if (ok) LbMask.enter(url => { it.mask = url || ''; renderInputArea(); },
-          { existing: it.mask,
-            onExit: () => { if (it.mask && window.LbMask) LbMask.echo(it.mask); } });
+        if (ok) LbMask.enter((url, doc) => {
+          it.mask = url || '';
+          it.annots = doc || null;
+          saveAnnots(it, doc, it.mask);
+          renderInputArea();
+        }, { existing: it.annots || it.mask });
       }
       function bindSlotTile(t, sl, it, i, blocked) {
         const def = SLOT_DEF[sl.kind];
@@ -1472,14 +1529,15 @@ const StudioView = {
         const m = inputs();
         if (TYPE === 'audio') return out;
         /* 编号与真正发出去的顺序一致：参考图 → 首帧 → 尾帧（提交时 SLOT_DEF 就是这个顺序）。
-           图上画过掩码的把掩码带上（label 注明，prepareMedia 会把它排在紧随其后的那一发）。 */
+           画过批注的把编号图带上（label 注明，prepareMedia 排在紧随其后的那一发）；结构化
+           批注另走 annot，由 TextAI.materialNote 拼进系统提示词，模型才能把编号和文案对上。 */
         let n = 0;
         const add = (it, role, note) => {
           const s = srcOf(it);
           if (!s) return;
           n += 1;
-          out.push({ label: '参考图' + n + (note ? ' · ' + note : '') + (it.mask ? '（附彩色掩码）' : ''),
-            src: s, mask: it.mask || '', token: '@参考图' + n, role });
+          out.push({ label: '参考图' + n + (note ? ' · ' + note : '') + (it.mask ? '（附编号批注图）' : ''),
+            src: s, mask: it.mask || '', annot: it.annots || null, token: '@参考图' + n, role });
         };
         (m.image || []).forEach(it => add(it, 'reference_image'));
         (m.frame_first || []).forEach(it => add(it, 'first_frame', '首帧'));
@@ -1493,7 +1551,8 @@ const StudioView = {
         const m = inputs();
         const out = [];
         const image = TYPE === 'audio' ? [] : polishImageList();
-        image.forEach(x => out.push({ kind: 'image', label: x.label, src: x.src, mask: x.mask || '', token: x.token, role: x.role }));
+        image.forEach(x => out.push({ kind: 'image', label: x.label, src: x.src, mask: x.mask || '',
+          annot: x.annot || null, token: x.token, role: x.role }));
         (m.video || []).forEach((it, i) => {
           const s = srcOf(it);
           if (s) out.push({ kind: 'video', label: '参考视频' + (m.video.length > 1 ? ' ' + (i + 1) : ''), src: s, token: '@视频' + (i + 1), role: 'reference_video' });
@@ -1507,7 +1566,7 @@ const StudioView = {
       function polishMaterials() {
         const items = polishMediaAll().map(x => ({
           label: x.label, token: x.token, role: x.role, kind: MEDIA_KIND_ZH[x.kind], mk: x.kind,
-          sent: false,
+          annot: x.annot || null, sent: false,
           hint: x.kind === 'video' ? '沿用它的运镜和节奏'
             : x.kind === 'audio' ? (TYPE === 'audio' ? '按这个音色来念' : '沿用它的节奏')
               : '',

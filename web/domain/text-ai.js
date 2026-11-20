@@ -859,6 +859,42 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     this._metaFor = '';
     return window.Store.sweep(k => k.startsWith('sk_model_meta_'));
   },
+  /* 结构化批注的读取与文案。批注文档挂在条目上（annots），PNG 仍挂在 mask 上给 prepareMedia：
+     readAnnots 兼容旧数据 —— 老条目只有一张黑底彩笔 PNG，包成 legacyMask 只读参考层，不伪装成
+     结构化数据；新文档按 v1 形状逐字段归一化，坏值一律当没有，绝不让一条脏数据把润色整条路绊倒。 */
+  readAnnots(raw) {
+    if (!raw) return null;
+    if (typeof raw === 'string') {
+      return /^data:image\//.test(raw)
+        ? { v: 1, note: '', seq: 1, items: [], legacyMask: raw }
+        : null;
+    }
+    if (typeof raw !== 'object' || Array.isArray(raw) || raw.v !== 1 || !Array.isArray(raw.items)) return null;
+    const TYPES = ['point', 'box', 'brush', 'arrow'];
+    const items = [];
+    let maxN = 0;
+    for (const x of raw.items) {
+      if (!x || typeof x !== 'object' || TYPES.indexOf(x.type) < 0) continue;
+      const n = Number(x.n) || 0;
+      if (!n) continue;
+      const pts = (Array.isArray(x.points) ? x.points : [])
+        .map(p => Array.isArray(p) && Number.isFinite(Number(p[0])) && Number.isFinite(Number(p[1]))
+          ? [Number(p[0]), Number(p[1])] : null).filter(Boolean);
+      if (!pts.length) continue;
+      items.push({ id: String(x.id || 'k' + n), n, type: x.type, points: pts,
+        text: String(x.text || ''), w: Math.max(1, Number(x.w) || 3) });
+      if (n > maxN) maxN = n;
+    }
+    return { v: 1, note: String(raw.note || ''), seq: Math.max(Number(raw.seq) || 0, maxN + 1),
+      items, legacyMask: String(raw.legacyMask || '') };
+  },
+  annotText(doc) {
+    const d = this.readAnnots(doc);
+    if (!d) return '';
+    const parts = d.items.map(a => a.n + '=' + (a.text || '未填'));
+    if (!parts.length && !d.note) return '';
+    return '编号批注：' + parts.join('；') + (d.note ? '。补充：' + d.note : '');
+  },
   /* 素材清单 → 一段写给 AI 的话。
      问题：参考图能随消息附上（识图模型），**视频 / 音频附不了**。以前只在提示词里塞一句
      「这次还挂了参考视频（沿用它的运镜与节奏）」—— 模型既不知道有几个、也不知道发的是什么，
@@ -876,13 +912,15 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     const itemText = x => {
       const token = String(x.token || '').trim();
       const label = String(x.label || ROLE[x.role] || x.kind || '素材');
-      if (!token) return label;
+      const ann = this.annotText(x.annot);
+      const tail = ann ? '（' + ann + '）' : '';
+      if (!token) return label + tail;
       const name = token.replace(/^@/, '');
       if (label.indexOf(name) === 0) {
         const rest = label.slice(name.length).replace(/^[\s·（(]+|[\s）)]+$/g, '');
-        return token + (rest ? '（' + rest + '）' : '');
+        return token + (rest ? '（' + rest + '）' : '') + tail;
       }
-      return token + ' ' + label;
+      return token + ' ' + label + tail;
     };
     const parts = [];
     const sent = list.filter(x => x.sent);
@@ -1159,10 +1197,10 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
        · note 是一句给界面看的话（带了什么 / 没带什么、为什么）；
        · caps 是三类能力判定（页面拿它决定「视频要不要退成抽帧」这类事）。
      图片仍走 shrink（整图缩小、省 tokens）；音频 / 视频原样读字节。
-     图片条目可带 `mask`（用户在图上画的彩笔掩码 dataURL）：原图发出去之后**紧跟一张掩码图**
-     （`isMask` 标记，走 PNG 不压缩串色），并在原图上打 `hasMask` —— 编号各口（提示词的 图N /
-     附件清单）跳过掩码、只在原图上注明「附彩色掩码」。掩码语义：黑 = 其余部分不动，
-     彩色笔画各标一个要局部编辑 / 重点看的区域，用户在提示词里按颜色点名（「红色那块改成草地」）。 */
+     图片条目可带 `mask`（图上批注导出的编号图 dataURL）：原图发出去之后**紧跟一张图**
+     （`isMask` 标记，走 PNG 不丢硬边与编号），并在原图上打 `hasMask` —— 编号各口（提示词的 图N /
+     附件清单）跳过这一张，只在原图上注明「附编号批注图」。图意：白底红字圆点 = 批注编号，
+     框 / 线 / 箭头 = 区域，黑 = 其余部分不动；每条编号的文案由页面经 annotText 拼进提示词。 */
   async prepareMedia(REG, list, opts) {
     const items = (list || []).filter(x => x && x.src).map(x => {
       const kind = this.MEDIA_KINDS.indexOf(x.kind) >= 0 ? x.kind : 'image';
@@ -1189,9 +1227,9 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
             try { murl = await this.shrink(it.mask, (opts && opts.edge) || 1024, 0.9, 'image/png') || ''; } catch (e) { murl = ''; }
             if (murl) {
               one[0].hasMask = true;
-              media.push({ kind: 'image', label: one[0].label + ' · 掩码', url: murl, isMask: true });
+              media.push({ kind: 'image', label: one[0].label + ' · 编号批注图', url: murl, isMask: true });
             } else {
-              notes.push('图片「' + it.label + '」的掩码没带（读不出来）');
+              notes.push('图片「' + it.label + '」的批注图没带（读不出来）');
             }
           }
         } else notes.push('图片「' + it.label + '」读不出来');
@@ -1233,7 +1271,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
       note: named.length
         ? '已附带 ' + named.length + ' 张素材图供文字 AI 识别：'
           + named.map((x, i) => '图' + (i + 1) + ' = ' + x.label
-            + (x.hasMask ? '（它的下一张图是彩色掩码：各色 = 要局部编辑的区域，黑 = 不动，用户会按颜色点名）' : '')).join('、')
+            + (x.hasMask ? '（它的下一张图是编号批注图：每个编号对应一条批注，白底红字圆点标位置，黑 = 不动）' : '')).join('、')
         : '',
     };
   },

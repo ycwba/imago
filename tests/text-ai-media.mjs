@@ -146,18 +146,18 @@ ok(pm.caps && pm.caps.video && pm.caps.video.ok === false, 'caps 要一起交回
 const legacy = await TextAI.polishImages(null, [], { prov, model: 'm-all' });
 ok(legacy.images.length === 0 && legacy.note === '', '没有图片时旧入口安静返回');
 
-/* ---- ⑥ 图片掩码：原图之后紧跟一张 isMask 部件，原图打 hasMask；编号口跳过掩码 ---- */
+/* ---- ⑥ 图片编号批注图：原图之后紧跟一张 isMask 部件，原图打 hasMask；编号口跳过它 ---- */
 TextAI.shrink = async () => 'data:image/jpeg;base64,AAA';
 const pm2 = await TextAI.prepareMedia(null, [
   { kind: 'image', label: '看图', src: 'a', mask: 'm1' },
   { kind: 'image', label: '没画的', src: 'b' },
 ], { prov, model: 'm-all' });
 ok(pm2.media.length === 3, '原图 + 它的掩码 + 无掩码原图 = 三发：' + pm2.media.length);
-ok(pm2.media[0].hasMask === true && pm2.media[1].isMask === true && /掩码/.test(pm2.media[1].label)
+ok(pm2.media[0].hasMask === true && pm2.media[1].isMask === true && /编号批注图/.test(pm2.media[1].label)
   && !pm2.media[2].hasMask && !pm2.media[2].isMask,
-  '掩码紧跟原图、标记只打在自己与原图上：' + JSON.stringify(pm2.media.map(x => x.label)));
-/* 掩码必须走 PNG：彩色笔迹经 JPEG 会出灰色过渡带，颜色分区被糊掉。
-   （本判据前段已把 prepImages 打桩，原图不经过 shrink，这里只会记到掩码那一次调用。） */
+  '批注图紧跟原图、标记只打在自己与原图上：' + JSON.stringify(pm2.media.map(x => x.label)));
+/* 批注图必须走 PNG：编号与线框硬边经 JPEG 会被糊掉。
+   （本判据前段已把 prepImages 打桩，原图不经过 shrink，这里只会记到批注图那一次调用。） */
 {
   const calls = [];
   const realShrink = TextAI.shrink;
@@ -169,24 +169,42 @@ ok(pm2.media[0].hasMask === true && pm2.media[1].isMask === true && /掩码/.tes
 }
 TextAI.shrink = async () => null;
 const pm4 = await TextAI.prepareMedia(null, [{ kind: 'image', label: '看图', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
-ok(pm4.media.length === 1 && !pm4.media[0].hasMask && /掩码没带/.test(pm4.note), '掩码读不出来时逐条说明，原图照带');
+ok(pm4.media.length === 1 && !pm4.media[0].hasMask && /批注图没带/.test(pm4.note), '批注图读不出来时逐条说明，原图照带');
 TextAI.shrink = async () => 'data:image/jpeg;base64,AAA';
 const pm5 = await TextAI.prepareMedia(null, [{ kind: 'audio', label: '听声', src: 'b', mask: 'm1' }], { prov, model: 'm-all' });
 ok(pm5.media.length === 1 && pm5.media[0].kind === 'audio', '非图片条目不认掩码');
 /* 没显式给 kind 的条目兜底成 image，掩码也要认（归属判定用归一化之后的 kind） */
 const pm6 = await TextAI.prepareMedia(null, [{ label: '没写 kind', src: 'a', mask: 'm1' }], { prov, model: 'm-all' });
 ok(pm6.media.length === 2 && pm6.media[0].hasMask === true && pm6.media[1].isMask === true,
-  '没写 kind 的图片条目兜底成 image 后仍带掩码：' + pm6.media.length);
-/* 旧入口：掩码部件留在 images 里随请求发出，但编号只数素材图、掩码在原图行注明 */
+  '没写 kind 的图片条目兜底成 image 后仍带批注图：' + pm6.media.length);
+/* 旧入口：批注图部件留在 images 里随请求发出，但编号只数素材图、批注图在原图行注明 */
 const pl = await TextAI.polishImages(null, [
   { label: '参考图1', src: 'a', mask: 'm1' },
   { label: '参考图2', src: 'b' },
 ], { prov, model: 'm-all' });
-ok(pl.images.length === 3, '掩码部件留在 images 里（要随请求发出）：' + pl.images.length);
-ok(pl.note.includes('图1 = 参考图1（它的下一张图是彩色掩码') && pl.note.includes('图2 = 参考图2'),
+ok(pl.images.length === 3, '批注图部件留在 images 里（要随请求发出）：' + pl.images.length);
+ok(pl.note.includes('图1 = 参考图1（它的下一张图是编号批注图') && pl.note.includes('图2 = 参考图2'),
   '编号只数素材图：' + pl.note);
-ok(/按颜色点名/.test(pl.note), '编号说明点明「用户会按颜色点名」：' + pl.note);
-ok(!pl.note.includes('图3'), '掩码不占 编号');
+ok(/编号批注图/.test(pl.note) && !/按颜色点名/.test(pl.note), '编号说明换成编号批注语义：' + pl.note);
+ok(!pl.note.includes('图3'), '批注图不占编号');
+
+/* 结构化批注：旧 PNG 包成 legacyMask，新文档归一化；文案把每条编号与文案拼给模型 */
+{
+  const legacy = TextAI.readAnnots('data:image/png;base64,AAA');
+  ok(legacy && legacy.items.length === 0 && legacy.legacyMask === 'data:image/png;base64,AAA',
+    '旧掩码 PNG 只作只读参考层，不伪装成结构化批注');
+  const doc = { v: 1, note: '整体再淡一点', seq: 3, items: [
+    { id: 'k1', n: 1, type: 'box', points: [[0.1, 0.2], [0.3, 0.4]], text: '改成草地' },
+    { id: 'k2', n: 2, type: 'point', points: [[0.5, 0.6]], text: '' },
+  ] };
+  const got = TextAI.readAnnots(doc);
+  ok(got && got.seq === 3 && got.items.length === 2 && got.items[1].text === '',
+    'v1 文档按形状归一化，空文案保留为未填');
+  ok(TextAI.annotText(got) === '编号批注：1=改成草地；2=未填。补充：整体再淡一点',
+    '编号文案拼进提示词：' + TextAI.annotText(got));
+  ok(TextAI.readAnnots({ v: 9, items: [] }) === null && TextAI.annotText(null) === '',
+    '坏形状与空值安静返回，不绊倒润色链路');
+}
 
 /* ---- ⑦ data: 就地解码（页面的 CSP 不放行 fetch('data:…')）----
    拆分镜挑图时每张都定型成 dataURL；`_blob` 若拿它去 fetch，浏览器当场判「连不上」，

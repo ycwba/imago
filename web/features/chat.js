@@ -827,7 +827,10 @@
        不然写盘失败会变成一句接一句的 toast）。 */
     try {
       const r = Store.write(K_FILES, files.map(f => ({ name: f.name,
-        kind: f.kind, txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '' })),
+        kind: f.kind, txt: f.kind === '文本' ? cap(f.txt || '', READ_MAX) : '', note: f.note || '',
+        /* 批注是纯数据 + 一张编号图 PNG，没有 File 句柄，能跟着附件清单一起存。
+           字节本体仍不落盘（blob: 过不了 JSON），刷新后照旧要重新拖。 */
+        annots: f.annots ? { doc: f.annots, png: f.mask || '' } : null })),
         { label: 'AI 助手的附件清单' });
       if (r && r.ok === false && !filesSaveWarned) {
         filesSaveWarned = true;
@@ -849,9 +852,16 @@
       arr = v || [];
     } catch (e) { arr = []; }
     if (!Array.isArray(arr)) arr = [];
-    files = arr.filter(x => x && typeof x === 'object' && x.name).slice(-FILES_MAX).map(x => ({
-      name: String(x.name), size: Number(x.size) || 0, mime: String(x.mime || ''), kind: String(x.kind || '其他'),
-      src: String(x.src || ''), la: '', txt: String(x.txt || ''), note: String(x.note || ''), file: null }));
+    files = arr.filter(x => x && typeof x === 'object' && x.name).slice(-FILES_MAX).map(x => {
+      const raw = x.annots && typeof x.annots === 'object' ? x.annots : null;
+      const docRaw = raw && raw.doc ? raw.doc : raw;
+      const doc = docRaw ? (window.TextAI && TextAI.readAnnots ? TextAI.readAnnots(docRaw) : docRaw) : null;
+      return {
+        name: String(x.name), size: Number(x.size) || 0, mime: String(x.mime || ''), kind: String(x.kind || '其他'),
+        src: String(x.src || ''), la: '', txt: String(x.txt || ''), note: String(x.note || ''),
+        annots: doc, mask: raw && raw.png ? String(raw.png) : '', file: null,
+      };
+    });
   }
   const LOCAL_SRC = /^\/asset\//;
   /* 字节来源：内存里的 File 优先，其次 blob:（附件只活在内存，不落本机资产库），
@@ -916,7 +926,8 @@
     return '【这次附带的文件】\n' + list.map((f, i) =>
       i + ' = ' + f.name + '｜' + f.kind + '｜' + window.fmtBytes(f.size) + '｜'
       + (f.file ? '本次拖进来的 File' : LOCAL_SRC.test(f.src || '') ? f.src : f.txt ? '本机存的文本快照' : '字节已不在，要让人重新拖')
-      + (f.mask ? '｜附彩色掩码（紧随其后那张图：各色 = 要重点看 / 局部编辑的区域，黑 = 不动，用户会按颜色点名）' : '')).join('\n') + '\n\n';
+      + (f.mask ? '｜附编号批注图（紧随其后那张图：白底红字圆点 = 编号，框 / 线 / 箭头 = 区域，黑 = 不动；文案见本条批注）' : '')
+      + (window.TextAI && f.annots && TextAI.annotText ? '｜' + TextAI.annotText(f.annots) : '')).join('\n') + '\n\n';
   }
   /* 随消息附上的素材：图片 / 视频 / 音频**都按当前文字型号的能力声明**决定带不带
      （与工作台润色同一条链路 TextAI.prepareMedia；型号行上的 图 / 音 / 视 小标说了算）。
@@ -936,8 +947,8 @@
       return { media: r.media || [], note: r.note || '' };
     } catch (e) { return { media: [], note: '随附素材这一步没成：' + cap(errText(e), 120) }; }
   }
-  /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画彩笔掩码（随图发给文字 AI 当「重点看的区域」）。
-     掩码只留在内存（saveFiles 的落盘清单不含它），同一轮对话里一直有效。
+  /* 点开一条附件：看图 / 放视频 / 听声音；图片上还能画编号批注（随图发给文字 AI）。
+     批注文档与编号图随附件清单落盘，刷新后还能接着画；字节本体仍只在内存。
      **递进去的必须是地址串**：附件条目上 `file` 是真 File（addFiles 同时给了 blob: 的 `src` / `objUrl`），
      灯箱要的是地址串，直接递 File 会被字符串化成「[object File]」，图必然读不出来。 */
   async function openFileView(f) {
@@ -956,16 +967,19 @@
     if (kind !== 'image' || !window.__spaLoadScript) return;
     const ok = await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask)
       .then(() => !!window.LbMask).catch(() => false);
-    if (ok) LbMask.enter(url => { f.mask = url || ''; paintFiles(); },
-      { existing: f.mask,
-        onExit: () => { if (f.mask && window.LbMask) LbMask.echo(f.mask); } });
+    if (ok) LbMask.enter((url, doc) => {
+      f.mask = url || '';
+      f.annots = doc || null;
+      saveFiles();
+      paintFiles();
+    }, { existing: f.annots || f.mask });
   }
   function paintFiles() {
     if (!el.files) return;
     const readable = f => !!f.file || (f.src || '').startsWith('blob:') || LOCAL_SRC.test(f.src || '') || (f.kind === '文本' && !!f.txt);
     el.files.innerHTML = files.map((f, i) =>
       '<span class="ac-fi' + (f.note || !readable(f) ? ' warn' : '') + '" data-fi="' + i + '" title="' + esc((f.mime || '') + (f.note ? ' · ' + f.note : '') + (readable(f) ? '（点开查看' + (f.kind === '图片' ? ' / 画掩码' : '') + '）' : ' · 字节已不在，要重新拖')) + '">'
-      + esc(f.kind) + '·' + esc(cap(f.name, 18)) + (f.mask ? ' · 已标记' : '')
+      + esc(f.kind) + '·' + esc(cap(f.name, 18)) + ((f.mask || f.annots) ? ' · 已批注' : '')
       + '<button type="button" data-i="' + i + '" title="从这一轮移开">×</button></span>').join('');
     el.files.querySelectorAll('button').forEach(b => { b.onclick = () => dropFile(Number(b.dataset.i)); });
     el.files.querySelectorAll('.ac-fi').forEach(c => {
