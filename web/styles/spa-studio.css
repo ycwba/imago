@@ -108,15 +108,11 @@
   font-size: var(--fs-13); color: var(--sub); }
 .studio-page #result .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--sp-8) var(--sp-16); }
-.studio-page #result .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
+.studio-page #result .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: var(--lh-1-5); }
 .studio-page #result .cdet .det-row .k { flex: 0 0 auto; }
 .studio-page #result .cdet .det-row > span:last-child { color: var(--txt); }
-/* 播放钮的样式在 ui.css 的 .timg.playable 一族（与资产库共用一份）；这一页只剩音频卡的皮 */
-.studio-page #result .timg.sound { background: var(--panel2); justify-content: center; }
-.studio-page #result .timg.sound .tbg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
-  color: var(--line); pointer-events: none; }
-.studio-page #result .timg.sound .tbg svg { width: 46px; height: 46px; }
-.studio-page #result .timg.sound audio { position: relative; z-index: 2; width: 100%; margin-top: var(--sp-16); }
+/* 播放钮的样式在 ui.css 的 .timg.playable 一族（与资产库共用一份）；音频卡缩略图是
+   公共件 Wb.audioPlateHTML 那块 plate--audio 牌（样式也在 ui.css 的 plate 一族），本页无差异 */
 /* 拖拽提示：卡片可拖到左栏当参考素材 */
 .studio-page.wb .col-right #result .task { cursor: grab; }
 .studio-page.wb .col-right #result .task.dragging { opacity: .45; }

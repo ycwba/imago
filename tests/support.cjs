@@ -301,7 +301,7 @@ const LAYER_EXCEPTIONS = [
   { id: 'web/domain/chars.js → PromptForm [ui]', max: 1, why: '配音表单直接驱动 ui 的提示词表单' },
   { id: 'web/domain/local.js → Wb [ui]', max: 3, why: '本机资产层读工作台（徽标/格式化）：徽标判据的唯一实现应是 AssetLocal.stateOf，反过来的引用要断' },
   /* ---- ui 读 domain：公共组件层反过来依赖数据层 ---- */
-  { id: 'web/ui/workbench.js → Api [domain]', max: 30, why: '工作台是任务层，取数全走 Api.mediaSrc/mediaKey/request + cacheGet/cachePut（缩略图持久层搬代理后新增的取放口）：曾经的三个巨型闭包之二，拆「媒体地址」这一小块才收得动' },
+  { id: 'web/ui/workbench.js → Api [domain]', max: 38, why: '工作台是任务层，取数全走 Api.mediaSrc/mediaKey/request + cacheGet/cachePut（缩略图持久层搬代理后新增的取放口）：曾经的三个巨型闭包之二，拆「媒体地址」这一小块才收得动；audioDur 时长探针复用同一份媒体地址与身份键（缩略图缓存键同一把尺）' },
   { id: 'web/ui/workbench.js → AssetLib [domain]', max: 3, why: '历史/详情面板读资产库缓存：与 Api 同批收敛' },
   { id: 'web/ui/workbench.js → AssetLocal [domain]', max: 1, why: '另一个反例：卡片自己拼本机身份。改法是只读 stateOf 的订阅，别在 ui 层算' },
   { id: 'web/ui/workbench.js → PromptLog [domain]', max: 2, why: '卡片详情显示归档提示词，走的是 domain 的读接口：等 workbench 拆薄' },

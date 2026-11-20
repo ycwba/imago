@@ -3014,8 +3014,11 @@ const StudioView = {
           return window.Wb.playableMediaHTML(it.media, { mediaAttrs: 'draggable="false"' });
         }
         if (window.isAudioType(it.mtype) && it.media) {
-          return '<div class="timg sound playable"><span class="tbg">' + icon('mic', 46) + '</span><audio preload="metadata" draggable="false" src="' + window.esc(Api.mediaSrc(it.media)) + '"></audio>'
-            + '<button class="tplay" type="button" title="播放 / 暂停">' + icon('play', 22) + '</button></div>';
+          /* 与资产库同一副（Wb.audioPlateHTML）：格式名 + 时长徽标。时长优先探针缓存里的
+             真实值，条目记过的（分句配音 / 背景音乐的设定时长）先垫上，探到再修正；
+             都没有就先空着，bindCard 里的探针探到自动填。 */
+          return Wb.audioPlateHTML({ ext: window.fileExtOf(it),
+            duration: Wb.audioDur.secondsOf(it.media) || Number(it.durationSec) || Number(it.dur) || 0 });
         }
         if (it.media) return '<div class="timg">' + Wb.thumbs.mediaHTML(it.media, { type: 'image', mediaAttrs: 'loading="lazy" draggable="false" title="点一下看大图"' }) + '</div>';
         if (it.mtype) return '<div class="timg">' + icon(KIND_TAG[it.mtype] || 'image', 24) + '</div>';
@@ -3036,7 +3039,9 @@ const StudioView = {
         const run = running(it), cxProv = run ? provById(it.provider) : null;
         const canCx = run && window.Api.canCancel(cxProv);
         const meta = [provLabelFor(it), it.model, it.tier, it.res, it.ar,
-          it.dur != null && it.dur !== '' ? it.dur + 's' : '', it.voice ? '音色 ' + it.voice : '',
+          (it.dur != null && it.dur !== '' ? it.dur + 's'
+            : (window.isAudioType(it.mtype) && it.durationSec ? it.durationSec + 's' : '')),
+          it.voice ? '音色 ' + it.voice : '',
           it.format ? String(it.format).toUpperCase() : '',
           it.size ? Wb.fmtSize(it.size) : '',
           it.priceText ? '费用 ' + it.priceText : '', it.usageText || ''].filter(Boolean).join(' · ');
@@ -3075,8 +3080,9 @@ const StudioView = {
         /* 重画回来的卡带着 is-band 类：新画的按钮默认是「展开详情」，照类名对齐一次。 */
         window.Wb.expand.sync(d);
         const imgWrap = d.querySelector('.timg');
-        /* 点画面本体进灯箱（视频也是）：先停掉卡里那份，别跟灯箱双声道；左下角那颗才是就地播放。 */
-        if (imgWrap && !imgWrap.querySelector('audio')) {
+        /* 点画面本体进灯箱（视频 / 音频同一份公共灯箱，音频条目渲染成全屏播放器）：
+           先停掉卡里那份，别跟灯箱双声道；左下角那颗才是就地播放。 */
+        if (imgWrap) {
           imgWrap.onclick = () => {
             const v = imgWrap.querySelector('video');
             if (v && !v.paused) v.pause();
@@ -3087,6 +3093,9 @@ const StudioView = {
         const wrap = imgWrap;
         const media = wrap ? wrap.querySelector('video[data-src], video[src], img') : null;
         if (wrap && media) Wb.thumbs.bind(wrap, media, it.media || '');
+        /* 音频牌时长：条目没记（设计音色 / 同步 TTS 那几路都没有）就从元数据现探一次，
+           探到由公共件自动填进牌（缓存按素材身份，换页回来不用重探）。 */
+        if (wrap && window.isAudioType(it.mtype) && it.media) Wb.audioDur.probe(it.media, wrap);
         d.draggable = true;
         d.addEventListener('dragstart', e => {
           /* 按钮 / 输入框上起手不算引用（与资产库同一道闸）：卡里还有「播放 / 展开 / 收藏」这些
@@ -3387,7 +3396,11 @@ const StudioView = {
         kindOf: it => window.mediaKindOf(it.mtype),
         info: (it, el) => [
           provLabelFor(it), it.model,
-          it.dur ? it.dur + 's' : '', it.ar, it.voice ? '音色 ' + it.voice : '',
+          /* 音频条目没有 dur 字段：真实时长等元数据到点（show() 里 loadedmetadata 会重算一次） */
+          (it.dur != null && it.dur !== '' ? it.dur + 's'
+            : (el && el.tagName === 'AUDIO' && Number.isFinite(el.duration) && el.duration > 0
+              ? (Math.round(el.duration * 10) / 10) + 's' : '')),
+          it.ar, it.voice ? '音色 ' + it.voice : '',
           (el && el.videoWidth) ? el.videoWidth + '×' + el.videoHeight + 'px' : '',
           Wb.mediaSize(it.media).then(n => (n ? Wb.fmtSize(n) : '')),
         ],

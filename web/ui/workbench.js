@@ -2242,6 +2242,63 @@
       ['play', 'pause', 'ended'].forEach(ev => media.addEventListener(ev, () => setState(ev === 'play')));
       setState(false);
     },
+    /* ---------- 音频卡缩略图（资产库 / 工作台共用一副） ----------
+       音频没有画面，缩略图槽里铺一块 `plate--audio` 牌：格式名（WAV / MP3）+ 时长徽标。
+       两页各写一份迟早漂开（工作台那一份是话筒图标深底块，用户点名要跟资产库一致），
+       所以画法只有这一份；时长读法也只有 audioDur 一份（见下）。 */
+    audioPlateHTML(o) {
+      const oo = o || {};
+      const dur = Number(oo.duration);
+      return '<div class="timg"><span class="plate plate--audio"><span class="plate-st">'
+        + esc(String(oo.ext || '').toUpperCase() || '音频') + '</span>'
+        + (dur > 0 ? '<span class="plate-t">' + esc((Math.round(dur * 10) / 10) + 's') + '</span>' : '')
+        + '</span></div>';
+    },
+    /* 音频的真实时长：条目字段里常常没有（本机索引 / 平台列表都不记音频时长），
+       从媒体元数据现探一次 —— Audio preload=metadata 只拉文件头，本机 /asset/ 几乎瞬时。
+       缓存键与缩略图同一份身份（Api.mediaKey，剥签名），探过一次全站都有；
+       探到就自动填进 wrap 里那块 `plate--audio`（没有徽标节点就补一个），
+       页面不用自己管「探完重画」。探不出（断链 / 超时 10 秒）缓存 0，不再重探。 */
+    audioDur: {
+      _map: new Map(),
+      _jobs: new Map(),
+      secondsOf(src) {
+        const key = (window.Api && Api.mediaKey) ? Api.mediaKey(src) : String(src || '');
+        return this._map.get(key) || 0;
+      },
+      probe(src, wrap, onGot) {
+        const key = (window.Api && Api.mediaKey) ? Api.mediaKey(src) : String(src || '');
+        const fillBadge = v => {
+          if (!v) return;
+          const plate = wrap && wrap.querySelector && wrap.querySelector('.plate--audio');
+          if (!plate) return;
+          let t = plate.querySelector('.plate-t');
+          if (!t) { t = document.createElement('span'); t.className = 'plate-t'; plate.appendChild(t); }
+          t.textContent = (Math.round(v * 10) / 10) + 's';
+          if (onGot) onGot(v);
+        };
+        if (this._map.has(key)) { fillBadge(this._map.get(key)); return; }
+        if (this._jobs.has(key)) { this._jobs.get(key).then(fillBadge).catch(() => {}); return; }
+        const p = new Promise(resolve => {
+          const a = document.createElement('audio');
+          a.preload = 'metadata';
+          let done = false;
+          const done1 = v => {
+            if (done) return;
+            done = true;
+            this._map.set(key, v || 0);
+            resolve(v || 0);
+            try { a.removeAttribute('src'); a.load(); } catch (e) {}
+          };
+          a.onloadedmetadata = () => done1(Number.isFinite(a.duration) ? Number(a.duration) : 0);
+          a.onerror = () => done1(0);
+          setTimeout(() => done1(0), 10000);
+          a.src = (window.Api && Api.mediaSrc) ? Api.mediaSrc(src) : String(src || '');
+        });
+        this._jobs.set(key, p.finally(() => this._jobs.delete(key)));
+        p.then(fillBadge).catch(() => {});
+      },
+    },
     taskHTML(o) {
       const err = String(o.error || '');
       return o.mediaHTML + '<div class="tmain">'

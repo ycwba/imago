@@ -581,9 +581,9 @@ export default {
            右下角才是全屏入口 —— 点封面本身不再开灯箱。 */
         media = window.Wb.playableMediaHTML(a.src, { mediaAttrs: 'draggable="false"' });
       } else if (window.isAudioType(a.type)) {
-        media = '<div class="timg"><span class="plate plate--audio"><span class="plate-st">'
-          + window.esc(window.fileExtOf(a).toUpperCase() || '音频') + '</span>'
-          + (a.duration ? '<span class="plate-t">' + window.esc(a.duration) + 's</span>' : '') + '</span></div>';
+        /* 音频牌画法只有一份（Wb.audioPlateHTML，工作台右栏同一副）；时长没有条目值的
+           靠 bindCardThumb 里的探针补（探到自动填进牌）。 */
+        media = window.Wb.audioPlateHTML({ ext: window.fileExtOf(a), duration: Number(a.duration) || 0 });
       } else {
         media = '<div class="timg">' + window.Wb.thumbs.mediaHTML(window.Api.mediaSrc(a.src), {
           type: 'image',
@@ -619,6 +619,10 @@ export default {
       if (media) window.Wb.thumbs.bind(wrap, media, a.src || '');
       /* 左下角那颗就地播放；点封面本体进灯箱（thumb.onclick 接）。 */
       window.Wb.bindCardPlay(wrap);
+      /* 音频牌时长：条目没记（本机索引 / 平台列表都不记音频时长）就从元数据现探一次。 */
+      if (window.isAudioType(a.type) && a.src && !a.duration) {
+        window.Wb.audioDur.probe(a.src, wrap);
+      }
     }
 
     /* ---------- 详情：就地展开，不另起一层 ----------
