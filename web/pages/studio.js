@@ -327,8 +327,12 @@ const StudioView = {
         it.annots = doc || null;
         it.mask = rec.png || it.mask || '';
       }
-      /* 刷新后先把「有稳定来源」的批注条目放回图片槽；没有本机身份的（blob:）放回也没图可看。 */
+      /* 刷新后先把「有稳定来源」的批注条目放回图片槽；没有本机身份的（blob:）放回也没图可看。
+         这里必须在 boot() 定下 TYPE 之后才调：cur() = ST[TYPE]，TYPE 还是 '' 时 ST[''] 是 undefined，
+         读 .inputs 会抛错并把整段启动打断（后面 const syncPromptBack / window.setType 全没定义，
+         用户一点击类型按钮就在 setType 里撞暂时性死区）。调用点已挪进 boot()，这里再多挡一层。 */
       function restoreAnnotatedSlots() {
+        if (!TYPE || !TYPES[TYPE]) return;
         const box = cur().inputs.image || (cur().inputs.image = []);
         Object.keys(annotsAll()).forEach(k => {
           const rec = annotsAll()[k];
@@ -342,7 +346,8 @@ const StudioView = {
             size: Number(e.size) || 0, fromLib: !!e.fromLib, annots: doc, mask: rec.png || '' });
         });
       }
-      restoreAnnotatedSlots();
+      /* 批注回填不在顶层调用：此处 TYPE 还是 ''，cur() 取不到 ST，调用会打断启动。
+         真正的调用点在 boot() 里、TYPE 定下之后（见下）。 */
 
       /* ============================ ③ 注册表与型号 ============================ */
       const groups = () => Api.pickable((REG.providers || []).filter(p => p.kind === TYPES[TYPE].provKind));
@@ -3912,6 +3917,9 @@ const StudioView = {
       async function boot() {
         TYPE = readTypeFromURL() || readLS('studio_type', '') || 'video';
         if (!TYPES[TYPE]) TYPE = 'video';
+        /* 批注回填要读 cur() = ST[TYPE]，必须在 TYPE 定下之后；放 runPage 顶层会在类型
+           还没定时读 ST[''].inputs 抛错，整段启动中断，那才是那个 TDZ 报错的真正起点。 */
+        restoreAnnotatedSlots();
         const picks = loadPicks();
         /* 型号与提示词都按类型各备一份：型号记在 studio_pick，提示词记 studio_prompt_<type>。 */
         TYPE_LIST.forEach(t => { ST[t].prompt = readLS('studio_prompt_' + t, ''); });

@@ -49,11 +49,36 @@ const measure = page => page.eval(() => {
     browser = await h.launchBrowser();
     page = await browser.newPage();
     await page.skipDataSyncBoot();
+    /* ── ⓪ 启动回归（挡「批注图重构」那次启动崩溃的回归）：
+       那次把 restoreAnnotatedSlots() 放在 runPage 顶层，TYPE 还没定就读 cur().inputs 抛错，
+       整段启动被打断，const syncPromptBack / window.setType 全没定义；用户点类型按钮才在
+       setType 里撞 TDZ。这里先预置一条带稳定 https 来源的批注，让回填路径真的走到，再盯：
+         · page.errors 里没有「before initialization / reading 'inputs'」这类启动异常；
+         · window.setType / window.__studioRepaint 都挂上了（没挂 = runPage 中途抛错）。 */
+    await page.addInitScript(() => {
+      const doc = { v: 1, note: '', seq: 2, items: [
+        { id: 'k1', n: 1, type: 'point', points: [[0.5, 0.5]], text: '启动回归' },
+      ] };
+      const entry = { name: '回填探针.png', type: '图片', src: 'https://boot-probe.local/seed.png',
+        url: '', assetId: '', la: '', size: 0, fromLib: false };
+      localStorage.setItem('studio_annots', JSON.stringify({ ts: Date.now(),
+        data: { 'https://boot-probe.local/seed.png': { doc, png: '', name: '回填探针.png', at: Date.now(), entry } } }));
+    });
     /* ── ① 高窗 + 内容短：按钮也得贴着栏底（不被内容留在半空） ─────────── */
     await page.setSize(1440, 980);
     await page.goto(proxy.base + '/shell.html#studio.html');
     await page.waitFor(() => !!document.querySelector('.studio-page .wb-dock'), 30000, 100);
     await sleep(900);
+
+    const boot = await page.eval(() => ({
+      setType: typeof window.setType,
+      repaint: typeof window.__studioRepaint,
+    }));
+    const fatal = (page.errors || []).filter(x => /before initialization|reading 'inputs'|restoreAnnotatedSlots|syncPromptBack/.test(x));
+    must(fatal.length === 0,
+      '启动期不该有 TDZ / inputs 崩溃（用户实机那个 ReferenceError 就是它）：' + fatal.join(' | '));
+    must(boot.setType === 'function' && boot.repaint === 'function',
+      '启动完整跑完 window.setType / __studioRepaint 该都挂上（没挂 = runPage 中途抛错）：' + JSON.stringify(boot));
 
     const m0 = await measure(page);
     must(m0.hasBody && m0.hasDock && m0.dockLast,
@@ -120,7 +145,7 @@ const measure = page => page.eval(() => {
 
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 工作台左栏：正文一段滚 · 生成区钉在栏底（内容长短都贴底）· 换类型不丢 · 单列时 sticky 贴视口底');
+    console.log('✓ 工作台左栏：正文一段滚 · 生成区钉在栏底（内容长短都贴底）· 换类型不丢 · 单列时 sticky 贴视口底 · 带批注启动零崩溃');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}
