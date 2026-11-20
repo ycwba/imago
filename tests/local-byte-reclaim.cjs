@@ -137,12 +137,12 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
 (async () => {
   /* ① 先把现实搭出来：盘上有一份字节、账里只有一条「磁盘对账补的裸行」（没有来源地址、没有平台号）。 */
   fs.writeFileSync(path.join(assets, '图片', '本机那一份.png'), B_A);
-  store.localAdopt(true);
+  await store.localAdopt(true);
   const bare = store.localIndexRead().find(x => x && x.adopted === true);
   ok('磁盘对账补出一条裸行', !!bare && !String(bare.upstream || '').trim() && !bare.detail, JSON.stringify(bare && { id: bare.id, upstream: bare.upstream, detail: bare.detail }));
   ok('裸行带得上采样签名（按字节认回靠它）', bare && /^\d+:[0-9a-f]{16}$/.test(String(bare.sig)), bare && bare.sig);
   ok('按平台产物号查不到它 —— 这就是「文件在盘上却加载不出来」',
-    store.localEntryByPlatformId('asset_81575') === null && store.localEntryByUpstream(UP_A) === null, '');
+    await store.localEntryByPlatformId('asset_81575') === null && await store.localEntryByUpstream(UP_A) === null, '');
 
   /* ② 用户在那张坏卡上点一次「存回本机」：字节取回来、签名对上 → 身份补写到已有那一行。 */
   BY_URL.set(UP_A, B_A);
@@ -162,11 +162,11 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   ok('认回不动落点（file 还是那一个）', row && row.file === bare.file && /^图片[\\/]/.test(String(row.file)), row && row.file);
 
   /* ③ 认回之后地址层必须真的能指到字节：这是「卡片从破图变回图」那一步。 */
-  const byAid = store.localEntryByPlatformId('asset_81575');
+  const byAid = await store.localEntryByPlatformId('asset_81575');
   ok('按平台产物号现在认得出本机那一份', byAid && byAid.ent.id === bare.id && fs.existsSync(byAid.file),
     JSON.stringify(byAid && byAid.ent.id));
-  ok('签名参数换了也算同一个来源', (() => {
-    const e = store.localEntryByUpstream(UP_A.replace('Signature=old', 'Signature=brand-new'));
+  ok('签名参数换了也算同一个来源', await (async () => {
+    const e = await store.localEntryByUpstream(UP_A.replace('Signature=old', 'Signature=brand-new'));
     return !!e && e.ent.id === bare.id;
   })(), '');
 
@@ -187,7 +187,7 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   /* ⑥ 已经有平台号的那一行不许被盖掉：同内容的另一份产物不是同一件事，接错比不接更糟。 */
   fs.writeFileSync(path.join(assets, '图片', '别人才是这一份.png'), B_C);
   store.invalidateScan();
-  store.localAdopt(true);
+  await store.localAdopt(true);
   const owned = store.localIndexRead().find(x => x && String(x.file || '').includes('别人才是这一份'));
   ok('又补出一条同内容参照行', !!owned && owned.adopted === true, '');
   store.localIndexUpsert(Object.assign({}, owned, { detail: { asset: 'asset_belongs_to_other' } }));
@@ -222,12 +222,12 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
     });
   };
   const fresh = mkFresh('data-fresh');
-  const byOldId = String(fresh.localAssetFile('la_portable1') || '');
+  const byOldId = String(await fresh.localAssetFile('la_portable1') || '');
   ok('账全空、只留文件时，`/asset/<旧号>` 一问就按名认回同一枚号',
     !!byOldId && fs.existsSync(byOldId) && fs.readFileSync(byOldId).equals(B_PORT), byOldId);
   ok('补建出来的那一行用的就是旧号', !!(fresh.localIndexRead().find(x => x && x.id === 'la_portable1')), '');
   const adopted = mkFresh('data-adopted');
-  adopted.localAdopt(true);
+  await adopted.localAdopt(true);
   const adoptedRow = adopted.localIndexRead().find(x => x && x.id === 'la_portable1');
   ok('启动磁盘对账也复原旧号（不重新铸号）', !!adoptedRow && fs.existsSync(path.join(assets, adoptedRow.file)),
     adoptedRow && adoptedRow.file);
@@ -236,19 +236,19 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   /* ⑧ 老文件（没有尾标、还被改过名）：项目文件带的线索照样把旧号认回盘上那一份。 */
   const B_OLD = bytesOf(72);
   fs.writeFileSync(path.join(assets, '图片', '被用户改过名的旧素材.png'), B_OLD);
-  const rb = fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png',
+  const rb = await fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png',
     file: path.join('图片', '被用户改过名的旧素材.png'), bytes: B_OLD.length,
     format: 'png', assetId: 'asset_old_pc', taskId: 'job_old_pc',
     upstream: 'https://cdn.example.com/results/old_pc.png?sig=1' }]);
   ok('重绑回执给回旧号那一行', rb.bound === 1 && rb.rows[0] && rb.rows[0].id === 'la_from_old_pc',
     JSON.stringify(rb));
   ok('重绑只写账、不复制字节', bodies().filter(p => /被用户改过名的旧素材/.test(p)).length === 1, '');
-  ok('按旧号就取得到字节', fs.existsSync(String(fresh.localAssetFile('la_from_old_pc'))), '');
+  ok('按旧号就取得到字节', fs.existsSync(String(await fresh.localAssetFile('la_from_old_pc'))), '');
   const oldRow = fresh.localIndexRead().find(x => x && x.id === 'la_from_old_pc');
   ok('平台身份一并补进账', oldRow && oldRow.assetId === 'asset_old_pc' && /old_pc\.png/.test(String(oldRow.upstream)),
     JSON.stringify(oldRow && { assetId: oldRow.assetId, upstream: oldRow.upstream }));
-  ok('重绑端点同一批线索（走路由那层也算）', (() => {
-    const r = fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png' }]);
+  ok('重绑端点同一批线索（走路由那层也算）', await (async () => {
+    const r = await fresh.rebindBodies([{ id: 'la_from_old_pc', name: '旧机器那段.png' }]);
     return r.bound === 1 && r.rows[0].id === 'la_from_old_pc';
   })(), '');
 
@@ -279,10 +279,10 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   const B_RE = bytesOf(77);
   fs.writeFileSync(path.join(assets, '图片', '重做候选__la_redo1.png'), B_RE);
   store.invalidateScan();
-  const noSize = store.adoptBodyByHint({ name: '重做候选.png', format: 'png',
+  const noSize = await store.adoptBodyByHint({ name: '重做候选.png', format: 'png',
     upstream: 'https://cdn.example.com/results/redo1.png', requirePortable: true });
   ok('只给名字不给字节数：不认盘', noSize === null, JSON.stringify(noSize && noSize.row));
-  const withSize = store.adoptBodyByHint({ name: '重做候选.png', format: 'png', bytes: B_RE.length,
+  const withSize = await store.adoptBodyByHint({ name: '重做候选.png', format: 'png', bytes: B_RE.length,
     upstream: 'https://cdn.example.com/results/redo1.png', requirePortable: true });
   ok('名字 + 字节数两条线索齐了才认', !!withSize && withSize.row.id === 'la_redo1',
     JSON.stringify(withSize && withSize.row));
@@ -297,9 +297,9 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   fresh.localIndexUpsert({ id: 'la_outside', file: outsideFile, name: '库根外面这一份.png',
     format: 'png', mime: 'image/png', byte_length: B_OUT.length, media_type: '图片',
     created_at: new Date().toISOString(), provider: 'local' });
-  ok('库根外面的账行取不到字节', String(fresh.localAssetFile('la_outside') || '') === '', '');
-  ok('别名表不把它报成「本机有」', !fresh.localAliases().rows.some(x => x && x.id === 'la_outside'), '');
-  const rbOut = fresh.rebindBodies([{ id: 'la_outside2', file: outsideFile,
+  ok('库根外面的账行取不到字节', String(await fresh.localAssetFile('la_outside') || '') === '', '');
+  ok('别名表不把它报成「本机有」', !(await fresh.localAliases()).rows.some(x => x && x.id === 'la_outside'), '');
+  const rbOut = await fresh.rebindBodies([{ id: 'la_outside2', file: outsideFile,
     name: '库根外面这一份.png', bytes: B_OUT.length }]);
   ok('重绑线索指到库根外面也不认', rbOut.bound === 0, JSON.stringify(rbOut.rows));
 
@@ -352,7 +352,7 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   const keepBytes = bytesOf(78);
   fs.writeFileSync(path.join(assets, '图片', '保留来源__la_keep1.png'), keepBytes);
   store.invalidateScan();
-  const kept = store.localAssetRepair('la_keep1');
+  const kept = await store.localAssetRepair('la_keep1');
   ok('同号旧行被认回', !!kept && kept.id === 'la_keep1', JSON.stringify(kept && kept.id));
   ok('旧行的来源外链没被抹掉', kept && kept.upstream === 'https://keep.example.com/a.png?sig=1', kept && kept.upstream);
   ok('落点换成了盘上这一份', kept && /保留来源__la_keep1\.png$/.test(String(kept.file)), kept && kept.file);
@@ -363,7 +363,7 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
     mime: 'image/png', format: 'png', byte_length: 3, upstream: '', provider: 'local' });
   store.invalidateScan();
   const rowsBefore = store.localIndexRead().length;
-  const conflict = store.localAssetRepair('la_conflict');
+  const conflict = await store.localAssetRepair('la_conflict');
   ok('同一份文件不补第二条账', store.localIndexRead().length === rowsBefore, rowsBefore + ' → ' + store.localIndexRead().length);
   ok('旧号挂成别名指回已有那一行', !!conflict && conflict.id === 'la_owner_row'
     && Array.isArray(conflict.aliasIds) && conflict.aliasIds.includes('la_conflict'),
@@ -389,7 +389,7 @@ const UP_C = 'https://cdn.example.com/results/out_c.png?Expires=1&Signature=x';
   fs.writeFileSync(path.join(assets2, '图片', '第一条__la_cap1.png'), bytesOf(81));
   fs.writeFileSync(path.join(assets2, '图片', '第二条__la_cap2.png'), bytesOf(82));
   capped.invalidateScan();
-  const capOut = capped.rebindBodies([
+  const capOut = await capped.rebindBodies([
     { id: 'la_cap1', name: '第一条.png', bytes: bytesOf(81).length },
     { id: 'la_cap2', name: '第二条.png', bytes: bytesOf(82).length },
   ]);

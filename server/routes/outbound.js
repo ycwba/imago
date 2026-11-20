@@ -13,26 +13,29 @@ function createOutboundRoutes(ctx) {
   } = ctx;
 
   /* /getv 与 /fetch 上「这条外链的本机副本」：只解出目标地址去问本机账，
-     出站那一套（护栏、超时、代理）仍走 takeOutboundUrl。 */
+     出站那一套（护栏、超时、代理）仍走 takeOutboundUrl。
+     认回走的是账 + 盘对账那一条 async 链（server/local-assets-store.js），
+     所以这两个助手也是 async；上游失败后的回退闭包要保持**同步**（挂在响应回调里），
+     因此命中在请求开头就问好一次，闭包只消费那份现成的结果。 */
   function innerOf(rawUrl, prefix) {
     let raw = String(rawUrl || '').slice(prefix.length);
     const amp = raw.indexOf('&');
     if (amp >= 0) raw = raw.slice(0, amp);
     try { return decodeURIComponent(raw); } catch (e) { return raw; }
   }
-  function localHitOf(rawUrl, prefix) {
+  async function localHitOf(rawUrl, prefix) {
     if (!localEntryByUpstream) return null;
     return localEntryByUpstream(innerOf(rawUrl, prefix));
   }
   /* 云端这一条刚失败过、本机有副本：接下来一分钟同一地址直接发本机。
-     没有这一格，播放与拖进度那一串 Range 会每条都先去撞一次 403 / 一次 DNS 失败。 */
+     没有这一格，播放与拖进度那一串 Range 会每条都先去撞一次 403 / 一次 DNS 失败。
+     hit 是调用方在请求开头问好的那一次账查询结果（快路命中直接用，不重查）。 */
   const localRoute = new Map();     // 目标地址 → 到期时刻
   const LOCAL_ROUTE_TTL = 60 * 1000;
-  function cachedLocal(rawUrl, prefix) {
+  async function cachedLocal(rawUrl, prefix, hit) {
     const url = innerOf(rawUrl, prefix);
     const until = url ? (localRoute.get(url) || 0) : 0;
     if (!(until > Date.now())) return null;
-    const hit = localHitOf(rawUrl, prefix);
     if (hit) return hit;
     localRoute.delete(url);         // 本机那份也没了：回到正常那条路
     return null;
@@ -106,18 +109,18 @@ function createOutboundRoutes(ctx) {
       if (!m) { res.writeHead(400); res.end('bad id'); return; }
       const q = new URL(req.url, 'http://x').searchParams;
       let localEnt = localAssetEntry(m[1]);
-      let localF = localFileFromEntry(localEnt);
+      let localF = await localFileFromEntry(localEnt);
       /* 索引里没有（被挤出上限）或文件被删：这是「真要取这一份」的入口，才做一次补建。
          普通读路径不补建 —— 那会让每个不存在的 id 都扫一遍库根（轮询会放大）。 */
       if (!localF) {
-        const repaired = localAssetRepair(m[1]);
-        if (repaired) { localEnt = repaired; localF = localFileFromEntry(repaired); }
+        const repaired = await localAssetRepair(m[1]);
+        if (repaired) { localEnt = repaired; localF = await localFileFromEntry(repaired); }
       }
       /* 号是平台产物号（/asset/<assetId>）时，本机账里也认得出这一份 —— 落盘那一条记着 detail.asset。
          平台把资产清掉之后读资产信息接口只会 404，而本机这一份明明还在；
          这一跳把它当「本机优先」的那一份直接给出去。 */
       if (!localF && localEntryByPlatformId) {
-        const hit = localEntryByPlatformId(m[1]);
+        const hit = await localEntryByPlatformId(m[1]);
         if (hit) { localEnt = hit.ent; localF = hit.file; }
       }
       if (localF) { serveLocalFile(req, res, localF, q, localEnt); return; }
@@ -162,18 +165,19 @@ function createOutboundRoutes(ctx) {
     if (req.url.startsWith('/fetch?url=')) {
       // 素材下载通道：把任意 https 图片经本地代理取回，绕过浏览器跨域限制（网络瞬断自动重试 2 次）
       const q = new URL(req.url, 'http://x').searchParams;
-      const cached = cachedLocal(req.url, '/fetch?url=');
+      /* 本机那一份在请求开头就问好（一次账查询）：60 秒快路用它当场发本机；
+         云端失败后的回退闭包消费同一份结果 —— 闭包自己必须保持同步（挂在响应回调里）。 */
+      const localHit = await localHitOf(req.url, '/fetch?url=');
+      const cached = await cachedLocal(req.url, '/fetch?url=', localHit);
       if (cached) { serveLocalFile(req, res, cached.file, q, cached.ent); return; }
       /* 云端那份取不到（签名过期 / 平台上被清理 / 域名都解析不了）而这份产物的字节本机存过
          → 发本机那份。只在云端失败之后顶上来：「优先用本机文件」是页面上的开关，
          代理不在云端正常时替用户换源。 */
       const localFallback = () => {
-        if (res.headersSent) return false;
-        const hit = localHitOf(req.url, '/fetch?url=');
-        if (!hit) return false;
-        log(`  → ${hit.ent.upstream || ''} 取不到，退回本机 ${hit.ent.id}`);
+        if (res.headersSent || !localHit) return false;
+        log(`  → ${localHit.ent.upstream || ''} 取不到，退回本机 ${localHit.ent.id}`);
         markLocal(req.url, '/fetch?url=');
-        serveLocalFile(req, res, hit.file, q, hit.ent);
+        serveLocalFile(req, res, localHit.file, q, localHit.ent);
         return true;
       };
       const target = await takeOutboundUrl(req, res, '/fetch?url=', 'fetch', localFallback);
@@ -201,17 +205,16 @@ function createOutboundRoutes(ctx) {
       // 页面里的播放、抽帧（canvas 需要同源）、体积探测、下载都走它（见 README「统一路由（硬性约定）」），
       // 所以上游签名地址不会出现在任何 src 里。
       const q = new URL(req.url, 'http://x').searchParams;
-      const cached = cachedLocal(req.url, '/getv?url=');
+      const localHit = await localHitOf(req.url, '/getv?url=');
+      const cached = await cachedLocal(req.url, '/getv?url=', localHit);
       if (cached) { serveLocalFile(req, res, cached.file, q, cached.ent); return; }
       /* 云端那份 4xx/5xx 或连不上时退回本机那一份（与 /fetch 同一条判据与同一条立场）：
          平台把资产清掉之后，本机存过的产物不该跟着变成一张破图。 */
       const localFallback = () => {
-        if (res.headersSent) return false;
-        const hit = localHitOf(req.url, '/getv?url=');
-        if (!hit) return false;
-        log(`  → ${hit.ent.upstream || ''} 取不到，退回本机 ${hit.ent.id}`);
+        if (res.headersSent || !localHit) return false;
+        log(`  → ${localHit.ent.upstream || ''} 取不到，退回本机 ${localHit.ent.id}`);
         markLocal(req.url, '/getv?url=');
-        serveLocalFile(req, res, hit.file, q, hit.ent);
+        serveLocalFile(req, res, localHit.file, q, localHit.ent);
         return true;
       };
       const target = await takeOutboundUrl(req, res, '/getv?url=', 'getv', localFallback);

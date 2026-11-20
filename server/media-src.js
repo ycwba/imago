@@ -72,23 +72,24 @@ function createMediaSrc(deps) {
     });
   }
   /* 这条外链的字节本机存过 → 交本机资产地址（导出、ASR、补存都走「本机优先」）。
-     云端签名过期 / 平台上被清理之后，外链下载必然失败，而库根里的那一份还在。 */
-  const localOfUrl = u => {
-    const hit = localEntryByUpstream ? localEntryByUpstream(u) : null;
+     云端签名过期 / 平台上被清理之后，外链下载必然失败，而库根里的那一份还在。
+     认回那一条链是 async 的（见 local-assets-store.js），所以这里也 await。 */
+  const localOfUrl = async u => {
+    const hit = localEntryByUpstream ? await localEntryByUpstream(u) : null;
     return hit ? `http://127.0.0.1:${PORT}/asset/${hit.ent.id}` : '';
   };
   async function resolveSrc(src, reqKey) {
     const s = String(src || '');
     if (/^https?:\/\//i.test(s)) {
-      const local = localOfUrl(s);
+      const local = await localOfUrl(s);
       if (local) return local;
       try { return await guardOutboundUrl(s); }
       catch (e) { throw new Error('素材地址不允许：' + e.message + '（' + s.slice(0, 100) + '）'); }
     }
     const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(s);
     if (m) {
-      if (localAssetFile(m[1])) return `http://127.0.0.1:${PORT}/asset/${m[1]}`;
-      const hit = localEntryByPlatformId ? localEntryByPlatformId(m[1]) : null;
+      if (await localAssetFile(m[1])) return `http://127.0.0.1:${PORT}/asset/${m[1]}`;
+      const hit = localEntryByPlatformId ? await localEntryByPlatformId(m[1]) : null;
       if (hit) return `http://127.0.0.1:${PORT}/asset/${hit.ent.id}`;
       const key = reqKey || (assetStore ? keyOf(assetStore.keyEnv) : '');
       const info = await assetInfoOf(m[1], key);
@@ -98,7 +99,7 @@ function createMediaSrc(deps) {
     if (gv) {
       const inner = safeDecode(gv[1]);
       if (/^https?:\/\//i.test(inner)) {
-        const local = localOfUrl(inner);
+        const local = await localOfUrl(inner);
         if (local) return local;
         try { return await guardOutboundUrl(inner); }
         catch (e) { throw new Error('素材地址不允许：' + e.message + '（' + inner.slice(0, 100) + '）'); }

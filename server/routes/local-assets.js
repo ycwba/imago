@@ -99,7 +99,7 @@ function createLocalAssets(ctx) {
         if (recName && recFmt && isMediaExt(recFmt) && (recUp || ident.assetId || ident.taskId)) {
           let got = null;
           try {
-            got = adoptBodyByHint({
+            got = await adoptBodyByHint({
               name: recName, format: recFmt, upstream: recUp,
               assetId: ident.assetId, taskId: ident.taskId,
               detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null,
@@ -149,7 +149,7 @@ function createLocalAssets(ctx) {
             /* 账里有同来源的一行，但**文件已经不在了**（用户手动删过 / 盘满只剩账）：
                不能回 reused —— 前端会拿到一个 404，而且以为存过了、再也不会重下。
                这种情况照常落一份新的，**沿用原号**，旧工程里的 /asset/<id> 继续有效。 */
-            if (twin && localFileFromEntry(twin)) {
+            if (twin && await localFileFromEntry(twin)) {
               fillAndSave(twin, { prompt: meta.prompt || '', model: meta.model || '',
                 voice: meta.voice || '', priceText: meta.priceText || '', duration: meta.duration ?? null,
                 credits: meta.credits ?? null, chars: meta.chars != null ? Number(meta.chars) : (meta.prompt ? String(meta.prompt).length : null),
@@ -170,7 +170,7 @@ function createLocalAssets(ctx) {
             let place = null;
             try {
               if (localId) {
-                const src = localAssetFile(localId);
+                const src = await localAssetFile(localId);
                 if (!src) throw new Error('本机资产 ' + localId + ' 的文件已经不在了');
                 fs.copyFileSync(src, tmp);
                 size = fs.statSync(tmp).size;
@@ -184,7 +184,7 @@ function createLocalAssets(ctx) {
                  两类线索合成**一次查表**：采样签名（size + 头尾各 1MB）与懒写的 sha256；
                  只认「两头都没有身份」的那一行 —— 已经有号的可能是同内容的另一份产物，
                  把这一份的身份盖上去会把它那张卡换掉（接错比不接更糟）。 */
-              const itemSig = localSigOf(tmp, size);
+              const itemSig = await localSigOf(tmp, size);
               /* 内容指纹只在「没有来源、也不是复制本机既有文件」时算：整份读一遍不便宜，
                  算它是为了认回「以前没记来源就存下的同一份字节」。 */
               if (!upKey && !localId) itemSha = sha256Of(fs.readFileSync(tmp));
@@ -230,7 +230,7 @@ function createLocalAssets(ctx) {
               assetId: ident.assetId, taskId: ident.taskId,
               /* 双身份：fid 挡同卷改名 / 移动，采样签名挡跨盘、跨机、被同步盘重写的那几种。
                  用户改文件名、把整堆挪到别的盘，下一轮磁盘对账就靠这两个把它认回来。 */
-              fid: fileFidOf(place.abs), sig: localSigOf(place.abs, size),
+              fid: fileFidOf(place.abs), sig: await localSigOf(place.abs, size),
               /* 内容指纹（懒写：有 upstream 的不算不写）——下次同内容再来时靠它认出「已经存过了」。 */
               ...(itemSha ? { sha256: itemSha } : {}),
               detail: (meta.detail && typeof meta.detail === 'object') ? Object.assign({}, meta.detail, { bytes: size }) : null,
@@ -259,7 +259,7 @@ function createLocalAssets(ctx) {
       /* 288 MiB：客户端递的是 base64（比原文件大 4/3），一段 100MB 的视频 base64 就有 133MB。
          128 MiB 那道闸是给「同步合成的音频」设的，开了产物镜像之后视频必然撞墙
          （撞墙的表现是代理回 413，而页面只显示「保存失败」，看不出是体积上限）。 */
-      readBody(req, res, 288 * 1024 * 1024).then(raw => {      // base64 媒体较大，给足
+      readBody(req, res, 288 * 1024 * 1024).then(async raw => {      // base64 媒体较大，给足
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
@@ -303,7 +303,7 @@ function createLocalAssets(ctx) {
             /* 已经有一份了：**不再落第二个文件**。客户端那份镜像键丢了（换端口 / 清浏览器数据 /
                平台这次没给产物号）不代表盘上没有 —— 这里挡住才是唯一跨源有效的一道闸。
                顺手复用它的 id：别的页面、收藏、导演台工作区里存过的 `/asset/<那个 id>` 照样能播。 */
-            const fp = localFileFromEntry(twin);
+            const fp = await localFileFromEntry(twin);
             let size = -1;
             try { size = fp ? fs.statSync(fp).size : -1; } catch {}
             if (size !== buf.length) {
@@ -316,7 +316,7 @@ function createLocalAssets(ctx) {
               atomicWrite(place.abs, buf);
               twin.file = fp ? twin.file : path.relative(localRootDir(), place.abs);
               twin.fid = fileFidOf(place.abs);
-              twin.sig = localSigOf(place.abs, buf.length);
+              twin.sig = await localSigOf(place.abs, buf.length);
               twin.byte_length = buf.length;
               if (twin.format !== fmt) { twin.format = fmt; twin.mime = mime; }
               invalidateScan();
@@ -339,7 +339,7 @@ function createLocalAssets(ctx) {
                字节恰好相同的作品（换中转地址重下就是这种），合并会丢一条身份、回源就断了。
                没有身份的直传（导演台导入视频 / 语音 / 成片）按内容认，认准就只补索引。 */
             try {
-              got = adoptBodyByHint({ bytes: buf.length, sig: sigBuf, format: fmt,
+              got = await adoptBodyByHint({ bytes: buf.length, sig: sigBuf, format: fmt,
                 upstream: up, assetId: ident.assetId, taskId: ident.taskId,
                 detail: (meta.detail && typeof meta.detail === 'object') ? meta.detail : null });
             } catch (e) { log('[local-assets] 盘上认回没成（照常落一份新的）：' + e.message); }
@@ -378,7 +378,7 @@ function createLocalAssets(ctx) {
                /asset/<id> 在**本地文件被删掉**时靠它回源（见 /asset 那段），这是三级回退的中间一级 ——
                以前本地文件一没就只剩 404，界面据此判成「已删除」，其实上游那份可能还能取。 */
             upstream: up,
-            fid: fileFidOf(place.abs), sig: localSigOf(place.abs, buf.length),
+            fid: fileFidOf(place.abs), sig: await localSigOf(place.abs, buf.length),
             /* 内容指纹（懒写：有 upstream 的不算不写）——下次同内容再来时靠它认出「已经存过了」。 */
             ...(sha ? { sha256: sha } : {}),
             /* 任务详情原样带走：提示词、参数、费用、耗时、状态变迁。
@@ -406,19 +406,22 @@ function createLocalAssets(ctx) {
     /* 浏览器那份「平台产物 → 本机哪一份」的字典改由这里现问：代理手里有账与字节，
        外链过期、换端口、清站点数据之后答案都还在。只读，不下载、不补建。 */
     if (dataPath === '/local-assets/aliases' && req.method === 'GET') {
-      sendJson(res, 200, localAliases());
+      (async () => {
+        try { sendJson(res, 200, await localAliases()); }
+        catch (e) { failMsg(res, 500, '本机别名表没取成：' + e.message); }
+      })();
       return;
     }
     /* 批量问「这几件平台产物在本机是哪一份」：资产列表先拿结果再决定卡片上的地址。
        条数封顶 2000：一屏列表最多也就几百条，超出的请求是异常调用，不替它扫全表。 */
     if (dataPath === '/local-assets/locate' && req.method === 'POST') {
-      readBody(req, res, 4 * 1024 * 1024).then(raw => {
+      readBody(req, res, 4 * 1024 * 1024).then(async raw => {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
         const items = (spec && Array.isArray(spec.items)) ? spec.items.slice(0, 2000) : [];
-        sendJson(res, 200, { rows: localLocateBatch(items) });
-      });
+        sendJson(res, 200, { rows: await localLocateBatch(items) });
+      }).catch(e => failMsg(res, 500, '批量定位没跑成：' + e.message));
       return;
     }
     /* 项目文件导入时的「按旧号重绑」：新机器上只拷了视频文件、没搬索引，包里每一条
@@ -426,13 +429,13 @@ function createLocalAssets(ctx) {
        （旧号 / 相对落点 / 文件名 / 字节数 / 平台身份），这里**只写账，一个字节都不下载**。
        与 locate 同一条「只读不写」的规矩不同：这一条明确要补账，所以单独一个端点。 */
     if (dataPath === '/local-assets/rebind' && req.method === 'POST') {
-      readBody(req, res, 8 * 1024 * 1024).then(raw => {
+      readBody(req, res, 8 * 1024 * 1024).then(async raw => {
         if (raw == null) return;
         let spec = null;
         try { spec = JSON.parse(raw.toString('utf8')); } catch {}
         const items = (spec && Array.isArray(spec.items)) ? spec.items : [];
-        sendJson(res, 200, rebindBodies(items));
-      });
+        sendJson(res, 200, await rebindBodies(items));
+      }).catch(e => failMsg(res, 500, '重绑没跑成：' + e.message));
       return;
     }
     if (req.url.startsWith('/local-assets/') && req.method === 'DELETE') {
@@ -453,43 +456,48 @@ function createLocalAssets(ctx) {
          界面上只有一张卡，卡下面却可能是两条账两份字节（换了中转地址重下的那一份落的就是新 id），
          只收眼前这一条的话，另一条下一轮又自成一张卡 —— 还是「删了又回来」。 */
       const group = [hit].concat(localAssetSiblings(allRows, hit));
-      const paths = [];
-      group.forEach(r => localAssetPaths(r).forEach(p => { if (!paths.includes(p)) paths.push(p); }));
-      const undeled = [];
-      for (const f of paths) {
-        try { fs.unlinkSync(f); }
-        catch (e) { undeled.push(f + '（' + (e.code || e.message) + '）'); }
-      }
-      if (undeled.length) {
-        log('[local-assets] 删除文件失败，索引没有动：' + undeled.join('、'));
-        failMsg(res, 500, '文件删不掉：' + undeled.join('、')
-          + ' 它可能正被播放器 / 同步盘 / 杀毒软件占着。这一条原样留着（资产库里还在，还能打开）——'
-          + '关掉占着它的程序再删一次。');
-        return;
-      }
       /* 整组一次写回：串行队列里一趟走完，不留「文件没了、账还剩一半」那个窗口。
          ⚠ 这一条是**排队**的（见 server/index-store.js 的 update）：同步 try/catch 罩不住它，
          写盘失败会在几十年后的微任务里 reject —— 那时这句已经回完 200，
          用户看见「已删除」而账还留着，下一轮列表又把这一条补成一张卡（那条「删了又回来」）。
-         所以出口挂在 then/catch 上，不靠 try/catch。 */
-      localIndexUpdate(list => group.forEach(r => localIndexDrop(list, r.id))).then(() => {
-        invalidateScan();
-        log(`[local-assets] 已删除 ${id}（一张卡：${group.length} 条账、${paths.length} 份字节）`);
-        sendJson(res, 200, { ok: true, id, files: paths.length, rows: group.length });
-      }).catch(e => {
-        /* 文件已经删掉了，但索引没写回去：这一条会「复活」成一条指向不存在文件的记录，
-           下次打开会显示成「已丢失」。如实说，别回「已删除」——那会让用户以为干净了。 */
-        log('[local-assets] 文件已删、索引未更新：' + e.message);
-        failMsg(res, 500, '文件已经删掉了，但索引没能更新（' + e.message
-          + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。');
-      });
+         所以出口挂在 then/catch 上，不靠 try/catch。
+         收路径（localAssetPaths）与写回都在同一条 async 链里：把「认回那一步」的 await
+         一起罩进这条链，删完路径再动账的顺序不变。 */
+      (async () => {
+        const paths = [];
+        for (const r of group) for (const p of await localAssetPaths(r)) { if (!paths.includes(p)) paths.push(p); }
+        const undeled = [];
+        for (const f of paths) {
+          try { fs.unlinkSync(f); }
+          catch (e) { undeled.push(f + '（' + (e.code || e.message) + '）'); }
+        }
+        if (undeled.length) {
+          log('[local-assets] 删除文件失败，索引没有动：' + undeled.join('、'));
+          failMsg(res, 500, '文件删不掉：' + undeled.join('、')
+            + ' 它可能正被播放器 / 同步盘 / 杀毒软件占着。这一条原样留着（资产库里还在，还能打开）——'
+            + '关掉占着它的程序再删一次。');
+          return;
+        }
+        localIndexUpdate(list => group.forEach(r => localIndexDrop(list, r.id))).then(() => {
+          invalidateScan();
+          log(`[local-assets] 已删除 ${id}（一张卡：${group.length} 条账、${paths.length} 份字节）`);
+          sendJson(res, 200, { ok: true, id, files: paths.length, rows: group.length });
+        }).catch(e => {
+          /* 文件已经删掉了，但索引没写回去：这一条会「复活」成一条指向不存在文件的记录，
+             下次打开会显示成「已丢失」。如实说，别回「已删除」——那会让用户以为干净了。 */
+          log('[local-assets] 文件已删、索引未更新：' + e.message);
+          failMsg(res, 500, '文件已经删掉了，但索引没能更新（' + e.message
+            + '）：下次打开这一条会显示成「已丢失」。再删一次它就能从列表里清掉。');
+        });
+      })();
       return;
     }
     if (dataPath === '/local-assets' && req.method === 'GET') {
       // 列表：形状与上游列表一致（data + next_cursor），资产库用 registry 的 list 声明直接读
+      (async () => {
       /* 先把盘上有、账里没有的那一份补进账（手动拖进库根的、从别的机器拷来的、被上限挤出去的）。
          dirScan 有 30 秒缓存，同一次列表的重复请求不会反复扫盘。 */
-      try { localAdopt(); } catch (e) { log('[local-assets] 磁盘对账没跑成（列表照常用现有账）：' + e.message); }
+      try { await localAdopt(); } catch (e) { log('[local-assets] 磁盘对账没跑成（列表照常用现有账）：' + e.message); }
       // 大类型每次现算 —— 老索引里写死过 'audio'，按扩展名重算才能把那张 PNG 认回图片
       // 时间也每次现算：索引里那份 created_at 是**落盘**时刻，一次回源能把几百条老产物写成「今天」，
       // 按它排序就把资产库里唯一的图片挤出选择器「全部」那一档的前 200 条（见 localAssetWhen）。
@@ -509,6 +517,7 @@ function createLocalAssets(ctx) {
         items.push(x);
       }
       sendJson(res, 200, { object: 'list', data: items, has_more: false, next_cursor: null, duplicates: dups });
+      })();
       return;
     }
     return false;

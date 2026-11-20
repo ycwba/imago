@@ -50,42 +50,44 @@ store.localIndexUpsert({
 
 /* ① 来源地址：签名参数变了、地址没变，就算同一份 */
 const up2 = UP.replace('Signature=old', 'Signature=brand-new');
-const byUp = store.localEntryByUpstream(up2);
-ok('按来源地址认回本机那一份（签名不参与身份）', byUp && byUp.ent.id === 'la_probe', JSON.stringify(byUp && byUp.ent.id));
-ok('交出来的是盘上真实存在的那个文件', !!(byUp && fs.existsSync(byUp.file)), byUp && byUp.file);
-
-/* ② 平台产物号 / 唯一的任务号 */
-const byAid = store.localEntryByPlatformId('asset_probe_1');
-ok('按平台产物号认回本机那一份', byAid && byAid.ent.id === 'la_probe', JSON.stringify(byAid && byAid.ent.id));
-const byJob = store.localEntryByPlatformId('job_probe_1');
-ok('这个任务只出一份时按任务号也认得出', byJob && byJob.ent.id === 'la_probe', JSON.stringify(byJob && byJob.ent.id));
-ok('不存在的号交白卷（不猜）', store.localEntryByPlatformId('asset_nope') === null && store.localEntryByUpstream('https://elsewhere.example.com/x.png') === null, '');
-
-/* ③ 多产物任务：同任务号第二条进来之后，按任务号不再认（多图会指到同一个文件） */
-fs.writeFileSync(path.join(assets, '图片', '第二份.png'), PNG);
-store.localIndexUpsert({
-  id: 'la_probe2', file: '图片\\第二份.png', name: '第二份.png',
-  mime: 'image/png', format: 'png', byte_length: PNG.length,
-  created_at: new Date().toISOString(), media_type: '图片',
-  provider: 'sparkcine', prompt: '', model: '', upstream: '',
-  detail: { asset: 'asset_probe_2', task: 'job_probe_1' },
-});
-ok('同任务出两份之后按任务号不认（多图任务会指错文件）', store.localEntryByPlatformId('job_probe_1') === null, '');
-ok('按产物号仍然各认各的',
-  store.localEntryByPlatformId('asset_probe_1').ent.id === 'la_probe'
-  && store.localEntryByPlatformId('asset_probe_2').ent.id === 'la_probe2', '');
-
-/* ④ 地址层：FCPXML 打包 / ASR / 补存走的 resolveSrc 也先问本机账 */
-const mediaSrc = createMediaSrc({
-  assetStore: null, upRequest: () => { throw new Error('这条判据不该出站'); }, cacheSweep: null,
-  guardOutboundUrl: async u => u, anyRequest: () => { throw new Error('这条判据不该出站'); },
-  keyOf: () => '', localAssetFile: store.localAssetFile,
-  localEntryByUpstream: store.localEntryByUpstream, localEntryByPlatformId: store.localEntryByPlatformId,
-  PORT: 5175, SESSION_COOKIE: 'wb_session', SESSION_TOKEN: 'probe',
-  safeDecode: s => { try { return decodeURIComponent(s); } catch (e) { return s; } }, log: () => {},
-});
 
 (async () => {
+  const byUp = await store.localEntryByUpstream(up2);
+  ok('按来源地址认回本机那一份（签名不参与身份）', byUp && byUp.ent.id === 'la_probe', JSON.stringify(byUp && byUp.ent.id));
+  ok('交出来的是盘上真实存在的那个文件', !!(byUp && fs.existsSync(byUp.file)), byUp && byUp.file);
+
+  /* ② 平台产物号 / 唯一的任务号 */
+  const byAid = await store.localEntryByPlatformId('asset_probe_1');
+  ok('按平台产物号认回本机那一份', byAid && byAid.ent.id === 'la_probe', JSON.stringify(byAid && byAid.ent.id));
+  const byJob = await store.localEntryByPlatformId('job_probe_1');
+  ok('这个任务只出一份时按任务号也认得出', byJob && byJob.ent.id === 'la_probe', JSON.stringify(byJob && byJob.ent.id));
+  ok('不存在的号交白卷（不猜）', await store.localEntryByPlatformId('asset_nope') === null
+    && await store.localEntryByUpstream('https://elsewhere.example.com/x.png') === null, '');
+
+  /* ③ 多产物任务：同任务号第二条进来之后，按任务号不再认（多图会指到同一个文件） */
+  fs.writeFileSync(path.join(assets, '图片', '第二份.png'), PNG);
+  store.localIndexUpsert({
+    id: 'la_probe2', file: '图片\\第二份.png', name: '第二份.png',
+    mime: 'image/png', format: 'png', byte_length: PNG.length,
+    created_at: new Date().toISOString(), media_type: '图片',
+    provider: 'sparkcine', prompt: '', model: '', upstream: '',
+    detail: { asset: 'asset_probe_2', task: 'job_probe_1' },
+  });
+  ok('同任务出两份之后按任务号不认（多图任务会指错文件）', await store.localEntryByPlatformId('job_probe_1') === null, '');
+  ok('按产物号仍然各认各的',
+    (await store.localEntryByPlatformId('asset_probe_1')).ent.id === 'la_probe'
+    && (await store.localEntryByPlatformId('asset_probe_2')).ent.id === 'la_probe2', '');
+
+  /* ④ 地址层：FCPXML 打包 / ASR / 补存走的 resolveSrc 也先问本机账 */
+  const mediaSrc = createMediaSrc({
+    assetStore: null, upRequest: () => { throw new Error('这条判据不该出站'); }, cacheSweep: null,
+    guardOutboundUrl: async u => u, anyRequest: () => { throw new Error('这条判据不该出站'); },
+    keyOf: () => '', localAssetFile: store.localAssetFile,
+    localEntryByUpstream: store.localEntryByUpstream, localEntryByPlatformId: store.localEntryByPlatformId,
+    PORT: 5175, SESSION_COOKIE: 'wb_session', SESSION_TOKEN: 'probe',
+    safeDecode: s => { try { return decodeURIComponent(s); } catch (e) { return s; } }, log: () => {},
+  });
+
   const want = 'http://127.0.0.1:5175/asset/la_probe';
   const r1 = await mediaSrc.resolveSrc('/getv?url=' + encodeURIComponent(up2));
   ok('resolveSrc(/getv?url=<过期外链>) 交本机地址', r1 === want, r1);
@@ -105,13 +107,13 @@ const mediaSrc = createMediaSrc({
     created_at: new Date().toISOString(), media_type: '图片',
     provider: 'sparkcine', prompt: '', model: '', upstream: up3,
   });
-  const byUp3 = store.localEntryByUpstream(up3);
+  const byUp3 = await store.localEntryByUpstream(up3);
   ok('新写进账的那一条马上查得到（反查表跟着账的版本走）', byUp3 && byUp3.ent.id === 'la_probe3', JSON.stringify(byUp3 && byUp3.ent.id));
 
   /* ⑥ 文件被用户删了：不许拿一条「文件已不在」的账冒充本机副本 */
   fs.unlinkSync(path.join(assets, '图片', '本机那一份.png'));
   ok('文件没了就不再冒充本机副本',
-    store.localEntryByUpstream(up2) === null && store.localEntryByPlatformId('asset_probe_1') === null, '');
+    await store.localEntryByUpstream(up2) === null && await store.localEntryByPlatformId('asset_probe_1') === null, '');
 
   try { fs.rmSync(tmp, { recursive: true, force: true }); } catch (e) {}
   console.log('\n' + (bad ? '✗ ' : '✓ ') + n + ' 项，' + bad + ' 项未通过');

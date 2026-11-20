@@ -1300,16 +1300,18 @@ server.listen(PORT, BIND.hosts[0], () => {
     /* 开机做一次磁盘对账（只 readdir + stat，不读内容；要分辨同字节数的那几个才现算采样签名）。
        为什么放在启动收尾而不是只放在列表前：用户在文件管理器里改了名、把整堆作品挪到另一块盘、
        或者代理崩在半路留下了一份没记账的成品 —— 账本只是文件的一份账，不是文件的出处。
-       对账**只写账不碰字节**：不重命名、不移动、不删。 */
-    try {
-      const ad = localAdopt(true);
+       对账**只写账不碰字节**：不重命名、不移动、不删。
+       对账挪进了 worker 线程（server/scan-worker.js），这一句不再挡住收尾的其余部分；
+       启动日志等它回来再打，计的才是对账真正花掉的时间。 */
+    localAdopt(true).then(ad => {
       adoptAdded = ad.added;
       if (ad.added || ad.skipped) log(`[资产库] 磁盘对账：补 ${ad.added} 条账，${ad.skipped} 份并到已有条目或跳过（库根 ${localRoot()}）`);
-    } catch (e) { log('[资产库] 启动对账跳过：' + (e.code || e.message)); }
-    msAdopt = performance.now() - t;
-    log('[启动] 模块加载 ' + Math.round(BOOT_T_REQ - BOOT_T0) + ' ms · 监听 +' + Math.round(BOOT_T_LISTEN - BOOT_T_REQ)
-      + ' ms · 收尾（清扫 ' + Math.round(msSweep) + ' · 重建 ' + Math.round(msRebuild) + ' · 对账 ' + Math.round(msAdopt)
-      + '，补 ' + adoptAdded + ' 条）共 ' + Math.round(performance.now() - tHeavy) + ' ms');
+    }).catch(e => { log('[资产库] 启动对账跳过：' + (e.code || e.message)); }).then(() => {
+      msAdopt = performance.now() - t;
+      log('[启动] 模块加载 ' + Math.round(BOOT_T_REQ - BOOT_T0) + ' ms · 监听 +' + Math.round(BOOT_T_LISTEN - BOOT_T_REQ)
+        + ' ms · 收尾（清扫 ' + Math.round(msSweep) + ' · 重建 ' + Math.round(msRebuild) + ' · 对账 ' + Math.round(msAdopt)
+        + '，补 ' + adoptAdded + ' 条）共 ' + Math.round(performance.now() - tHeavy) + ' ms');
+    });
   });
   /* 一直没人发请求（headless 工具只打一两个接口就断、防火墙拦了）重活也要能跑：5 秒兜底 */
   setTimeout(runBootHeavy, 5000).unref();

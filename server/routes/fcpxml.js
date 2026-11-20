@@ -191,7 +191,7 @@ async function writeBundle(ctx, spec) {
       let size = 0;
       let srcPath = '';
       const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(String(a.src || ''));
-      if (m && ctx.localAssetFile) srcPath = ctx.localAssetFile(m[1]) || '';
+      if (m && ctx.localAssetFile) srcPath = (await ctx.localAssetFile(m[1])) || '';
       if (srcPath && fs.existsSync(srcPath)) {
         const st = fs.statSync(srcPath);
         if (!st.isFile()) throw new Error('本机素材不是一个普通文件');

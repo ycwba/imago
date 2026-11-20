@@ -10,10 +10,15 @@
    账落后的那一条按身份认回新路径，盘上有而账里没有的那一条补一条账。 */
 'use strict';
 const fs = require('fs');
+const fsp = fs.promises;
 const path = require('path');
 const crypto = require('crypto');
 const MediaId = require('../web/domain/ident.cjs');
 const { createIndexStore } = require('./index-store.js');
+/* 走树算法与 fid 算法的唯一实现住在 scan-worker.js：worker 线程跑常态那一趟，
+   worker 起不来 / 崩了主线程用同一枚函数兜底（同一条算法，不是第二套）；
+   fidOfStat 也是同一份 —— 落盘那一条与扫盘认回那一条必须量出同一个号。 */
+const { walkTree: walkTreeSync, fidOfStat } = require('./scan-worker.js');
 
 /* ---------- 图片 / 视频 / 音频的已知扩展名（本机资产的类别表，全站只有这一张） ----------
    落点目录（bodyDirNameOf）、磁盘对账补账（localAdopt）、列表重算类型（localMediaType）、
@@ -276,88 +281,130 @@ function createLocalAssetsStore(deps) {
     if (!f) return '';
     return absInRoot(f);
   }
-  /* fid = `<dev>:<ino>`，都取字符串（不 Number()：超过 2^53 会丢精度，而 NTFS 的 ino 真能超过）。
-     ⚠ 必须用 `{ bigint: true }` 那一次 stat：普通 statSync 交回来的是已经丢过精度的 double，
-       同一个文件的两条账就可能算出两个号 —— 写盘那一条与扫盘认回那一条对不上，②那一级永远落空。
-     整站只有这一处算法（落盘那一条与磁盘对账那一条都调 fileFidOf）。 */
-  const fidOfStat = st => String(st.dev) + ':' + String(st.ino);
+  /* fid 的算法在 scan-worker.js 那一份（模块头注释）：落盘与对账必须量出同一个号。 */
   function fileFidOf(abs) {
     try { return fidOfStat(fs.statSync(abs, { bigint: true })); } catch { return ''; }
   }
   const SIG_SAMPLE = SIG_SAMPLE_BYTES;
   /* 采样内容签名：`字节数:头尾各 1MB 的 sha1 前 16 位`。
      为什么不用整份 sha1：这一枚在磁盘对账时要给「同字节数的那几个」现算，
-     一条 788MB 的片子读全量是几百毫秒的**主线程同步阻塞**，
+     一条 788MB 的片子读全量是几百毫秒的**同步阻塞**，
      而认「还是不是这一个文件」靠长度 + 头尾两段已经够。
      ⚠ 它是「把已经落盘的那一条找回来」的钥匙，不是「这两份内容一模一样」的证据：
        头尾相同、中间不同的两个文件会算出同一个签名。所以靠它动手的地方（认回路径、
-       删一张卡带走同一产物的那几张）都以「同一件事的两种落点」为前提，不用它决定删哪一份。 */
-  function localSigOf(file, size) {
-    let fd = 0;
+       删一张卡带走同一产物的那几张）都以「同一件事的两种落点」为前提，不用它决定删哪一份。
+     读盘走 fs.promises（libuv 线程池，异步）：调用方本来就站在 await 链路上，
+     几 MB 的头尾读取不再占住事件循环；sha1 只算 2MB，主线程那几毫秒可以忽略。
+     格式与内存版 sampleSigOfBuffer（base64 直传那一路）逐字一致 —— 两把尺子必须量出同一个数。 */
+  async function localSigOf(file, size) {
+    let fh = null;
     try {
-      fd = fs.openSync(file, 'r');
+      fh = await fsp.open(file, 'r');
       const n = Number(size);
       if (!Number.isFinite(n) || n < 0) return '';
       const head = Buffer.alloc(Math.min(n, SIG_SAMPLE));
-      if (head.length) fs.readSync(fd, head, 0, head.length, 0);
+      if (head.length) await fh.read(head, 0, head.length, 0);
       let tail = head;
       if (n > SIG_SAMPLE * 2) {
         tail = Buffer.alloc(SIG_SAMPLE);
-        fs.readSync(fd, tail, 0, SIG_SAMPLE, n - SIG_SAMPLE);
+        await fh.read(tail, 0, SIG_SAMPLE, n - SIG_SAMPLE);
       }
       const h = crypto.createHash('sha1');
       h.update(head);
       if (tail !== head) h.update(tail);
       return n + ':' + h.digest('hex').slice(0, 16);
     } catch { return ''; }
-    finally { if (fd) { try { fs.closeSync(fd); } catch {} } }
+    finally { if (fh) { try { await fh.close(); } catch {} } }
   }
   /* 库根的一次磁盘对账快照：readdir + stat，**不读内容**（签名只在真要认回/补建时才算，
      而且先按字节数分桶，同字节数只有一个的候选什么都不用读）。
-     跳开提示词那一档与回收站；30 秒内的同一份根直接复用（列表、认回、用量三处共用这一份）。 */
+     跳开提示词那一档与回收站；30 秒内的同一份根直接复用（列表、认回、用量三处共用这一份）。
+     走树在 **worker 线程**里跑（server/scan-worker.js）：大库几百毫秒的 stat 风暴
+     不再按住主线程 —— 这一条本来是「600 行账 = 260ms 同步 stat，别的请求全排着」。
+     三张索引表（byAbs / byFid / bySize）在主线程现拼：几百次 Map 赋值是毫秒级 CPU，
+     换来的是行对象只有一份（byAbs.get(k) === files[i]），resolveInScan 现算签名回填
+     f.sig 时两张表看到的是同一个对象。 */
   let scanCache = null;
   const SCAN_TTL = 30 * 1000;
   /* 快照「新到不用再翻一遍」的那一档：只有超过它的陈旧快照才值得为一条认不回的账补一趟强制重扫。
      为什么要有这一档 —— 强制重扫挂在「这一条没命中」之后，一次批量读里凡是落空的账都翻得起一趟整库，
-     几百条本体被删掉的库就是几百趟同步 readdir + stat（跑在主线程上，别的请求全排着）。 */
+     几百条本体被删掉的库就是几百趟 readdir + stat（挪进 worker 之后不挡主线程了，盘上的活还是要省）。 */
   const SCAN_FRESH_MS = 2000;
-  function dirScan(force) {
+  /* 扫描在飞的那一份 { epoch, promise }：同一周期里已经在扫就直接等它（单飞）——
+     一批落空的账合起来只翻一趟，不是每条各发一趟。 */
+  let scanInflight = null;
+  let scanEpoch = 0;
+  /* 完整走过的趟数：给判据量「一批落空只翻一趟」（worker 与兜底两条路都计）。 */
+  let walkCount = 0;
+  /* worker 起不来 / 崩了就退回主线程的同一条算法（scan-worker.js 的 walkTree）：
+     行为不变，只是那一趟回到主线程上 —— 比丢功能强。崩掉的 worker 已在 error/exit
+     里置空，下一次 dirScan 自然重生。 */
+  let worker = null;
+  let workerMsgId = 0;
+  const workerWaiting = new Map();
+  function ensureWorker() {
+    if (worker) return worker;
+    const { Worker } = require('worker_threads');
+    worker = new Worker(path.join(__dirname, 'scan-worker.js'));
+    worker.on('message', m => {
+      const w = workerWaiting.get(m && m.id);
+      if (!w) return;
+      workerWaiting.delete(m.id);
+      if (m.error) w.reject(new Error(m.error)); else w.resolve(m.files);
+    });
+    const dropWaiting = err => {
+      worker = null;
+      for (const w of workerWaiting.values()) w.reject(err);
+      workerWaiting.clear();
+    };
+    worker.on('error', e => dropWaiting(e || new Error('scan worker error')));
+    worker.on('exit', code => { if (worker) dropWaiting(new Error('scan worker 退出了（code ' + code + '）')); });
+    return worker;
+  }
+  async function walkOnce(root) {
+    try {
+      const w = ensureWorker();
+      const id = ++workerMsgId;
+      return await new Promise((resolve, reject) => {
+        workerWaiting.set(id, { resolve, reject });
+        try { w.postMessage({ id, root }); }
+        catch (e) { workerWaiting.delete(id); reject(e); }
+      });
+    } catch (e) {
+      return walkTreeSync(root);
+    }
+  }
+  async function dirScan(force) {
     const root = DIR();
     if (!force && scanCache && scanCache.root === root && Date.now() - scanCache.at < SCAN_TTL) return scanCache;
-    const files = [];
-    const scanTree = (dir, rel) => {
-      let entries = [];
-      try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
-      for (const name of entries.map(e => e.name)) {
-        if (rel === '' && SKIP_DIR_NAMES.has(name)) continue;
-        const abs = path.join(dir, name);
-        const relPath = rel ? rel + path.sep + name : name;
-        let st;
-        /* bigint 那一份：ino 超过 2^53 时普通 statSync 交回的是丢过精度的 double（见上面 fileFidOf）。
-           字节数与修改时间在下面都要显式收回 Number —— Map 的键与 `Number(ent.byte_length)` 那一档比的是数字，
-           BigInt 直接当键会让 bySize 永远查不中（123n 与 123 不是同一个键）。 */
-        try { st = fs.statSync(abs, { bigint: true }); } catch { continue; }
-        if (st.isDirectory()) { scanTree(abs, relPath); continue; }
-        if (!st.isFile()) continue;
-        files.push({ rel: relPath, abs, size: Number(st.size), mtimeMs: Number(st.mtimeMs), fid: fidOfStat(st), sig: '' });
+    if (scanInflight && scanInflight.epoch === scanEpoch) return scanInflight.promise;
+    const epoch = scanEpoch;
+    const promise = (async () => {
+      walkCount++;
+      const files = await walkOnce(root);
+      const byAbs = new Map(), byFid = new Map(), bySize = new Map();
+      for (const f of files) {
+        const k = absKey(f.abs);
+        if (!byAbs.has(k)) byAbs.set(k, f);
+        if (!byFid.has(f.fid)) byFid.set(f.fid, f);
+        const a = bySize.get(f.size); if (a) a.push(f); else bySize.set(f.size, [f]);
       }
-    };
-    scanTree(root, '');
-    const byAbs = new Map(), byFid = new Map(), bySize = new Map();
-    for (const f of files) {
-      const k = absKey(f.abs);
-      if (!byAbs.has(k)) byAbs.set(k, f);
-      if (!byFid.has(f.fid)) byFid.set(f.fid, f);
-      const a = bySize.get(f.size); if (a) a.push(f); else bySize.set(f.size, [f]);
-    }
-    scanCache = { at: Date.now(), root, files, byAbs, byFid, bySize };
-    return scanCache;
+      const snap = { at: Date.now(), root, files, byAbs, byFid, bySize };
+      /* 扫的期间账被改过（invalidateScan 抬了 epoch）/ 根被换掉：这一份照样交给本次调用方
+         （它仍是一次合法的磁盘快照），只是不进缓存 —— 下一次 dirScan 再翻一趟新的。 */
+      if (epoch === scanEpoch) scanCache = snap;
+      return snap;
+    })();
+    scanInflight = { epoch, promise };
+    return promise;
   }
-  const invalidateScan = () => { scanCache = null; };
+  /* 作废快照：epoch 抬一格。在飞的那一趟结果因此不会进缓存（它的文件集合不含这次改动），
+     但仍会交还给已经挂上去的调用方 —— 与旧同步实现「并发请求各拿各的快照」同一口径。 */
+  const invalidateScan = () => { scanEpoch++; scanCache = null; };
   /* 在某一次磁盘快照里给一条账找文件：相对路径 → fid → 采样签名。**只认不写**，
      用量体检与补账都要靠它判「这一条到底还在不在」，那两处不该顺手改账。
      `altPaths` 是同内容并进来的那几份（见 localAdopt），它们同样是这一条的自己。 */
-  function resolveInScan(sc, ent) {
+  async function resolveInScan(sc, ent) {
     if (!ent) return null;
     const direct = entryAbsOf(ent);
     let hit = direct ? sc.byAbs.get(absKey(direct)) : null;
@@ -373,7 +420,7 @@ function createLocalAssetsStore(deps) {
     if (!hit && ent.sig) {
       const same = sc.bySize.get(Number(ent.byte_length) || -1) || [];
       for (const f of same) {
-        if (!f.sig) f.sig = localSigOf(f.abs, f.size);
+        if (!f.sig) f.sig = await localSigOf(f.abs, f.size);
         if (f.sig && f.sig === ent.sig) { hit = f; break; }
       }
     }
@@ -384,29 +431,29 @@ function createLocalAssetsStore(deps) {
      ⚠ 早先这里认回来之后调的是 `indexStore.upsert(ent.id, ent)`，而 upsert 的签名是 `upsert(item)`：
        第一个参数被当条目用，`.id` 取在一个字符串上，putInto 当场抛「索引条目缺少 id」，又被 catch 咽掉。
        结果是「跟住改名」只在当次请求里成立，账永远没改，每读一次就重扫一遍目录。现在写的是整条。 */
-  function localFileFromEntry(ent) {
+  async function localFileFromEntry(ent) {
     if (!ent || !ent.file) return '';
     const direct = entryAbsOf(ent);
+    /* 常态是第一句 existsSync 就返回，不花钱也不进 await；走到这里都是「账对不上盘」的那几次。 */
     if (direct && fs.existsSync(direct)) return direct;
-    /* 常态是第一句 existsSync 就返回，不花钱；走到这里都是「账对不上盘」的那几次。
-       那一份磁盘快照可能是几十秒前的：用户在文件管理器里又挪了一刀，快照里就还留着**上一个位置**。 */
-    let sc = dirScan();
-    let hit = resolveInScan(sc, ent);
+    /* 那一份磁盘快照可能是几十秒前的：用户在文件管理器里又挪了一刀，快照里就还留着**上一个位置**。 */
+    let sc = await dirScan();
+    let hit = await resolveInScan(sc, ent);
     /* 快照里没有 = 可能刚被挪了一刀（账还指着老位置），也可能是真删了。前者要靠强制重扫认回来，
        后者重扫多少趟都还是不在 —— 所以查不到时只有快照已经过旧（超过 SCAN_FRESH_MS）才补这一趟：
        一批落空的账合起来翻一趟，翻完那一份新快照交给同批剩下的每一条（走 TTL）。
        改名 / 换目录那一级不吃这一档：ino 没变，旧快照里按 fid 照样查得着。 */
     if (!hit) {
-      if (Date.now() - sc.at > SCAN_FRESH_MS) { sc = dirScan(true); hit = resolveInScan(sc, ent); }
+      if (Date.now() - sc.at > SCAN_FRESH_MS) { sc = await dirScan(true); hit = await resolveInScan(sc, ent); }
     } else if (!fs.existsSync(hit.abs)) {
       /* 查着了但那个路径当场不在：这份快照连「还在不在」都在说假话，重扫一次。 */
-      sc = dirScan(true);
-      hit = resolveInScan(sc, ent);
+      sc = await dirScan(true);
+      hit = await resolveInScan(sc, ent);
     }
     if (!hit || !fs.existsSync(hit.abs)) return '';
     ent.file = path.relative(sc.root, hit.abs) || hit.rel;
     ent.fid = hit.fid;
-    if (!ent.sig) ent.sig = hit.sig || localSigOf(hit.abs, hit.size);
+    if (!ent.sig) ent.sig = hit.sig || await localSigOf(hit.abs, hit.size);
     try { indexStore.upsert(ent); }
     catch (e) { log('[local-assets] 认回后的路径没写进账（本次按读到的算）：' + e.message); }
     return hit.abs;
@@ -423,13 +470,13 @@ function createLocalAssetsStore(deps) {
   function mintAssetId() {
     return 'la_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   }
-  function localAdopt(force) {
-    const sc = dirScan(force);
+  async function localAdopt(force) {
+    const sc = await dirScan(force);
     const list = localIndexRead();
     const knownAbs = new Set(), knownFid = new Set(), knownSig = new Map();
     for (const x of list) {
       if (!x || !x.file) continue;
-      const hit = resolveInScan(sc, x);
+      const hit = await resolveInScan(sc, x);
       if (hit) knownAbs.add(absKey(hit.abs));
       knownAbs.add(absKey(entryAbsOf(x)));
       if (x.fid) knownFid.add(String(x.fid));
@@ -457,10 +504,10 @@ function createLocalAssetsStore(deps) {
         if (owner) {
           /* 已经有这一枚号的账：只把落点补齐（换机后路径变了），或把同号的第二份挂成 altPaths。
              不新开号、不新开卡。 */
-          const ownerHit = resolveInScan(sc, owner);
+          const ownerHit = await resolveInScan(sc, owner);
           if (!ownerHit) {
             owner.file = rel; owner.fid = f.fid;
-            owner.sig = f.sig || localSigOf(f.abs, f.size);
+            owner.sig = f.sig || await localSigOf(f.abs, f.size);
             try { indexStore.upsert(owner); } catch (e) { log('[local-assets] 可移植号认回没写进账：' + e.message); }
           } else if (absKey(ownerHit.abs) !== absKey(f.abs)) {
             const alts = Array.isArray(owner.altPaths) ? owner.altPaths : [];
@@ -474,7 +521,7 @@ function createLocalAssetsStore(deps) {
           skipped++;
           continue;
         }
-        const pidSig = localSigOf(f.abs, f.size);
+        const pidSig = await localSigOf(f.abs, f.size);
         const item = {
           id: pid, file: rel, name: path.basename(rel), mime: MIME['.' + fmt] || 'application/octet-stream',
           format: fmt, byte_length: f.size, created_at: new Date(f.mtimeMs).toISOString(),
@@ -494,21 +541,24 @@ function createLocalAssetsStore(deps) {
       /* 只有真需要分辨「同字节数的还不止这一个」时才现算签名：
          一个目录里 size 独一份的文件，一个字节都不用读。 */
       const same = sc.bySize.get(f.size) || [];
-      const sig = same.length > 1 || !f.size ? localSigOf(f.abs, f.size) : '';
+      const sig = same.length > 1 || !f.size ? await localSigOf(f.abs, f.size) : '';
       const peers = sig ? knownSig.get(sig) : null;
       if (peers && peers.length) {
-        const ent = peers.find(x => resolveInScan(sc, x)) || peers[0];
+        let ent = null;
+        for (const x of peers) { if (await resolveInScan(sc, x)) { ent = x; break; } }
+        if (!ent) ent = peers[0];
         const rel = path.relative(sc.root, f.abs);
         ent.altPaths = (Array.isArray(ent.altPaths) ? ent.altPaths : []).concat([rel]);
         try { indexStore.upsert(ent); } catch (e) { log('[local-assets] 同内容并账没写成：' + e.message); }
         skipped++;
         continue;
       }
+      const itemSig = sig || await localSigOf(f.abs, f.size);
       const item = {
         id: mintAssetId(), file: f.rel, name: path.basename(f.rel), mime: MIME['.' + fmt] || 'application/octet-stream',        format: fmt, byte_length: f.size, created_at: new Date(f.mtimeMs).toISOString(),
         media_type: zh, provider: 'local',
         prompt: '', model: '', voice: '', duration: null, credits: null, priceText: '', chars: null, usage: null,
-        upstream: '', fid: f.fid, sig: sig || localSigOf(f.abs, f.size), adopted: true,
+        upstream: '', fid: f.fid, sig: itemSig, adopted: true,
       };
       try { indexStore.upsert(item); added.push(item); }
       catch (e) { log('[local-assets] 补账没写成（文件仍在盘上）：' + e.message); continue; }
@@ -552,8 +602,8 @@ function createLocalAssetsStore(deps) {
   }
   /* 按线索在磁盘快照里找那一份：号（文件名尾标）→ 落点（相对库根）→ 规范名（+ 字节数）。
      三种线索找到**同一份**才算认准；找到两份不同的东西一律当认不准。 */
-  function bodyByHint(h, sc) {
-    const snap = sc || dirScan();
+  async function bodyByHint(h, sc) {
+    const snap = sc || await dirScan();
     const id = String((h && h.id) || '');
     const rel = String((h && h.file) || '').replace(/[\\/]+/g, path.sep);
     const rawName = String((h && h.name) || '');
@@ -593,7 +643,7 @@ function createLocalAssetsStore(deps) {
     if (sig) {
       const same = snap.bySize.get(Number(h.bytes) || -1) || [];
       for (const f of same) {
-        if (!f.sig) f.sig = localSigOf(f.abs, f.size);
+        if (!f.sig) f.sig = await localSigOf(f.abs, f.size);
         if (f.sig === sig) { takeHit(f); break; }
       }
     }
@@ -604,7 +654,7 @@ function createLocalAssetsStore(deps) {
   }
   /* 一条线索 → 一条别名行。`id` 是「旧机器项目文件里写的那个 la_ 号」：账里那一行叫别的号时
      挂成别名，回给浏览器的行仍用旧号 —— 页面当场的地址不用改一个字。 */
-  function adoptBodyByHint(h, opt) {
+  async function adoptBodyByHint(h, opt) {
     const hint = h || {};
     const o = opt || {};
     /* 批量那一趟（rebindBodies）把表与磁盘快照一起递进来：整批只读一次表、只扫一次盘，
@@ -617,11 +667,17 @@ function createLocalAssetsStore(deps) {
     let row = id ? (localIndexEntry(id)
       || list.find(x => x && Array.isArray(x.aliasIds) && x.aliasIds.indexOf(id) >= 0)) : null;
     const upKey = localUpKey(patch.upstream);
-    if (!row && upKey) row = list.find(x => x && localUpKey(x.upstream) === upKey && localFileFromEntry(x)) || null;
-    if (!row && patch.assetId) {
-      row = list.find(x => x && identityOf(x).assetId === patch.assetId && localFileFromEntry(x)) || null;
+    if (!row && upKey) {
+      for (const x of list) {
+        if (x && localUpKey(x.upstream) === upKey && await localFileFromEntry(x)) { row = x; break; }
+      }
     }
-    if (row && localFileFromEntry(row)) {
+    if (!row && patch.assetId) {
+      for (const x of list) {
+        if (x && identityOf(x).assetId === patch.assetId && await localFileFromEntry(x)) { row = x; break; }
+      }
+    }
+    if (row && await localFileFromEntry(row)) {
       let changed = localFillMissing(row, patch);
       if (id && row.id !== id && !(Array.isArray(row.aliasIds) && row.aliasIds.indexOf(id) >= 0)) {
         row.aliasIds = (Array.isArray(row.aliasIds) ? row.aliasIds : []).concat([id]);
@@ -633,8 +689,8 @@ function createLocalAssetsStore(deps) {
     }
     /* ② 账里没有 → 按线索在盘上找那一份字节。用 30 秒那一档缓存：这一条挂在落盘入口上，
        每次写之前都整库重扫一遍太贵；写盘 / 重绑批次都会 invalidateScan，认不准就照旧下载。 */
-    const sc = o.sc || dirScan();
-    const f = bodyByHint(hint, sc);
+    const sc = o.sc || await dirScan();
+    const f = await bodyByHint(hint, sc);
     if (!f) return null;
     /* 身份冲突：这一份已经归给别的产物号 / 别的来源了，别把新身份盖上去。 */
     const owner = rowCoveringAbs(list, f.abs);
@@ -649,10 +705,11 @@ function createLocalAssetsStore(deps) {
     const fmt = (path.extname(f.abs).slice(1) || '').toLowerCase();
     /* 盘上这一份的硬事实：落点 / 体积 / 指纹。身份与展示字段留给 localFillMissing ——
        空字段才补，已有的一份都不覆盖。 */
+    const freshSig = f.sig || await localSigOf(f.abs, f.size);
     const fresh = {
       file: rel, name: path.basename(rel), mime: MIME['.' + fmt] || 'application/octet-stream',
       format: fmt, byte_length: f.size, fid: f.fid,
-      sig: f.sig || localSigOf(f.abs, f.size),
+      sig: freshSig,
       adopted: true, rebound: true,
     };
     /* 同号旧行还在（文件被删过 / 挪过、账还留着）：**在它上面改**，不新建一条覆盖。
@@ -694,7 +751,7 @@ function createLocalAssetsStore(deps) {
      超过上限的不再静默丢掉：`total` 是请求里的条数，`omitted` 是这次没处理的尾巴，
      客户端据此说清「还有 N 条没重绑」。 */
   const REBIND_MAX = Math.max(1, Number(deps.rebindMax) || 5000);
-  function rebindBodies(hints) {
+  async function rebindBodies(hints) {
     const all = (Array.isArray(hints) ? hints : []).filter(h => h && typeof h === 'object');
     const list = all.slice(0, REBIND_MAX);
     const rows = [];
@@ -703,11 +760,11 @@ function createLocalAssetsStore(deps) {
     /* 用户多半是「刚把一堆视频拷进库根」就导入项目文件：那份磁盘快照可能还是拷之前的，
        整批开头作废一次，后面每一条共用这一趟新快照。 */
     invalidateScan();
-    const sc = dirScan();
+    const sc = await dirScan();
     const table = localIndexRead();
     for (const h of list) {
       let out = null;
-      try { out = adoptBodyByHint(h, { batch: true, list: table, sc }); }
+      try { out = await adoptBodyByHint(h, { batch: true, list: table, sc }); }
       catch (e) { log('[local-assets] 重绑一条失败：' + e.message); }
       rows.push(out ? out.row : null);
       if (out) bound++;
@@ -856,11 +913,11 @@ function createLocalAssetsStore(deps) {
     byUp = m; byUpRev = rev;
     return m;
   }
-  function localEntryByUpstream(url) {
+  async function localEntryByUpstream(url) {
     const key = localUpKey(url);
     if (!key) return null;
     for (const ent of (upstreamIndex().get(key) || [])) {
-      const file = localFileFromEntry(ent);
+      const file = await localFileFromEntry(ent);
       if (file) return { ent, file };
     }
     return null;
@@ -878,14 +935,14 @@ function createLocalAssetsStore(deps) {
     byPlat = { byAsset, byTask }; byPlatRev = rev;
     return byPlat;
   }
-  function localEntryByPlatformId(id) {
+  async function localEntryByPlatformId(id) {
     const s = String(id || '');
     if (!s || /^la_/.test(s)) return null;
     const idx = platformIndex();
     const one = idx.byTask.get(s);
     const rows = idx.byAsset.get(s) || (one && one.length === 1 ? one : []);
     for (const ent of rows) {
-      const file = localFileFromEntry(ent);
+      const file = await localFileFromEntry(ent);
       if (file) return { ent, file };
     }
     return null;
@@ -925,15 +982,15 @@ function createLocalAssetsStore(deps) {
     const hit = sc.byAbs.get(absKey(direct));
     return hit ? hit.abs : '';
   }
-  function localAliases() {
-    const sc = dirScan();
+  async function localAliases() {
+    const sc = await dirScan();
     const rows = [];
     for (const x of localIndexRead()) {
       const row = aliasRowOf(x);
       if (!row) continue;
       /* 文件不在了就不许替它报「本机有」：否则界面会一直画着「本机+云端」，
          点开却是一条断链。认回（改名 / 挪目录 / 换盘）会在这里顺手把新落点写回账。 */
-      if (!bodyInScan(sc, x) && !localFileFromEntry(x)) continue;
+      if (!bodyInScan(sc, x) && !(await localFileFromEntry(x))) continue;
       row.file = String(x.file || '');
       rows.push(row);
     }
@@ -943,16 +1000,16 @@ function createLocalAssetsStore(deps) {
      同一把尺：产物号 → 任务号（只在整条任务只出一份时）→ 来源地址（剥签名）。
      调用方（资产列表）先拿到结果再决定卡片上的地址，所以这里**只读、不补建、不下载**；
      文件仍在才算命中，同一个号的几份重复副本取第一条还在地的。 */
-  function localLocateBatch(queries) {
+  async function localLocateBatch(queries) {
     const plat = platformIndex();
     const ups = upstreamIndex();
     const list = Array.isArray(queries) ? queries : [];
     /* 一次批量最多 2000 条问话，每条都可能顺着身份翻到几行账 —— 同一份磁盘快照查表，
-       别把每一问都变成一次同步 stat（判据与走法见上面 bodyInScan）。
+       别把每一问都变成一次单独的 stat（判据与走法见上面 bodyInScan）。
        快照按第一次真要判存在时才取：一批问话全落在平台号之外时不该扫一遍盘。 */
     let snap = null;
-    const diskShot = () => (snap || (snap = dirScan()));
-    const present = x => !!(bodyInScan(diskShot(), x) || localFileFromEntry(x));
+    const diskShot = async () => (snap || (snap = await dirScan()));
+    const present = async x => !!(bodyInScan(await diskShot(), x) || await localFileFromEntry(x));
     const out = [];
     for (const q of list) {
       const aid = String((q && q.assetId) || '');
@@ -961,17 +1018,17 @@ function createLocalAssetsStore(deps) {
       const allowGen = !!(q && q.allowGen);
       let ent = null;
       if (aid && !/^la_/.test(aid)) {
-        for (const x of (plat.byAsset.get(aid) || [])) { if (present(x)) { ent = x; break; } }
+        for (const x of (plat.byAsset.get(aid) || [])) { if (await present(x)) { ent = x; break; } }
       }
       /* 任务号只在**这一条任务恰好只有一份产物**时才算数：多图任务按任务号认，
          四张卡会一起指向同一个本机文件（比不合更糟）。 */
       if (!ent && allowGen && task) {
         const one = plat.byTask.get(task) || [];
-        if (one.length === 1 && present(one[0])) ent = one[0];
+        if (one.length === 1 && await present(one[0])) ent = one[0];
       }
       if (!ent && url) {
         const key = localUpKey(url);
-        if (key) for (const x of (ups.get(key) || [])) { if (present(x)) { ent = x; break; } }
+        if (key) for (const x of (ups.get(key) || [])) { if (await present(x)) { ent = x; break; } }
       }
       out.push(ent ? aliasRowOf(ent) : null);
     }
@@ -1059,7 +1116,7 @@ function createLocalAssetsStore(deps) {
      盘上确实没有的号记 60 秒负缓存 —— 轮询同一个不存在的 id 时不再每次扫一遍库根。 */
   const repairMiss = new Map();
   const REPAIR_MISS_TTL = 60 * 1000;
-  function localAssetRepair(id) {
+  async function localAssetRepair(id) {
     const clean = String(id || '').replace(/[^A-Za-z0-9_-]/g, '');
     if (!clean) return null;
     const missAt = repairMiss.get(clean);
@@ -1069,7 +1126,7 @@ function createLocalAssetsStore(deps) {
        这里只多两件事：负缓存（不存在的号 60 秒内不再扫库根）与「把真账行交回去」。
        以前这里另写了一遍，宽严与那边不一致（还少了冲突检查，会补出两条账指向同一份文件）。 */
     let got = null;
-    try { got = adoptBodyByHint({ id: clean }); }
+    try { got = await adoptBodyByHint({ id: clean }); }
     catch (e) { log('[local-assets] 按号补建失败（文件仍在，本次按读到的算）：' + e.message); }
     /* 不管补成没补成，都以账上的真行为准：别名那一路返回的是被挂靠的那一行；
        账没写成（`writeFailed`）时用刚拼出来的那一行，读路径照样交得出字节。 */
@@ -1078,11 +1135,11 @@ function createLocalAssetsStore(deps) {
     repairMiss.delete(clean);
     return row;
   }
-  function localAssetFile(id) {
-    const p = localFileFromEntry(localAssetEntry(id));
+  async function localAssetFile(id) {
+    const p = await localFileFromEntry(localAssetEntry(id));
     if (p) return p;
-    const repaired = localAssetRepair(id);
-    return repaired ? localFileFromEntry(repaired) : '';
+    const repaired = await localAssetRepair(id);
+    return repaired ? await localFileFromEntry(repaired) : '';
   }
   /* ---------- 本机资产库占了多少地方（GET /assets-usage 用，只读） ----------
      为什么必须有这一条：库根是这一台机器上唯一**只增不减**的那一堆 ——
@@ -1135,14 +1192,14 @@ function createLocalAssetsStore(deps) {
     /* 账读不出来时 localIndexRead 已经把坏文件改名留档、返回空表 —— 那一条本函数不重复处理，
        也不写盘（这里只读）；顶到上限那一档据此照实说。 */
     const idxList = localIndexRead();
-    const sc = dirScan(true);
+    const sc = await dirScan(true);
     /* 每一条账先在磁盘快照里找到自己的文件（路径 → fid → 签名，**不写账**），
        同一份文件只归给第一条账（索引顺序 = 新→旧），其余指向它的条目算「对不上」。 */
     const entByAbs = new Map();
     const 没了 = [];
     for (const x of idxList) {
       if (!x || !x.file) { if (x) 没了.push(x); continue; }
-      const hit = resolveInScan(sc, x);
+      const hit = await resolveInScan(sc, x);
       if (!hit) { 没了.push(x); continue; }
       const k = absKey(hit.abs);
       if (!entByAbs.has(k)) entByAbs.set(k, x);
@@ -1200,7 +1257,7 @@ function createLocalAssetsStore(deps) {
         if (hit && hit.mtimeMs === f.mtimeMs && hit.size === f.size) { f.sig = hit.sig; 验过文件++; continue; }
         const cost = Math.min(f.size, SIG_SAMPLE * 2);
         if (读了字节 + cost > USAGE_HASH_BUDGET) { f.unchecked = true; 没验的++; continue; }
-        f.sig = localSigOf(f.abs, f.size);
+        f.sig = await localSigOf(f.abs, f.size);
         if (!f.sig) { f.unchecked = true; 没验的++; continue; }
         读了字节 += cost; 验过文件++;
         usageSigCache.set(f.name, { mtimeMs: f.mtimeMs, size: f.size, sig: f.sig });
@@ -1353,13 +1410,13 @@ function createLocalAssetsStore(deps) {
      删除要走这一份：界面上是一张卡，卡背后可能是两份字节，只删 `file` 那一份的话
      另一份下一轮对账又被补成一条新账 —— 用户看见「删了又回来」。
      每条路径都过一遍存在性检查：altPaths 是磁盘快照那一刻的记录，用户随时可能自己删掉。 */
-  function localAssetPaths(ent) {
+  async function localAssetPaths(ent) {
     if (!ent) return [];
     const out = [];
     const addPath = p => { if (p && !out.includes(p)) out.push(p); };
     const direct = entryAbsOf(ent);
     if (direct && fs.existsSync(direct)) addPath(direct);
-    else addPath(localFileFromEntry(ent));
+    else addPath(await localFileFromEntry(ent));
     for (const p of (Array.isArray(ent.altPaths) ? ent.altPaths : [])) {
       const abs = absInRoot(String(p || ''));
       if (abs && fs.existsSync(abs)) addPath(abs);
@@ -1393,6 +1450,8 @@ function createLocalAssetsStore(deps) {
     bodyDirOf, bodyDirNameOf,
     newBodyPlace, mintAssetId, localAdopt, invalidateScan, localSigOf, fileFidOf,
     whyNoSpace, sweepStaleTmp, rebuildBodiesOnce,
+    /* 盘对账走过的趟数（worker 与兜底两路都计）：判据拿它量「一批落空的本体只翻一趟」。 */
+    scanWalkCount: () => walkCount,
     localIndexRead, localIndexUpsert, localIndexUpdate, localIndexPut, localIndexDrop,
     localAssetEntry, localAssetRepair, localAssetPaths, localMediaType, localAssetWhen,
     localEntryByUpstream, localEntryByPlatformId, localAliases, localLocateBatch,

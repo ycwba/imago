@@ -223,7 +223,7 @@ function createAsrRoutes(ctx) {
     const la = /^la_[A-Za-z0-9_-]+$/.test(assetId) ? assetId
       : (/^\/asset\/(la_[A-Za-z0-9_-]+)/.exec(src) || [])[1];
     if (la) {
-      const f = ctx.localAssetFile(la);
+      const f = await ctx.localAssetFile(la);
       if (!f) throw new Error('本机没有这个资产：' + la);
       return { file: f, media: path.basename(f), temporary: false };
     }

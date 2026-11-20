@@ -69,7 +69,10 @@ const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR
 /* 第三族的探针根要在异常出口里也清得掉，所以在模块级声明、进到判据流程里才建。 */
 let tmpC = '';
 
-/* ---------- 第一族：本机产物的批量读 ---------- */
+/* ---------- 第一族：本机产物的批量读 ----------
+   走树挪进 worker 线程（server/scan-worker.js）之后，readdir/stat 的计数器在主线程
+   数不到它了 —— 这正是要验的事：主线程一次都不该问；「翻了几趟整库」改用 store 的
+   scanWalkCount() 计数（worker 与兜底两路都计）。 */
 const tmpA = fs.mkdtempSync(path.join(os.tmpdir(), 'read-cache-assets-'));
 const assets = path.join(tmpA, 'assets');
 const dataA = path.join(tmpA, 'data');
@@ -98,55 +101,62 @@ for (let i = 0; i < ROWS; i++) {
   });
 }
 
-startWatch([assets]);
+async function familyLocalAssets() {
+  startWatch([assets]);
 
-reset();
-let al = store.localAliases().rows;
-const readsCold = { exists: c('existsSync'), readdir: c('readdirSync') };
-ok('别名表把每一条账都报出来了', al.length === ROWS, al.length + '/' + ROWS);
-ok('取一次别名表：逐条 existsSync 一次都不许问（本体全在磁盘快照里）',
-  readsCold.exists === 0, 'existsSync=' + readsCold.exists);
-ok('取一次别名表：整库 readdir 只走一趟（快照按根复用）',
-  readsCold.readdir <= 2, 'readdir=' + readsCold.readdir);
+  reset();
+  const walksCold0 = store.scanWalkCount();
+  let al = (await store.localAliases()).rows;
+  const readsCold = { exists: c('existsSync'), readdir: c('readdirSync') };
+  ok('别名表把每一条账都报出来了', al.length === ROWS, al.length + '/' + ROWS);
+  ok('取一次别名表：逐条 existsSync 一次都不许问（本体全在磁盘快照里）',
+    readsCold.exists === 0, 'existsSync=' + readsCold.exists);
+  ok('取一次别名表：主线程一次 readdir 都不该有（走树在 worker 线程里）',
+    readsCold.readdir === 0, '主线程 readdir=' + readsCold.readdir);
+  ok('冷的那一次只翻一趟整库（快照按根复用）',
+    store.scanWalkCount() - walksCold0 === 1, '走了 ' + (store.scanWalkCount() - walksCold0) + ' 趟');
 
-reset();
-const loc = store.localLocateBatch(Array.from({ length: ROWS }, (_, i) => ({ assetId: 'asset_' + i })));
-ok('批量定位按平台产物号都认回了自己那一条', loc.filter(Boolean).length === ROWS, loc.filter(Boolean).length + '/' + ROWS);
-ok('批量定位同样不逐条问盘', c('existsSync') === 0, 'existsSync=' + c('existsSync'));
+  reset();
+  const loc = await store.localLocateBatch(Array.from({ length: ROWS }, (_, i) => ({ assetId: 'asset_' + i })));
+  ok('批量定位按平台产物号都认回了自己那一条', loc.filter(Boolean).length === ROWS, loc.filter(Boolean).length + '/' + ROWS);
+  ok('批量定位同样不逐条问盘', c('existsSync') === 0, 'existsSync=' + c('existsSync'));
 
-/* 用户在文件管理器里删了一批本体：那些条目要当场从别名表里掉出去，
-   而且「一条不在」不许变成「每一条都重扫一遍库」。 */
-const GONE = 24;
-for (let i = 0; i < GONE; i++) fs.unlinkSync(bodyOf(i));
-store.invalidateScan();
-reset();
-al = store.localAliases().rows;
-const readsGone = { exists: c('existsSync'), readdir: c('readdirSync') };
-ok('删掉的本体不再报「本机有」（别名表少了那几条）',
-  al.length === ROWS - GONE, al.length + '，应 ' + (ROWS - GONE));
-ok('一批不在的本体只翻得起一趟磁盘对账（不是每条翻一遍）',
-  readsGone.readdir <= 4 * 2, 'readdir=' + readsGone.readdir + '（' + GONE + ' 条不在）');
+  /* 用户在文件管理器里删了一批本体：那些条目要当场从别名表里掉出去，
+     而且「一条不在」不许变成「每一条都重扫一遍库」。 */
+  const GONE = 24;
+  for (let i = 0; i < GONE; i++) fs.unlinkSync(bodyOf(i));
+  store.invalidateScan();
+  reset();
+  const walksGone0 = store.scanWalkCount();
+  al = (await store.localAliases()).rows;
+  const readsGone = { exists: c('existsSync'), readdir: c('readdirSync') };
+  ok('删掉的本体不再报「本机有」（别名表少了那几条）',
+    al.length === ROWS - GONE, al.length + '，应 ' + (ROWS - GONE));
+  ok('一批不在的本体只翻得起一趟磁盘对账（不是每条翻一遍）',
+    store.scanWalkCount() - walksGone0 <= 1 && readsGone.readdir === 0,
+    '走了 ' + (store.scanWalkCount() - walksGone0) + ' 趟整库（主线程 readdir=' + readsGone.readdir + '，' + GONE + ' 条不在）');
 
-/* 快照之后刚落盘的本体：查不到那张表不等于「没有」，必须退回逐条认回。 */
-const late = path.join(assets, '图片', 'late.png');
-store.localIndexUpsert({
-  id: 'la_late', file: '图片\\late.png', name: 'late.png',
-  mime: 'image/png', format: 'png', byte_length: PNG.length,
-  created_at: new Date().toISOString(), media_type: '图片',
-  provider: 'probe', prompt: '', model: '', upstream: 'https://cdn.example.com/r/late.png',
-  detail: { asset: 'asset_late' },
-});
-store.localAliases();               // 把快照钉在「这条的本体还不存在」的那一刻
-fs.writeFileSync(late, PNG);        // 先落账、后落字节，且不重扫：模拟「刚落盘的那一条」
-reset();
-const alLate = store.localAliases().rows;
-ok('刚落盘、磁盘快照里还没有的那一条照样被认出来（认回那三级不能被缓存替掉）',
-  alLate.some(r => r.id === 'la_late'), alLate.length + ' 行');
-ok('认回走的是逐条那一条路（一次 existsSync 起步，不是整库重扫）',
-  c('existsSync') >= 1 && c('readdirSync') <= 4 * 2, 'exists=' + c('existsSync') + ' readdir=' + c('readdirSync'));
+  /* 快照之后刚落盘的本体：查不到那张表不等于「没有」，必须退回逐条认回。 */
+  const late = path.join(assets, '图片', 'late.png');
+  store.localIndexUpsert({
+    id: 'la_late', file: '图片\\late.png', name: 'late.png',
+    mime: 'image/png', format: 'png', byte_length: PNG.length,
+    created_at: new Date().toISOString(), media_type: '图片',
+    provider: 'probe', prompt: '', model: '', upstream: 'https://cdn.example.com/r/late.png',
+    detail: { asset: 'asset_late' },
+  });
+  await store.localAliases();         // 把快照钉在「这条的本体还不存在」的那一刻
+  fs.writeFileSync(late, PNG);        // 先落账、后落字节，且不重扫：模拟「刚落盘的那一条」
+  reset();
+  const alLate = (await store.localAliases()).rows;
+  ok('刚落盘、磁盘快照里还没有的那一条照样被认出来（认回那三级不能被缓存替掉）',
+    alLate.some(r => r.id === 'la_late'), alLate.length + ' 行');
+  ok('认回走的是逐条那一条路（一次 existsSync 起步，主线程不重扫整库）',
+    c('existsSync') >= 1 && c('readdirSync') === 0, 'exists=' + c('existsSync') + ' readdir=' + c('readdirSync'));
 
-stopWatch();
-for (let i = GONE; i < ROWS; i++) { try { fs.unlinkSync(bodyOf(i)); } catch (e) {} }
+  stopWatch();
+  for (let i = GONE; i < ROWS; i++) { try { fs.unlinkSync(bodyOf(i)); } catch (e) {} }
+}
 
 /* ---------- 第二族：提示词归档的读 ---------- */
 const tmpP = fs.mkdtempSync(path.join(os.tmpdir(), 'read-cache-prompts-'));
@@ -186,6 +196,9 @@ const POST = (task, title) => call('POST', '/prompts', JSON.stringify({
 const findRow = async id => JSON.parse((await call('GET', '/prompts/find?id=' + encodeURIComponent(id))).body);
 
 (async () => {
+  /* 第一族先跑完（它有自己的 startWatch / stopWatch 窗口），再进第二、三族。 */
+  await familyLocalAssets();
+
   const landing = path.resolve(pstore.promptsDir());
   if (landing !== path.resolve(promptsDir)) {
     console.log('✗ 归档落点没指进探针目录，会写进用户那一份：' + landing);
