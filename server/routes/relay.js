@@ -19,8 +19,17 @@ function createRelayRoutes(ctx) {
     allProviders, safeOutboundUrl, baseKeyOf, keyOf, log, readBody,
     detailCache, detailInflight, listCache, listInflight, DETAIL_TTL,
     relayGateOf, relayTake, relayRefused, relayRetryWait, noteRelayEvent,
-    cacheSweep, upRequest, failUpstream, pipeUpstream, DEFAULTS,
+    cacheSweep, upRequest, failUpstream, pipeUpstream, DEFAULTS, maxBody,
   } = ctx;
+  /* 请求体缓冲上限的缺省档（app.js readBody 的 MAX_BODY 同一档；没注入时兜住）。
+     流式直通那一支也用它当闸：content-length 超过它照样 413，与缓冲路径同一口径。 */
+  const BODY_LIMIT = Math.max(1024 * 1024, Number(maxBody) || 64 * 1024 * 1024);
+  /* 超过这个大小的 POST/PUT 请求体走**流式直通**（req → 上游管道，背压由 pipe 传递）：
+     整份缓冲在 128MB 级的上传上是一个等量的堆峰值，首字节延迟也被「读完才转发」拖住。
+     GET 不流式：退避重问 / 换连接重试都要**重放**请求体，整份在手才重放得了；
+     长度未知的 chunked 体没有闸可查，保持缓冲路径。POST 本来就绝不自动重试（计费不变量），
+     流式不引入重放风险。 */
+  const BODY_STREAM_MIN = 2 * 1024 * 1024;
 
   function handleRelay(req, res) {
     /* ---------- 通用转发：所有 provider 的 relay 前缀都走这里 ----------
@@ -121,8 +130,22 @@ function createRelayRoutes(ctx) {
       /* 溢出之后转流式：等着的那些请求也一起边收边写，不再把整段攒在内存里 */
       const waitersOf = () => (inflightMap ? (inflightMap.get(cacheKey) || []) : []);
       const dropInflight = () => { if (inflightMap) inflightMap.delete(cacheKey); };
-      readBody(req, res, readLimit).then(body => {
-        if (body == null) { flushInflight(w => failUpstream(w, '请求体读取失败', '上游')); return; }   // 超过上限已回 413
+      /* 大请求体（拾帧 raw 上传 128MB 级）走流式直通：req → 上游管道，不再整份缓冲进堆。
+         content-length 已知且在闸内（>阈值、≤上限）才流式；GET 与 chunked 体保持缓冲路径。 */
+      const bodyLen = Number(req.headers['content-length']);
+      const bodyStreamed = (req.method === 'POST' || req.method === 'PUT')
+        && Number.isFinite(bodyLen) && bodyLen > BODY_STREAM_MIN && bodyLen <= BODY_LIMIT;
+      const failChain = e => {
+        /* 处理链抛异常（拼请求头 / up.end 当场拒 / 缓存那一段）：以前只回等待者，
+           **发起者一条响应都拿不到** —— 客户端挂到自家超时，名额还要等 5 分钟看门狗才收回。
+           这里先把名额还掉（恰好一次），再回发起者，最后回等待者。 */
+        const msg = (e && e.message) || String(e);
+        log('[relay] 转发处理链异常：' + msg);
+        if (releaseSlot) { const r = releaseSlot; releaseSlot = null; try { r(); } catch {} }
+        failUpstream(res, msg, '上游');
+        flushInflight(w => failUpstream(w, msg, '上游'));
+      };
+      const forward = body => {
         const fwd = { ...req.headers };
         /* transfer-encoding 必须剥掉：下面强制带上 content-length（上游大多要求），
            两个头同时存在是非法请求，chunked 请求会直接被拒。 */
@@ -139,7 +162,8 @@ function createRelayRoutes(ctx) {
           + '（打到 ' + upHost + '）';
         const relayOpts = {
           method: req.method,
-          headers: { ...fwd, authorization: 'Bearer ' + apiKey, 'content-length': body.length, 'accept-encoding': 'identity' },
+          headers: { ...fwd, authorization: 'Bearer ' + apiKey,
+            'content-length': body ? body.length : bodyLen, 'accept-encoding': 'identity' },
           timeoutMs: isCreatePost ? 120000 : 0,
           keepAlive: true,              // relay 的目标主机来自注册表声明（见 keepAliveAgent / agentFor）
         };
@@ -290,6 +314,10 @@ function createRelayRoutes(ctx) {
           };
           const once = fresh => {
             const up = upRequest(base + pathAndQuery, { ...relayOpts, fresh }, ur => {
+              /* 流式直通：上游**提前回话**（早于上传结束——大多是被拒）就别再往它泵字节了，
+                 把客户端那一侧转成「边收边扔」，好让响应先到；响应已经接管 res，
+                 请求体这一侧随后怎么断都不掐它（见下面 up 的 error 分支）。 */
+              if (!body) { req.unpipe(up); req.resume(); }
               const wait = relayRetryWait(req.method, ur, tries);
               if (wait != null) {
                 tries++;
@@ -322,9 +350,20 @@ function createRelayRoutes(ctx) {
                 once(true);
                 return;
               }
+              /* 响应已经接管 res（头已发）时，请求体这一侧的断流——上游回完就关、
+                 客户端半路断开——不再掐响应：后半段由响应流自己的 error 处理管
+                 （relayRespond 里那份）。名额照还（幂等，与 close 那一条共用）。 */
+              if (res.headersSent) { release(); try { up.destroy(); } catch {} return; }
               release(); log(`  → (${upHost}) error: ${e.message}`); failUpstream(res, e.message, relayTag); flushInflight(w => failUpstream(w, e.message, relayTag));
             });
-            up.end(body);
+            /* 缓冲路径：整份在手直接 end；流式直通：req → 上游管道（背压由 pipe 传递，
+               读到多少 ≈ 上游收下多少）。客户端半路断了上游跟着掐——那份 128MB 不在后台继续传
+               （与 s3put 同一条脾气）；上游报错时 req 那一侧由 close/error 自然了结。 */
+            if (body) up.end(body);
+            else {
+              req.on('error', () => { try { up.destroy(); } catch {} });
+              req.pipe(up);
+            }
           };
           once(false);
         };
@@ -363,16 +402,17 @@ function createRelayRoutes(ctx) {
           flushInflight(w => relayRefused(w, gate));
           return;
         }
-      }).catch(e => {
-        /* 处理链抛异常（拼请求头 / up.end 当场拒 / 缓存那一段）：以前只回等待者，
-           **发起者一条响应都拿不到** —— 客户端挂到自家超时，名额还要等 5 分钟看门狗才收回。
-           这里先把名额还掉（恰好一次），再回发起者，最后回等待者。 */
-        const msg = (e && e.message) || String(e);
-        log('[relay] 转发处理链异常：' + msg);
-        if (releaseSlot) { const r = releaseSlot; releaseSlot = null; try { r(); } catch {} }
-        failUpstream(res, msg, '上游');
-        flushInflight(w => failUpstream(w, msg, '上游'));
-      });
+      };
+      /* 流式直通不过 readBody：上限已经按 content-length 查过（>阈值、≤上限才进这一支）。
+         缓冲路径照旧：413 / 读体失败在 readBody 那一层就地回掉。 */
+      if (bodyStreamed) {
+        try { forward(null); } catch (e) { failChain(e); }
+      } else {
+        readBody(req, res, readLimit).then(body => {
+          if (body == null) { flushInflight(w => failUpstream(w, '请求体读取失败', '上游')); return; }   // 超过上限已回 413
+          forward(body);
+        }).catch(failChain);
+      }
       return;
     }
     return false;

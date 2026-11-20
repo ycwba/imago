@@ -983,6 +983,7 @@ const relayRoutes = createRelayRoutes({
   detailCache, detailInflight, listCache, listInflight, DETAIL_TTL,
   relayGateOf, relayTake, relayRefused, relayRetryWait, noteRelayEvent,
   cacheSweep, upRequest, failUpstream, pipeUpstream, DEFAULTS,
+  maxBody: MAX_BODY,
 });
 
 const localAssets = createLocalAssets({

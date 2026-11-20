@@ -327,6 +327,9 @@ run('tests/director-asr-text.mjs', process.execPath, ['tests/director-asr-text.m
 run('tests/settings-schema.cjs', process.execPath, ['tests/settings-schema.cjs']);
 run('tests/skill-hub.mjs', process.execPath, ['tests/skill-hub.mjs']);
 run('tests/zip.cjs', process.execPath, ['tests/zip.cjs']);
+/* relay 大请求体流式直通：超阈值 POST 走 req → 上游管道（不过整份缓冲）、客户端断开上游跟着掐、
+   上游提前回话停泵请求体且不掐已发出的响应；小体与 GET 保持缓冲路径。 */
+run('tests/relay-stream.cjs', process.execPath, ['tests/relay-stream.cjs']);
 /* 生成前校验一致性：页面与助手对同一组 fixture 必须给同一个结论。
    写好了没登记就等于没跑过 —— 这一条与下面两条同批登记（「孤儿判据」那一类）。 */
 run('tests/gen-rules.mjs', process.execPath, ['tests/gen-rules.mjs']);
