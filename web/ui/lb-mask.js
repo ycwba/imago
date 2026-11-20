@@ -1,8 +1,10 @@
 /* LbMask — 在已打开的公共灯箱（Wb.lightbox）上叠一层「编号批注」。
    涂鸦层完全重写：点 / 框 / 画笔 / 箭头四种工具 + 撤销 / 重做 / 清空；图上编号圆点与右侧批注
-   列表一一对应，支持内联填写、删除与补一句；完成时交回 {png, doc}，png 仍走原来的 isMask 链路。
+   列表一一对应，支持内联填写与删除；删除哪一条，后面的编号都顺次往前顶；完成时交回 {png, doc}，
+   png 仍走原来的 isMask 链路。
    公共灯箱一行不改：左工具条与右列表挂在 #lightbox（stage 的兄弟），覆盖层挂 #lbStage 内，
    stage 被 show()/close() 清空时由 MutationObserver 自动保存并收尾。
+   enter 会等图就绪再起层：灯箱 show() 是异步的，第二次起脚本已缓存，调用会跑在图片加载前面。
    条目字段：mask = 编号图 PNG dataURL（下游兼容），annots = 结构化文档（真相）。
    按需补载（__spaLoadScript），不进 shell 常驻。 */
 (function () {
@@ -10,7 +12,9 @@
   var KINDS = ['point', 'box', 'brush', 'arrow'];
   var UNDO_MAX = 30;
   var MIN_DRAG = 0.004;                 // 归一化坐标：短于这个距离不算框 / 箭头
+  var WAIT_TICKS = 80, WAIT_MS = 50;    // enter 等图就绪：4 秒上限，到了才提示
   var cur = null;
+  var enterSeq = 0;                     // 每次 enter 发一枚号：只有最新一枚能起层，旧等待作废
 
   /* 颜色只从令牌取：canvas / SVG 不认 var()，用 1px 画布把令牌换算成 rgb，
      这样深浅主题与配色块切换时标注颜色跟着走，也不会有裸十六进制色值散在代码里。 */
@@ -39,7 +43,7 @@
   function readDoc(raw) {
     if (!raw) return null;
     if (typeof raw === 'string') return /^data:image\//.test(raw)
-      ? { v: 1, note: '', seq: 1, items: [], legacyMask: raw } : null;
+      ? { v: 1, seq: 1, items: [], legacyMask: raw } : null;
     if (typeof raw !== 'object' || Array.isArray(raw) || raw.v !== 1 || !Array.isArray(raw.items)) return null;
     var items = [], max = 0;
     raw.items.forEach(function (x) {
@@ -52,21 +56,16 @@
         text: String(x.text || ''), w: Math.max(1, Number(x.w) || 3) });
       if (Number(x.n) > max) max = Number(x.n);
     });
-    return { v: 1, note: String(raw.note || ''), seq: Math.max(Number(raw.seq) || 0, max + 1),
+    return { v: 1, seq: Math.max(Number(raw.seq) || 0, max + 1),
       items: items, legacyMask: String(raw.legacyMask || '') };
   }
-  function blankDoc() { return { v: 1, note: '', seq: 1, items: [], legacyMask: '' }; }
+  function blankDoc() { return { v: 1, seq: 1, items: [], legacyMask: '' }; }
 
-  function enter(onSave, opts) {
-    exit();
-    var o = opts || {};
+  /* 起层本体：只在图片已就绪时被 enter 调进来 */
+  function begin(img, onSave, o) {
     var lb = document.getElementById('lightbox');
     var stage = document.getElementById('lbStage');
-    var img = stage ? stage.querySelector('img') : null;
-    if (!lb || !stage || !img || !img.naturalWidth) {
-      if (window.Toast && Toast.err) Toast.err('先等图片加载完再批注');
-      return;
-    }
+    if (!lb || !stage) return;
     /* 幂等：重入时先摘干净自己的旧节点，绝不碰灯箱自己的 DOM */
     lb.querySelectorAll('.lb-ann-tools,.lb-ann-list,.lb-ann-inline').forEach(function (n) { n.remove(); });
     stage.querySelectorAll('.lb-ann-overlay,.lb-ann-echo,.lb-ann-legacy').forEach(function (n) { n.remove(); });
@@ -81,7 +80,7 @@
     var doc = readDoc(o.existing) || blankDoc();
     var st = {
       tool: 'point', sel: '', draft: null, dirty: false, saved: false,
-      undo: [], redo: [], noteOnce: false,
+      undo: [], redo: [],
     };
 
     var tools = document.createElement('div');
@@ -100,9 +99,7 @@
     list.className = 'lb-ann-list';
     list.innerHTML = '<div class="lb-ann-hd">批注 <span class="lb-ann-count">0</span>'
       + '<button type="button" class="pri mini" data-act="done">完成</button></div>'
-      + '<div class="lb-ann-items"></div>'
-      + '<button type="button" class="ghost mini lb-ann-add" data-act="note">+ 补一句（可不填）</button>'
-      + '<input class="ui-inp lb-ann-note" type="text" maxlength="200" placeholder="补一句（可不填）" hidden>';
+      + '<div class="lb-ann-items"></div>';
 
     var overlay = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
     overlay.setAttribute('class', 'lb-ann-overlay');
@@ -199,9 +196,7 @@
       list.querySelector('.lb-ann-count').textContent = String(doc.items.length);
       tools.querySelector('[data-act="undo"]').disabled = !st.undo.length;
       tools.querySelector('[data-act="redo"]').disabled = !st.redo.length;
-      tools.querySelector('[data-act="clear"]').disabled = !doc.items.length && !doc.note;
-      var ni = list.querySelector('.lb-ann-note');
-      if (ni !== document.activeElement) ni.value = doc.note || '';
+      tools.querySelector('[data-act="clear"]').disabled = !doc.items.length && !doc.legacyMask;
     }
     function hideInline() { inline.hidden = true; }
     function showInline(a) {
@@ -269,6 +264,14 @@
       st.sel = a.id;
       renderAnn(); showInline(a);
     }
+    function removeAnnot(id) {
+      mutateAnn(function () {
+        doc.items = doc.items.filter(function (x) { return x.id !== id; });
+        /* 删哪条都重排：右栏与图上编号始终连着 1..N，产物 PNG 与文档用同一套号 */
+        doc.items.forEach(function (x, i) { x.n = i + 1; });
+        doc.seq = doc.items.length + 1;
+      });
+    }
 
     overlay.addEventListener('pointerdown', function (e) {
       if (e.button !== 0) return;
@@ -315,25 +318,18 @@
       else if (b.dataset.act === 'redo') redoAnn();
       else if (b.dataset.act === 'clear') {
         hideInline();
-        mutateAnn(function () { doc.items = []; doc.note = ''; doc.seq = 1; doc.legacyMask = ''; });
+        mutateAnn(function () { doc.items = []; doc.seq = 1; doc.legacyMask = ''; });
       }
     };
     list.onclick = function (e) {
       var b = e.target.closest('button');
       if (b && b.dataset.del) {
         e.stopPropagation();
-        mutateAnn(function () { doc.items = doc.items.filter(function (x) { return x.id !== b.dataset.del; }); });
+        removeAnnot(b.dataset.del);
         if (st.sel === b.dataset.del) { st.sel = ''; hideInline(); }
-        renderAnn();
         return;
       }
       if (b && b.dataset.act === 'done') { finishAnnot(); return; }
-      if (b && b.dataset.act === 'note') {
-        var ni = list.querySelector('.lb-ann-note');
-        ni.hidden = !ni.hidden;
-        if (!ni.hidden) { try { ni.focus(); } catch (err) { /* 焦点给不出去不影响补一句 */ } }
-        return;
-      }
       if (b && b.dataset.act === 'ok') { commitInline(); return; }
       var row = e.target.closest('.lb-ann-row');
       if (row) select(byId(row.dataset.id));
@@ -354,14 +350,6 @@
       if (e.key === 'Enter') { e.preventDefault(); commitInline(); }
       else if (e.key === 'Escape') { e.preventDefault(); hideInline(); }
     });
-    var note = list.querySelector('.lb-ann-note');
-    note.addEventListener('input', function () {
-      if (!st.noteOnce) { pushUndo(); st.noteOnce = true; }
-      doc.note = note.value;
-      st.dirty = true;
-      renderList();
-    });
-    note.addEventListener('blur', function () { st.noteOnce = false; });
 
     var onKey = function (e) {
       if (e.target && /^(INPUT|TEXTAREA)$/.test(e.target.tagName)) return;
@@ -373,9 +361,8 @@
         e.preventDefault(); e.stopPropagation(); redoAnn();
       } else if ((e.key === 'Delete' || e.key === 'Backspace') && st.sel) {
         e.preventDefault(); e.stopPropagation();
-        var id = st.sel;
-        mutateAnn(function () { doc.items = doc.items.filter(function (x) { return x.id !== id; }); });
-        st.sel = ''; hideInline(); renderAnn();
+        removeAnnot(st.sel);
+        st.sel = ''; hideInline();
       } else if (e.key === 'Escape') {
         /* 输入框里的 Esc 已自己吃掉；这里只保存退出编辑态，不拦公共灯箱关窗 */
         finishAnnot(true);
@@ -450,11 +437,11 @@
     function finishAnnot(silent) {
       if (!cur || st.saved) return;
       st.saved = true;
-      var png = (doc.items.length || doc.legacyMask || doc.note) ? exportPng(cur.legacy) : '';
+      var png = (doc.items.length || doc.legacyMask) ? exportPng(cur.legacy) : '';
       if (png && onSave) { try { onSave(png, clone(doc)); } catch (e) { /* 回调挂了也不能卡住灯箱收尾 */ } }
       detach(!silent, png);
     }
-    function shouldSave() { return st.dirty || doc.items.length > 0 || !!doc.legacyMask || !!doc.note; }
+    function shouldSave() { return st.dirty || doc.items.length > 0 || !!doc.legacyMask; }
 
     /* stage 被灯箱 show()/close() 清空：overlay 脱链即收尾。此时不画回显（图上已经换新或没了）*/
     var mo = new MutationObserver(function () {
@@ -475,6 +462,30 @@
     cur = { lb: lb, stage: stage, img: img, overlay: overlay, tools: tools, list: list,
       inline: inline, legacy: legacy, mo: mo, onKey: onKey, getDoc: function () { return doc; } };
     renderAnn();
+  }
+
+  function enter(onSave, opts) {
+    exit();
+    var o = opts || {};
+    var tok = ++enterSeq;
+    var lb = document.getElementById('lightbox');
+    var stage = document.getElementById('lbStage');
+    if (!lb || !stage) {
+      if (window.Toast && Toast.err) Toast.err('先等图片加载完再批注');
+      return;
+    }
+    /* 灯箱 show() 是异步补图：脚本已缓存时这里会比图片加载先到 —— 等图就绪再起层。
+       灯箱关掉（display 归 none）或有更新的 enter 接手时安静作废，只有等满上限才提示。 */
+    (function wait(ticks) {
+      if (tok !== enterSeq || lb.style.display === 'none') return;
+      var im = stage.querySelector('img');
+      if (im && im.naturalWidth) { begin(im, onSave, o); return; }
+      if (ticks >= WAIT_TICKS) {
+        if (window.Toast && Toast.err) Toast.err('先等图片加载完再批注');
+        return;
+      }
+      setTimeout(function () { wait(ticks + 1); }, WAIT_MS);
+    })(0);
   }
 
   function exit() {

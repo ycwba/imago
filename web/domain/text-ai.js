@@ -866,7 +866,7 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
     if (!raw) return null;
     if (typeof raw === 'string') {
       return /^data:image\//.test(raw)
-        ? { v: 1, note: '', seq: 1, items: [], legacyMask: raw }
+        ? { v: 1, seq: 1, items: [], legacyMask: raw }
         : null;
     }
     if (typeof raw !== 'object' || Array.isArray(raw) || raw.v !== 1 || !Array.isArray(raw.items)) return null;
@@ -885,15 +885,15 @@ preset 是最后一档 —— 那一排嗓子是全平台共用的，谁挑都�
         text: String(x.text || ''), w: Math.max(1, Number(x.w) || 3) });
       if (n > maxN) maxN = n;
     }
-    return { v: 1, note: String(raw.note || ''), seq: Math.max(Number(raw.seq) || 0, maxN + 1),
+    return { v: 1, seq: Math.max(Number(raw.seq) || 0, maxN + 1),
       items, legacyMask: String(raw.legacyMask || '') };
   },
   annotText(doc) {
     const d = this.readAnnots(doc);
     if (!d) return '';
     const parts = d.items.map(a => a.n + '=' + (a.text || '未填'));
-    if (!parts.length && !d.note) return '';
-    return '编号批注：' + parts.join('；') + (d.note ? '。补充：' + d.note : '');
+    if (!parts.length) return '';
+    return '编号批注：' + parts.join('；');
   },
   /* 素材清单 → 一段写给 AI 的话。
      问题：参考图能随消息附上（识图模型），**视频 / 音频附不了**。以前只在提示词里塞一句

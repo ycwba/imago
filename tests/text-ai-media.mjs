@@ -188,7 +188,8 @@ ok(pl.note.includes('图1 = 参考图1（它的下一张图是编号批注图') 
 ok(/编号批注图/.test(pl.note) && !/按颜色点名/.test(pl.note), '编号说明换成编号批注语义：' + pl.note);
 ok(!pl.note.includes('图3'), '批注图不占编号');
 
-/* 结构化批注：旧 PNG 包成 legacyMask，新文档归一化；文案把每条编号与文案拼给模型 */
+/* 结构化批注：旧 PNG 包成 legacyMask，新文档归一化；文案把每条编号与文案拼给模型。
+   旧文档里的 note（补一句）已下线：读入时照实丢弃，不再进提示词。 */
 {
   const legacy = TextAI.readAnnots('data:image/png;base64,AAA');
   ok(legacy && legacy.items.length === 0 && legacy.legacyMask === 'data:image/png;base64,AAA',
@@ -198,9 +199,9 @@ ok(!pl.note.includes('图3'), '批注图不占编号');
     { id: 'k2', n: 2, type: 'point', points: [[0.5, 0.6]], text: '' },
   ] };
   const got = TextAI.readAnnots(doc);
-  ok(got && got.seq === 3 && got.items.length === 2 && got.items[1].text === '',
-    'v1 文档按形状归一化，空文案保留为未填');
-  ok(TextAI.annotText(got) === '编号批注：1=改成草地；2=未填。补充：整体再淡一点',
+  ok(got && got.seq === 3 && got.items.length === 2 && got.items[1].text === '' && got.note === undefined,
+    'v1 文档按形状归一化，空文案保留为未填，note 一律不收');
+  ok(TextAI.annotText(got) === '编号批注：1=改成草地；2=未填',
     '编号文案拼进提示词：' + TextAI.annotText(got));
   ok(TextAI.readAnnots({ v: 9, items: [] }) === null && TextAI.annotText(null) === '',
     '坏形状与空值安静返回，不绊倒润色链路');

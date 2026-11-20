@@ -2,8 +2,9 @@
 /* 灯箱编号批注 e2e（公共灯箱保持原样，只验新的涂鸦层）：
    ① 仍用公共灯箱，左右面板不进 #lbStage；② 覆盖层几何与 stage 清空后重建；
    ③ 点 / 框 / 画笔 / 箭头四种工具落结构化坐标；④ 撤销 → 重做、新操作清 redo、清空可撤销；
-   ⑤ 选中行 → 内联输入 → 好；⑥ 删除不重编号；⑦ 完成交回 PNG+doc 并留回显；
-   ⑧ 带 doc 重开可继续编辑；⑨ 旧 PNG 只读兼容；⑩ 零页面错误。 */
+   ⑤ 选中行 → 内联输入 → 好（补一句已下线，文档不带 note）；⑥ 删除即重排，右栏与文档编号连着 1..N；
+   ⑦ 完成交回 PNG+doc 并留回显；⑧ 真实时序重开（脚本已缓存 + 不等图直接 enter）批注层自动回来，
+   关灯箱不点完成也自动保存且编号连续；⑨ 旧 PNG 只读兼容；⑩ 零页面错误。 */
 const h = require('./harness.cjs');
 
 (async () => {
@@ -32,10 +33,16 @@ const h = require('./harness.cjs');
           document.head.appendChild(s);
         });
       }
-      const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 640;
-      const g = cv.getContext('2d'); g.fillStyle = 'white'; g.fillRect(0, 0, 1024, 640);
-      window.__rv = { saved: 'unset', doc: null };
-      window.__rv.src = cv.toDataURL('image/png');
+      const mk = paint => {
+        const cv = document.createElement('canvas'); cv.width = 1024; cv.height = 640;
+        const g = cv.getContext('2d'); paint(g);
+        return cv.toDataURL('image/png');
+      };
+      window.__rv = { saved: 'unset', doc: null, saved2: null };
+      /* src2 是另一张 freshly 解码的图：重开那一步不复用内存缓存，才能踩中真实时序 */
+      window.__rv.src = mk(g => { g.fillStyle = 'white'; g.fillRect(0, 0, 1024, 640); });
+      window.__rv.src2 = mk(g => { g.fillStyle = '#eee'; g.fillRect(0, 0, 1024, 640);
+        g.strokeStyle = '#888'; g.beginPath(); g.moveTo(0, 0); g.lineTo(1024, 640); g.stroke(); });
       if (!Wb.lightbox.cfg) {
         Wb.lightbox.init({
           keyOf: it => (it && it.src) || '', srcOf: it => (it && it.src) || '',
@@ -64,6 +71,7 @@ const h = require('./harness.cjs');
         open: lb.style.display === 'flex',
         panels: !!lb.querySelector(':scope > .lb-ann-tools') && !!lb.querySelector(':scope > .lb-ann-list'),
         notInStage: !stage.querySelector('.lb-ann-tools') && !stage.querySelector('.lb-ann-list'),
+        noNote: !document.querySelector('.lb-ann-add') && !document.querySelector('.lb-ann-note'),
         viewBox: ov.getAttribute('viewBox'),
         geom: Math.abs(ir.left - or.left) < 2 && Math.abs(ir.top - or.top) < 2
           && Math.abs(ir.width - or.width) < 2 && Math.abs(ir.height - or.height) < 2,
@@ -71,6 +79,7 @@ const h = require('./harness.cjs');
     });
     ok(mount.open && mount.panels && mount.notInStage, '仍用公共灯箱，左右面板是 #lightbox 的子节点');
     ok(mount.geom && mount.viewBox === '0 0 1024 640', '覆盖层按图片显示矩形与原图尺寸对齐：' + JSON.stringify(mount));
+    ok(mount.noNote, '补一句已下线：列表里没有「+ 补一句」按钮与隐藏输入框');
 
     /* ③ 四种工具；坐标归一化 0..1 */
     const draw = await page.eval(async () => {
@@ -132,7 +141,7 @@ const h = require('./harness.cjs');
     ok(history.afterNew === history.before && history.redoCleared, '新批注清空 redo 栈');
     ok(history.afterClear === 0 && history.afterClearUndo === history.before, '清空可撤销');
 
-    /* ⑤ 选中行 → 内联输入 → 好；补一句 */
+    /* ⑤ 选中行 → 内联输入 → 好 */
     const text = await page.eval(async () => {
       const row = document.querySelector('.lb-ann-row');
       row.dispatchEvent(new MouseEvent('click', { bubbles: true }));
@@ -143,28 +152,25 @@ const h = require('./harness.cjs');
         inline.querySelector('input').value = '改成草地';
         inline.querySelector('[data-act="ok"]').dispatchEvent(new MouseEvent('click', { bubbles: true }));
       }
-      const add = document.querySelector('.lb-ann-add');
-      add.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      const note = document.querySelector('.lb-ann-note');
-      note.value = '整体淡一点';
-      note.dispatchEvent(new Event('input', { bubbles: true }));
       const now = LbMask.current();
-      return { shown, first: now.items[0].text, note: now.note,
+      return { shown, first: now.items[0].text, noNote: now.note === undefined,
         listText: document.querySelector('.lb-ann-row .lb-ann-txt').textContent };
     });
     ok(text.shown && text.first === '改成草地' && text.listText === '改成草地',
       '选中编号后内联输入并写回文案：' + JSON.stringify(text));
-    ok(text.note === '整体淡一点', '补一句写进文档');
+    ok(text.noNote, '补一句已下线：文档不再带 note 字段');
 
-    /* ⑥ 删除不重编号（删 2 号，3 号不变） */
+    /* ⑥ 删除即重排（删 2 号，3、4 号顶上来变 2、3） */
     const del = await page.eval(() => {
       const before = LbMask.current().items.map(x => x.n);
       const btn = document.querySelectorAll('.lb-ann-row [data-del]')[1];
       btn.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-      return { before, after: LbMask.current().items.map(x => x.n) };
+      return { before, after: LbMask.current().items.map(x => x.n),
+        rows: Array.prototype.map.call(document.querySelectorAll('.lb-ann-row .lb-ann-num'), n => n.textContent) };
     });
-    ok(del.before.length - 1 === del.after.length && del.after.indexOf(del.before[2]) >= 0 && del.after.indexOf(del.before[1]) < 0,
-      '删除后编号不重排：' + JSON.stringify(del));
+    ok(del.before.length - 1 === del.after.length && del.after.every((n, i) => n === i + 1)
+      && del.rows.join(',') === del.after.join(','),
+      '删除后编号顺次重排，右栏与文档一致：' + JSON.stringify(del));
 
     /* ⑦ 完成：PNG + doc 交回，编辑面板收走、编号图回显 */
     const done = await page.eval(async () => {
@@ -179,29 +185,53 @@ const h = require('./harness.cjs');
     ok(/^data:image\/png/.test(done.png) && done.hasDoc, '完成交回编号 PNG 与结构化文档：' + JSON.stringify(done));
     ok(done.echo && done.gone, '完成后编辑层收走、编号图常驻回显');
 
-    /* ⑧ 带 doc 重开继续编辑；⑨ 旧 PNG 只读兼容 */
+    /* ⑧ 真实时序重开：脚本已缓存 + 不等图直接 enter（复刻 viewSlotItem）；
+       再画一条 → 直接关灯箱（不点完成）→ observer 自动保存且编号连续 */
     const reopen = await page.eval(async () => {
       const saved = window.__rv.doc;
-      Wb.lightbox.open({ src: window.__rv.src, label: 'e2e', kind: 'image' },
-        [{ src: window.__rv.src, label: 'e2e', kind: 'image' }]);
-      for (let i = 0; i < 40 && !document.querySelector('#lbStage img'); i++) await new Promise(res => setTimeout(res, 50));
-      LbMask.enter(() => {}, { existing: saved });
+      window.__rv.saved2 = null;
+      Wb.lightbox.open({ src: window.__rv.src2, label: 'e2e', kind: 'image' },
+        [{ src: window.__rv.src2, label: 'e2e', kind: 'image' }]);
+      await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask);
+      LbMask.enter((png, doc) => { window.__rv.saved2 = { png: png, doc: doc }; }, { existing: saved });
+      let rows = 0, first = '';
+      for (let i = 0; i < 60 && !document.querySelector('.lb-ann-row'); i++) await new Promise(res => setTimeout(res, 50));
+      rows = document.querySelectorAll('.lb-ann-row').length;
+      first = (document.querySelector('.lb-ann-row .lb-ann-txt') || {}).textContent || '';
+      const ov = document.querySelector('.lb-ann-overlay');
+      const r = ov.getBoundingClientRect();
+      ov.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, composed: true,
+        button: 0, buttons: 1, clientX: r.left + r.width * .15, clientY: r.top + r.height * .85,
+        pointerId: 3, pointerType: 'mouse', isPrimary: true }));
+      ov.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, composed: true,
+        button: 0, buttons: 0, clientX: r.left + r.width * .15, clientY: r.top + r.height * .85,
+        pointerId: 3, pointerType: 'mouse', isPrimary: true }));
       await new Promise(res => setTimeout(res, 60));
-      const rows = document.querySelectorAll('.lb-ann-row').length;
-      const first = document.querySelector('.lb-ann-row .lb-ann-txt').textContent;
       Wb.lightbox.close();
-      await new Promise(res => setTimeout(res, 60));
-      Wb.lightbox.open({ src: window.__rv.src, label: 'e2e', kind: 'image' },
-        [{ src: window.__rv.src, label: 'e2e', kind: 'image' }]);
-      for (let i = 0; i < 40 && !document.querySelector('#lbStage img'); i++) await new Promise(res => setTimeout(res, 50));
-      LbMask.enter(() => {}, { existing: window.__rv.src });
-      await new Promise(res => setTimeout(res, 60));
-      return { rows, first, total: saved.items.length, legacy: !!document.querySelector('.lb-ann-legacy'),
-        noFake: document.querySelectorAll('.lb-ann-row').length === 0 };
+      await new Promise(res => setTimeout(res, 120));
+      const closedSave = window.__rv.saved2 && window.__rv.saved2.doc;
+      return { rows, first, total: saved.items.length,
+        closedItems: closedSave ? closedSave.items.length : -1,
+        closedNums: closedSave ? closedSave.items.map(x => x.n) : [] };
     });
     ok(reopen.rows === reopen.total && reopen.first === '改成草地',
-      '带 doc 重开：编号、文案、坐标原样回显：' + JSON.stringify(reopen));
-    ok(reopen.legacy && reopen.noFake, '旧 PNG 只作只读参考层，不伪装成结构化批注');
+      '脚本已缓存 + 不等图直接 enter：编号、文案、坐标自动回来：' + JSON.stringify(reopen));
+    ok(reopen.closedItems === reopen.total + 1
+      && reopen.closedNums.every((n, i) => n === i + 1),
+      '关灯箱不点完成也自动保存，编号连着 1..N：' + JSON.stringify(reopen));
+
+    /* ⑨ 旧 PNG 只读兼容 */
+    const legacy = await page.eval(async () => {
+      Wb.lightbox.open({ src: window.__rv.src, label: 'e2e', kind: 'image' },
+        [{ src: window.__rv.src, label: 'e2e', kind: 'image' }]);
+      await window.__spaLoadScript('web/ui/lb-mask.js', () => window.LbMask);
+      LbMask.enter(() => {}, { existing: window.__rv.src });
+      let layer = false;
+      for (let i = 0; i < 60 && !document.querySelector('.lb-ann-legacy'); i++) await new Promise(res => setTimeout(res, 50));
+      layer = !!document.querySelector('.lb-ann-legacy');
+      return { layer, noFake: document.querySelectorAll('.lb-ann-row').length === 0 };
+    });
+    ok(legacy.layer && legacy.noFake, '旧 PNG 只作只读参考层，不伪装成结构化批注');
     ok(!page.errors.length, '零页面错误' + (page.errors.length ? '：' + page.errors.slice(-3).join(' | ') : ''));
   } catch (e) {
     bad++;

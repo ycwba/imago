@@ -1793,8 +1793,6 @@ button.phead-chip:hover b { color: var(--acc); }
 .lb-ann-del { flex: none; width: var(--sz-ctl-sm); height: var(--sz-ctl-sm); padding: 0;
   border: 0; background: transparent; color: var(--sub); font-size: var(--fs-16); cursor: pointer; }
 .lb-ann-del:hover { color: var(--err); }
-.lb-ann-add { margin-top: auto; }
-.lb-ann-note { width: 100%; }
 /* SVG 覆盖层与图片显示矩形重合：坐标归一化后按原图尺寸 viewBox，随图一起缩放 */
 .lb-ann-overlay { position: absolute; z-index: 6; cursor: crosshair; touch-action: none; }
 /* 完成后的编号图回显与旧 PNG 参考层：黑底靠 screen 混色消失，标记留在原图上 */
