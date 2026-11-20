@@ -319,8 +319,8 @@
   .shot-item .pbar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: color-mix(in srgb, var(--media-bg) var(--a-35), transparent); }
   .shot-item .pbar i { display: block; height: 100%; background: var(--acc); transition: width var(--dur-280); }
   .shot-item .sinfo { flex: 1; min-width: 0; }
-  .shot-item .sname { font-size: var(--fs-13); font-weight: 600; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .shot-item .smeta { font-size: var(--fs-11); line-height: 1.35; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shot-item .sname { font-size: var(--fs-13); font-weight: 600; line-height: var(--lh-1-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .shot-item .smeta { font-size: var(--fs-11); line-height: var(--lh-1-3); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .shot-item .smeta .okc { color: var(--ok); }
   .shot-item .smeta .runc { color: var(--warn); }
   .shot-item .smeta .errc { color: var(--err); }
@@ -403,7 +403,7 @@
   .hist-row.branch .hn { color: var(--sub); }
   .hist-row .hn { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .hist-row .ht { flex: none; font-size: var(--fs-11); color: var(--sub); font-variant-numeric: tabular-nums; }
-  .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-8) var(--sp-2); line-height: 1.6; }
+  .hist-empty { font-size: var(--fs-12); color: var(--sub); padding: var(--sp-8) var(--sp-2); line-height: var(--lh-1-5); }
   #editLeft .hint { margin-top: 0; }
   .gen-all { margin-top: auto; padding: var(--sp-12); border-top: var(--hair) solid var(--line); }
   /* 批量动作两颗通栏按钮（同宽同高）：生成主钮实底、润色副钮描边（花钱的动作与花 tokens 的动作分层）。 */
@@ -420,7 +420,7 @@
     transition: width var(--dur-280); }
   /* 中栏 */
   .mid-head { display: flex; align-items: center; gap: var(--sp-8); padding: var(--sp-12) var(--sp-16); border-bottom: var(--hair) solid var(--line); flex-wrap: wrap; }
-  .mid-head .no { font-size: var(--fs-16); font-weight: 700; color: var(--acc); flex: 0 0 auto; }
+  .mid-head .no { font-size: var(--fs-16); font-weight: 600; color: var(--acc); flex: 0 0 auto; }
   .mid-head input.sname { background: transparent; border: var(--hair) solid transparent; border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-14); font-weight: 600; padding: var(--sp-4) var(--sp-8); flex: 0 1 150px; min-width: 90px; }
   .mid-head input.sname:hover, .mid-head input.sname:focus { border-color: var(--line); background: var(--input); outline: none; }
   /* 一行放不下就整体换行：meta 保持可读宽度（早前被挤成竖排单字），按钮不换行不压缩 */
@@ -502,7 +502,7 @@
   .player-empty { width: calc(56vh * 16 / 9); max-width: 100%; aspect-ratio: 16 / 9; max-height: 56vh; background: var(--input);
     border-radius: var(--radius-4); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-8); }
   .player-empty .pe-ic { font-size: var(--fs-42); opacity: .5; }
-  .player-empty .pe-t { font-size: var(--fs-16); font-weight: 700; color: var(--txt); }
+  .player-empty .pe-t { font-size: var(--fs-16); font-weight: 600; color: var(--txt); }
   .player-empty .pe-d { font-size: var(--fs-13); color: var(--sub); }
   .player-empty .pe-task { margin-top: var(--sp-16); width: min(460px, 86%); display: flex; flex-direction: column; gap: var(--sp-8); }
   .player-empty .pe-row { display: flex; flex-wrap: wrap; gap: var(--sp-8) var(--sp-8); font-size: var(--fs-12); color: var(--txt);
@@ -618,7 +618,7 @@
   .vc-tabs > button + button { border-left: 0; }
   /* 预览字幕叠层：`100cqh` 要一个尺寸容器（.sub-wrap），字号才跟着画面高度走。 */
   .sub-wrap { position: absolute; inset: 0; z-index: 3; pointer-events: none; container-type: size; overflow: hidden; border-radius: var(--radius-4); }
-  .sub-ov { position: absolute; left: 6%; right: 6%; text-align: center; line-height: 1.28; font-weight: 600; color: var(--on-acc);
+  .sub-ov { position: absolute; left: 6%; right: 6%; text-align: center; line-height: var(--lh-1-3); font-weight: 600; color: var(--on-acc);
     font-size: calc(var(--fs-54) / 1080 * 100cqh);
     text-shadow: 0 2px 6px rgba(0,0,0,.9), 0 0 2px #000; white-space: pre-wrap; }
   .sub-ov-bottom { bottom: 9%; }
@@ -638,7 +638,7 @@
   .sub-pos { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-4); }
   .sub-hl { display: inline-flex; align-items: center; gap: var(--sp-2); white-space: nowrap; cursor: pointer; }
   .sub-row [data-cap-del] { margin-left: auto; }
-  .sub-ta { width: 100%; margin-top: var(--sp-4); font-size: var(--fs-12); line-height: 1.35; resize: vertical; min-height: 30px; }
+  .sub-ta { width: 100%; margin-top: var(--sp-4); font-size: var(--fs-12); line-height: var(--lh-1-3); resize: vertical; min-height: 30px; }
   .player-box:fullscreen .sub-wrap { border-radius: 0; }
   /* 音量 / 倍速滑块的壳（卡片里两枚一组：上面那枚管指着的那一个，下面「整轨」那枚管这一排每一条）。
      音量 0–400%（超过 100% 的部分只在成片 / 导出里生效，浏览器给 <video>/<audio> 的音量封顶 1），
@@ -696,7 +696,7 @@
     color: var(--sub); font-variant-numeric: tabular-nums; }
   .line-row .lr-thumb { cursor: pointer; }
   .line-row .lr-ta { width: 100%; margin-top: var(--sp-4); min-height: 26px; resize: vertical;
-    font-size: var(--fs-12); line-height: 1.45; }
+    font-size: var(--fs-12); line-height: var(--lh-1-5); }
   /* 说话的人：名字本身就是输入框（不再另挂一条「谁说的」）。
      平时看起来就是那行名字；悬停 / 聚焦才浮出边框，避免每行都像表单。 */
   .line-row .lr-name { flex: 0 1 34%; min-width: 72px; max-width: 150px; height: 22px; margin: 0;
@@ -766,7 +766,7 @@
   #advBox .dur-num span { font-size: var(--fs-12); color: var(--sub); white-space: nowrap; }
   /* .ed-label 本体与 .cnt 已提到 ui.css（工作台素材区共用同一份），这里只留本页独有的 .mini */
   .ed-label .mini { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-4); }
-  #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
+  #edPrompt { width: 100%; min-height: 150px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: var(--lh-1-5); padding: var(--sp-8) var(--sp-12); resize: vertical; font-family: inherit; outline: none; }
   #edPrompt:focus { border-color: var(--acc); }
 
   /* 输入框右上角那颗 `@素材`：底色加深，一眼看得出是个入口 */
@@ -820,19 +820,19 @@
   /* 导出拆分按钮：主钮（导出成片）+ 尾部 chevron，点开列其余去向
      （FCPXML / 媒体包 / 工程目录）。浮层挂在按钮组自己的 absolute 容器里（不是 body）：
      页头是常驻 DOM，不会被重建冲掉。
-     这一颗是页头唯一的主操作，所以两半都穿公共主按钮那身（`.pri`：淡强调底 + 强调墨），
-     而不是各穿一份中性 `.ghost` —— 中性底换配色时一个像素都不动，页头的主操作看着就和
-     它左边那颗短片名胶囊一样普通。两半之间用强调描边分隔；`.pri` 自己 `border:0`，
-     所以分隔线写在这一格上（权重也压过 `.pri`）。 */
+     这一颗是页头唯一的主操作，所以两半都穿公共主按钮那身（`.pri`：实心强调底 + 白墨），
+     而不是各穿一份中性 `.ghost` —— 中性底换配色时一个像素都不动，页头的主操作一眼就是那颗。
+     两半之间用白墨细线分隔（实心底上的分隔线用掏出来的墨，强调色描边会看不见）；
+     `.pri` 自己 `border:0`，所以分隔线写在这一格上（权重也压过 `.pri`）。 */
   .exp-split { display: inline-flex; align-items: stretch; position: relative; flex: 0 0 auto; }
   .exp-split > .pri { border-radius: var(--radius-4); }
   .exp-split > .pri:first-child { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .exp-split > .exp-more { border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 0 var(--sp-8);
-    border-left: var(--hair) solid var(--acc-line-32); }
+    border-left: var(--hair) solid var(--on-acc); }
   .exp-split > .exp-more .ui-icon { transition: transform var(--dur-180); }
-  /* 浮层开着 = 这一整颗正处于「按下了」：底部一圈内嵌强调环 + chevron 翻面，
-     与 ui.css 的 `.dd.open .dd-btn` 说的是同一件事。 */
-  .exp-split:has(.exp-menu:not([hidden])) > .pri { box-shadow: inset 0 0 0 var(--hair) var(--acc); }
+  /* 浮层开着 = 这一整颗正处于「按下了」：整体压暗一档 + chevron 翻面，
+     与 ui.css 的 `.dd.open .dd-btn` 说的是同一件事（实心底上的「按下」用亮度说）。 */
+  .exp-split:has(.exp-menu:not([hidden])) > .pri { filter: brightness(.92); }
   .exp-split:has(.exp-menu:not([hidden])) > .exp-more .ui-icon { transform: rotate(180deg); }
   .exp-menu { position: absolute; right: 0; top: calc(100% + var(--sp-4)); z-index: 80; min-width: 190px;
     background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4);

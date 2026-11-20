@@ -137,7 +137,7 @@ export default {
       const ks = Object.keys(loadErrors || {});
       const bits = ks.map(k => window.esc(String(k)) + '：' + window.esc(String(loadErrors[k])));
       if (!bits.length) return '';
-      return '<div class="empty" style="color: var(--warn)">部分内容加载失败：<br>'
+      return '<div class="empty t-warn">部分内容加载失败：<br>'
         + bits.join('<br>')
         + '<br><br>（检查网络与密钥后重试）</div>';
     }
@@ -147,7 +147,7 @@ export default {
       const box = loadErrEl.value;
       if (!box) return;
       const bits = Object.keys(loadErrors).map(k => window.esc(String(k)) + ' 加载失败：' + window.esc(String(loadErrors[k])));
-      box.innerHTML = bits.length ? '<div class="hint" style="color: var(--warn);margin: var(--sp-8) 0">' + bits.join('；') + '</div>' : '';
+      box.innerHTML = bits.length ? '<div class="hint t-warn" style="margin: var(--sp-8) 0">' + bits.join('；') + '</div>' : '';
     }
 
     /* ---------- 多选 ---------- */

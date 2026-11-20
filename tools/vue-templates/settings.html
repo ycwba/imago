@@ -50,7 +50,7 @@
                 <div class="acct-park" hidden ref="acctParkEl">
                   <div class="incard" id="asrCard" ref="asrFormEl">
                   <div class="hint sm">{{ asrProviderText }}</div>
-                  <div class="hint sm" v-if="asr.route === 'browser' || asr.route === 'local'">当前走「本机 / 浏览器内」，这一块不生效。</div>
+                  <div class="hint sm" v-if="asr.route === 'browser' || asr.route === 'local'">走本机 / 浏览器内时这块不生效。</div>
                   <div class="krow thin">
                     <span class="kn">在线服务商</span>
                     <select ref="asrProvEl" v-model="asr.service.providerId" @change="onAsrProvChange" style="flex:1 1 260px">

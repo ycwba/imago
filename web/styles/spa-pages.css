@@ -34,7 +34,7 @@
 .fav-page .card .thumb .plate { gap: var(--sp-4); }
 .fav-page .card .thumb .plate-t { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fav-page .card .body { padding: var(--sp-8) var(--sp-8) var(--sp-8); }
-.fav-page .card .t { font-size: var(--fs-12); line-height: 1.5; margin-bottom: var(--sp-4); word-break: break-word; cursor: zoom-in;
+.fav-page .card .t { font-size: var(--fs-12); line-height: var(--lh-1-5); margin-bottom: var(--sp-4); word-break: break-word; cursor: zoom-in;
   -webkit-line-clamp: 2; display: -webkit-box; -webkit-box-orient: vertical; overflow: hidden; }
 .fav-page .card .m { font-size: var(--fs-12); color: var(--sub); }
 /* 备注：在这一页最要紧（产品自己的 AI 挑素材规则：备注 > 名称 > 类型）——
@@ -42,7 +42,7 @@
    没写的那几条留一条虚线空位 —— 空着也是一条信息。 */
 .fav-page .card .note { margin: 0 0 var(--sp-8); }
 .fav-page .card .note textarea { width: 100%; min-height: 20px; max-height: 90px; resize: vertical;
-  font-size: var(--fs-12); line-height: 1.5; padding: var(--sp-2) var(--sp-8);
+  font-size: var(--fs-12); line-height: var(--lh-1-5); padding: var(--sp-2) var(--sp-8);
   border: 0; border-left: var(--accent-bar) solid var(--acc); border-radius: 0;
   background: transparent; color: var(--txt); font-family: inherit; outline: none; }
 .fav-page .card .note textarea:focus { background: var(--acc-tint-10); }

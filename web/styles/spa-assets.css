@@ -85,7 +85,7 @@
   font-size: var(--fs-13); color: var(--sub); }
 .assets-page .cdet .det-body { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
   gap: var(--sp-8) var(--sp-16); }
-.assets-page .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: 1.6; }
+.assets-page .cdet .det-row { flex-direction: column; align-items: stretch; gap: var(--sp-2); line-height: var(--lh-1-5); }
 .assets-page .cdet .det-row .k { flex: 0 0 auto; }
 .assets-page .cdet .det-row > span:last-child { color: var(--txt); }
 /* 状态牌：这一格没有画面、但有话要说（公共件 .plate）。 */

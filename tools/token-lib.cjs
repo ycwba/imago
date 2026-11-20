@@ -33,6 +33,7 @@ const SPACING_PROP = /^(padding|margin|gap|row-gap|column-gap)(-top|-right|-bott
 const OFFSET_PROP = /^(inset|top|right|bottom|left)$/;
 const FONT_PROP = /^font-size$/;
 const RADIUS_PROP = /^border-radius$/;
+const LH_PROP = /^line-height$/;
 const BORDER_PROP = /^(border|border-top|border-right|border-bottom|border-left|border-width|outline|outline-width|outline-offset)$/;
 /* 描边宽的上限：超过 6px 的不是「描边」，是别的尺寸（留给原样）。 */
 const HAIR_MAX = 6;
@@ -41,6 +42,7 @@ function tierOf(prop) {
   if (SPACING_PROP.test(prop) || OFFSET_PROP.test(prop)) return 'sp';
   if (FONT_PROP.test(prop)) return 'fs';
   if (RADIUS_PROP.test(prop)) return 'radius';
+  if (LH_PROP.test(prop)) return 'lh';
   if (BORDER_PROP.test(prop)) return 'hair';
   return null;
 }
@@ -184,7 +186,11 @@ function bareRows(src, declRe) {
     const name = ((m[3] || '') + m[4]).toLowerCase(), value = m[5];
     const why = [];
     const tier = tierOf(name);
-    if (tier && PX.test(value)) {
+    /* 行高族只看 unitless 裸数（1.55 这类）；px 行高是「定高行内居中」的布局事实，
+       1 / 0 是图标格对齐手法 —— 都不归这把尺子。 */
+    if (tier === 'lh') {
+      if (/^\s*\d*\.\d+\s*$/.test(value) && parseFloat(value) > 1.05) why.push('行高裸值');
+    } else if (tier && PX.test(value)) {
       /* 报告口径要与 --write 一致：超出档位范围的（离屏定位用的巨大偏移）不报，
          否则账上会出现「报了但改不掉」的条目。 */
       const nums = [...value.matchAll(/(-?\d*\.?\d+)px/g)].map(x => Math.abs(parseFloat(x[1]))).filter(x => x > 0);
@@ -315,7 +321,7 @@ const RADIUS_REMAP = {
 /* 旧名 → 终名（按令牌名整体查；没登记的名字原样返回）。
    shadow-15 返回 null = 那一处不是改名而是改值（box-shadow: none）。 */
 function remapName(fullName) {
-  const m = /^--(sp|fs|radius|dur|shadow)-([\w.-]+)$/.exec(fullName);
+  const m = /^--(sp|fs|radius|dur|shadow|lh)-([\w.-]+)$/.exec(fullName);
   if (!m) return fullName;
   const [, fam, tail] = m;
   let to;

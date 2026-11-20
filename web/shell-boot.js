@@ -9,7 +9,7 @@
 (function () {
   'use strict';
   var MODES = ['light', 'dark', 'system'];
-  var PALETTES = ['violet', 'ocean', 'teal', 'berry', 'amber'];
+  var PALETTES = ['ocean', 'teal', 'berry', 'amber'];
   var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
 
   /* 存储不可用（隐私模式）就当没设过 —— 偏好坏了退回缺省，不抛。 */

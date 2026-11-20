@@ -402,7 +402,8 @@ window.AiGen = {
         text: o.text || '', style: o.style || '', lyrics: o.lyrics || '',
         duration: o.duration != null ? o.duration : (o.duration_seconds != null ? o.duration_seconds : ''),
         language: o.language || '', seed: o.seed != null ? o.seed : '',
-        inputEntries: (o.inputEntries || []).map(en => ({ ...en, placeholder: '（发送时上传的素材）', assetId: '' })),
+        /* 页面给的占位（带序号与素材名）优先；没给的退回一句通用说明。 */
+        inputEntries: (o.inputEntries || []).map(en => ({ ...en, placeholder: en.placeholder || '（发送时上传的素材）', assetId: '' })),
       });
     }
     const clone = o && o.refAudioB64 ? Object.assign({}, o, { refAudioB64: '<参考音频（发送时才上传）>' }) : o;
@@ -961,38 +962,35 @@ window.AdvExtras = {
       }).join('');
       return { html: html, count: Object.keys(bools).length };
     },
-    /* create.topBools：一颗磁贴（`.tool.on` 公共类），声明几项画几颗。
-       被形状藏掉的那一项不是「消失了」，是「这一档没有这个开关」—— 照声明把原因写在原位，
-       否则用户刚在别的模式下见过它，切一档就凭空不见，只能自己猜是不是坏了。 */
+    /* create.topBools：一颗磁贴（`.tool.on` 公共类），声明几项画几颗；
+       这一档没有的开关不画、也不写说明行。 */
     topBools(prov, model, ctx, st) {
       const Y = window.AdvExtras;
       const decl = Y.topBoolDecls(prov);
-      const shown = [], muted = [];
+      const shown = [];
       decl.forEach(([f, d]) => {
         const s = Y.topBoolStateOf(d, ctx);
-        if (s.hidden) { if (s.note) muted.push(s.note); return; }
+        if (s.hidden) return;
         const on = st[f] === undefined ? s.def : !!st[f];
         shown.push('<div><span class="ed-label">' + window.esc((d && d.label) || f) + '</span>'
           + '<button type="button" class="tool' + (on ? ' on' : '') + '" data-tb="' + window.esc(f) + '"'
           + ((d && d.hint) ? ' title="' + window.esc(d.hint) + '"' : '') + '>'
           + '<span class="ic" data-icon="wand" data-size="13"></span>' + (on ? '已开启' : '未开启') + '</button></div>');
       });
-      return {
-        html: shown.join('')
-          + (muted.length ? '<div class="hint" style="font-size: var(--fs-12);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
-        count: decl.length, model: model, decl: decl,
-      };
+      return { html: shown.join(''), count: decl.length, model: model, decl: decl };
     },
     /* create.shapeFields：声明几项画几项，每一项再问一次「这一次的那一行能力给不给」。
-       不给的项不留一格点了没反应的空控件，原因写在原位（why 来自声明，页面不编）。 */
+       不给的项直接不画（平台没声明的不画、不发），不留说明行 —— 「为什么没有这一格」
+       不用界面解释：型号换了格子自己会来会走。必要文案住在输入格里：
+       占位先认声明的 placeholder，再认 hint（「留空 = 平台默认 8」这一类），没有的数值格兜底一句。 */
     shapeFields(prov, caps, ctx, st) {
       const Y = window.AdvExtras;
       const decl = Y.shapeFieldDecls(prov);
-      const cells = [], muted = [];
+      const cells = [];
       decl.forEach(([f, d]) => {
         const s = Y.shapeFieldStateOf(d, caps, ctx);
         const name = (d && d.label) || f;
-        if (!s.shown) { if (s.why) muted.push(name + '：' + s.why); return; }
+        if (!s.shown) return;
         const label = '<label' + (d.hint ? ' title="' + window.esc(d.hint) + '"' : '') + '>' + window.esc(name) + '</label>';
         const have = st[f] === undefined || st[f] === null ? '' : String(st[f]);
         const vals = s.values || [];
@@ -1014,14 +1012,10 @@ window.AdvExtras = {
             + (d.min !== undefined ? ' min="' + d.min + '"' : '')
             + (d.max !== undefined ? ' max="' + d.max + '"' : '')
             + ' data-sf="' + window.esc(f) + '" value="' + window.esc(have) + '" placeholder="'
-            + window.esc(d.placeholder || (num ? '留空 = 不发这一项' : '')) + '"></div>');
+            + window.esc(d.placeholder || d.hint || (num ? '留空 = 平台默认' : '')) + '"></div>');
         }
       });
-      return {
-        html: cells.join('')
-          + (muted.length ? '<div class="hint" style="font-size: var(--fs-12);color:var(--sub)">' + muted.map(window.esc).join('<br>') + '</div>' : ''),
-        count: decl.length, shownCount: cells.length, muted: muted,
-      };
+      return { html: cells.join(''), count: decl.length, shownCount: cells.length };
     },
   },
   /* 读回界面：顶层开关 + 顶层非布尔字段一次读完，返回

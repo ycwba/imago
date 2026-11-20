@@ -335,7 +335,7 @@ const SettingsView = {
         + '<div class="krow thin"><span class="kn">接口形状</span>'
           + '<select data-cfg-shape="' + es + '">' + shapeOpts + '</select></div>'
         + '<div class="krow thin align-start"><span class="kn">型号</span>'
-          + '<div class="cfg-models">' + (rows || '<span class="hint sm">还没有型号：下面填 id 或点「取一次」。</span>') + '</div></div>'
+          + '<div class="cfg-models">' + (rows || '<span class="hint sm">还没有型号：填 id 或点「取一次」。</span>') + '</div></div>'
         + '<div class="krow thin"><span class="kn">添加型号</span>'
           + '<input data-cfg-new="' + es + '" placeholder="型号 id，逗号分隔多个">'
           + '<button class="ghost mini" type="button" data-cfg-add="' + es + '">添加</button>'
@@ -1287,9 +1287,9 @@ const SettingsView = {
           + MD.map(m => '<option value="' + m + '" ' + (window.pageModeOf(t.key) === m ? 'selected' : '') + '>'
             + (m === 'page' ? '翻页' : '动态加载') + '</option>').join('')
           + '</select>'
-          + '<span style="font-size: var(--fs-13);color:var(--sub)">每页</span>'
+          + '<span class="t-sub">每页</span>'
           + '<input type="number" min="' + SZ.min + '" max="' + SZ.max + '" data-size="' + window.esc(t.key) + '" value="' + window.pageSizeOf(t.key) + '" style="flex:0 0 90px">'
-          + '<span style="font-size: var(--fs-13);color:var(--sub)">条</span>';
+          + '<span class="t-sub">条</span>';
         box.appendChild(row);
       });
       if (window.Dropdowns) Dropdowns.build(box);
@@ -1452,7 +1452,7 @@ const SettingsView = {
           try {
             const r = await ExportDir.pick();
             if (r.cancelled) { why.textContent = '你取消了，目录没改。'; }
-            else if (!r.ok) { why.innerHTML = '<b style="color:var(--err)">没选到：</b>' + window.esc(r.why || ''); }
+            else if (!r.ok) { why.innerHTML = '<b class="t-err">没选到：</b>' + window.esc(r.why || ''); }
             else { paint(r.name); why.textContent = '✓ 已选好：' + r.name; }
           } finally { btn.disabled = false; btn.textContent = old; ExportDir.name().then(paint).catch(() => {}); }
         };
@@ -1537,14 +1537,12 @@ const SettingsView = {
       where.textContent = '加载中…';
       box.appendChild(where);
 
-      /* 口径说清楚：索引 / 对账 / 播放都只看这一个目录，**不翻机器上其它地方**。
-         换机器时把「导出媒体包」里的 media\ 挪进这个目录，再导入项目文件 —— 按文件名 + 字节数认回原号，
-         不用重新导入素材。这一行不是装饰：用户问过「会不会去下载夹、桌面找」，答案必须写在设置页上。 */
+      /* 口径说清楚：索引 / 对账 / 播放都只看这一个目录，不翻机器上其它地方 ——
+         用户问过「会不会去下载夹、桌面找」，答案必须写在设置页上。换机迁移一句话带过。 */
       const scope = document.createElement('div');
       scope.className = 'hint sm';
-      scope.textContent = '只认这个目录里的文件（图片\\ 视频\\ 音频\\，含子目录）：资产库索引、磁盘对账、'
-        + '导演台导入项目都只在这里找，不会去本机其它地方翻。换机器时把「导出媒体包」里的 media\\ '
-        + '挪进这个目录，再导入项目文件即可。';
+      scope.textContent = '资产库只认这个目录（图片\\ 视频\\ 音频\\，含子目录），不翻本机其它地方；'
+        + '换机器时把「导出媒体包」的 media\\ 挪进来即可。';
       box.appendChild(scope);
       refreshLibRoot();
     }
@@ -1561,12 +1559,12 @@ const SettingsView = {
           + (state && state !== '可写' ? ' · ' + window.esc(state) : '')
           + '　·　账在 .data\\local-assets\\';
       } catch (e) {
-        el.innerHTML = '<b style="color:var(--err)">读不到现在生效的位置：</b>' + window.esc(errText(e));
+        el.innerHTML = '<b class="t-err">读不到现在生效的位置：</b>' + window.esc(errText(e));
       }
     }
 
     async function pickLibDir(inp, btn, why) {
-      if (!window.Api || !Api.pickDir) { if (why) why.innerHTML = '<b style="color:var(--err)">这页没加载到代理接口</b>'; return; }
+      if (!window.Api || !Api.pickDir) { if (why) why.innerHTML = '<b class="t-err">这页没加载到代理接口</b>'; return; }
       const old = btn.textContent;
       btn.disabled = true;
       btn.textContent = '等待选择…';
@@ -1575,14 +1573,14 @@ const SettingsView = {
         const r = await Api.pickDir({ title: '选择本机资产库放在哪里', start: String(inp.value || '').trim() });
         if (r && r.cancelled) { if (why) why.textContent = '你取消了，位置没改。'; return; }
         if (!r || !r.ok || !r.dir) {
-          if (why) why.innerHTML = '<b style="color:var(--err)">没选到文件夹：</b>' + window.esc((r && r.error && r.error.message) || '代理没有回路径');
+          if (why) why.innerHTML = '<b class="t-err">没选到文件夹：</b>' + window.esc((r && r.error && r.error.message) || '代理没有回路径');
           return;
         }
         inp.value = r.dir;
         await saveLibDir();
         if (why) why.textContent = '已选好 · 下一次生成才落到这里';
       } catch (e) {
-        if (why) why.innerHTML = '<b style="color:var(--err)">弹不出文件夹选择框：</b>' + window.esc(errText(e));
+        if (why) why.innerHTML = '<b class="t-err">弹不出文件夹选择框：</b>' + window.esc(errText(e));
       } finally {
         btn.disabled = false;
         btn.textContent = old;
@@ -1680,7 +1678,7 @@ const SettingsView = {
       const box = charsBoxEl.value;
       if (!box) return;
       const SET = window.Chars && window.Chars.SET;
-      if (!SET) { box.innerHTML = '<span class="hint sm">读不到「素材库」的设置表，刷新一下这一页</span>'; return; }
+      if (!SET) { box.innerHTML = '<span class="hint sm">读不到素材库设置表，刷新一下</span>'; return; }
       box.innerHTML = '';
       Object.keys(SET).forEach(id => {
         const it = SET[id];
@@ -1690,7 +1688,7 @@ const SettingsView = {
           ctl = '<label class="crow" style="flex:0 0 auto"><input type="checkbox" data-set="' + id + '"' + (val === '0' ? '' : ' checked') + '> 开启</label>';
         } else if (it.kind === 'num') {
           ctl = '<input type="number" min="0" step="' + window.esc(it.step || '0.5') + '" data-set="' + id + '" value="' + window.esc(val) + '" style="flex:0 0 110px">'
-            + (it.unit ? '<span style="font-size: var(--fs-13);color:var(--sub)">' + window.esc(it.unit) + '</span>' : '');
+            + (it.unit ? '<span class="t-sub">' + window.esc(it.unit) + '</span>' : '');
         } else if (it.kind === 'model') {
           ctl = modelCtl(id, it, val);
         } else {
@@ -2611,7 +2609,7 @@ const SettingsView = {
       const d = u.目录 || {};
       let html = chipRow('本机资产库', u.档 || 'warn', u.芯片 || '?',
         (u.因由 || []).join(' · ') || '没有要提醒的', d.路径 || '');
-      html += '<div class="dir-name" style="white-space:pre-wrap;line-height:1.85;margin-top: var(--sp-4)">'
+      html += '<div class="dir-name" style="white-space:pre-wrap;line-height:var(--lh-1-7);margin-top: var(--sp-4)">'
         + window.esc(Api.usageLines(u, SHOW_TOP).join('\n')) + '</div>';
       writeRows(html);
       usageInfo.value = '数于 ' + (window.fmtHMS ? window.fmtHMS(u.at || Date.now()) : '');
@@ -2735,7 +2733,7 @@ const SettingsView = {
         if (!rows.length) { promptRecentEl.value.textContent = '还没有归档'; return; }
         promptRecentEl.value.innerHTML = rows.slice(0, 8).map(r => {
           const t = window.fmtWhenSec(r.ts);
-          return '<div>· <b>' + window.esc(r.t || r.f) + '</b> <span style="color:var(--sub)">' + window.esc(r.k || '') + ' · ' + window.esc(t) + '</span></div>';
+          return '<div>· <b>' + window.esc(r.t || r.f) + '</b> <span class="t-sub">' + window.esc(r.k || '') + ' · ' + window.esc(t) + '</span></div>';
         }).join('') + (rows.length > 8 ? '<div>…共 ' + d.count + ' 份，仅列最近 8 份</div>' : '');
       });
     }

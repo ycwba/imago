@@ -58,17 +58,18 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 /* flex 子项默认 min-width:auto，不给 0 就不会收缩；型号串与错误原文里没有断点，
    anywhere 才断得动 —— 以前整页被顶出一条横向滚动条。 */
 .usage-page .bal .hd > span:last-child { min-width: 0; overflow-wrap: anywhere; }
-.usage-page .bal .v { font-size: var(--fs-24); font-weight: 700; margin: var(--sp-8) 0 var(--sp-4); letter-spacing: .3px; }
+.usage-page .bal .v { font-size: var(--fs-24); font-weight: 600; margin: var(--sp-8) 0 var(--sp-4); letter-spacing: .3px;
+  font-variant-numeric: tabular-nums; }
 .usage-page .bal .v small { font-size: var(--fs-13); font-weight: 400; color: var(--sub); margin-left: var(--sp-8); }
 .usage-page .bal .ex { font-size: var(--fs-12); color: var(--sub); min-height: 16px; overflow-wrap: anywhere; }
 /* 型号单独一行：混在说明行里既读着像第二句话，又撑得那一行老长 */
 .usage-page .bal .md { font-size: var(--fs-12); color: var(--sub); opacity: .85; margin: calc(-1 * var(--sp-2)) 0 var(--sp-4); overflow-wrap: anywhere; }
 
-.usage-page .panel { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10); padding: var(--sp-16) var(--sp-16); margin-top: var(--sp-16); }
+.usage-page .panel { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-10); padding: var(--sp-16) var(--sp-16); margin-top: var(--sp-24); }
 .usage-page .panel h2 { font-size: var(--fs-14); margin-bottom: var(--sp-4); }
-/* 分节小标题（「最近生成」「按日用量」）：比上面的 14px 小一号、上下也留得多一点 */
-.usage-page .panel h2.sect-mini { font-size: var(--fs-13); margin: var(--sp-16) 0 var(--sp-8); }
-.usage-page .panel .hint { font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-12); }
+/* 分节小标题（「最近生成」「按日用量」）：L3 档（12 / 600 / --sub），与区块标题拉开一档 */
+.usage-page .panel h2.sect-mini { font-size: var(--fs-12); color: var(--sub); margin: var(--sp-16) 0 var(--sp-8); }
+.usage-page .panel .hint { margin-bottom: var(--sp-12); }
 
 .usage-page .chart-units { display: flex; gap: var(--sp-8); flex-wrap: wrap; margin-bottom: var(--sp-8); }
 .usage-page .legend { display: flex; gap: var(--sp-16); font-size: var(--fs-12); color: var(--sub); padding-top: var(--sp-8); }
@@ -77,7 +78,8 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 .usage-page table { width: 100%; border-collapse: collapse; font-size: var(--fs-13); }
 .usage-page th, .usage-page td { text-align: left; padding: var(--sp-8) var(--sp-8); border-bottom: var(--hair) solid var(--line); vertical-align: top; }
 .usage-page th { font-size: var(--fs-12); color: var(--sub); font-weight: 500; white-space: nowrap; }
-.usage-page td.num, .usage-page th.num { text-align: right; white-space: nowrap; font-weight: 600; }
+.usage-page td.num, .usage-page th.num { text-align: right; white-space: nowrap; font-weight: 600;
+  font-variant-numeric: tabular-nums; }
 .usage-page td.t { color: var(--sub); white-space: nowrap; font-size: var(--fs-12); }
 .usage-page td.p { color: var(--acc); white-space: nowrap; }
 .usage-page tr:hover td { background: var(--panel2); }
@@ -89,4 +91,5 @@ html[data-theme="dark"] .usage-page .ub-right #bills { scrollbar-color: var(--li
 
 .usage-page .stat { display: flex; gap: var(--sp-24); flex-wrap: wrap; margin-bottom: var(--sp-8); }
 .usage-page .stat div { font-size: var(--fs-13); color: var(--sub); }
-.usage-page .stat b { display: block; font-size: var(--fs-20); color: var(--txt); margin-top: var(--sp-4); }
+.usage-page .stat b { display: block; font-size: var(--fs-20); color: var(--txt); margin-top: var(--sp-4);
+  font-variant-numeric: tabular-nums; }

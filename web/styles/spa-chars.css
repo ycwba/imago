@@ -20,7 +20,7 @@
 .chars-page .rail-h1 { font-size: var(--fs-12); font-weight: 600; color: var(--sub); letter-spacing: .1em; }
 .chars-page .rail-sub {
   margin: var(--sp-16) var(--sp-12) 0; padding-top: var(--sp-16); border-top: var(--hair) solid var(--line);
-  font-size: var(--fs-12); color: var(--sub); line-height: 1.6;
+  font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5);
 }
 .chars-page .rail-sub b { font-family: var(--font-mono); font-variant-numeric: tabular-nums; font-weight: 600; color: var(--txt); }
 .chars-page .rail-busy { display: block; margin-top: var(--sp-8); color: var(--acc); }
@@ -81,7 +81,7 @@
 .chars-page .anchorbadge {
   position: absolute; top: var(--sp-8); right: var(--sp-8); z-index: 2;
   padding: var(--sp-2) var(--sp-8); border-radius: var(--radius-999);
-  background: var(--pri); color: var(--on-acc); font-size: var(--fs-11); font-weight: 600; line-height: 1.6; }
+  background: var(--pri); color: var(--on-acc); font-size: var(--fs-11); font-weight: 600; line-height: var(--lh-1-5); }
 /* 出错原因盖在图底：它就是这张图为什么没出来，看图的地方就要看得到。
    那一条是**不透明**的淡红（`--err-tint` 压在 `--panel` 上），不是透明淡底 —— 这一格背后可能是
    任意一张照片，透明淡底等于让「红字能不能读」由那张照片决定（实测 11px 的红字压照片只有 3 出头）。
@@ -90,7 +90,7 @@
   position: absolute; left: 0; right: 0; bottom: 0; z-index: 2;
   padding: var(--sp-8) var(--sp-12);
   background: var(--err-tint);
-  color: var(--err); font-size: var(--fs-11); line-height: 1.5;
+  color: var(--err); font-size: var(--fs-11); line-height: var(--lh-1-5);
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 /* 快捷动作条：悬停 / 键盘焦点浮出（出图 / 试听 / 删除），点卡本体 = 选中进面板。
    按钮带自己的浅色表面 —— 淡底条只管从照片里衬出这一排，字能不能读由按钮自己管。 */
@@ -110,7 +110,7 @@
 .chars-page .mrow { display: flex; align-items: baseline; gap: var(--sp-8); min-width: 0; }
 .chars-page .mname { font-size: var(--fs-16); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chars-page .mrefs { margin-left: auto; flex-shrink: 0; font-size: var(--fs-11); color: var(--sub); }
-.chars-page .mbio { margin: 0; min-height: 3.2em; font-size: var(--fs-12); color: var(--sub); line-height: 1.6; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+.chars-page .mbio { margin: 0; min-height: 3.2em; font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .chars-page .mfoot { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sp-8); margin-top: var(--sp-4); }
 /* 完备度点阵 + 「缺 N 项 / 齐了」包成一枚状态胶囊，扫卡时归得成类。 */
 .chars-page .mstat-pill {
@@ -190,7 +190,7 @@
   align-items: center; justify-content: center; gap: var(--sp-8); text-align: center; padding: var(--sp-16); }
 .chars-page .pane-hero .none b { font-size: var(--fs-12); color: var(--sub); font-weight: 400; }
 .chars-page .pane-err { margin-bottom: var(--sp-12); }
-.chars-page .pane-err .why { font-size: var(--fs-12); color: var(--err); line-height: 1.5; }
+.chars-page .pane-err .why { font-size: var(--fs-12); color: var(--err); line-height: var(--lh-1-5); }
 .chars-page .pane-mrow { margin-bottom: var(--sp-16); }
 .chars-page .pane-mrow:last-child { margin-bottom: 0; }
 .chars-page .pane-mt { display: flex; align-items: baseline; gap: var(--sp-8); margin-bottom: var(--sp-12); font-size: var(--fs-12); color: var(--sub); }
@@ -231,11 +231,11 @@
 .chars-page .gen-row .sp { flex: 1; }
 .chars-page .gen-bar .ghost { font-size: var(--fs-12); padding: var(--sp-4) var(--sp-12); }
 .chars-page .gen-act { font-size: var(--fs-12); padding: var(--sp-8) var(--sp-12); }
-.chars-page .gen-why { display: flex; align-items: baseline; gap: var(--sp-8); margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: 1.5; }
+.chars-page .gen-why { display: flex; align-items: baseline; gap: var(--sp-8); margin-top: var(--sp-8); font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); }
 .chars-page .gen-why .sp { flex: 1; }
 .chars-page .gen-why .ui-linkbtn { flex: 0 0 auto; font-size: var(--fs-11); }
 
-.chars-page .empty { line-height: 1.9; }
+.chars-page .empty { line-height: var(--lh-1-7); }
 .chars-page .mat-grid > .empty { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sp-16); min-height: 320px; border: var(--hair) dashed var(--line); border-radius: var(--radius-14); background: var(--panel); }
 .chars-page .mat-grid > .empty > svg { color: var(--sub); opacity: .5; }
 /* 空态的图标收进一枚圆底，孤零零一行字之外有个落点。 */
@@ -244,7 +244,7 @@
   width: 60px; height: 60px; border-radius: var(--radius-999); background: var(--panel2); color: var(--sub); }
 .chars-page .mat-grid > .empty > .empty-ic > svg { opacity: .7; }
 .chars-page .busy { font-size: var(--fs-12); color: var(--acc); }
-.chars-page .why { font-size: var(--fs-12); color: var(--err); line-height: 1.5; }
+.chars-page .why { font-size: var(--fs-12); color: var(--err); line-height: var(--lh-1-5); }
 .chars-page .rail-toggle, .chars-page .rail-close, .chars-page .rail-scrim, .chars-page .pane-scrim { display: none; }
 
 @media (max-width: 1200px) {

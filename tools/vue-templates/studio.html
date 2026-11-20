@@ -31,9 +31,9 @@
               <div class="prompt-hint" data-r="promptHint" hidden></div>
               <div class="btn-row">
                 <!-- AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
-                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
+                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。
+                     供应商自带的改写动作（H3 规范优化）不住这一排：它是高级设置里的东西。 -->
                 <span class="btn-host" data-r="polishHost"></span>
-                <span class="btn-host" data-r="h3Host"></span>
                 <span class="btn-host" data-r="splitHost"></span>
                 <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
                 <button class="ghost" type="button" data-r="toImageBtn"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>
@@ -56,7 +56,7 @@
                 </label>
               </div>
               <div class="style-row" data-r="styleRow" hidden>
-                <label>风格 / 音色描述 <span style="color:var(--err)">*</span></label>
+                <label>风格 / 音色描述 <span class="t-err">*</span></label>
                 <input data-r="style" class="ui-inp" placeholder="例：温柔女声，语速偏慢">
                 <div style="margin-top:var(--sp-8)">
                   <button class="ghost" data-r="stylePick">取一位素材的音色描述</button>
@@ -73,7 +73,7 @@
                 <label>时长（秒）</label>
                 <input data-r="audioDur" class="ui-inp" type="number" min="1" max="1000" step="1" placeholder="例：30">
               </div>
-              <div class="hint" data-r="scriptHint" hidden style="font-size:var(--fs-12);color:var(--sub);margin-top:var(--sp-8)">
+              <div class="hint" data-r="scriptHint" hidden style="margin-top:var(--sp-8)">
                 正文每行一句，按顺序自动分配音色卡；时长填这一段的秒数。
               </div>
               <div class="mode-row" data-r="modeRow" hidden></div>
@@ -86,8 +86,11 @@
                 <h2><span data-icon="gear" data-size="14"></span> <span data-r="advTitle">高级设置</span></h2>
                 <span class="sum"><span data-r="advSum"></span><span class="chev">▼</span></span>
               </div>
+              <!-- 供应商自带的改写动作（声明 promptTools 才出现的「H3 规范优化」）：
+                   住在高级设置卡里，折叠时跟卡一起收；当前型号不带这一档时整行不画 -->
+              <div class="adv-h3" data-r="h3Host"></div>
               <div class="adv-body" data-r="advBody"></div>
-              <div class="hint" data-r="capHint" style="font-size:var(--fs-12);color:var(--sub);margin-top:var(--sp-8)"></div>
+              <div class="hint" data-r="capHint" style="margin-top:var(--sp-8)"></div>
             </div>
 
             <!-- 原始请求（预览 / 实发）跟着正文滚：它是一份可以展开的老长的 JSON，
@@ -103,7 +106,7 @@
             <button type="button" class="go pri" data-r="go">生成视频</button>
             <div class="hint" data-r="goWhy"></div>
             <div data-r="balTip" hidden></div>
-            <div class="hint" data-r="pendingHint" style="display:none;font-size:var(--fs-12);margin-top:var(--sp-8)"></div>
+            <div class="hint" data-r="pendingHint" style="display:none;margin-top:var(--sp-8)"></div>
           </div>
         </div>
 

@@ -1682,7 +1682,7 @@
         return '<div class="det-prompt-hd">完整提示词'
           + (prompt ? '<button type="button" class="ghost mini" data-copyprompt>复制</button>' : '')
           + '</div>'
-          + '<div class="det-prompt"' + (prompt ? '' : ' style="color:var(--sub)"') + '>' + esc(prompt || '（无提示词）') + '</div>';
+          + '<div class="det-prompt' + (prompt ? '' : ' t-sub') + '">' + esc(prompt || '（无提示词）') + '</div>';
       },
       /* 提示词那一格固定高度、框内滚动（卡片里还要摆参数与参考图）：**不做展开**，
          超出靠滚动看。 */

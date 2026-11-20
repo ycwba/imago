@@ -119,7 +119,7 @@ const StudioView = {
       const hh = R.h3Host;
       if (hh) {
         hh.innerHTML = window.aiBtnHTML({ id: 'h3PolishBtn', label: 'H3 规范优化', busy: '优化中…',
-          title: '按 H3 官方提示词规范改写（平台接口，不扣费）' });
+          title: '按 H3 官方提示词规范改写成正式稿（成功后计费，失败不扣）' });
         R.h3PolishBtn = hh.firstElementChild;
       }
     }
@@ -190,11 +190,16 @@ const StudioView = {
           back[k] = (shot.inputs[k] || []).map(it => {
             const c = Object.assign({}, it);
             if (!c.url && c.file) { try { c.url = URL.createObjectURL(c.file); } catch (e) {} }
+            /* 清空那一步把本地字节清掉了：撤销时从内存里那份原键放回去，fileKey 才还有效。 */
+            if (c.fileKey && c.file) Wb.Blobs.put(c.fileKey, c.file);
             return c;
           });
         });
         const s = cur();
         s.inputs = back;
+        /* 撤销清空：素材回来了，把「已移除」标位一起摘掉，不然刷新后又按批注记录少一批。 */
+        Object.keys(back).forEach(k => back[k].forEach(annotsKeep));
+        persistInputsSoon();
         s.prompt = shot.prompt; s.style = shot.style;
         s.topBools = Object.assign({}, shot.topBools);
         if ($('prompt')) $('prompt').value = shot.prompt || '';
@@ -333,7 +338,96 @@ const StudioView = {
         it.annots = doc || null;
         it.mask = rec.png || it.mask || '';
       }
-      /* 刷新后先把「有稳定来源」的批注条目放回图片槽；没有本机身份的（blob:）放回也没图可看。
+      /* 批注条目只在启动时按记录复活（见 restoreAnnotatedSlots）：用户删掉参考素材
+         就得在记录上留一枚「已移除」标位，不然刷新后它又按批注记录长回素材槽。
+         重新画批注（saveAnnots 整条重写）或撤销清空时把标位摘掉。 */
+      function annotsForget(it) {
+        const k = annKeyOf(it);
+        if (!k) return;
+        const all = annotsAll();
+        if (!all[k]) return;
+        all[k].removed = true;
+        Store.write(ANN_KEY, all, { label: '工作台记住的批注' });
+      }
+      function annotsKeep(it) {
+        const k = annKeyOf(it);
+        if (!k) return;
+        const all = annotsAll();
+        if (!all[k] || !all[k].removed) return;
+        all[k].removed = false;
+        Store.write(ANN_KEY, all, { label: '工作台记住的批注' });
+      }
+      /* ============================ 参考素材的刷新留存 ============================
+         素材槽清单按类型落 localStorage（studio_inputs_<type>）：添加过的刷新后还在，
+         删掉的刷新后不回来。纯本地上传的字节（File）序列化不了，进 IndexedDB
+         （Wb.Blobs，与音色复刻同一间库），清单里只存 fileKey 引用；删除时连字节一起清。
+         有稳定来源的条目（/asset/ 地址、平台资产号、http 地址）只存来源，字节等提交现取。 */
+      const INPUTS_KEY = type => 'studio_inputs_' + type;
+      let inputsSaveTimer = 0;
+      const stableSrcOf = x => {
+        const s = String(x.src || ''), u = String(x.url || '');
+        if (s && !/^blob:/i.test(s)) return s;
+        if (u && !/^blob:/i.test(u)) return u;
+        return '';
+      };
+      /* 删改后统一走这一份（200 ms 防抖，连删几张只写一次）。占位卡（拆分批量）不持久。
+         类型在排程那一刻定死：防抖途中切了类型，存的还是原来那一栏的清单。 */
+      function persistInputsSoon(t) {
+        const type = t || TYPE;
+        clearTimeout(inputsSaveTimer);
+        inputsSaveTimer = setTimeout(() => { persistInputsNow(type); }, 200);
+      }
+      async function persistInputsNow(type) {
+        type = type || TYPE;
+        if (!type || !TYPES[type]) return;
+        const st = ST[type];
+        const list = [];
+        for (const k of Object.keys(SLOT_DEF)) {
+          for (const x of (st.inputs[k] || [])) {
+            if (x.pending) continue;
+            const src = stableSrcOf(x);
+            let fileKey = String(x.fileKey || '');
+            if (!fileKey && x.file && !src) {
+              fileKey = x.fileKey = await window.Wb.Blobs.save(x.file);   // 本地上传：字节入库
+            }
+            list.push({ name: String(x.name || ''), type: String(x.type || ''), kind: k,
+              src: x.src || '', url: /^blob:/i.test(String(x.url || '')) ? '' : String(x.url || ''),
+              assetId: String(x.assetId || ''), dl: String(x.dl || ''), la: String(x.la || ''),
+              fromLib: !!x.fromLib, fromVideo: String(x.fromVideo || ''), fileKey });
+          }
+        }
+        Store.write(INPUTS_KEY(type), list, { label: '工作台记住的参考素材' });
+      }
+      /* 删除的本地条目把字节一起清掉（撤销清空会从内存里的 file 原键放回去）。 */
+      function dropInputBytes(x) { const k = x && x.fileKey; if (k && window.Wb) Wb.Blobs.del(k); }
+      /* 刷新后按清单放回素材槽；本地条目等 IndexedDB 字节就位再补画。 */
+      function restoreInputs() {
+        if (!TYPE || !TYPES[TYPE]) return;
+        const list = Store.read(INPUTS_KEY(TYPE), null);
+        if (!Array.isArray(list)) return;
+        const box = cur().inputs;
+        const needBytes = [];
+        list.forEach(d => {
+          if (!d || !d.kind || !SLOT_DEF[d.kind]) return;
+          const it = { name: String(d.name || ''), type: String(d.type || '图片'), kind: d.kind,
+            src: String(d.src || ''), url: String(d.url || ''), assetId: String(d.assetId || ''),
+            dl: String(d.dl || ''), la: String(d.la || ''),
+            fromLib: !!d.fromLib, fromVideo: String(d.fromVideo || '') };
+          if (d.fileKey) { it.fileKey = String(d.fileKey); needBytes.push(it); }
+          else if (!stableSrcOf(it) && !it.assetId && !it.dl) return;    // 什么都推导不出来，不放回
+          (box[d.kind] = box[d.kind] || []).push(it);
+          restoreAnnots(it);                                             // 批注按身份接回来
+        });
+        if (!needBytes.length) return;
+        Promise.all(needBytes.map(async it => {
+          const blob = await Wb.Blobs.get(it.fileKey);
+          if (!blob) return;
+          it.file = blob;
+          it.url = URL.createObjectURL(blob);
+        })).then(() => { renderInputArea(); updateMode(); refreshPreview(); }).catch(() => {});
+      }
+      /* 刷新后先把「有稳定来源」的批注条目放回图片槽（老会话没有留存清单，批注记录就是
+         它们唯一的账）；没有本机身份的（blob:）放回也没图可看。
          这里必须在 boot() 定下 TYPE 之后才调：cur() = ST[TYPE]，TYPE 还是 '' 时 ST[''] 是 undefined，
          读 .inputs 会抛错并把整段启动打断（后面 const syncPromptBack / window.setType 全没定义，
          用户一点击类型按钮就在 setType 里撞暂时性死区）。调用点已挪进 boot()，这里再多挡一层。 */
@@ -342,7 +436,7 @@ const StudioView = {
         const box = cur().inputs.image || (cur().inputs.image = []);
         Object.keys(annotsAll()).forEach(k => {
           const rec = annotsAll()[k];
-          if (!rec || !rec.entry || box.some(x => annKeyOf(x) === k)) return;
+          if (!rec || rec.removed || !rec.entry || box.some(x => annKeyOf(x) === k)) return;
           const e = rec.entry;
           if (!e.assetId && !e.la && /^blob:/.test(e.src)) return;
           const doc = window.TextAI && TextAI.readAnnots ? TextAI.readAnnots(rec.doc) : rec.doc;
@@ -394,9 +488,15 @@ const StudioView = {
         const live = ((cur().liveModels || {})[p && p.id] || null);
         const off = m => !!(window.ModelPrefs && window.ModelPrefs.isOff(p, (m && m.id) || m));
         /* 能力接口给的是**这一家上游的原始清单**（MiMo 的 /v1/models 同时列 TTS 与对话模型）。
-           语音台只列这一条声明收的型号：modelsFilter / modelsExclude 与设置页、代理同一套判据。 */
+           语音台只列这一条声明收的型号：modelsFilter / modelsExclude 与设置页、代理同一套判据。
+           modelsGrow:false 与 capabilities 同一口径：声明外型号不长进下拉 ——
+           拾帧的 /v1/catalog 视频、图片、音频混在一份清单里，声明清一遍才不会把
+           图片 / 视频型号漏进语音台。 */
         const allow = m => !(window.TextAI && TextAI.modelAllowed) || TextAI.modelAllowed(p, (m && m.id) || m);
-        const list = (live && live.length) ? live.filter(m => !off(m) && allow(m)) : base;
+        const locked = p && p.modelsGrow === false;
+        const list = (live && live.length)
+          ? live.filter(m => !off(m) && allow(m) && (!locked || declared.has(m.id)))
+          : base;
         return list.map(m => {
           const d = declared.get(m.id) || {};
           const out = Object.assign({}, d, m);
@@ -615,8 +715,8 @@ const StudioView = {
         const u = it && it.url;
         if (u && String(u).startsWith('blob:')) { try { URL.revokeObjectURL(u); } catch (e) {} it.url = ''; }
       }
-      function removeSlotItem(kind, i) { const arr = slotItems(kind); const hit = arr[i]; if (!hit) return; arr.splice(i, 1); releaseItemUrl(hit); }
-      function clearSlot(kind) { slotItems(kind).forEach(releaseItemUrl); inputs()[kind] = []; }
+      function removeSlotItem(kind, i) { const arr = slotItems(kind); const hit = arr[i]; if (!hit) return; arr.splice(i, 1); releaseItemUrl(hit); annotsForget(hit); dropInputBytes(hit); persistInputsSoon(); }
+      function clearSlot(kind) { slotItems(kind).forEach(x => { releaseItemUrl(x); annotsForget(x); dropInputBytes(x); }); inputs()[kind] = []; persistInputsSoon(); }
       function usedRoles() { return slots.filter(s => slotItems(s.kind).length).map(s => s.role).filter(Boolean); }
       function blockedSlotKinds() {
         if (!window.Capabilities || !Capabilities.blockedRoles) return new Set();
@@ -694,6 +794,7 @@ const StudioView = {
           added++;
         }
         renderInputArea(); updateMode();
+        persistInputsSoon();
         return added;
       }
       async function openSlotPicker(sl) {
@@ -995,6 +1096,9 @@ const StudioView = {
           }
         });
         updateGoState();
+        /* 素材槽的每一次增删都从这一份重建走：原始请求跟着重算，上传完参考文件
+           预览里当场出现对应占位（不加的话面板停在投素材前那份旧体上）。 */
+        refreshPreview();
       }
       function updateMode() {
         const m = inputs();
@@ -1184,7 +1288,7 @@ const StudioView = {
         if (!decl.length) { box.hidden = true; box.innerHTML = ''; return true; }
         const h = window.AdvExtras.html.shapeFields(currentModel().prov, shapeCaps(), topBoolCtx(), st);
         box.innerHTML = h.html;
-        box.hidden = !h.shownCount && !h.muted.length;
+        box.hidden = !h.shownCount;
         if (window.Dropdowns && box.querySelector('select[data-sf]')) Dropdowns.build(box);
         return true;
       }
@@ -1271,10 +1375,13 @@ const StudioView = {
           const step = lines.length ? (dur / lines.length) : 0;
           const script = { speakers: lines.map((_, i) => ({ id: 's' + (i + 1), ref_text: '' })),
             lines: lines.map((s, i) => ({ speaker: 's' + (i + 1), text: s, at: Math.round(step * i * 100) / 100 })) };
-          const entries = slotItems('audio').map((x, i) => ({
-            role: 'reference_audio', file: x.file || x.blob || null,
-            src: String(x.src || x.url || ''), name: x.name || ('音色卡' + (i + 1)),
-          }));
+          const entries = slotItems('audio').map((x, i) => {
+            const nm = String(x.name || '').trim();
+            return { role: 'reference_audio', file: x.file || x.blob || null,
+              src: String(x.src || x.url || ''), name: nm || ('音色卡' + (i + 1)),
+              /* 预览占位带上序号与素材名：几张音色卡长得一模一样就分不清哪张对应哪段声音。 */
+              placeholder: '<音色卡' + (i + 1) + (nm ? '「' + nm + '」' : '') + '>' };
+          });
           return { ...base, prompt: JSON.stringify(script), duration: dur,
             inputEntries: entries };
         }
@@ -1340,6 +1447,8 @@ const StudioView = {
         const decl = platTopBools().find(x => x[0] === f);
         st[f] = st[f] === undefined ? !topBoolNow(decl && decl[1]).def : !st[f];
         renderTopBools(true); refreshEst(); updateGoState();
+        /* 顶层开关也进提交体（AdvExtras.read 把它并进 params）——预览跟着翻。 */
+        refreshPreview();
       });
       $('advBody').addEventListener('change', e => {
         const tid = e.target && e.target.id;
@@ -1719,6 +1828,7 @@ const StudioView = {
         if (arr.length >= sl.max) return { ok: false, why: '参考图最多 ' + sl.max + ' 张，先删掉一张再加' };
         arr.push({ src: pic, url: mediaOf({ src: pic }), name: label, type: '图片', kind: 'image', fromLib: true });
         renderInputArea(); updateMode();
+        persistInputsSoon();
         return { ok: true, label: label };
       }
       function studioMentionPicked(c, pick, info) {
@@ -1847,7 +1957,7 @@ const StudioView = {
       };
 
       /* ==================== ⑧-a2 H3 规范优化（平台自带改写，声明驱动） ====================
-         拾帧的视频型号带一个不扣钱的官方改写接口（provider.promptTools.optimize 声明）：
+         拾帧的视频型号带一个官方改写接口（provider.promptTools.optimize 声明，成功计费、失败不扣）：
          按 H3 提示词规范把随手一句改写成正式稿。英文稿是要发去下单的那份（平台按它理解画面），
          中文稿只是给人对照的 —— 面板里默认收起，点「中文稿」展开。 */
       $('h3PolishBtn').onclick = async () => {
@@ -2119,13 +2229,19 @@ const StudioView = {
         const m = inputs();
         for (const k of Object.keys(SLOT_DEF)) {
           if (k === 'audio' && TYPE === 'audio') continue;
-          for (const x of (m[k] || [])) {
-            if (x.pending) continue;                 // 拆分占位卡在预览里也不算素材
+          /* 占位带上同类序号与素材名：一栏多份素材时占位长得一模一样就分不清哪份对应哪份
+             （拾帧 H3 的提示词还按 <Picture 2> 这种序号引用素材）。 */
+          const list = (m[k] || []).filter(x => !x.pending);
+          let n = 0;
+          for (const x of list) {
             const role = SLOT_DEF[k].role;
             const tpl = (window.Api && Api.inputTemplate) ? Api.inputTemplate(prov, role) : null;
             if (!tpl) continue;
             if (tpl.needsUpload) {
-              entries.push({ role, placeholder: '<待上传：' + (SLOT_DEF[k].label || role) + '>' });
+              n++;
+              const nm = String(x.name || '').trim();
+              entries.push({ role, placeholder: '<' + (SLOT_DEF[k].label || role)
+                + (list.length > 1 ? n : '') + (nm ? '「' + nm + '」' : '') + '>' });
             } else {
               const src = String(x.src || x.url || '');
               if (!src) continue;
@@ -2168,8 +2284,11 @@ const StudioView = {
           const n = Math.max(1, Number(val('count')) || 1);
           if (ap.count !== undefined) std.count = n;
           /* 参考图与实发同一份拼装处：声明了模板的平台走 inputEntries（占位说明代替资产号），
-             没声明的平台才是老的 `inputs` 直传 —— 预览里显示的体要就是真发会发的那一个。 */
-          const refEntries = (inputs().image || []).filter(x => !x.pending && (x.assetId || x.src || x.url));
+             没声明的平台才是老的 `inputs` 直传 —— 预览里显示的体要就是真发会发的那一个。
+             本地上传的条目只有 file / fileKey（刷新留存回来的连 file 都要等 IndexedDB 补），
+             别按「有地址才算素材」把它滤掉。 */
+          const refEntries = (inputs().image || []).filter(x => !x.pending
+            && (x.assetId || x.src || x.url || x.file || x.fileKey));
           if (refEntries.length) {
             if (Api.inputTemplate && Api.inputTemplate(prov, 'reference_image')) {
               std.inputEntries = buildInputEntriesPlan(prov, model);
@@ -3198,7 +3317,7 @@ const StudioView = {
           if (!rec) { Toast.err('这条本地记录已经不在了'); return; }
           if (rec.voiceMode === 'clone' && rec.voiceRefKey && !slotItems('audio').length) {
             const blob = await Wb.Blobs.get(rec.voiceRefKey);
-            if (blob) { slotItems('audio').push({ file: blob, url: URL.createObjectURL(blob), name: rec.voiceRefName || '参考音频', type: '音频', kind: 'audio', fromLib: false }); renderInputArea(); }
+            if (blob) { slotItems('audio').push({ file: blob, url: URL.createObjectURL(blob), name: rec.voiceRefName || '参考音频', type: '音频', kind: 'audio', fromLib: false }); renderInputArea(); persistInputsSoon(); }
           }
           setType('audio', true);
           $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
@@ -3475,6 +3594,7 @@ const StudioView = {
             it.kind = kind;
             arr.push(it);
             renderInputArea(); updateMode(); updateGoState();
+            persistInputsSoon();
             setStatus('<span class="ok">✓ 已取' + which + '帧作为' + def.label + '</span>');
             return { ok: true, kind, name };
           } catch (err) {
@@ -3487,6 +3607,7 @@ const StudioView = {
           arr.push({ assetId: idn, url: directSrc, src: directSrc, dl: String(p.dl || ''),
             name, type: mtype, kind, fromLib: true });
           renderInputArea(); updateMode(); updateGoState();
+          persistInputsSoon();
           return { ok: true, kind, name };
         }
         if (!src && !p.fileKey && !p.file) return { ok: false, code: 'nosrc', why: '这条素材取不到字节' };
@@ -3981,7 +4102,9 @@ const StudioView = {
         TYPE = readTypeFromURL() || readLS('studio_type', '') || 'video';
         if (!TYPES[TYPE]) TYPE = 'video';
         /* 批注回填要读 cur() = ST[TYPE]，必须在 TYPE 定下之后；放 runPage 顶层会在类型
-           还没定时读 ST[''].inputs 抛错，整段启动中断，那才是那个 TDZ 报错的真正起点。 */
+           还没定时读 ST[''].inputs 抛错，整段启动中断，那才是那个 TDZ 报错的真正起点。
+           留存清单先回（它是用户真实槽位的账），批注记录那条老路只补它没有的。 */
+        restoreInputs();
         restoreAnnotatedSlots();
         const picks = loadPicks();
         /* 型号与提示词都按类型各备一份：型号记在 studio_pick，提示词记 studio_prompt_<type>。 */
@@ -4050,12 +4173,16 @@ const StudioView = {
         clearTimeout(promptLsTimer);
         promptLsTimer = setTimeout(() => { promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); }, 250);
       });
-      $('style').addEventListener('input', () => { cur().style = $('style').value; });
+      /* 风格 / 歌词 / 时长（音频台三件）都直接进提交体：敲一个字预览就跟着翻
+         （RawRequest.schedule 自带 300 ms 防抖，不用再叠一层）。 */
+      $('style').addEventListener('input', () => { cur().style = $('style').value; refreshPreview(); });
+      $('lyrics').addEventListener('input', refreshPreview);
+      $('audioDur').addEventListener('input', refreshPreview);
       /* 「取一位素材的音色描述」：整链在公共层 `VoiceNote.run`（走统一选择器第四个来源），
          这里只交 value / write / say 三个口子。 */
       $('stylePick').onclick = () => window.VoiceNote.run({
         value: () => $('style').value,
-        write: t => { $('style').value = t; cur().style = t; updateGoState(); },
+        write: t => { $('style').value = t; cur().style = t; updateGoState(); refreshPreview(); },
         say: setStatus,
       });
       /* 关标签 / 刷新前把这一页手上的东西交出去。统一通道是 `__spaRegister(flush, dirty)`：
@@ -4066,6 +4193,7 @@ const StudioView = {
       const flushPage = () => {
         clearTimeout(promptLsTimer); promptLsTimer = 0;
         writeLS('studio_prompt_' + TYPE, $('prompt').value);
+        persistInputsNow();                       // 参考素材清单兜底补写（防抖途中的那一份）
         saveAudioTasks();
       };
       const offSaveHook = window.__spaRegister

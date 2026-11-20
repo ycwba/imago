@@ -52,8 +52,8 @@ function editScript() {
     sub: '候选镜头各一行「候选 N（状态）：…」（每条带自己那句描述）；台词在剪辑右栏「台词」那一档改。',
     body(el) {
       el.innerHTML = '<textarea class="ui-ta" spellcheck="false" aria-label="剧本正文"'
-        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-13);line-height:1.65"></textarea>'
-        + '<div role="alert" style="display:none;color:var(--err);font-size: var(--fs-12);line-height:1.6;margin-top: var(--sp-8)"></div>';
+        + ' style="height:min(58vh,560px);font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size: var(--fs-13);line-height:var(--lh-1-7)"></textarea>'
+        + '<div role="alert" class="hint t-err" style="display:none;margin-top: var(--sp-8)"></div>';
       ta = el.querySelector('textarea');
       errEl = el.querySelector('[role="alert"]');
       ta.value = scriptTextOf(projOf().scenes);

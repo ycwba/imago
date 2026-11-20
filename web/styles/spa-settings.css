@@ -67,10 +67,7 @@
    两列各 400px 放不下「标签 + 下拉 + 输入框 + 单位」那一行（以前放得下是因为没有左轨）。
    一列一列排反而把整栏对齐了：标签列定宽，控件都从同一条竖线开始。 */
 .settings-page .kcols { display: block; }
-/* 「说明 / 读数」那一族的基字号：`.hint` 在全站没有基样式（各页各自给），
-   这一页以前也没给 —— 于是所有 `.hint` 都继承到 16px，跟正文一样大，
-   「服务端环境密钥（.env）」这种读数看着像小标题。这里给这一页定一次。 */
-.settings-page .hint { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
+/* `.hint` 的基样式（12 / --sub / 行高 1.5）在公共层 ui.css 一份；这一页只补间距。 */
 /* 卡片**皮肤**用公共那一件（.card-surface：底色 / 描边 / 圆角 / 悬停），
    页面只留排版（内边距与间距）—— 以前这一页自己写了一份卡片皮肤（radius-8 + shadow-1、无悬停），
    全站两套卡片长得不一样（用户点名：整页重新设计）。 */
@@ -203,7 +200,7 @@
 .settings-page .acct .krow input:not([type=checkbox], [type=radio]) { flex: 1 1 0; min-width: 0; height: var(--sz-ctl); font-size: var(--fs-12); }
 .settings-page .acct .krow .eye, .settings-page .acct .krow .clr { padding: 0 var(--sp-8); height: var(--sz-ctl); }
 .settings-page .acct .keyrow { flex-wrap: nowrap; }
-.settings-page .acct .msg { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
+.settings-page .acct .msg { font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); }
 .settings-page .acct .msg.ok { color: var(--ok); }
 .settings-page .acct .msg.err { color: var(--err); }
 .settings-page .fcard-acts .hint.sm.ok { color: var(--ok); }
@@ -246,7 +243,7 @@
 .settings-page .capcell.pri { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
 .settings-page .capcell.off { border-style: dashed; color: var(--sub); }
 .settings-page .capcell.none { border-style: dashed; color: var(--sub); }
-.settings-page .capcell.hit { border-color: var(--acc); box-shadow: 0 0 0 2px var(--acc-line-32); }
+.settings-page .capcell.hit { border-color: var(--acc); box-shadow: 0 0 0 var(--hair-2) var(--acc-line-32); }
 
 /* 能力行：能力名 · 状态牌 ·（文字档）型号下拉 + 测试 ·（其余档）型号计数并就地展开清单。 */
 .settings-page .acct-mid > .crow { gap: var(--sp-8); padding: var(--sp-8) 0; border-top: var(--hair) solid var(--line);
@@ -269,7 +266,7 @@
 /* 能力行里那两枚控件同高一档：这一行没有 32px 的大控件，整行都小 ——
    状态牌 24 与「型号 n/m」28 并排差着 4px，看着就像没对齐。 */
 .settings-page .acct-mid > .crow > .st-btn { height: var(--sz-ctl-sm); }
-.settings-page .fcard-s { font-size: var(--fs-11); color: var(--sub); line-height: 1.4; margin-top: var(--sp-2); }
+.settings-page .fcard-s { font-size: var(--fs-11); color: var(--sub); line-height: var(--lh-1-3); margin-top: var(--sp-2); }
 .settings-page .acct .ghost.mini { flex: 0 0 auto; }
 
 /* 某一档的全局项（识图 / 语音识别 / 联网搜索）：画在顶着这一档那张卡里、那一行下面。 */
@@ -304,7 +301,7 @@
 .settings-page .mpanel-h .sp { flex: 1 1 auto; }
 .settings-page .mpanel .krow { padding: 0; border-top: 0; }
 .settings-page .mpanel .krow input { flex: 1 1 0; min-width: 0; }
-.settings-page .mpanel .msg { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
+.settings-page .mpanel .msg { font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); }
 .settings-page .mpanel .msg.ok { color: var(--ok); }
 .settings-page .mpanel .msg.err { color: var(--err); }
 
@@ -313,7 +310,7 @@
 /* 手动声明的那一档在能力名后面挂一枚「手动」：旧数据里还能看到，点「撤掉」清掉。 */
 .settings-page .manual { flex: 0 0 auto; padding: var(--hair) var(--sp-4); border-radius: var(--radius-4);
   background: var(--acc-tint-10); color: var(--acc); font-family: var(--font-mono); font-size: var(--fs-11); }
-.settings-page .manual-note { padding: 0 0 var(--sp-8); font-size: var(--fs-11); color: var(--warn); line-height: 1.6; }
+.settings-page .manual-note { padding: 0 0 var(--sp-8); font-size: var(--fs-11); color: var(--warn); line-height: var(--lh-1-5); }
 
 /* 「自定义供应商」那一张表：**同一张卡自己变成这个形态**（标题 / 返回预设都在卡头），
    所以这一段只是卡里的行，没有自己的标题、没有「收起」、也没有顶部那道分隔线。 */
@@ -326,7 +323,7 @@
    型号名字会被挤到行尾（看上去像名字右对齐），而且勾选框本身变成一个巨大的空框。 */
 .settings-page .cus-form .krow input[type="checkbox"], .settings-page .cus-form .krow input[type="radio"] {
   flex: 0 0 auto; width: auto; height: auto; }
-.settings-page .cus-form .hint { font-size: var(--fs-12); color: var(--sub); line-height: 1.7; }
+.settings-page .cus-form .hint { font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-7); }
 .settings-page .cus-form .hint code { padding: var(--sp-2) var(--sp-4); border-radius: var(--radius-4);
   border: var(--hair) solid var(--line); background: var(--panel2); font-size: var(--fs-11); }
 /* 型号清单还是空的时候不要那个带边框的空盒子：空态本来就是一句话说明。 */
@@ -335,7 +332,7 @@
    300px 的卡里放六个 30px 的格子正好两行，所以允许换行。 */
 .settings-page .cappick { flex: 1 1 0; min-width: 0; display: flex; align-items: center; gap: var(--sp-4); flex-wrap: wrap; }
 .settings-page .cappick .capcell.main { background: var(--panel); border-color: var(--acc); color: var(--acc); font-weight: 600; }
-.settings-page .cappick .hint { flex: 1 1 100%; margin-top: var(--sp-4); font-size: var(--fs-11); line-height: 1.6; }
+.settings-page .cappick .hint { flex: 1 1 100%; margin-top: var(--sp-4); font-size: var(--fs-11); line-height: var(--lh-1-5); }
 /* 自定义表单是**固定浮层**：打开不改变卡片流 / 文档高度，关闭时滚动位不会被拽走。
    多类模型的配置一块接一块，按内容滚；这张卡本身仍是卡片流里的一格（在浮层后面）。 */
 .settings-page .cus-form {
@@ -461,11 +458,11 @@
 .settings-page .polish-block textarea { min-height: 92px; background: var(--panel); }
 /* .pb-tip 是「一段小灰说明」的通用类（账号卡里的校验回执也用它）：字号/行高写在顶层，
    不要挂在 .polish-block 下面，否则出了润色卡就继承 body 的 --fs-15，看着像一段放大的正文。 */
-.settings-page .pb-tip { font-size: var(--fs-12); color: var(--sub); line-height: 1.6; margin-top: var(--sp-8); }
+.settings-page .pb-tip { font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); margin-top: var(--sp-8); }
 .settings-page .pb-tip.err { color: var(--err); }
 .settings-page .pb-tip code { background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-4);
   padding: var(--sp-2) var(--sp-8); font-size: var(--fs-11); }
-.settings-page textarea { width: 100%; min-height: 110px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: 1.6; padding: var(--sp-8) var(--sp-12); font-family: inherit; resize: vertical; }
+.settings-page textarea { width: 100%; min-height: 110px; background: var(--input); border: var(--hair) solid var(--line); border-radius: var(--radius-4); color: var(--txt); font-size: var(--fs-13); line-height: var(--lh-1-5); padding: var(--sp-8) var(--sp-12); font-family: inherit; resize: vertical; }
 .settings-page textarea:focus { border-color: var(--acc); }
 /* ---------- 左：目录轨（索引） ----------
    它不是「另一套页面」，是这一页那 15 栏的一张索引：点哪一行，右边滚到那一栏；
@@ -490,7 +487,7 @@
 .settings-page .set-rail-top input[type=search]:focus { border-color: var(--acc); box-shadow: var(--focus-shadow); }
 .settings-page .set-rail-top .ghost { flex: 0 0 auto; }
 /* 筛选时的那句解释（命中几行、按回车跳到第一处）—— 只在筛选期间占位，平时不留空带。 */
-.settings-page .set-rail-note { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); line-height: 1.6;
+.settings-page .set-rail-note { flex: 0 0 auto; font-size: var(--fs-11); color: var(--sub); line-height: var(--lh-1-5);
   padding: 0 var(--sp-8) var(--sp-8); }
 .settings-page .set-rail-note.err { color: var(--err); }
 .settings-page .set-rail-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden;
@@ -568,7 +565,7 @@
 .settings-page .hint:empty, .settings-page .sub:empty, .settings-page .pb-tip:empty { display: none; }
 /* 参考材料折叠：占位符清单、JSON 格式要求这类「要时才查」的东西不该一直占着屏幕。
    用原生 <details>（不引任何依赖），summary 做成一行小字。 */
-.settings-page .ref { margin: var(--sp-8) 0 var(--sp-2); font-size: var(--fs-12); color: var(--sub); line-height: 1.6; }
+.settings-page .ref { margin: var(--sp-8) 0 var(--sp-2); font-size: var(--fs-12); color: var(--sub); line-height: var(--lh-1-5); }
 .settings-page .ref > summary { cursor: pointer; list-style: none; display: inline-flex; align-items: center; gap: var(--sp-4);
   padding: var(--sp-2) var(--sp-8); border: var(--hair) solid var(--line); border-radius: var(--radius-999); user-select: none; }
 .settings-page .ref > summary::-webkit-details-marker { display: none; }
@@ -593,13 +590,13 @@
 .settings-page .search-hit a { font-size: var(--fs-13); font-weight: 600; color: var(--acc); text-decoration: none; overflow-wrap: anywhere; }
 .settings-page .search-hit a:hover { text-decoration: underline; }
 .settings-page .search-dom { margin-left: var(--sp-8); font-size: var(--fs-11); color: var(--sub); }
-.settings-page .search-snip { margin-top: var(--sp-2); font-size: var(--fs-12); line-height: 1.6; color: var(--txt); overflow-wrap: anywhere; }
+.settings-page .search-snip { margin-top: var(--sp-2); font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--txt); overflow-wrap: anywhere; }
 .settings-page .search-read { margin-top: var(--sp-8); max-height: 280px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
   background: var(--panel); border: var(--hair) solid var(--line); border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12);
-  font-size: var(--fs-12); line-height: 1.6; color: var(--sub); font-family: inherit; }
+  font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--sub); font-family: inherit; }
 
 /* 提示词归档的最近清单与缓存那一节的两行说明（原来是两段行内 style） */
-.settings-page .prompt-recent { font-size: var(--fs-13); color: var(--sub); line-height: 1.9; margin-top: var(--sp-8); }
+.settings-page .prompt-recent { font-size: var(--fs-13); color: var(--sub); line-height: var(--lh-1-7); margin-top: var(--sp-8); }
 /* 归档目录只读显示：跟着「本机资产库」那个根走，这一格不再是输入框 ——
    长路径单行省略，右边那份「几份归档」不让位。 */
 .settings-page .set-path { flex: 1 1 auto; min-width: 0; overflow: hidden;
@@ -625,7 +622,7 @@
 .settings-page .sk-groups { display: flex; flex-direction: column; gap: var(--sp-2); }
 .settings-page .sk-rg-h { display: flex; align-items: baseline; gap: var(--sp-8);
   padding: var(--sp-8) var(--sp-4) var(--sp-4); border-bottom: var(--hair) solid var(--line); }
-.settings-page .sk-rg-n { font-size: var(--fs-12); font-weight: 700; letter-spacing: var(--sp-2); color: var(--sub); }
+.settings-page .sk-rg-n { font-size: var(--fs-12); font-weight: 600; letter-spacing: var(--sp-2); color: var(--sub); }
 .settings-page .sk-rg-c { margin-left: auto; font-size: var(--fs-11); color: var(--sub); }
 .settings-page .sk-srow { position: relative; display: flex; align-items: center; gap: var(--sp-8);
   width: 100%; text-align: left; padding: var(--sp-8) var(--sp-8); border: 0;
@@ -675,9 +672,9 @@
 .settings-page .sk-vfrom { font-size: var(--fs-13); }
 .settings-page .sk-vdesc { font-size: var(--fs-13); color: var(--sub); }
 .settings-page .sk-vempty { font-size: var(--fs-13); color: var(--sub); background: var(--panel);
-  border: var(--hair) dashed var(--line); border-radius: var(--radius-6); padding: var(--sp-12) var(--sp-16); line-height: 1.6; }
+  border: var(--hair) dashed var(--line); border-radius: var(--radius-6); padding: var(--sp-12) var(--sp-16); line-height: var(--lh-1-5); }
 .settings-page .sk-warn { display: flex; gap: var(--sp-8); align-items: flex-start; margin-top: var(--sp-8);
-  font-size: var(--fs-12); line-height: 1.6; color: var(--warn);
+  font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--warn);
   background: var(--warn-tint);
   border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-35), transparent);
   border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); }
@@ -695,7 +692,7 @@
 .settings-page .sk-line1 { display: flex; align-items: baseline; gap: var(--sp-8); min-width: 0; flex-wrap: wrap; }
 .settings-page .sk-name { font-size: var(--fs-13); font-weight: 600; }
 .settings-page .sk-id { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-11); color: var(--sub); }
-.settings-page .sk-desc { font-size: var(--fs-12); color: var(--sub); margin-top: var(--sp-4); line-height: 1.5; }
+.settings-page .sk-desc { font-size: var(--fs-12); color: var(--sub); margin-top: var(--sp-4); line-height: var(--lh-1-5); }
 .settings-page .sk-tags { display: flex; gap: var(--sp-8); flex-wrap: wrap; margin-top: var(--sp-8); align-items: center; }
 .settings-page .sk-tags .ui-tag { font-size: var(--fs-11); padding: var(--sp-2) var(--sp-8); }
 .settings-page .sk-tags .ui-tag.mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; }
@@ -721,7 +718,7 @@
 .settings-page .sk-prev-bar .sp { flex: 1; }
 .settings-page .sk-prev-bar .hint { color: var(--sub); }
 .settings-page .sk-pre { flex: 1 1 auto; margin: 0; overflow: auto; padding: var(--sp-12);
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: 1.6;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: var(--lh-1-5);
   color: var(--txt); white-space: pre-wrap; word-break: break-word; tab-size: 2; max-height: 420px; }
 
 /* ---------- 「全部 Skill」（原来的全量清单退到这里） ---------- */
@@ -745,7 +742,7 @@
 .settings-page .sk-input:focus, .settings-page .sk-textarea:focus { border-color: var(--acc); }
 .settings-page .sk-input:disabled { color: var(--sub); background: var(--panel2); }
 .settings-page .sk-textarea { min-height: 260px; resize: vertical;
-  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: 1.6; }
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: var(--fs-12); line-height: var(--lh-1-5); }
 .settings-page .sk-pages { display: flex; gap: var(--sp-12); flex-wrap: wrap; }
 .settings-page .sk-page { display: inline-flex; align-items: center; gap: var(--sp-8);
   font-size: var(--fs-13); color: var(--txt); cursor: pointer; }

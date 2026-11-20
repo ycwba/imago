@@ -107,6 +107,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 每族终表：
   - 间距 8 档：2 / 4 / 8 / 12 / 16 / 24 / 32 / 64
   - 字号 9 档：11 / 12 / 13 / 14 / 16 / 20 / 24 / 42 / 54
+  - 行高 3 档：1.3（控件 / 紧凑）/ 1.5（正文默认）/ 1.7（长文说明）；px 行高与图标格 `1 / 0` 是布局事实，不归档
   - 圆角 5 档：4 / 6 / 10 / 14 / 999
   - 阴影 6 档：1 / 2 / 3 / 4 / 5 / ctl
   - 控件高：`--sz-ctl-sm` 28 / `--sz-ctl` 32 / `--sz-ctl-lg` 36 / `--sz-chip` 24 / `--sz-head` 56
@@ -114,15 +115,20 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - 时长 5 档：120 / 180 / 280 / 800 / 1200
   - 断点 5 档：520 / 760 / 900 / 1100 / 1200
 - 裸值由 `tools/tokenize-css.cjs` 吸附到终档；档名只认终表（G18 + check-vars）。
+- 字重只认 400 / 500 / 600：UA 默认粗体（b / strong / h* / th）由 ui.css 的 `:where` 一条压到 600；
+  markdown 内容渲染（`.md`）例外，标题与 strong 保持 700。
+- 排版层级六档（ui.css 顶部一份）：页标题 20/600 → 区块标题 14/600 → 小节标题 12/600 `--sub` →
+  正文 13/400 → 次要说明 12 `--sub` → 角注 11 `--sub`；说明行 `.hint` 基样式只在 ui.css。
 - 令牌直接写 `var(--x)`，不写兜底值；`calc()` 里必须写 `var(--x)`（负数写 `calc(-1 * var(--sp-4))`）。
 - 透明度只取 `--a-4` … `--a-90` 的 21 档阶梯；0% 写 `transparent`（G21）。
 - 颜色分两层：主题色段只有别名（`--bg: var(--bg-base)`），浅色真值只写一次，深色档由基色现算。
   加主题色 = 别名 + 基色 + 深色推导三处；深色档写 `oklch(from var(--x-base) <L> c h)`，只换亮度（G19）。
 - 强调色四种画法：选中 / 在用 = `--acc` 压 `--sel-bg`；软底 = `--acc` 压 `--acc-tint-10`；
-  描边 / 焦点 = `--acc-line-32` / `--focus-shadow`；实心：压在图片 / 视频上的用 `--pri` + `--on-acc`，
-  压在语义实底上的字墨用 `--panel`。
+  描边 / 焦点 = `--acc-line-32` / `--focus-shadow`；实心：**页面级主按钮**（`.pri` / `.tool.acc`，一屏一颗）
+  与压在图片 / 视频上的用 `--pri` + `--on-acc`，压在语义实底上的字墨用 `--panel`。
+  卡片动作行不实心（一屏多颗太重）：卡内主操作走 `.card-act-primary`（浅强调底 + 描边）。
 - 状态淡底只有 `--ok-tint` / `--warn-tint` / `--err-tint` 三枚，且必须不透明。
-- 配色块只覆盖 `--acc-base` / `--acc2-base` / `--pri-base`；`violet` 是基色，缺省 `ocean`。
+- 配色块只覆盖 `--acc-base` / `--acc2-base` / `--pri-base`；基色就是 `ocean`（缺省），外置配色只有 `teal` / `berry` / `amber`。
 - 固定色只用于品牌砖、媒体底与图表；导演台用主题语义色，没有独立深底配色一族；只保留 `--mark-*` 四枚标记色（浅深两档成对覆盖）。
 - 页面品牌差异只在该页根类下覆盖一个变量，并写明理由。
 
@@ -155,7 +161,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
   - 卡片：`.card` `.card-surface` `.task` `.ap-item` `.plate` `.exp` `.why` `.exp-acts` `.band`
   - 按钮：`.pri` `.ghost` `.tool` `.ui-linkbtn`
   - 分段 / 芯片：`.ui-seg` `.chip`
-  - 徽标 / 提示：`.ui-tag` `.ui-note` `.list-note` `.srcbadge`
+  - 徽标 / 提示：`.ui-tag` `.ui-note` `.list-note` `.srcbadge`；说明行 `.hint`；行内彩色文字 `.t-sub` `.t-ok` `.t-warn` `.t-err` `.t-acc`
   - 表单：`.pgroup` `.dd` `.dd-list` `.dd-btn` `.search` `.ui-inp` `.ui-in` `.pinl` `.split-opts`
   - 空态 / 加载：`.empty` `.ui-wait`
   - 工具条 / 视图 / 分页：`.toolbar` `.viewtoggle` `.pager-row` `.pginfo`

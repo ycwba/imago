@@ -53,14 +53,10 @@ class: "prompt-hint",
 hidden: ""
 }),
 _createElementVNode("div", { class: "btn-row" }, [
-_createCommentVNode(" AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
+_createCommentVNode(" AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。\n                     供应商自带的改写动作（H3 规范优化）不住这一排：它是高级设置里的东西。 "),
 _createElementVNode("span", {
 class: "btn-host",
 "data-r": "polishHost"
-}),
-_createElementVNode("span", {
-class: "btn-host",
-"data-r": "h3Host"
 }),
 _createElementVNode("span", {
 class: "btn-host",
@@ -123,7 +119,7 @@ hidden: ""
 }, [
 _createElementVNode("label", null, [
 _createTextVNode("风格 / 音色描述 "),
-_createElementVNode("span", { style: {"color":"var(--err)"} }, "*")
+_createElementVNode("span", { class: "t-err" }, "*")
 ]),
 _createElementVNode("input", {
 "data-r": "style",
@@ -171,7 +167,7 @@ _createElementVNode("div", {
 class: "hint",
 "data-r": "scriptHint",
 hidden: "",
-style: {"font-size":"var(--fs-12)","color":"var(--sub)","margin-top":"var(--sp-8)"}
+style: {"margin-top":"var(--sp-8)"}
 }, " 正文每行一句，按顺序自动分配音色卡；时长填这一段的秒数。 "),
 _createElementVNode("div", {
 class: "mode-row",
@@ -215,6 +211,11 @@ _createElementVNode("span", { "data-r": "advSum" }),
 _createElementVNode("span", { class: "chev" }, "▼")
 ])
 ]),
+_createCommentVNode(" 供应商自带的改写动作（声明 promptTools 才出现的「H3 规范优化」）：\n                   住在高级设置卡里，折叠时跟卡一起收；当前型号不带这一档时整行不画 "),
+_createElementVNode("div", {
+class: "adv-h3",
+"data-r": "h3Host"
+}),
 _createElementVNode("div", {
 class: "adv-body",
 "data-r": "advBody"
@@ -222,7 +223,7 @@ class: "adv-body",
 _createElementVNode("div", {
 class: "hint",
 "data-r": "capHint",
-style: {"font-size":"var(--fs-12)","color":"var(--sub)","margin-top":"var(--sp-8)"}
+style: {"margin-top":"var(--sp-8)"}
 })
 ]),
 _createCommentVNode(" 原始请求（预览 / 实发）跟着正文滚：它是一份可以展开的老长的 JSON，\n                 钉在底栏里一展开就把按钮挤走。它预览的又是「上面这些参数将要发什么」，\n                 放在正文末尾比放在按钮下面更贴它的意思。 "),
@@ -254,7 +255,7 @@ hidden: ""
 _createElementVNode("div", {
 class: "hint",
 "data-r": "pendingHint",
-style: {"display":"none","font-size":"var(--fs-12)","margin-top":"var(--sp-8)"}
+style: {"display":"none","margin-top":"var(--sp-8)"}
 })
 ])
 ]),

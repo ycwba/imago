@@ -814,7 +814,7 @@ window.aiBtnHTML = function aiBtnHTML(o) {
   const label = String(oo.label || '');
   const busy = String(oo.busy || '');
   const on = !!oo.busyOn && !!busy;
-  return '<button class="tool acc' + (oo.mini ? ' mini' : '') + '" type="button"'
+  return '<button class="tool ai' + (oo.mini ? ' mini' : '') + '" type="button"'
     + (oo.id ? ' id="' + window.esc(oo.id) + '"' : '')
     + (oo.title ? ' title="' + window.esc(oo.title) + '"' : '')
     + ' data-idle="' + window.esc(label) + '"' + (busy ? ' data-busy="' + window.esc(busy) + '"' : '')
@@ -1417,7 +1417,7 @@ window.UI_PREFS = {
   ],
   rows: [
     { key: 'dir_palette', group: 'look', name: '主题配色', kind: 'seg', def: 'ocean', keep: 1,
-      opts: [['ocean', '海洋'], ['violet', '紫罗兰'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']] },
+      opts: [['ocean', '海洋'], ['teal', '青碧'], ['berry', '莓果'], ['amber', '琥珀']] },
     { key: 'dir_theme', group: 'look', name: '日间 / 夜间', kind: 'seg', def: 'system', keep: 1,
       opts: [['light', '浅色'], ['dark', '深色'], ['system', '跟随系统']] },
     { key: 'sb_open', group: 'look', name: '侧栏默认展开', kind: 'bool', keep: 1 },

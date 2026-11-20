@@ -394,7 +394,7 @@ export function createAccountCards(deps) {
         + '<button class="ghost" type="button" data-tadd="' + es + '">添加</button></div>'
       + (text
         ? '<div class="mpanel-h"><span class="t">型号的输入能力</span><span class="sp"></span>'
-          + '<span class="hint">每行右侧 图 / 音 / 视：自动 → 支持 → 不支持</span></div>'
+          + '<span class="hint">每行 图 / 音 / 视：自动 → 支持 → 不支持</span></div>'
         : '')
       + '</div>';
   }

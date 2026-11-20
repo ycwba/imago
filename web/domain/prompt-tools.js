@@ -19,7 +19,7 @@
     return (o && o.taskKinds && o.taskKinds[modelId]) || '';
   }
 
-  /* 一轮规范优化：建单（平台不扣钱）→ 按 retry_after_seconds 轮询 → 取稿。
+  /* 一轮规范优化：建单 → 按 retry_after_seconds 轮询 → 取稿（成功计费，失败不扣）。
      幂等键由 Api.request 按 create.idempotencyBody 自动写进请求体：
      断线后用同一个键再发，平台重放上一次的结果，不会写两份扣两次。 */
   async function optimize(prov, p = {}) {
@@ -40,16 +40,27 @@
     for (let tries = 0; !got(d); tries++) {
       const id = d && (d.task_id || d.id);
       if (!id) throw new Error('平台没给轮询号，优化没跑成：' + window.errText(d && d.error, '原因没说'));
-      if (d.status === 'failed') throw new Error('平台没写成这一稿（不扣钱）：'
-        + window.errText(d && d.error, '原因没说，稍后再试'));
+      if (d.status === 'failed') {
+        const raw = window.errText(d && d.error, '原因没说，稍后再试');
+        /* 平台对非文字档（图生 / 首尾帧 / 参考图）一律回「prompt does not fit the H3 creation
+           format」——实测纯文字、运镜短语、带 <Picture N>/<Video N> 引用标记全都拒；只有
+           t2va（文字档）写得出来。把这句黑话翻成能落地的指引，原话留在括号里。 */
+        if (kind !== 't2va' && /does not fit/i.test(raw)) {
+          throw new Error('这一档（图生 / 首尾帧 / 参考图）平台现在写不出规范稿，换「H3 文生视频」型号再用，'
+            + '或直接生成。（平台原话：' + raw + '）');
+        }
+        throw new Error('平台没写成这一稿（失败不扣费）：' + raw);
+      }
       if (tries >= LIMIT) throw new Error('平台写了 5 分钟还没写完，先放弃，稍后再试');
       await waitMs(Math.max(2000, Number(d.retry_after_seconds) * 1000 || 5000));
       d = await window.Api.request(prov, o.poll || o.endpoint, { id, log: false });
     }
     const draft = d.draft || {};
-    const en = String(d.draft_en || draft.prompt || draft.text || '').trim();
-    const zh = String(d.draft_text || '').trim();
-    if (!en) throw new Error('平台没回英文稿，这一轮白跑（不扣钱）');
+    /* 实测回包两处都有稿：顶层 draft_en（英文正式稿，下单用）/ draft_text（中文稿），
+       draft.prompt / draft.text 是同一份中文稿的副本 —— 两处都认，谁在取谁。 */
+    const en = String(d.draft_en || draft.prompt || '').trim();
+    const zh = String(d.draft_text || draft.text || '').trim();
+    if (!en) throw new Error('平台没回英文稿，这一轮白跑（失败不扣费）');
     return { en, zh, skill: (draft.skill && draft.skill.name) || '', mode: d.mode || kind };
   }
 

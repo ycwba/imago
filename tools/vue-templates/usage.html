@@ -21,9 +21,9 @@
         <div class="ub-left">
           <div class="cards">
             <div v-if="balanceLoading" class="empty">加载中…</div>
-            <div v-else-if="balanceTip" class="empty" :style="balanceTip.kind === 'warn' ? 'color:var(--warn)' : ''">
-              <template v-if="balanceTip.kind === 'proxy'">代理未启动，跑启动.bat 再刷新。</template>
-              <template v-else-if="balanceTip.kind === 'warn'">代理未启动，跑启动.bat 再刷新。</template>
+            <div v-else-if="balanceTip" class="empty" :class="{ 't-warn': balanceTip.kind !== 'none' }"
+              :title="balanceTip.why || ''">
+              <template v-if="balanceTip.kind === 'proxy' || balanceTip.kind === 'warn'">代理未启动，跑启动.bat 再刷新。</template>
               <template v-else>还没有配置密钥</template>
             </div>
             <div v-for="b in balanceCards" :key="b.kid || b.name" class="bal">
@@ -55,7 +55,7 @@
                 <tr v-for="(r, i) in ledView" :key="i" :title="r.title">
                   <td class="t">{{ r.time || '—' }}</td>
                   <td class="w">{{ r.desc || '—' }}</td>
-                  <td class="num" :style="r.neg ? '' : 'color:var(--ok)'">{{ r.amt }}</td>
+                  <td class="num" :class="{ 't-ok': !r.neg }">{{ r.amt }}</td>
                   <td class="num">{{ r.bal || '—' }}</td>
                 </tr>
               </tbody>
@@ -100,7 +100,7 @@
                 <tbody>
                   <tr v-for="(r, i) in voiceRecentRows" :key="i" :title="r.desc || ''">
                     <td class="t">{{ fmtWhen(r.ts) || '—' }}</td>
-                    <td class="w" style="color:var(--sub)">{{ r.platform || '' }} · {{ (r.desc || '').slice(0, 70) }}</td>
+                    <td class="w t-sub">{{ r.platform || '' }} · {{ (r.desc || '').slice(0, 70) }}</td>
                     <td>{{ r.duration ? r.duration + 's' : '—' }}</td>
                     <td class="num">{{ r.tokens ? Number(r.tokens).toLocaleString() : '—' }}</td>
                   </tr>
@@ -178,7 +178,7 @@
                   <tr v-for="(b, i) in billRows" :key="i" :title="billRowTitle(b)">
                     <td class="t">{{ fmtWhen(b.ts) || '—' }}</td>
                     <td class="p">{{ b.platform || '' }}</td>
-                    <td class="w" style="color:var(--sub)">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:var(--fs-11)">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span style="color:var(--err)">{{ b.status }}</span></template></td>
+                    <td class="w t-sub">{{ b.what }}<template v-if="b.desc"> · {{ b.descShort }}</template><template v-if="b.genId"> <code style="font-size:var(--fs-11)">{{ b.genShort }}</code></template><template v-if="b.status && b.status !== 'succeeded'"> <span class="t-err">{{ b.status }}</span></template></td>
                     <td class="num">
                       <template v-if="b.tokens != null">{{ b.tokens.toLocaleString() }} tokens</template>
                       <template v-else-if="b.cost == null"><span title="平台这次没返回价格，不是 0">平台未提供价格</span></template>

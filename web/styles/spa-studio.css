@@ -60,7 +60,7 @@
    textarea 现在包在 .ta-wrap 里（@素材高亮要一层镜像层），所以按后代选。 */
 .studio-page .prompt-box textarea { width: 100%; min-height: 132px; padding: var(--sp-12); background: transparent; color: var(--txt);
   border: 0; border-radius: var(--radius-6); font-size: var(--fs-14); font-family: inherit; resize: vertical; }
-.studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-12); line-height: 1.5; color: var(--sub); }
+.studio-page .prompt-hint { padding: 0 var(--sp-12) var(--sp-8); font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--sub); }
 .studio-page .prompt-hint.bad { color: var(--err); }
 .studio-page .style-row { padding: 0 var(--sp-8) var(--sp-8); }
 .studio-page .style-row label { display: block; font-size: var(--fs-12); color: var(--sub); margin-bottom: var(--sp-4); }
@@ -72,6 +72,12 @@
    （这张卡在左栏的位置、几块参数区之间的距离），不再给原生 select 写外观 ——
    公共件上来之后原生 select 已经藏进 .dd 里，写给它的规则一律落空。 */
 .studio-page .adv { margin-top: var(--sp-12); overflow: hidden; }
+/* 供应商自带的改写动作行（H3 规范优化，住高级设置卡里）：
+   卡折叠时跟 .adv-body 一起收；当前型号不带这一档（里面的钮被声明闸置 hidden）时整行不留空隙。 */
+.studio-page .adv-h3 { padding: var(--sp-12) var(--sp-16) 0; }
+.studio-page .adv-h3:empty { display: none; }
+.studio-page .adv-h3:has(button[hidden]) { display: none; }
+.studio-page .adv.closed .adv-h3 { display: none; }
 .studio-page .adv-head h2 { display: flex; align-items: center; gap: var(--sp-8); }
 .studio-page .adv-grid + .adv-grid { margin-top: var(--sp-8); }
 .studio-page .adv-grid input { width: 100%; }
@@ -81,7 +87,6 @@
 .studio-page .costbar { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-8);
   font-size: var(--fs-13); color: var(--sub); flex-wrap: wrap; }
 .studio-page .costbar .note { color: var(--sub); }
-.studio-page .hint { font-size: var(--fs-12); color: var(--sub); }
 
 /* ---------- 左栏：素材槽磁贴的排布（磁贴长什么样仍只有 ui.css 那一份） ---------- */
 .studio-page [data-r="inputArea"] .assets-grid { grid-template-columns: repeat(auto-fill, minmax(var(--sz-tile), 1fr)); }

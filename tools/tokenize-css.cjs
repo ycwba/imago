@@ -111,6 +111,17 @@ function replaceBorder(value, stats) {
   }));
 }
 
+/* 行高：unitless 裸数吸附到终表三档（≤1.42 → 1-3，≤1.62 → 1-5，其余 → 1-7）。
+   px 行高与 1 / 0 不归这里（见 token-lib 的 bareRows 同一条规则）。 */
+function replaceLh(value, stats) {
+  const m = /^\s*(\d*\.\d+)\s*$/.exec(value);
+  if (!m) return value;
+  const n = parseFloat(m[1]);
+  if (n <= 1.05) return value;
+  stats.replaced++;
+  return `var(--lh-${n <= 1.42 ? '1-3' : n <= 1.62 ? '1-5' : '1-7'})`;
+}
+
 function replaceColor(value, stats) {
   /* 先剥兜底值，再换色值 —— 顺序反了会把 var(--panel,#fff) 变成 var(--panel,var(--on-acc))，
      兜底就没剥干净。 */
@@ -230,7 +241,8 @@ function declEdit(prop, value, stats) {
   if (name.startsWith('--')) return null;                 // 自定义属性：运行时写的，不动
   let next = value;
   const tier = L.tierOf(name);
-  if (tier === 'hair') next = replaceBorder(next, stats);
+  if (tier === 'lh') next = replaceLh(next, stats);
+  else if (tier === 'hair') next = replaceBorder(next, stats);
   else if (tier) next = replacePx(next, tier, stats);
   /* 阴影先处理：整层命中阴影表就换成令牌，剩下的层再走颜色表 */
   if (name === 'box-shadow') next = handleShadow(next, stats);

@@ -1,0 +1,23 @@
+diff --git a/web/pages/studio.js b/web/pages/studio.js
+index 0abf528..4054590 100644
+--- a/web/pages/studio.js
++++ b/web/pages/studio.js
+@@ -4037,12 +4050,16 @@ const StudioView = {
+         clearTimeout(promptLsTimer);
+         promptLsTimer = setTimeout(() => { promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); }, 250);
+       });
+-      $('style').addEventListener('input', () => { cur().style = $('style').value; });
++      /* 风格 / 歌词 / 时长（音频台三件）都直接进提交体：敲一个字预览就跟着翻
++         （RawRequest.schedule 自带 300 ms 防抖，不用再叠一层）。 */
++      $('style').addEventListener('input', () => { cur().style = $('style').value; refreshPreview(); });
++      $('lyrics').addEventListener('input', refreshPreview);
++      $('audioDur').addEventListener('input', refreshPreview);
+       /* 「取一位素材的音色描述」：整链在公共层 `VoiceNote.run`（走统一选择器第四个来源），
+          这里只交 value / write / say 三个口子。 */
+       $('stylePick').onclick = () => window.VoiceNote.run({
+         value: () => $('style').value,
+-        write: t => { $('style').value = t; cur().style = t; updateGoState(); },
++        write: t => { $('style').value = t; cur().style = t; updateGoState(); refreshPreview(); },
+         say: setStatus,
+       });
+       /* 关标签 / 刷新前把这一页手上的东西交出去。统一通道是 `__spaRegister(flush, dirty)`：

@@ -619,7 +619,7 @@ _createElementVNode("div", _hoisted_20, [
 _createElementVNode("div", _hoisted_21, [
 _createElementVNode("div", _hoisted_22, _toDisplayString(_ctx.asrProviderText), 1 /* TEXT */),
 (_ctx.asr.route === 'browser' || _ctx.asr.route === 'local')
-? (_openBlock(), _createElementBlock("div", _hoisted_23, "当前走「本机 / 浏览器内」，这一块不生效。"))
+? (_openBlock(), _createElementBlock("div", _hoisted_23, "走本机 / 浏览器内时这块不生效。"))
 : _createCommentVNode("v-if", true),
 _createElementVNode("div", _hoisted_24, [
 _cache[4] || (_cache[4] = _createElementVNode("span", { class: "kn" }, "在线服务商", -1 /* CACHED */)),

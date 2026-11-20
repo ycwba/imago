@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-/* 主题两根轴：5 套配色 + 跟随系统（深色由浅色现算）。
+/* 主题两根轴：4 套配色 + 跟随系统（深色由浅色现算）。
    用户要的是：底色配色能挑，日夜能跟系统走，深色不是另一份手写色值。
    这一条盯八件事：
      ① 缺省：跟随系统 + 海洋（两个键都没设过时按系统档解析；这一条把系统档仿成浅色，缺省在任何机器上都判得动）
      ② 设置页「外观与界面」里两行都在（配色 5 档 / 日夜 3 档），点一下当场生效并落盘
-     ③ 5 套配色 × 浅/深：强调色两两不同，中性色逐字节不动（换配色只换强调色那一族）
+     ③ 4 套配色 × 浅/深：强调色两两不同，中性色逐字节不动（换配色只换强调色那一族）
      ④ 跟随系统：偏好 system 时由系统的深色档决定 data-theme，系统档一变当场跟着变
      ⑤ 左下角那颗主题按钮：三档（浅色 / 深色 / 跟随系统）轮着来，点一下换一档；设置页改的那一档它跟着变
      ⑥ 坏值回落：存储里是认不出的名字时退回缺省（跟随系统 → 系统档浅色 = light）/ 海洋，data-theme 里永远不出现 system
@@ -27,7 +27,7 @@ let n = 0;
 const must = (cond, msg) => { ++n; if (!cond) throw new Error('第 ' + n + ' 项不成立：' + msg); };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-const PALETTES = ['violet', 'ocean', 'teal', 'berry', 'amber'];
+const PALETTES = ['ocean', 'teal', 'berry', 'amber'];
 /* 换配色时**不许**动的那些：底色 / 面 / 描边 / 文字 / 底纹 / 滚动条。 */
 const NEUTRALS = ['--bg', '--panel', '--panel2', '--line', '--txt', '--sub', '--input', '--control-bg', '--thumbbg', '--scroll', '--atbg'];
 /* 强调色那一族：换配色只动这三枚。 */
@@ -219,9 +219,9 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     });
     must(rows.palette, '设置页没有「主题配色」那一行（.ui-seg[data-ui="dir_palette"]）');
     must(rows.theme, '设置页没有「日间 / 夜间」那一行（.ui-seg[data-ui="dir_theme"]）');
-    must(rows.palette.opts.length === 5, '配色该是 5 档，实际 ' + JSON.stringify(rows.palette.opts));
+    must(rows.palette.opts.length === 4, '配色该是 4 档，实际 ' + JSON.stringify(rows.palette.opts));
     must(PALETTES.every(p => rows.palette.opts.some(o => o.startsWith(p + ':'))),
-      '配色 5 档的名字对不上：' + JSON.stringify(rows.palette.opts));
+      '配色 4 档的名字对不上：' + JSON.stringify(rows.palette.opts));
     must(rows.theme.opts.length === 3, '日夜该是 3 档（浅色 / 深色 / 跟随系统），实际 ' + JSON.stringify(rows.theme.opts));
     must(rows.theme.opts.some(o => o === 'system:跟随系统'), '日夜那三档里没有「跟随系统」：' + JSON.stringify(rows.theme.opts));
     must(rows.palette.on === 'ocean', '缺省配色那一格该亮在海洋，实际「' + rows.palette.on + '」');
@@ -268,10 +268,10 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     await page.goto(proxy.base + '/shell.html');
     await page.waitFor(() => !!window.__themeApply, 30000);
 
-    /* ── ③ 5 套配色 × 浅/深：强调色两两不同，中性色逐字节不动 ───── */
+    /* ── ③ 4 套配色 × 浅/深：强调色两两不同，中性色逐字节不动 ───── */
     const accByMode = { light: {}, dark: {} };
     for (const mode of ['light', 'dark']) {
-      let base = null;                       // violet 那一档的中性色（比对的基准）
+      let base = null;                       // ocean 那一档的中性色（比对的基准）
       const accOf = accByMode[mode];         // palette → 强调色像素
       for (const pal of PALETTES) {
         const seen = await applyTheme(mode, pal);
@@ -310,16 +310,14 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
             mode + ' 档换配色「' + pal + '」把中性色 ' + k + ' 改了（' + key(base[k].rgba) + ' → ' + key(c[k].rgba) + '）：配色块只许动强调色');
         }
         accOf[pal] = { acc: c['--acc'].rgba, acc2: c['--acc2'].rgba, pri: c['--pri'].rgba };
-        /* 非紫罗兰那四套：三枚强调色同源（--acc2-base / --pri-base 指回 --acc-base）。
+        /* 四套外置配色三枚强调色同源（--acc2-base / --pri-base 指回 --acc-base）。
            浅色档两枚基色一样，算出来的像素就该一样；深色档 --pri 的亮度目标与 --acc 不同
            （主按钮要比链接式的强调色更实），所以那里只比 --acc2（与 --acc 同一条亮度）。 */
-        if (pal !== 'violet') {
-          must(key(accOf[pal].acc) === key(accOf[pal].acc2),
-            mode + ' 档「' + pal + '」的 --acc 与 --acc2 不同源：' + key(accOf[pal].acc) + ' vs ' + key(accOf[pal].acc2));
-          if (mode === 'light') {
-            must(key(accOf[pal].acc) === key(accOf[pal].pri),
-              mode + ' 档「' + pal + '」的 --acc 与 --pri 不同源：' + key(accOf[pal].acc) + ' vs ' + key(accOf[pal].pri));
-          }
+        must(key(accOf[pal].acc) === key(accOf[pal].acc2),
+          mode + ' 档「' + pal + '」的 --acc 与 --acc2 不同源：' + key(accOf[pal].acc) + ' vs ' + key(accOf[pal].acc2));
+        if (mode === 'light') {
+          must(key(accOf[pal].acc) === key(accOf[pal].pri),
+            mode + ' 档「' + pal + '」的 --acc 与 --pri 不同源：' + key(accOf[pal].acc) + ' vs ' + key(accOf[pal].pri));
         }
       }
       for (const a of PALETTES) for (const b of PALETTES) {
@@ -341,7 +339,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     await page.cdp.send('Emulation.setEmulatedMedia', {
       media: '', features: [{ name: 'prefers-color-scheme', value: 'dark' }],
     });
-    let seen = await applyTheme('system', 'violet');
+    let seen = await applyTheme('system', 'ocean');
     must(seen.theme === 'dark', '系统深色 + 偏好「跟随系统」时 data-theme 该是 dark，实际「' + seen.theme + '」');
     /* 系统档切换 → matchMedia 的 change → 重解析（不再手动调 __themeApply）。 */
     await page.cdp.send('Emulation.setEmulatedMedia', {
@@ -408,13 +406,13 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     /* 认不出的偏好名 = 缺省档（跟随系统）：那颗按钮也该写回缺省那一档。 */
     const badLabel = await page.eval(() => ((document.querySelector('#sbTheme .lb') || {}).textContent || '').trim());
     must(badLabel === '跟随系统', '偏好是认不出的名字时按钮该写回「跟随系统」，实际「' + badLabel + '」');
-    seen = await applyTheme('system', 'violet');
+    seen = await applyTheme('system', 'ocean');
     must(seen.theme === 'light' || seen.theme === 'dark', 'system 被原样写进了 data-theme（「' + seen.theme + '」）：那里只放解析后的一档');
 
     /* ── ⑦ 深色确实是深色：亮度掉转，换配色不动底色 ──────────────── */
-    seen = await applyTheme('light', 'violet');
+    seen = await applyTheme('light', 'ocean');
     const lightC = await readColors(['--bg', '--txt', '--acc']);
-    await applyTheme('dark', 'violet');
+    await applyTheme('dark', 'ocean');
     const darkC = await readColors(['--bg', '--txt', '--acc']);
     must(lum(lightC['--bg'].rgba) > 0.7,
       '浅色档的底不够浅（亮度 ' + lum(lightC['--bg'].rgba).toFixed(3) + '，像素 ' + key(lightC['--bg'].rgba) + '）');
@@ -436,7 +434,7 @@ const diff = (a, b) => !a.every((v, i) => v === b[i]);
     must(!page.errors.length, '页面有异常：\n  ' + page.errors.join('\n  '));
     const errs = h.logFaults(proxy.log);
     if (errs.length) throw new Error('代理日志有异常：\n  ' + errs.join('\n  '));
-    console.log('✓ 主题两根轴：缺省跟随系统 + 海洋 · 设置页两行 · 5 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度 · 强调色压在淡底与实底上');
+    console.log('✓ 主题两根轴：缺省跟随系统 + 海洋 · 设置页两行 · 4 套配色 × 浅/深 · 跟随系统 · 侧栏钉档 · 坏值回落 · 深色亮度 · 强调色压在淡底与实底上');
   } catch (e) {
     console.error('✗ ' + (e && e.stack || e));
     try { if (page && page.errors) console.error('页面异常：\n' + page.errors.join('\n')); } catch (e2) {}

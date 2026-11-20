@@ -1174,7 +1174,7 @@ function keepBodyScroll(el, fn) {
           retry.onclick = async () => {
             retry.disabled = true; retry.textContent = '润色中…';
             keepBodyScroll(body, () => { body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新润色…</div>'; });
-            try { paint(await o.retry()); } catch (e) { paint(''); body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新润色失败：${esc(e.message)}</div>`); }
+            try { paint(await o.retry()); } catch (e) { paint(''); body.insertAdjacentHTML('afterbegin', `<div class="hint t-err" style="margin-bottom: var(--sp-8)">重新润色失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新润色';
           };
         } else retry.style.display = 'none';
@@ -1230,7 +1230,7 @@ function keepBodyScroll(el, fn) {
             retry.disabled = true; retry.textContent = '规划中…';
             keepBodyScroll(body, () => { body.innerHTML = '<div class="pr-loading"><span class="spin-dot"></span>正在重新规划…</div>'; });
             try { items = (await o.retry()).map(x => ({ ...x, label: x.label, text: x.text })); }
-            catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div style="color: var(--err);font-size: var(--fs-12);margin-bottom: var(--sp-8)">重新规划失败：${esc(e.message)}</div>`); }
+            catch (e) { items = []; body.insertAdjacentHTML('afterbegin', `<div class="hint t-err" style="margin-bottom: var(--sp-8)">重新规划失败：${esc(e.message)}</div>`); }
             retry.disabled = false; retry.innerHTML = icon('refresh', 13) + ' 重新规划';
             paint();
           };

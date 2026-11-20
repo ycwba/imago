@@ -618,7 +618,7 @@ function detectThemePair(file, src) {
     if (!sel.includes('data-palette')) continue;
     const hit = /^html\[data-palette="([\w-]+)"\]$/.exec(sel);
     if (!hit) { out[file + '#配色块的选择器必须单挂 data-palette：' + sel.slice(0, 60)] = 1; continue; }
-    if (hit[1] === 'violet') out[file + '#violet 就是 ①a 的基色，不该有自己的块'] = 1;
+    if (hit[1] === 'ocean') out[file + '#ocean 就是 ①a 的基色，不该有自己的块'] = 1;
     const body = declsOf(m[2]);
     const extra = [...body.keys()].filter(k => !['--acc-base', '--acc2-base', '--pri-base'].includes(k));
     if (extra.length) out[file + '#' + hit[1] + ' 块里多写了 ' + extra.join(' / ') + '（配色只换强调色）'] = 1;
@@ -998,8 +998,8 @@ const GUARDS = [
     ok: `.demo-a { padding: var(--sp-8); font-size: var(--fs-12); border-radius: var(--radius-6); color: var(--pri); }` },
   { key: 'G19', title: '主题色深浅两档（基色 + 推导 + 配色块）必须成对覆盖', table: G19_THEME_PAIR, kind: 'entries', detect: detectThemePair,
     sources: () => ['web/styles/tokens.css'], sampleFile: 'web/styles/tokens.css', okFile: 'web/styles/tokens.css',
-    sample: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: #000; --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: #111; --txt: oklch(from var(--txt-base) 0.955 c h); }\nhtml[data-theme="dark"][data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }`,
-    ok: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: var(--txt-base); --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: oklch(from var(--bg-base) 0.160 c h); --txt: oklch(from var(--txt-base) 0.955 c h); --shadow-1:0 1px 2px rgba(0,0,0,.35); }\nhtml[data-palette="ocean"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }` },
+    sample: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: #000; --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: #111; --txt: oklch(from var(--txt-base) 0.955 c h); }\nhtml[data-theme="dark"][data-palette="teal"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }`,
+    ok: `:root { /* ① 主题色 */ --bg: var(--bg-base); --txt: var(--txt-base); --bg-base:#f2f3f9; --txt-base:#23262f; /* ①b */ }\n/* ② 派生色 */\nhtml[data-theme="dark"] { --bg: oklch(from var(--bg-base) 0.160 c h); --txt: oklch(from var(--txt-base) 0.955 c h); --shadow-1:0 1px 2px rgba(0,0,0,.35); }\nhtml[data-palette="teal"] { --acc-base:#2563eb; --acc2-base:var(--acc-base); --pri-base:var(--acc-base); }` },
   { key: 'G21', title: '透明度只许从 --a-* 阶梯里取（不许自己编百分比）', table: G21_ALPHA, kind: 'counts', detect: detectAlphaLadder,
     sources: styleSources, sampleFile: 'web/styles/synthetic.css', okFile: 'web/styles/synthetic.css',
     sample: `.demo-a { background: color-mix(in srgb, var(--acc) 7%, transparent); }`,
