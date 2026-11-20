@@ -554,7 +554,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - SparkCine：上传下划线字段 + `sha256` 必填；详情 `outputs[].asset_id`；创建要求 `Idempotency-Key`；润色是顶层 `optimize_prompt`。
 - MiMo：文字与 TTS 共用 `MIMO_API_KEY`；`/v1/models` 同时列 TTS，文字档用 `modelsExclude:'-tts'`；TTS 同步、`hex` 返回按十六进制解码。
 - MiniMax：`t2a_v2` 的 `data.audio` 是十六进制；字数区间见 `tts.minChars/maxChars`。
-- 拾帧（shizhenvideo.com）：视频下单 `POST /web-api/jobs`（顶层 `duration_seconds`/`quality`/`aspect_ratio`），图片/音频 `POST /v1/jobs`（`tier:'A'`）；幂等键在**请求体** `idempotency_key`；素材 `/v1/uploads` 原始字节上传（文件名走 ASCII 头）；取产物 `/v1/jobs/{id}/result` 的 `pickup_url`（排队中 `ready:false` 无地址，只在 done 时换）；无任务列表接口，历史走本机资产库；报价 `estimated_cost_cny`（元）、余额 `balance_cny`；三档共用 `SHIZHEN_API_KEY`。
+- 拾帧（shizhenvideo.com）：视频下单 `POST /web-api/jobs`（顶层 `duration_seconds`/`quality`/`aspect_ratio`），图片/音频 `POST /v1/jobs`（`tier:'A'`）；幂等键在**请求体** `idempotency_key`；素材 `/v1/uploads` 原始字节上传（文件名走 ASCII 头）；取产物 `/v1/jobs/{id}/result` 的 `pickup_url`（排队中 `ready:false` 无地址，只在 done 时换）；无任务列表接口，历史走本机资产库；报价 `estimated_cost_cny`（元）、余额 `balance_cny`；型号与参数 `GET /v1/catalog`（能力清单来源：`modelsShape:'shizhenCatalog'` 归一化，`modelsGrow:false` 只认声明内 12 个，上游多出的型号不进下拉）；消费明细 `GET /v1/account/ledger?from&to`（`&format=csv` 导出，`ledger` 声明驱动用量页面板）；提示词规范优化 `POST /v1/assistant/script`（免费，202 + `poll_url`，`draft_en` 下单用 / `draft_text` 对照，`promptTools` 声明 + 工作台「H3 规范优化」）；`h3_ref2v` 平台配音 `params.voice_audio:[1..N]` / `voice_texts`（`create.voiceDub` 折算，界面开关 + 声音原话）；h3 视频 `params.steps` 生成质量 1–12、zimage/qwen/firered 收 `negative_prompt`/`steps`(1–100)/`cfg`（shapeFields 门控）；三档共用 `SHIZHEN_API_KEY`。
 - 幂等：没有幂等键的 POST 不自动重试；`PROMPT_COMPILER_UPSTREAM_ERROR` 可安全重试。
 - 缩略图缓存键先剥签名。
 

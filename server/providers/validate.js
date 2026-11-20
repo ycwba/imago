@@ -62,6 +62,48 @@ function hasModelSource(p) {
    每条只校验「声明了的那字段」，没声明一律放过（别家平台不需要这些机制）。 */
 function validateDeclFields(p, errs) {
   const c = p.create || {};
+  /* 能力清单的两面（拾帧）：`modelsShape` 点名归一化形状（必须真实存在）；
+     `modelsGrow:false` = 上游清单只用来给已声明型号补档位，不从上游长新型号。 */
+  if (p.modelsShape != null && (typeof p.modelsShape !== 'string' || !p.modelsShape)) {
+    errs.push('modelsShape 必须是非空字符串（浏览器侧 NORM_SHAPES 的形状键）');
+  }
+  if (p.modelsGrow != null && typeof p.modelsGrow !== 'boolean') {
+    errs.push('modelsGrow 必须是布尔（false = 不从上游清单长新型号）');
+  }
+  if (p.ledger != null) {
+    const l = p.ledger;
+    if (!l || typeof l !== 'object' || Array.isArray(l)) errs.push('ledger 必须是对象（消费明细回包的字段读法）');
+    else {
+      if (typeof l.dataField !== 'string' || !l.dataField) errs.push('ledger.dataField 必须是非空字符串（明细行数组在响应的哪个字段）');
+      if (typeof l.amountField !== 'string' || !l.amountField) errs.push('ledger.amountField 必须是非空字符串（金额字段）');
+      if (l.totals != null && (typeof l.totals !== 'object' || Array.isArray(l.totals))) errs.push('ledger.totals 必须是对象');
+      if (!(p.endpoints && p.endpoints.ledger)) errs.push('声明了 ledger 但 endpoints.ledger 没写（页面拼不出请求）');
+    }
+  }
+  if (p.promptTools != null) {
+    const pt = p.promptTools;
+    if (!pt || typeof pt !== 'object' || Array.isArray(pt)) errs.push('promptTools 必须是对象（平台提示词工具声明）');
+    else {
+      const o = pt.optimize;
+      if (!o || typeof o !== 'object') errs.push('promptTools.optimize 必须是对象');
+      else {
+        if (typeof o.endpoint !== 'string' || !o.endpoint) errs.push('promptTools.optimize.endpoint 必须是非空字符串（endpoints 里点哪个名）');
+        if (o.poll != null && (typeof o.poll !== 'string' || !o.poll)) errs.push('promptTools.optimize.poll 必须是非空字符串（轮询端点名）');
+        if (o.taskKinds != null && (typeof o.taskKinds !== 'object' || Array.isArray(o.taskKinds))) errs.push('promptTools.optimize.taskKinds 必须是对象（型号 id → task_kind）');
+      }
+      if (!(p.endpoints && p.endpoints[o && o.endpoint])) errs.push('promptTools.optimize.endpoint 点名的端点没在 endpoints 里声明');
+    }
+  }
+  if (c.voiceDub != null) {
+    const v = c.voiceDub;
+    if (!v || typeof v !== 'object' || Array.isArray(v)) errs.push('create.voiceDub 必须是对象（平台配音开关的折算声明）');
+    else {
+      if (typeof v.toggle !== 'string' || !v.toggle) errs.push('create.voiceDub.toggle 必须是非空字符串（界面开关的字段名）');
+      if (typeof v.target !== 'string' || !v.target) errs.push('create.voiceDub.target 必须是非空字符串（折算后的上游字段名，如 voice_audio）');
+      if (typeof v.role !== 'string' || !v.role) errs.push('create.voiceDub.role 必须是非空字符串（按哪个输入角色数条数）');
+      if (v.text != null && (typeof v.text !== 'string' || !v.text)) errs.push('create.voiceDub.text 必须是非空字符串（声音原话的字段名）');
+    }
+  }
   if (c.idempotencyBody != null && (typeof c.idempotencyBody !== 'string' || !c.idempotencyBody)) {
     errs.push('create.idempotencyBody 必须是非空字符串（请求体里放幂等键的字段名）');
   }

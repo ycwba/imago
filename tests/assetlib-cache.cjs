@@ -181,6 +181,41 @@ function boot() {
     qres.ok && sent && sent.body.params.duration_seconds === 10 && !('duration_seconds' in sent.body),
     JSON.stringify(qres) + ' | ' + JSON.stringify(sent && sent.body));
 
+  /* 平台配音折算（create.voiceDub，拾帧 h3_ref2v）：开关与「声音原话」不按泛型落位发，
+     createBody 按 create.voiceDub 折算成 params.voice_audio:[1..N] 与 params.voice_texts:{"1":…}。
+     装真 api.js，看实际拼出来的体。Capabilities 没装（这张判据不测那一层），给一份最小桩。 */
+  ctx.Capabilities = {
+    fieldState: () => ({ hidden: false, def: false, note: '' }),
+    shapeFieldState: () => ({ shown: true, values: [], none: null }),
+  };
+  const dubProv = {
+    id: 'dub-probe', name: '配音探针', kind: 'video', relay: '/shizhen',
+    endpoints: { create: '/web-api/jobs' },
+    create: { body: { endpoint: 'model' }, nest: { params: [['prompt', 'prompt']] },
+      voiceDub: { toggle: 'platform_voice', target: 'voice_audio', role: 'reference_audio',
+        to: 'params', text: 'voice_text', textsTarget: 'voice_texts' },
+      inputOrder: ['reference_audio'],
+      inputTemplates: { reference_audio: { to: 'input_uris', many: true, tmpl: '$assetId' } } },
+  };
+  const dubBody = A.createBody(dubProv, { model: 'h3_ref2v', prompt: '台词',
+    params: { platform_voice: true, voice_text: '大家好' },
+    inputEntries: [{ role: 'reference_audio', assetId: 'a1' }, { role: 'reference_audio', assetId: 'a2' }] });
+  ok('配音开关开 → voice_audio 按音频条数折成 [1,2]，原话折成 voice_texts，两个裸字段都摘掉',
+    dubBody.params.voice_audio.join(',') === '1,2' && dubBody.params.voice_texts['1'] === '大家好'
+    && !('platform_voice' in dubBody.params) && !('voice_text' in dubBody.params)
+    && dubBody.input_uris.join(',') === 'a1,a2',
+    JSON.stringify(dubBody));
+  const dubNoAudio = A.createBody(dubProv, { model: 'h3_ref2v', prompt: '台词',
+    params: { platform_voice: true }, inputEntries: [] });
+  ok('没传音频时配音两个字段都不发', !dubNoAudio.params.voice_audio && !dubNoAudio.params.voice_texts,
+    JSON.stringify(dubNoAudio));
+  const dubOff = A.createBody(dubProv, { model: 'h3_ref2v', prompt: '台词',
+    params: { platform_voice: false, voice_text: '' },
+    inputEntries: [{ role: 'reference_audio', assetId: 'a1' }] });
+  ok('开关关 / 原话空 = 只发 prompt 与素材，不带配音参数',
+    dubOff.params.prompt === '台词' && !dubOff.params.voice_audio && !dubOff.params.voice_texts,
+    JSON.stringify(dubOff));
+
   ok('全程没有漏出去一条没接住的拒绝（并发共用的那条失败 Promise 也不能漏）',
     unhandled.length === 0, unhandled.join(' | '));
 

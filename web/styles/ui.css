@@ -923,6 +923,12 @@ button.armed { min-width: 4.6em; }
 .pinl-turn { font-size: var(--fs-11); line-height: 1.5; color: var(--sub);
   padding: var(--sp-4) var(--sp-8); border-left: var(--hair-2) solid var(--line); background: var(--panel2);
   border-radius: 0 var(--radius-6) var(--radius-6) 0; }
+/* 参照稿：平台改写工具给人看的对照文本（默认收起，点那一颗展开） */
+.pinl-ref { margin-top: var(--sp-8); font-size: var(--fs-12); }
+.pinl-refbody { margin-top: var(--sp-4); padding: var(--sp-8) var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2);
+  color: var(--sub); font-size: var(--fs-12); line-height: 1.6;
+  white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
 
 /* ---------- 「拆成 N 张图」那一排选项（SplitPlan.html 画） ----------
    工作台图像栏的「拆分片段生成」与导演台右栏的「画面切片规划」共用这一排，所以排布与密度都在这层。

@@ -25,7 +25,10 @@ function keepBodyScroll(el, fn) {
      · InlinePolish.loading(host, text)          占位：显示「正在润色…」
      · InlinePolish.show(host, o)                结果面板（结果可编辑，用户决定是否替换）
          o.after      润色后的文本
+         o.title      面板标题（默认「AI 润色结果」；平台改写工具写自己的名字）
          o.note       小字说明（附带了几张素材图 / 为什么没带图…）
+         o.reference  参照稿（可展开的对照文本，默认收起；如平台改写的中文稿）
+         o.referenceLabel 参照稿那一颗开关的名字（默认「参照稿」）
          o.before     原文（只用于显示字数对比）
          o.applyLabel 「替换」按钮文案，默认「替换原提示词」
          o.onEdit(v)  用户改动结果文本时回调（页面可把值存进自己的状态，重渲染不丢）
@@ -164,10 +167,11 @@ function keepBodyScroll(el, fn) {
       host.hidden = false;
       host.innerHTML = `<div class="pinl">
         <div class="pinl-hd">
-          <span class="pinl-tt">${icon('sparkles', 13)} AI 润色结果</span>
+          <span class="pinl-tt">${icon('sparkles', 13)} ${esc(o.title || 'AI 润色结果')}</span>
           <span class="pinl-note">${esc(o.note || '')}</span>
         </div>
         <textarea class="pinl-ta" spellcheck="false" placeholder="润色结果"></textarea>
+        ${o.reference != null ? `<div class="pinl-ref"><button type="button" class="ui-linkbtn" data-act="ref">${esc(o.referenceLabel || '参照稿')}</button><div class="pinl-refbody" hidden></div></div>` : ''}
         <div class="pinl-talk" hidden></div>
         ${o.onFollow ? `<div class="pinl-chat">
           <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？')}">
@@ -221,6 +225,13 @@ function keepBodyScroll(el, fn) {
         talk.innerHTML = rounds.map((t, i) => `<div class="pinl-turn">第 ${i + 1} 轮 · 你说：${esc(t)}</div>`).join('');
       };
       paintTalk();
+      /* 参照稿（平台改写工具的中文稿给人看，英文稿才是写进提示词的那份）：默认收起，
+         点一下展开 —— 长文本不该替用户决定「永远摊在面板里」。 */
+      const refBody = el.querySelector('.pinl-refbody');
+      if (refBody) {
+        refBody.textContent = String(o.reference || '');
+        el.querySelector('[data-act="ref"]').onclick = () => { refBody.hidden = !refBody.hidden; };
+      }
       function apply() {
         const v = ta.value.trim();
         if (!v) return;

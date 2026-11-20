@@ -30,9 +30,10 @@
               </div>
               <div class="prompt-hint" data-r="promptHint" hidden></div>
               <div class="btn-row">
-                <!-- 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
-                     模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
+                <!-- AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：
+                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 -->
                 <span class="btn-host" data-r="polishHost"></span>
+                <span class="btn-host" data-r="h3Host"></span>
                 <span class="btn-host" data-r="splitHost"></span>
                 <!-- 视频栏与图像栏之间的单向传送：这一颗只在视频栏出现（paintLeft 管显隐）。 -->
                 <button class="ghost" type="button" data-r="toImageBtn"><span class="ic" data-icon="image" data-size="13"></span><span class="tx">送进图像栏</span></button>

@@ -177,7 +177,7 @@ const REGISTRY = {
      不再并进文字那一条。`interfaceShapes` 补 asr / search 两组。旧条目的 `extras[]`
      与文字档上的 `asr` / `search` 子对象仍按只读兼容搬成独立 caps。PROXY_VERSION_MIN 一起升到 25。
      改注册表结构时顺手 +1。 */
-  version: 26,
+  version: 27,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -1294,6 +1294,11 @@ const REGISTRY = {
          由 parseItem 排进 AssetLocal，历史就在资产库/收藏/工作台里。 */
       id: 'shizhen', name: '拾帧 视频', displayName: '拾帧', kind: 'video', relay: '/shizhen', keyId: 'shizhen',
       base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      /* 型号能力来自 GET /v1/catalog（public，回 {models:[…]}）：quality_tiers / duration /
+         params 与本地声明同源，归一化按 shizhenCatalog 一份走。catalog 一并列入 18 个没声明的
+         型号（film_assemble / krea2_* / *_base 变体…）—— 它们不在文档接口表里、下单形状没实测，
+         modelsGrow:false 挡住不让长进下拉（服务端 capabilities 同判据只回声明内型号）。 */
+      modelsShape: 'shizhenCatalog', modelsGrow: false,
       pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST',
         body: { endpoint: 'model', duration_seconds: 'duration', quality: 'res', aspect_ratio: 'ar' },
         consts: { params: { prompt: '报价预估（不创建任务）' } },
@@ -1301,10 +1306,19 @@ const REGISTRY = {
       endpoints: {
         create: '/web-api/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
         quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        models: '/v1/catalog', ledger: '/v1/account/ledger',
+        assistant: '/v1/assistant/script', assistantPoll: '/v1/assistant/script/{id}',
         list: 'local:/local-assets',
       },
       /* H3 正文用 <Picture N>/<Video N>/<Audio N> 指 input_uris 的第 N 项；界面把 @参考N 换成它。 */
       refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' },
+      /* H3 官方规范优化（免费）：按当前型号给 task_kind，时长带当前选择的秒数。 */
+      promptTools: { optimize: { endpoint: 'assistant', poll: 'assistantPoll',
+        taskKinds: { h3_t2v: 't2va', h3_i2v: 'i2va', h3_flf2v: 'fl2va', h3_ref2v: 'ref2va' } } },
+      /* 消费明细（GET ?from=YYYY-MM-DD&to=YYYY-MM-DD，&format=csv 下载表格）。 */
+      ledger: { dataField: 'lines', amountField: 'amount_cny', timeField: 'time', typeField: 'type',
+        balanceField: 'balance_after_cny', modelField: 'model', jobField: 'job_id',
+        totals: { spent: 'spent_cny', added: 'added_cny' }, currency: '¥' },
       models: [
         { id: 'h3_t2v', name: 'H3 文生视频', modes: ['text_to_video'],
           options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
@@ -1321,7 +1335,10 @@ const REGISTRY = {
             reference_audio: { max: 1, group: 'ref' } } },
         { id: 'h3_ref2v', name: 'H3 参考图/视频生视频', modes: ['reference_images', 'reference_video'],
           options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
-            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 } },
+            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 },
+            /* 平台配音：上传的人声不是声轨而是台词（平台先用它配音再对口型）。
+               开 = 显式发 params.voice_audio:[1..N]（N = 这次传了几段参考音频）。 */
+            bools: { platform_voice: { def: false } } },
           inputRoles: { reference_image: { max: 9, group: 'ref' }, reference_video: { max: 3, group: 'ref' },
             reference_audio: { max: 3, group: 'ref' } } },
       ],
@@ -1349,10 +1366,25 @@ const REGISTRY = {
         endpoint: 'create', idempotencyKey: true, idempotencyBody: 'idempotency_key',
         body: { endpoint: 'model', duration_seconds: 'duration', quality: 'res', aspect_ratio: 'ar' },
         nest: { params: [['prompt', 'prompt']] },
-        shapeFields: { seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 } },
+        shapeFields: {
+          seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 },
+          /* 生成质量（catalog params.steps：1–12，平台默认 6，越高越精细也越贵） */
+          steps: { kind: 'int', label: '生成质量', to: 'params', min: 1, max: 12,
+            hint: '数值越高通常更精细，耗时和费用可能增加；留空 = 平台默认 6' },
+          /* 只在 h3_ref2v 上画（only.when.model）：配音原话跟着 create.voiceDub 折算成
+             voice_texts，其它型号收了这字段没意义。 */
+          voice_text: { kind: 'string', label: '声音原话', to: 'params',
+            only: { when: { model: 'h3_ref2v' }, why: '只有 H3 参考图生视频（配音）用得上' },
+            hint: '知道这段声音里念的原话就填上，配音更像；用平台设计的音色卡可留空' },
+        },
         /* 工作台槽位次序是 图/视频/音频/首帧/尾帧，但 H3 的 input_uris 按 图→视频→音频 编号，
            首尾帧归到图片那一类 —— 声明种类序，createBody 据此稳定重排。 */
         inputOrder: ['reference_image', 'first_frame', 'last_frame', 'reference_video', 'reference_audio'],
+        /* 平台配音折算：开关（h3_ref2v 的 options.bools）与「声音原话」这两个界面字段
+           不按泛型落位发（发 true / 裸字符串平台都不认）——createBody 按 create.voiceDub
+           折算成 params.voice_audio:[1..N] 与 params.voice_texts:{"1":原话}。 */
+        voiceDub: { toggle: 'platform_voice', target: 'voice_audio', role: 'reference_audio',
+          to: 'params', text: 'voice_text', textsTarget: 'voice_texts' },
         inputTemplates: {
           reference_image: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
           first_frame: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
@@ -1371,12 +1403,15 @@ const REGISTRY = {
          zimage/qwen/firered 是自由宽高或固定尺寸，走 sizes 声明。 */
       id: 'shizhen-image', name: '拾帧 图片', displayName: '拾帧', kind: 'image', relay: '/shizhen-image', keyId: 'shizhen',
       base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      /* 与视频同一份 catalog（见 shizhen 视频段注释）：能力归一化同形状，声明外型号不长进下拉。 */
+      modelsShape: 'shizhenCatalog', modelsGrow: false,
       pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
         body: { endpoint: 'model' }, consts: { params: { prompt: '报价预估（不创建任务）' } },
         nest: { parent: 'params' }, amountField: 'estimated_cost_cny' },
       endpoints: {
         create: '/v1/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
         quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        models: '/v1/catalog',
         list: 'local:/local-assets',
       },
       refSyntax: { picture: '<Picture {n}>' },
@@ -1429,7 +1464,23 @@ const REGISTRY = {
         endpoint: 'create', idempotencyKey: true, idempotencyBody: 'idempotency_key',
         constants: { tier: 'A' },
         body: { endpoint: 'model' }, nest: { params: [['prompt', 'prompt']] },
-        shapeFields: { seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 } },
+        /* 负面提示词 / steps / cfg 是「自由宽高」三个型号（zimage / qwen / firered）才收的
+           （catalog params 实测，h3image_* 只收 prompt/seed）—— only.when.model 数组门控。 */
+        shapeFields: {
+          seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 },
+          negative_prompt: { kind: 'string', label: '负面提示词', to: 'params',
+            only: { when: { model: ['zimage_first_frame', 'qwen_edit', 'firered_edit'] },
+              why: '只有 Z-Image / Qwen / FireRed 收负面提示词' },
+            hint: '不想让画面出现的东西写在这里' },
+          steps: { kind: 'int', label: '生成步数', to: 'params', min: 1, max: 100,
+            only: { when: { model: ['zimage_first_frame', 'qwen_edit', 'firered_edit'] },
+              why: '只有 Z-Image / Qwen / FireRed 收生成步数' },
+            hint: '留空 = 平台默认 8' },
+          cfg: { kind: 'number', label: '提示词服从度', to: 'params', min: 0, max: 30,
+            only: { when: { model: ['zimage_first_frame', 'qwen_edit', 'firered_edit'] },
+              why: '只有 Z-Image / Qwen / FireRed 收这一项' },
+            hint: '留空 = 平台默认 1' },
+        },
         sizeFields: { parent: 'params', widthField: 'width', heightField: 'height' },
         inputOrder: ['reference_image'],
         inputTemplates: {
@@ -1449,6 +1500,8 @@ const REGISTRY = {
          没声明 modes 的平台（MiMo/MiniMax）继续按 model.ttsMode 画，行为一字不变。 */
       id: 'shizhen-audio', name: '拾帧 音频', displayName: '拾帧', kind: 'audio', relay: '/shizhen-audio', keyId: 'shizhen',
       base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      /* 与视频同一份 catalog（见 shizhen 视频段注释）：能力归一化同形状，声明外型号不长进下拉。 */
+      modelsShape: 'shizhenCatalog', modelsGrow: false,
       pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
         body: { endpoint: 'model', duration_seconds: 'duration' },
         consts: { params: { prompt: '报价预估（不创建任务）' } },
@@ -1458,6 +1511,7 @@ const REGISTRY = {
       endpoints: {
         create: '/v1/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
         quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        models: '/v1/catalog',
         list: 'local:/local-assets',
       },
       models: [

@@ -116,6 +116,11 @@ const StudioView = {
         sh.innerHTML = window.aiBtnHTML({ id: 'splitBtn', label: '拆分片段生成', title: '拆成多张图的提示词' });
         R.splitBtn = sh.firstElementChild;
       }
+      const hh = R.h3Host;
+      if (hh) {
+        hh.innerHTML = window.aiBtnHTML({ id: 'h3PolishBtn', label: 'H3 规范优化', busy: '优化中…',
+          title: '按 H3 官方提示词规范改写（平台接口，不扣费）' });
+      }
     }
     /* 「拆分片段生成」那一排选项（张数 / 拆分维度 / 自定义 + 两颗按钮）由公共层 SplitPlan 画 ——
        导演台右栏的「画面切片规划」用的是同一一份（同一副形状、同一句「张数：…／拆分维度：…」）。
@@ -1125,7 +1130,10 @@ const StudioView = {
       }
       function topBoolCtx() {
         const cb = comboNow();
-        return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps() };
+        /* `model` 给 `only.when.model` 判（拾帧的「声音原话」只挂在 h3_ref2v 上）——
+           画与读同一份上下文，提交体（createBody 的 sctx）也带同一个值。 */
+        return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shapeCaps(),
+          model: (currentModel().model && currentModel().model.id) || '' };
       }
       function topBoolNow(d) {
         return window.AdvExtras.topBoolStateOf(d, topBoolCtx());
@@ -1835,6 +1843,40 @@ const StudioView = {
           });
         } catch (e) { InlinePolish.clear(host); setStatus('<span class="err">润色失败：' + e.message + '</span>'); }
         finally { release(); }
+      };
+
+      /* ==================== ⑧-a2 H3 规范优化（平台自带改写，声明驱动） ====================
+         拾帧的视频型号带一个不扣钱的官方改写接口（provider.promptTools.optimize 声明）：
+         按 H3 提示词规范把随手一句改写成正式稿。英文稿是要发去下单的那份（平台按它理解画面），
+         中文稿只是给人对照的 —— 面板里默认收起，点「中文稿」展开。 */
+      $('h3PolishBtn').onclick = async () => {
+        const btn = $('h3PolishBtn');
+        if (btn.disabled) return;
+        const { prov, model } = currentModel();
+        if (!window.PromptTools || !PromptTools.taskKindOf(prov, model && model.id)) return;
+        window.aiBtnState(btn, true);
+        const release = () => window.aiBtnState(btn, false);
+        const refused = t => { release(); setStatus(t); };
+        const original = $('prompt').value;
+        if (original.trim().length < 2) { refused('<span class="err">先写几个字再优化</span>'); return; }
+        try {
+          const r = await PromptTools.optimize(prov, {
+            prompt: original, model: model && model.id, duration: Number(val('dur')) || 0 });
+          InlinePolish.show($('polishInline'), {
+            title: 'H3 规范优化',
+            note: (r.skill ? r.skill + ' · ' : '') + '英文稿写进提示词，中文稿供对照',
+            after: r.en, before: original, reference: r.zh, referenceLabel: '中文稿',
+            onApply: v => {
+              const ta = $('prompt');
+              ta.value = v;
+              /* 走手打同一条链（与 AI 润色同一份写回）：草稿 / 闸门 / 估价 / 原始请求都跟着刷新 */
+              ta.dispatchEvent(new Event('input', { bubbles: true }));
+              setStatus('<span class="ok">✓ 已替换提示词</span>');
+            },
+          });
+        } catch (e) {
+          setStatus('<span class="err">优化失败：' + window.esc(window.errText(e)) + '</span>');
+        } finally { release(); }
       };
 
       /* ==================== ⑧-b 拆分片段批量生成（仅图像栏） ==================== */
@@ -3901,6 +3943,13 @@ const StudioView = {
           slots = modelSlots();
           $('splitBtn').hidden = TYPE !== 'image';
           $('toImageBtn').hidden = TYPE !== 'video';
+          /* 平台改写只在「视频 + 当前型号有 task_kind 映射」时出现（声明驱动，页面不认平台 id） */
+          {
+            const { prov, model } = currentModel();
+            const hb = $('h3PolishBtn');
+            if (hb) hb.hidden = !(TYPE === 'video' && window.PromptTools
+              && PromptTools.taskKindOf(prov, model && model.id));
+          }
           if (TYPE !== 'image') $('splitInline').hidden = true;
           renderParams();
           renderInputArea();

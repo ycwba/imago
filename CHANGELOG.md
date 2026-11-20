@@ -3,6 +3,35 @@
 版本号以 `package.json` 的 `version` 为唯一真相；本文件按批次记「改了什么 / 影响什么 / 要不要重打基线」。
 提交历史里的 C / S / F / B / G 是批次代号，不是版本号。
 
+## 0.6.0 — 2026-11-21（拾帧接口全量接入：catalog / ledger / assistant / 配音 / steps）
+
+「这家没有开放的型号列表接口」那句兜底提示就此消失：拾帧文档接口表里剩下的四个能力全部按声明接入
+（`docs/实施-2026-11-21-拾帧接口全量接入-已完成.md`），对外仍只走 `endpoints.*` 声明与 relay。
+
+- **型号能力来自 `GET /v1/catalog`**：三家拾帧 provider 声明 `endpoints.models` +
+  `modelsShape:'shizhenCatalog'`（quality_tiers / duration → 档位与默认值），`modelsGrow:false`
+  让上游清单里 18 个没声明过的型号（film_assemble / krea2_* / `*_base` 变体…）不进下拉；
+  `routes/capabilities.js` 按同一判据只回声明内型号（回包 152KB → 12 行）。
+- **消费明细进用量页**：`endpoints.ledger` + `ledger` 声明块（字段读法全在声明里），
+  余额卡下新增「平台消费明细」面板——本月默认、日期范围、汇总、明细表（金额正负分色、任务号进 title）、
+  「导出 CSV」按 `&format=csv` 拿平台原文落文件。
+- **H3 规范优化进工作台**：新公共件 `web/domain/prompt-tools.js`（`promptTools.optimize` 声明驱动：
+  建单 → 按 `retry_after_seconds` 轮询 → `draft_en`/`draft_text`，幂等键进体、免费）；视频台 H3 型号
+  出「H3 规范优化」，英文稿替换提示词（走手打同一条链）、中文稿进 `InlinePolish.show` 新增的
+  可展开参照稿块（`o.title` / `o.reference`，与 AI 润色同一块面板）。
+- **h3_ref2v 平台配音**：`options.bools.platform_voice`（BOOL_ZH「平台配音」）+「声音原话」字段
+  （`only.when.model` 门控，工作台与导演台的 adv 上下文都带 model）；`create.voiceDub` 声明让
+  `createBody` 折算出 `params.voice_audio:[1..N]` 与 `params.voice_texts`，裸界面字段一律不发。
+- **catalog 披露的新参数**：h3 视频高级设置新增「生成质量」`params.steps`（1–12，平台默认 6）；
+  图片侧 zimage / qwen / firered 三个自由宽高型号补 `negative_prompt` / `steps`(1–100) / `cfg`(0–30)，
+  `whenMatches` 扩成数组任一命中（门控一处、声明驱动）。
+- 判断据：`tests/providers-validate.cjs` 补 modelsShape / modelsGrow / ledger / promptTools / voiceDub
+  合法与非法 fixture；`tests/assetlib-cache.cjs` 补 voiceDub 折算三条（真 api.js 看实际体）；
+  `tests/spa.cjs` 首屏字节登记 +1.7KB（capabilities 归一化 + 润色面板扩展，原因已写）。
+  `REGISTRY.version` 26 → 27；数据基线无变化。
+- 未做（有意）：`GET /healthz`（不在文档接口表）；catalog 里 `width/height` 自由画幅（与
+  quality × aspect_ratio 体系重叠，语义未实测）；配音真跑（花钱动作，需先确认金额）。
+
 ## 0.5.0 — 2026-11-21（后端热点优化：四个批次，技术栈不动）
 
 四个真实瓶颈逐批落地（`docs/实施-2026-11-21-Node后端热点优化-已完成.md`），对外接口 / 路由 / 数据形状一个都没变。

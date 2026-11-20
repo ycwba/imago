@@ -21,7 +21,11 @@
    行为与加这一档之前逐字相同。 */
 function whenMatches(when, ctx) {
   if (!when || typeof when !== 'object' || !ctx) return false;
-  return Object.entries(when).every(([k, v]) => String(ctx[k] || '') === String(v));
+  return Object.entries(when).every(([k, v]) => {
+    const got = String(ctx[k] == null ? '' : ctx[k]);
+    /* 数组 = 「这几个值里任一命中」（拾帧的 steps / 负面提示词挂在三个自由宽高型号上） */
+    return Array.isArray(v) ? v.map(String).includes(got) : got === String(v);
+  });
 }
 /* 「这一次的形状能不能用某个**逐行能力**」不在 {mode, intent} 里，而在上游能力清单的**每一行**里：
    VGENV 的 /v3/models 把 turbo 与 2x 超分写在 (tier × 这一批素材组合) 上（同一 chip 的八种素材组合里，
@@ -309,6 +313,34 @@ const NORM_SHAPES = {
     let maxRef = 0;
     spec.forEach(sp => { if (sp.role === 'reference_image') maxRef = Math.max(maxRef, sp.max); });
     if (maxRef) cap.max_ref_images = maxRef;
+    return cap;
+  },
+
+  /* 拾帧 GET /v1/catalog：一行一个型号 = { id, kind, params[], duration, quality_tiers, pricing, … }。
+     画幅与时长档从 quality_tiers / duration 现读（平台改档位刷新就能跟上）；
+     其余（尺寸预设、输入槽、shapeFields 边界）本地声明比 catalog 更细，不动。
+     默认值以声明那一份打底再盖 catalog 的 —— 合并是整键替换，
+     只发 {res, ar} 会把声明里的 duration 默认值整块弄丢。 */
+  shizhenCatalog(m, prov) {
+    const qt = (m && m.quality_tiers) || null;
+    const du = (m && m.duration) || null;
+    const cap = {};
+    if (qt) {
+      const tiers = (Array.isArray(qt.tiers) ? qt.tiers : []).map(t => t && t.name).filter(Boolean);
+      if (tiers.length) cap.resolutions = tiers;
+      if (Array.isArray(qt.aspect_ratios) && qt.aspect_ratios.length) cap.aspect_ratios = qt.aspect_ratios.slice();
+      const defs = {};
+      if (qt.default_quality) defs.res = qt.default_quality;
+      if (qt.default_aspect_ratio) defs.ar = qt.default_aspect_ratio;
+      if (Object.keys(defs).length) {
+        const decl = ((prov && prov.models) || []).find(x => x && x.id === m.id);
+        cap.defaults = Object.assign({}, (decl && decl.options && decl.options.defaults) || {}, defs);
+      }
+    }
+    if (du && Number(du.min_seconds) > 0 && Number(du.max_seconds) > 0) {
+      /* 秒数按 UI 滑杆的整秒口径取整：0.92→1、15.08→15（向上取整会多出一档平台拒收的 16 秒）。 */
+      cap.durations = [Math.round(Number(du.min_seconds)), Math.round(Number(du.max_seconds))];
+    }
     return cap;
   },
 };
@@ -913,6 +945,9 @@ window.Capabilities = {  /* 把上游 models 结构归一化成前端用的 opti
        现在型号清单来自接口（声明退化成接口形状与必要映射），平台上新一个型号刷新就能看到。 */
     for (const [id, cap] of Object.entries(capsById || {})) {
       if ((prov.models || []).some(m => m.id === id)) continue;
+      /* `modelsGrow:false`（拾帧）：上游清单里没声明过的型号一律不长 —— 下单形状没实测，
+         长进下拉只会点一次失败一次（服务端 capabilities 同判据已经只回声明内型号，这里是双保险）。 */
+      if (prov.modelsGrow === false) continue;
       if (skip(id) || hidden(id)) continue;            // 不是这一类媒体的型号（见上面 modelMedia）/ 本机已经藏起来的那一个
       prov.models = prov.models || [];
       /* 长出来的这一条要**先铺上注册表声明的那一层**（`models` 与 `modelDocs` 都算）。

@@ -1244,11 +1244,15 @@ function topBoolValue(decl, on) {
       if (f.params && typeof f.params === 'object') {
         const tops = (spec.topBools || {});
         const shps = (spec.shapeFields || {});
+        /* 平台配音（拾帧 h3_ref2v）：开关与「声音原话」两个界面字段不按泛型落位发
+           （发 true / 裸字符串平台都不认），在下面 inputEntries 之后按声明折算 ——
+           这里先把它们从泛型那一批里摘掉。 */
+        const vd = spec.voiceDub || null;
         /* 判「这一项存不存在」的上下文只有一份：形状（mode + creation_intent）+ **这一次的那一行能力**。
            `caps` 由页面按 Capabilities.shapeState 现算递进来 —— 不递的话
            声明了 `need:'caps.xxx'` 的开关会被判成「不提供」，界面已经把开关画出来了、
            提交体却把它漏掉（两边各判一半，比都不判更难查）。 */
-        const sctx = { mode: shape.mode, intent: std.creation_intent, caps: shape.caps || null };
+        const sctx = { mode: shape.mode, intent: std.creation_intent, caps: shape.caps || null, model: std.model };
         /* `mode` 是**界面上的「输入模式」名**，不是任何一个平台的请求字段（VGENV 明确说
            「未知字段会被拒绝」，而它的请求字段表里没有 mode —— 它按送上来的素材自己推断）。
            它只当声明的上下文用（见上面 f.shape），所以在这里从「原样发给上游」那一批里摘掉。
@@ -1256,6 +1260,7 @@ function topBoolValue(decl, on) {
            空串同样不发：`shapeFields` 里「不超分」「不设种子」交给界面的就是空值，
            而这一家「未知字段会被拒」——发 `upscale:""` 比不发更糟（与上面 body 映射同一口径）。 */
         const keys = Object.keys(f.params).filter(k => k !== 'mode'
+          && !(vd && (k === vd.toggle || k === vd.text))
           && f.params[k] !== undefined && f.params[k] !== null && f.params[k] !== '');
         if (keys.length) {
           const rest = [], o = {};
@@ -1333,6 +1338,23 @@ function topBoolValue(decl, on) {
           const item = { type: ti.type || 'text' };
           item.text = String(f.prompt);
           body[ti.to] = [item].concat(arr);
+        }
+        /* 平台配音折算（create.voiceDub，拾帧 h3_ref2v 的 voice_audio / voice_texts）：
+           开关开 → params.voice_audio = [1..N]（N = 这次传了几段参考音频，编号按种类各数各的）；
+           填了「声音原话」→ params.voice_texts = {"1": 原话}。没传音频时两个字段都不发 ——
+           平台对没有音频还带配音参数的单会直接拒。 */
+        const dub = spec.voiceDub;
+        if (dub) {
+          const pv = (f.params && typeof f.params === 'object') ? f.params : {};
+          const audios = (Array.isArray(f.inputEntries) ? f.inputEntries : [])
+            .filter(en => en && en.role === dub.role);
+          if (audios.length) {
+            const dest = dub.to || 'params';
+            const on = pv[dub.toggle] === true || pv[dub.toggle] === 1 || pv[dub.toggle] === '1';
+            const txt = String(pv[dub.text] == null ? '' : pv[dub.text]).trim();
+            if (on) body[dest] = { ...(body[dest] || {}), [dub.target]: audios.map((x, i) => i + 1) };
+            if (txt && dub.textsTarget) body[dest] = { ...(body[dest] || {}), [dub.textsTarget]: { '1': txt } };
+          }
         }
       }
       /* 页面显式指定 note 时才带（如导演台写镜头名），而且**只有声明了收这一项的平台才带**

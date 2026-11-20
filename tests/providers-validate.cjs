@@ -105,6 +105,27 @@ assert.equal(declBad({ balance: { style: 'field' } }).ok, false, 'balance.field 
 /* 声明了 raw 上传但端点确实在的那一条（declGood 的 baseline 已覆盖）——这里只确认没声明这些字段的普通平台照旧合法 */
 assert.equal(validateProviders([{ ...declBase, create: { body: { model: 'model' } } }]).ok, true,
   '没声明 S1 字段的普通平台一字不变');
+/* 能力清单与平台工具的新声明（catalog / ledger / assistant / 配音）：坏形状要红，合法要认。 */
+assert.equal(declBad({ modelsGrow: 'no' }).ok, false, 'modelsGrow 非布尔要红');
+assert.equal(declBad({ modelsShape: '' }).ok, false, 'modelsShape 空串要红');
+assert.equal(validateProviders([{ ...declGood, modelsShape: 'shizhenCatalog', modelsGrow: false }]).ok, true, 'modelsShape + modelsGrow 合法要认');
+assert.equal(declBad({ ledger: { dataField: 'lines' } }).ok, false, 'ledger 缺 amountField 要红');
+assert.equal(declBad({ ledger: { dataField: 'lines', amountField: 'amount_cny' } }).ok, false,
+  '声明了 ledger 但 endpoints.ledger 没写要红');
+assert.equal(validateProviders([{ ...declGood,
+  endpoints: { ...declGood.endpoints, ledger: '/v1/account/ledger' },
+  ledger: { dataField: 'lines', amountField: 'amount_cny', totals: { spent: 'spent_cny' } } }]).ok, true,
+  'ledger 合法声明要认');
+assert.equal(declBad({ promptTools: { optimize: { endpoint: 'nope' } } }).ok, false, 'promptTools 点名不存在的端点要红');
+assert.equal(declBad({ promptTools: { optimize: { endpoint: 'assistant', poll: 3 } } }).ok, false, 'promptTools.poll 非字符串要红');
+assert.equal(validateProviders([{ ...declGood,
+  endpoints: { ...declGood.endpoints, assistant: '/v1/assistant/script', assistantPoll: '/v1/assistant/script/{id}' },
+  promptTools: { optimize: { endpoint: 'assistant', poll: 'assistantPoll', taskKinds: { h3_t2v: 't2va' } } } }]).ok, true,
+  'promptTools 合法声明要认');
+assert.equal(declBad({ create: { ...declGood.create, voiceDub: { toggle: 'platform_voice' } } }).ok, false, 'voiceDub 缺 target/role 要红');
+assert.equal(validateProviders([{ ...declGood, create: { ...declGood.create,
+  voiceDub: { toggle: 'platform_voice', target: 'voice_audio', role: 'reference_audio', to: 'params', text: 'voice_text' } } }]).ok, true,
+  'voiceDub 合法声明要认');
 console.log('✓ provider 声明校验通过');
 
 /* 真实注册表也要过同一套（这张判据以前只测 fixture，

@@ -15,7 +15,8 @@
      `chunk`：modulepreload 只走静态 import 图，看不见 director/index.js 挂载时才发的那一次动态 import
      （engine.js 那一层）—— 不点名它就是三段串（needs → 页面 → 引擎）。 */
   const C = 'web/domain/capabilities.js', T = 'web/domain/text-ai.js',
-    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js';
+    P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js',
+    PT = 'web/domain/prompt-tools.js';
   /* `short`：窄形态（56px）下压在图标下面的**两字短标签**。
      窄形态里也要认得出每一项，所以短标签常驻、不靠悬停才知道这一项是什么。
      它必须和 `label` 放在同一张表里 —— 侧栏不许另抄一份（改了页面名忘了改短标签，
@@ -27,7 +28,7 @@
       needs: [C, T, P, D, S] },
     { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
       css: 'web/styles/spa-studio.css',
-      needs: [C, T, P, D, S] },
+      needs: [C, T, P, D, S, PT] },
     { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
       css: 'web/styles/spa-chars.css',
       needs: [C, T, P, D, S] },

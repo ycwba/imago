@@ -130,7 +130,15 @@ async function capFetchPayload(prov, endpoint, apiKey) {
       return { ...base, source: 'registry', models: {}, note: '上游能力接口返回 ' + r.status + '（按平台声明兜底）' };
     }
     const j = JSON.parse(r.body.toString('utf8'));
-    const list = modelRowsOf(REGISTRY, j);
+    let list = modelRowsOf(REGISTRY, j);
+    /* `modelsGrow:false`（拾帧）：上游清单里一大批没在本项目声明过的型号（film_assemble /
+       krea2_* / *_base 变体…）不回给页面 —— 它们的下单形状没实测，长进下拉只会点一次失败一次。
+       声明那 12 个照常回，能力刷新照常做。 */
+    if (prov.modelsGrow === false) {
+      const declIds = new Set([].concat(prov.models || [], prov.modelDocs || [])
+        .filter(Boolean).map(m => m && m.id).filter(Boolean));
+      list = list.filter(m => m && declIds.has(m.id));
+    }
     const models = {};
     list.forEach(m => { if (m && m.id) models[m.id] = m; });
     if (!Object.keys(models).length) {

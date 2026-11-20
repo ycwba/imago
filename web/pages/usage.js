@@ -98,6 +98,110 @@ export default {
     const fRange = ref('30');
     const fQ = ref('');
 
+    /* ---------- 平台消费明细（声明了 endpoints.ledger 的平台账单，如拾帧） ----------
+       与「账单明细」那块本机生成记录是两回事：这里读的是平台自己记的账（充值 / 扣费 / 余额）。
+       字段名只读注册表 ledger 声明，页面不认平台字段。 */
+    const ledProvs = ref([]);           // [{ kid, name, prov, decl }]
+    const ledKid = ref('');
+    const ledFrom = ref('');
+    const ledTo = ref('');
+    const ledLoading = ref(false);
+    const ledErr = ref('');
+    const ledRows = ref([]);
+    const ledTotals = ref(null);
+    const ledAt = ref('');
+
+    /* 平台账单里的日期就是 YYYY-MM-DD（平台按 Asia/Shanghai 算），本地拼本月 1 日 → 今天 */
+    const dayStr = t => {
+      const d = new Date(t);
+      return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    };
+    function buildLedgerProvs(reg, configured) {
+      const out = [], seen = new Set();
+      ((reg && reg.providers) || []).forEach(p => {
+        if (!(p.endpoints && p.endpoints.ledger)) return;
+        const kid = p.keyId || p.id;
+        if (seen.has(kid) || !configured.some(c => c.kid === kid)) return;
+        seen.add(kid);
+        out.push({ kid, name: provLabel(p), prov: p, decl: p.ledger || {} });
+      });
+      return out;
+    }
+    function ledRowDesc(r) {
+      const d = r || {};
+      return [d.type, d.model].filter(Boolean).join(' · ');
+    }
+    /* 表格直接吃的一份（按声明字段取好、金额带货币、正负分色） */
+    const ledView = computed(() => {
+      const item = (ledProvs.value || []).find(x => x.kid === ledKid.value);
+      if (!item) return [];
+      const d = item.decl || {}, cur = d.currency || '';
+      return ledRows.value.map(r => {
+        const n = Number(r[d.amountField]);
+        return {
+          time: String(r[d.timeField] || ''),
+          desc: ledRowDesc(r),
+          amt: (Number.isFinite(n) ? (n < 0 ? '' : '+') + cur + ledAmt(n) : ''),
+          neg: Number.isFinite(n) && n < 0,
+          bal: r[d.balanceField] != null ? cur + ledAmt(r[d.balanceField]) : '',
+          title: [d.jobField && r[d.jobField], d.modelField && r[d.modelField]]
+            .filter(Boolean).join(' · ') || '',
+        };
+      });
+    });
+    const ledTotalsText = computed(() => {
+      const t = ledTotals.value;
+      const item = (ledProvs.value || []).find(x => x.kid === ledKid.value);
+      const tot = (item && item.decl && item.decl.totals) || null;
+      if (!t || !tot) return '';
+      const cur = (item && item.decl && item.decl.currency) || '';
+      const parts = [];
+      if (tot.spent && t[tot.spent] != null) parts.push('支出 ' + cur + ledAmt(t[tot.spent]));
+      if (tot.added && t[tot.added] != null) parts.push('充值 ' + cur + ledAmt(t[tot.added]));
+      return parts.join(' · ');
+    });
+    const ledAmt = v => {
+      const n = Number(v);
+      return Number.isFinite(n) ? (Math.round(n * 1000) / 1000).toString() : '';
+    };
+    async function loadLedger() {
+      const item = (ledProvs.value || []).find(x => x.kid === ledKid.value) || null;
+      ledRows.value = []; ledTotals.value = null; ledErr.value = ''; ledAt.value = '';
+      if (!item) return;
+      const from = ledFrom.value.trim(), to = ledTo.value.trim();
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+        ledErr.value = '日期写成 YYYY-MM-DD 再查'; return;
+      }
+      if (from > to) { ledErr.value = '起始日期晚于结束，先改回来再查'; return; }
+      ledLoading.value = true;
+      try {
+        const d = await window.Api.request(item.prov, 'ledger', { query: 'from=' + from + '&to=' + to });
+        const rows = (d && item.decl.dataField && d[item.decl.dataField]) || (Array.isArray(d) ? d : []);
+        ledRows.value = Array.isArray(rows) ? rows : [];
+        ledTotals.value = (d && d.totals) || null;
+        ledAt.value = window.fmtHMS(Date.now());
+      } catch (e) {
+        ledErr.value = window.errText(e, '读取失败');
+      } finally { ledLoading.value = false; }
+    }
+    function onLedKidChange(e) { ledKid.value = e.target.value; loadLedger(); }
+    function onLedFrom(e) { ledFrom.value = e.target.value; }
+    function onLedTo(e) { ledTo.value = e.target.value; }
+    /* 平台自己的表格导出（&format=csv）：拿原文落一个文件，不按本地行重拼 */
+    async function exportLedger() {
+      const item = (ledProvs.value || []).find(x => x.kid === ledKid.value) || null;
+      if (!item || ledErr.value) return;
+      try {
+        const r = await window.Net.fetch(window.Api.url(item.prov, 'ledger')
+          + '?from=' + ledFrom.value + '&to=' + ledTo.value + '&format=csv', { timeout: 20000 });
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        const text = await r.text();
+        const blob = new Blob(['\ufeff' + text], { type: 'text/csv;charset=utf-8' });
+        window.Net.save(blob, item.name + '消费明细-' + ledFrom.value + '_' + ledTo.value + '.csv');
+        window.Toast.receipt('已导出平台消费明细');
+      } catch (e) { window.Toast.warn('导出失败：' + window.errText(e, '读取失败')); }
+    }
+
     let REG = null;
     let envStatus = null;               // /env-status 的结果：null = 读不到（代理没起来）
     let chartUnit = 'all';              // all | 积分 | 元
@@ -509,6 +613,16 @@ export default {
         if (!mine()) return;
         const configured = await loadConfigured(REG);
         if (!mine()) return;
+        /* 平台消费明细：先认哪家声明了 ledger（当前只有拾帧），默认查本月；
+           第一次进页拉一轮，之后改日期 / 换平台由面板自己的按钮触发 */
+        ledProvs.value = buildLedgerProvs(REG, configured);
+        if (ledProvs.value.length && !ledKid.value) {
+          ledKid.value = ledProvs.value[0].kid;
+          const now = new Date();
+          if (!ledFrom.value) ledFrom.value = dayStr(new Date(now.getFullYear(), now.getMonth(), 1).getTime());
+          if (!ledTo.value) ledTo.value = dayStr(Date.now());
+          loadLedger();
+        }
         await loadBalances(REG, configured);
         if (!mine()) return;
         const b = await loadBills();
@@ -597,6 +711,8 @@ export default {
       billLoading, billDownHtml, billNoteHtml, billCntText, billRows,
       platformOptions, fPlatform, fRange, fQ,
       reloadAll, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
+      ledProvs, ledKid, ledFrom, ledTo, ledLoading, ledErr, ledView, ledTotalsText, ledAt,
+      loadLedger, onLedKidChange, onLedFrom, onLedTo, exportLedger,
       fmtWhen: window.fmtWhen, refreshIcon,
     };
   },

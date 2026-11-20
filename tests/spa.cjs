@@ -422,8 +422,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        异步分支、wayWhy 的分句配音就绪；`web/pages/studio.js` 的 tts.modes 模式驱动（背景音乐 / 分句配音
        两种新档位、字段快照、台词表按行拆、音色卡上传）。异步通道与同步合成共用 AiGen.synthTts 一份入口、
        三型字段组装与预览共用同一份，语音那一栏是全站唯一实现，没有按需拆载的落点。
-       实跑 30 枚 / 911555 字节（登记上限 913000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 913000;
+       实跑 30 枚 / 911555 字节（登记上限 913000）。
+     ·  +1.7KB（2026-11-21，拾帧接口全量接入）：`web/domain/capabilities.js` 长出
+       shizhenCatalog 归一化（catalog → 档位）与 modelsGrow 生长闸；`web/ui/forms.js` 的
+       InlinePolish.show 面板标题与参照稿块（平台改写工具的对照稿同一块面板，不开第二个面板族）；
+       `web/styles/ui.css` 的 .pinl-ref 两行样式。都是常驻公共层的面（能力归一化没有第二份，
+       润色面板全站一份），没有按需拆载的落点。
+       实跑 30 枚 / 913140 字节（登记上限 915000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 915000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

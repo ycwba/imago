@@ -361,7 +361,7 @@ async function submitCandidate(sh, ph) {
              它只当声明里 when / hide 的上下文走 `shape` 递进 createBody，永远不进请求体。
              以前这一路根本不带 intent：换了「视频换人」档，提交体发出的还是普通生成。 */
           creation_intent: ctxAdv.intent,
-          shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps }, params: ex.params,
+          shape: { mode: ctxAdv.mode, intent: ctxAdv.intent, caps: ctxAdv.caps, model: modelId }, params: ex.params,
         }) });
       /* 三种「上游说没成」的形状都要认（`Api.request` 返回的是上游原始响应体）：
          `{error:{message}}`（SparkCine 那一族与照它克隆的中转）、

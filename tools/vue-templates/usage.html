@@ -34,6 +34,34 @@
             </div>
           </div>
 
+          <div class="panel" v-if="ledProvs.length">
+            <h2>平台消费明细</h2>
+            <div class="filters">
+              <div class="ddwrap"><select aria-label="平台" v-model="ledKid" @change="onLedKidChange">
+                <option v-for="p in ledProvs" :key="p.kid" :value="p.kid">{{ p.name }}</option>
+              </select></div>
+              <input class="ui-inp" type="date" aria-label="起始日期" :value="ledFrom" @change="onLedFrom">
+              <input class="ui-inp" type="date" aria-label="结束日期" :value="ledTo" @change="onLedTo">
+              <button class="ghost" @click="loadLedger" :disabled="ledLoading">查询</button>
+              <button class="ghost" @click="exportLedger" :disabled="ledLoading || !ledView.length"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
+            </div>
+            <div class="upd" style="margin-bottom:var(--sp-8)">{{ ledAt ? '更新于 ' + ledAt : '' }}{{ ledTotalsText ? (ledAt ? ' · ' : '') + ledTotalsText : '' }}</div>
+            <div v-if="ledErr" class="empty">{{ ledErr }}</div>
+            <div v-else-if="ledLoading" class="empty">加载中…</div>
+            <div v-else-if="!ledView.length" class="empty">这段时间没有消费记录</div>
+            <table v-else>
+              <thead><tr><th>时间</th><th class="w">明细</th><th class="num">金额</th><th class="num">余额</th></tr></thead>
+              <tbody>
+                <tr v-for="(r, i) in ledView" :key="i" :title="r.title">
+                  <td class="t">{{ r.time || '—' }}</td>
+                  <td class="w">{{ r.desc || '—' }}</td>
+                  <td class="num" :style="r.neg ? '' : 'color:var(--ok)'">{{ r.amt }}</td>
+                  <td class="num">{{ r.bal || '—' }}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <div class="panel">
             <h2>近 14 天消费</h2>
             <div class="chart-units" ref="chartUnitsEl"></div>

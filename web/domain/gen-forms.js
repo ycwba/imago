@@ -900,7 +900,8 @@ window.AdvParams = {
 window.AdvExtras = {
   /* 中文名表只在这里有一份（画在「开/关」那一排的标签上）。平台没给中文名时原样显示字段名，
      而不是让页面自己编一个 —— 编出来的名字与平台文档对不上，用户去查接口时找不到这一项。 */
-  BOOL_ZH: { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频', mute_reference_video: '静音参考视频' },
+  BOOL_ZH: { generate_audio: '生成音频', sound: '生成音频', with_audio: '生成音频',
+    mute_reference_video: '静音参考视频', platform_voice: '平台配音' },
   boolDecls(model) {
     return ((model && model.options && model.options.bools) || {});
   },

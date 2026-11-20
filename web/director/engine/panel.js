@@ -384,8 +384,11 @@ function shotShapeCaps(sh) {
 function shotAdvCtx(sh) {
   const cb = shotCombo(sh);
   /* `mode` 不是提交字段（平台按素材自己推断），它只用来判声明里的 when / hide；
-     `intent`（creation_intent）才是真字段。两个都只当上下文递进去，页面不许自己比字符串。 */
-  return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shotShapeCaps(sh) };
+     `intent`（creation_intent）才是真字段。两个都只当上下文递进去，页面不许自己比字符串。
+     `model` 给 `only.when.model` 判（拾帧的「声音原话」只挂在 h3_ref2v 上）。 */
+  const rm = resolvedModel(sh) || null;
+  return { mode: (cb && cb.mode) || '', intent: (cb && cb.intent) || '', caps: shotShapeCaps(sh),
+    model: (rm && rm.id) || '' };
 }
 /* 画那三排（整块随编辑器重绘，所以不需要工作台那套指纹守卫）。
    `forceDef` = 换型号的那一次：型号布尔那一排按**新声明**的默认值重画，用户点过的照样保住。 */

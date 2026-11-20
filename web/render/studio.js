@@ -53,10 +53,14 @@ class: "prompt-hint",
 hidden: ""
 }),
 _createElementVNode("div", { class: "btn-row" }, [
-_createCommentVNode(" 两颗 AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                     模板里只留两块空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
+_createCommentVNode(" AI 按钮的外观与那一行字都来自公共层（InlinePolish.btnHTML / window.aiBtnHTML）：\n                     模板里只留空宿主，页面挂载时灌进去 —— 这一页不写第二份「AI 润色」。 "),
 _createElementVNode("span", {
 class: "btn-host",
 "data-r": "polishHost"
+}),
+_createElementVNode("span", {
+class: "btn-host",
+"data-r": "h3Host"
 }),
 _createElementVNode("span", {
 class: "btn-host",
