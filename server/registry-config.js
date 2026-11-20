@@ -177,7 +177,7 @@ const REGISTRY = {
      不再并进文字那一条。`interfaceShapes` 补 asr / search 两组。旧条目的 `extras[]`
      与文字档上的 `asr` / `search` 子对象仍按只读兼容搬成独立 caps。PROXY_VERSION_MIN 一起升到 25。
      改注册表结构时顺手 +1。 */
-  version: 25,
+  version: 26,
   /* 「产物在本机只存资产号、要按资产号再换一次上游签名地址」的那一家是谁，只有这一处。
        provider    用哪一个内置供应商的 base / keyEnv（/asset/<id> 只问它换地址）
        retrieve    换地址的端点，`{id}` 是资产号占位
@@ -1279,6 +1279,233 @@ const REGISTRY = {
             durations: [5, 10], bools: { with_audio: { def: false } },
             defaults: { tier: 'speed', size: '1920x1080', duration: 5 } } },
       ],
+    },
+    {
+      /* ---- 拾帧 视频（shizhenvideo.com，H3 四型号）----
+         与图片 / 音频共用一把密钥（keyId:'shizhen'、同一个 SHIZHEN_API_KEY），三段独立 relay
+         前缀（等价声明不能共用前缀，见 providers/validate.js 的 relayEquivalent）。
+         接口形状与别家都不同，靠声明表达：视频下单 /web-api/jobs（顶层 duration_seconds/quality/
+         aspect_ratio + params），幂等键在**请求体** idempotency_key（不是头），素材先 /v1/uploads
+         原始字节上传拿 dpupload:// uri 再进 input_uris，取结果是 /v1/jobs/{id}/result 的 pickup_url。
+         平台没有任务列表接口（GET /v1/jobs 是 unknown_endpoint）→ list 指本地资产库，产物完成那一刻
+         由 parseItem 排进 AssetLocal，历史就在资产库/收藏/工作台里。 */
+      id: 'shizhen', name: '拾帧 视频', displayName: '拾帧', kind: 'video', relay: '/shizhen', keyId: 'shizhen',
+      base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST',
+        body: { endpoint: 'model', duration_seconds: 'duration', quality: 'res', aspect_ratio: 'ar' },
+        consts: { params: { prompt: '报价预估（不创建任务）' } },
+        amountField: 'estimated_cost_cny' },
+      endpoints: {
+        create: '/web-api/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
+        quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        list: 'local:/local-assets',
+      },
+      /* H3 正文用 <Picture N>/<Video N>/<Audio N> 指 input_uris 的第 N 项；界面把 @参考N 换成它。 */
+      refSyntax: { picture: '<Picture {n}>', video: '<Video {n}>', audio: '<Audio {n}>' },
+      models: [
+        { id: 'h3_t2v', name: 'H3 文生视频', modes: ['text_to_video'],
+          options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
+            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 } },
+          inputRoles: { reference_audio: { max: 1, group: 'ref' } } },
+        { id: 'h3_i2v', name: 'H3 图生视频', modes: ['text_to_video', 'reference_images'],
+          options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
+            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 } },
+          inputRoles: { reference_image: { max: 1, group: 'frame' }, reference_audio: { max: 1, group: 'ref' } } },
+        { id: 'h3_flf2v', name: 'H3 首尾帧生视频', modes: ['first_last_frame'],
+          options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
+            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 } },
+          inputRoles: { first_frame: { max: 1, group: 'frame' }, last_frame: { max: 1, group: 'frame' },
+            reference_audio: { max: 1, group: 'ref' } } },
+        { id: 'h3_ref2v', name: 'H3 参考图/视频生视频', modes: ['reference_images', 'reference_video'],
+          options: { resolutions: ['480p', '720p', '1080p'], aspect_ratios: ['16:9', '9:16', '4:3', '3:4', '1:1'],
+            durations: [1, 15], defaults: { res: '720p', ar: '9:16', duration: 5 } },
+          inputRoles: { reference_image: { max: 9, group: 'ref' }, reference_video: { max: 3, group: 'ref' },
+            reference_audio: { max: 3, group: 'ref' } } },
+      ],
+      /* 文件类型 / 单文件体积上限（平台允许到 128MB/个，留到 roleRules 里给界面文案与上传前校验）。 */
+      roleRules: {
+        reference_image: { accept: 'image/png,image/jpeg,image/webp', maxBytes: 32 * 1024 * 1024 },
+        first_frame: { accept: 'image/png,image/jpeg,image/webp', maxBytes: 32 * 1024 * 1024 },
+        last_frame: { accept: 'image/png,image/jpeg,image/webp', maxBytes: 32 * 1024 * 1024 },
+        reference_video: { accept: 'video/mp4,video/webm,video/quicktime', maxBytes: 128 * 1024 * 1024 },
+        reference_audio: { accept: 'audio/mpeg,audio/wav,audio/mp3,audio/m4a', maxBytes: 32 * 1024 * 1024 },
+      },
+      list: {
+        dataField: 'data',
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+          created: 'created_at', completed: 'completed_at', error: 'error.message',
+          priceMicros: 'priceMicros', currency: 'currency' },
+        statusMap: { succeeded: 'done' },
+        selfAsset: true,
+        media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '视频' },
+        priceStyle: 'none',
+      },
+      retrieve: { idFrom: 'job_id', urlFrom: 'pickup_url', taskFallback: true },
+      balance: { style: 'field', field: 'balance_cny' },
+      create: {
+        endpoint: 'create', idempotencyKey: true, idempotencyBody: 'idempotency_key',
+        body: { endpoint: 'model', duration_seconds: 'duration', quality: 'res', aspect_ratio: 'ar' },
+        nest: { params: [['prompt', 'prompt']] },
+        shapeFields: { seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 } },
+        /* 工作台槽位次序是 图/视频/音频/首帧/尾帧，但 H3 的 input_uris 按 图→视频→音频 编号，
+           首尾帧归到图片那一类 —— 声明种类序，createBody 据此稳定重排。 */
+        inputOrder: ['reference_image', 'first_frame', 'last_frame', 'reference_video', 'reference_audio'],
+        inputTemplates: {
+          reference_image: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+          first_frame: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+          last_frame: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+          reference_video: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+          reference_audio: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+        },
+        upload: { style: 'raw', filenameHeader: 'X-Daipao-Filename', uriFrom: 'uri' },
+      },
+    },
+    {
+      /* ---- 拾帧 图片（同一把密钥，/v1/jobs + tier:'A'）----
+         与视频不同：下单 /v1/jobs、时长在 params.duration_seconds（顶层 duration_seconds 会 422，
+         图片本就没时长）；幂等键同样在体里；h3image_* 的尺寸是 2K/4K × 比例 → 像素预设，
+         由 create.sizeFields 把 Api.sizePreset 算出的 width/height 落进 params；
+         zimage/qwen/firered 是自由宽高或固定尺寸，走 sizes 声明。 */
+      id: 'shizhen-image', name: '拾帧 图片', displayName: '拾帧', kind: 'image', relay: '/shizhen-image', keyId: 'shizhen',
+      base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
+        body: { endpoint: 'model' }, consts: { params: { prompt: '报价预估（不创建任务）' } },
+        nest: { parent: 'params' }, amountField: 'estimated_cost_cny' },
+      endpoints: {
+        create: '/v1/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
+        quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        list: 'local:/local-assets',
+      },
+      refSyntax: { picture: '<Picture {n}>' },
+      models: [
+        { id: 'zimage_first_frame', name: 'Z-Image 文生图', modes: ['text_to_image'],
+          options: { sizes: ['1024x1024', '1024x1536', '1536x1024', '832x1216', '1216x832'],
+            defaults: { size: '1024x1536' } } },
+        { id: 'h3image_t2i', name: 'H3 文生图', modes: ['text_to_image'],
+          options: { tiers: ['2K', '4K'], aspect_ratios: ['9:16', '16:9', '1:1', '3:4', '4:3'],
+            defaults: { tier: '2K', ar: '9:16' },
+            /* 档(tier) × 比例(ar) → 像素（catalog 实测），Api.sizePreset 按这份换算。
+               registry 自己的字段名 ar / tier，与平台响应里的 aspect_ratio 对齐在此完成。 */
+            sizePresets: [
+              { tier: '2K', ar: '9:16', width: 1536, height: 2720 }, { tier: '2K', ar: '16:9', width: 2720, height: 1536 },
+              { tier: '2K', ar: '1:1', width: 2048, height: 2048 }, { tier: '2K', ar: '3:4', width: 1760, height: 2368 },
+              { tier: '2K', ar: '4:3', width: 2368, height: 1760 }, { tier: '4K', ar: '9:16', width: 3072, height: 5440 },
+              { tier: '4K', ar: '16:9', width: 5440, height: 3072 }, { tier: '4K', ar: '1:1', width: 4096, height: 4096 },
+              { tier: '4K', ar: '3:4', width: 3520, height: 4736 }, { tier: '4K', ar: '4:3', width: 4736, height: 3520 },
+            ] } },
+        { id: 'h3image_edit', name: 'H3 图片编辑', modes: ['image_edit'],
+          options: { tiers: ['2K', '4K'], aspect_ratios: ['9:16', '16:9', '1:1', '3:4', '4:3'],
+            defaults: { tier: '2K', ar: '9:16' },
+            sizePresets: [
+              { tier: '2K', ar: '9:16', width: 1536, height: 2720 }, { tier: '2K', ar: '16:9', width: 2720, height: 1536 },
+              { tier: '2K', ar: '1:1', width: 2048, height: 2048 }, { tier: '2K', ar: '3:4', width: 1760, height: 2368 },
+              { tier: '2K', ar: '4:3', width: 2368, height: 1760 }, { tier: '4K', ar: '9:16', width: 3072, height: 5440 },
+              { tier: '4K', ar: '16:9', width: 5440, height: 3072 }, { tier: '4K', ar: '1:1', width: 4096, height: 4096 },
+              { tier: '4K', ar: '3:4', width: 3520, height: 4736 }, { tier: '4K', ar: '4:3', width: 4736, height: 3520 },
+            ] },
+          inputRoles: { reference_image: { max: 16, group: 'ref' } } },
+        { id: 'qwen_edit', name: 'Qwen 图片编辑', modes: ['image_edit'],
+          options: { defaults: {} }, inputRoles: { reference_image: { max: 3, group: 'ref' } } },
+        { id: 'firered_edit', name: 'FireRed 图片编辑', modes: ['image_edit'],
+          options: { defaults: {} }, inputRoles: { reference_image: { max: 3, group: 'ref' } } },
+      ],
+      roleRules: {
+        reference_image: { accept: 'image/png,image/jpeg,image/webp', maxBytes: 32 * 1024 * 1024 },
+      },
+      list: {
+        dataField: 'data',
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+          created: 'created_at', completed: 'completed_at', error: 'error.message' },
+        statusMap: { succeeded: 'done' }, selfAsset: true,
+        media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '图片' },
+        priceStyle: 'none',
+      },
+      retrieve: { idFrom: 'job_id', urlFrom: 'pickup_url', taskFallback: true },
+      balance: { style: 'field', field: 'balance_cny' },
+      create: {
+        endpoint: 'create', idempotencyKey: true, idempotencyBody: 'idempotency_key',
+        constants: { tier: 'A' },
+        body: { endpoint: 'model' }, nest: { params: [['prompt', 'prompt']] },
+        shapeFields: { seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 } },
+        sizeFields: { parent: 'params', widthField: 'width', heightField: 'height' },
+        inputOrder: ['reference_image'],
+        inputTemplates: {
+          reference_image: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+        },
+        upload: { style: 'raw', filenameHeader: 'X-Daipao-Filename', uriFrom: 'uri' },
+      },
+    },
+    {
+      /* ---- 拾帧 音频（同一把密钥，/v1/jobs + tier:'A'）----
+         三型号都是**异步**（建单→轮询→/result 的 pickup_url→存本机），所以 tts.async:true，
+         走 AiGen.synthTts 的异步分支（返回值与同步那条同形，页面不用分叉）。
+         三种「音频方式」由 tts.modes 声明驱动，不写死平台 id：
+           design   声音设计：style（声音描述）→ params.prompt，text（试音台词）→ params.text
+           bgm      背景音乐：提示词 → params.prompt，歌词 lyrics，时长 duration_seconds
+           dialogue 分句配音：正文按行拆成台词表 → params.prompt，时长 + 1–9 段参考音频（音色卡）
+         没声明 modes 的平台（MiMo/MiniMax）继续按 model.ttsMode 画，行为一字不变。 */
+      id: 'shizhen-audio', name: '拾帧 音频', displayName: '拾帧', kind: 'audio', relay: '/shizhen-audio', keyId: 'shizhen',
+      base: 'https://shizhenvideo.com', keyEnv: 'SHIZHEN_API_KEY', site: 'https://shizhenvideo.com',
+      pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
+        body: { endpoint: 'model', duration_seconds: 'duration' },
+        consts: { params: { prompt: '报价预估（不创建任务）' } },
+        nest: { parent: 'params' }, amountField: 'estimated_cost_cny' },
+      endpoints: {
+        create: '/v1/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
+        quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
+        list: 'local:/local-assets',
+      },
+      models: [
+        { id: 'acestep_bgm', name: 'ACE 背景音乐', modes: ['text_to_speech'], ttsMode: 'bgm',
+          options: { defaults: {} } },
+        { id: 'tts_voice_design', name: '角色声音设计', modes: ['text_to_speech', 'voice_design'], ttsMode: 'design',
+          options: { defaults: {}, languages: ['Chinese', 'English', 'Japanese'] } },
+        { id: 'tts_dialogue', name: '台词配音', modes: ['text_to_speech'], ttsMode: 'dialogue',
+          options: { defaults: {}, languages: ['Chinese', 'English', 'Japanese'] },
+          inputRoles: { reference_audio: { max: 9, group: 'voice' } } },
+      ],
+      roleRules: {
+        reference_audio: { accept: 'audio/mpeg,audio/wav,audio/mp3,audio/m4a', maxBytes: 32 * 1024 * 1024 },
+      },
+      tts: {
+        async: true,
+        formats: ['wav'],
+        /* 三种模式各自要哪些字段。页面按 fields 画控件、按 need 判就绪；
+           synthTts 按同一份把字段映射进 params（见 gen-forms 的 synthTtsAsync）。 */
+        modes: [
+          { id: 'design', label: '声音设计', fields: ['style', 'text'] },
+          { id: 'bgm', label: '背景音乐', fields: ['text', 'lyrics', 'duration'] },
+          { id: 'dialogue', label: '分句配音', fields: ['script', 'voiceCards', 'duration'] },
+        ],
+        maxChars: 5000,
+        mime: { wav: 'audio/wav' },
+      },
+      list: {
+        dataField: 'data',
+        map: { id: 'id', status: 'status', prompt: 'prompt', model: 'model',
+          created: 'created_at', completed: 'completed_at', error: 'error.message' },
+        statusMap: { succeeded: 'done' }, selfAsset: true,
+        media: { by: 'media_type', videoPrefix: ['视频', 'video'], imagePrefix: ['图片', 'image'], fallback: '音频' },
+        priceStyle: 'none',
+      },
+      retrieve: { idFrom: 'job_id', urlFrom: 'pickup_url', taskFallback: true },
+      balance: { style: 'field', field: 'balance_cny' },
+      create: {
+        endpoint: 'create', idempotencyKey: true, idempotencyBody: 'idempotency_key',
+        constants: { tier: 'A' },
+        body: { endpoint: 'model' },
+        /* 每种模式发的字段不一样，但都进 params（页面按 mode 只给这一档有的字段）。
+           design: prompt(声音描述)/text(台词)/language；bgm: prompt/lyrics/duration_seconds；
+           dialogue: prompt(台词表)/duration_seconds/language。空值整项省略。 */
+        nest: { params: [['prompt', 'prompt'], ['text', 'text'], ['lyrics', 'lyrics'],
+          ['duration_seconds', 'duration_seconds'], ['language', 'language'], ['seed', 'seed']] },
+        shapeFields: { seed: { kind: 'int', label: '随机种子', to: 'params', min: 0, max: 4294967295 } },
+        inputOrder: ['reference_audio'],
+        inputTemplates: {
+          reference_audio: { to: 'input_uris', many: true, tmpl: '$assetId', needsUpload: true },
+        },
+        upload: { style: 'raw', filenameHeader: 'X-Daipao-Filename', uriFrom: 'uri' },
+      },
     },
   ],
 };

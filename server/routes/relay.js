@@ -73,6 +73,13 @@ function createRelayRoutes(ctx) {
       const isList = req.method === 'GET' && listPath && pathAndQuery.split('?')[0] === listPath;
       /* 创建任务：平台可能排队很久才回响应，给它更长的空闲超时（默认 60s 太短，会导致"其实建好了但页面看到失败"） */
       const isCreatePost = req.method === 'POST' && createPath && pathAndQuery.split('?')[0] === createPath;
+      /* 原始字节上传（create.upload.style='raw'，拾帧的 /v1/uploads）：整份文件就是请求体，
+         平台允许单个 128MB。默认 readBody 上限 64MB 会把大素材挡在转发之前，所以只对这一条
+         路径放开到 132MB（128MB + 余量）—— 判据读声明 + 端点路径，不按 relay 名写死。 */
+      const uploadsPath = relayHit.endpoints && relayHit.endpoints.uploads ? String(relayHit.endpoints.uploads) : '';
+      const isRawUpload = req.method === 'POST' && uploadsPath && pathAndQuery.split('?')[0] === uploadsPath
+        && !!(relayHit.create && relayHit.create.upload && relayHit.create.upload.style === 'raw');
+      const readLimit = isRawUpload ? 132 * 1024 * 1024 : undefined;
       /* 单条任务详情（路径里带任务号）：已完成的详情不会再变，短缓存一下，
          卡片/详情反复打开就不用每次回源；进行中的任务不缓存，状态照常实时刷新。 */
       const isTaskDetail = req.method === 'GET'
@@ -114,7 +121,7 @@ function createRelayRoutes(ctx) {
       /* 溢出之后转流式：等着的那些请求也一起边收边写，不再把整段攒在内存里 */
       const waitersOf = () => (inflightMap ? (inflightMap.get(cacheKey) || []) : []);
       const dropInflight = () => { if (inflightMap) inflightMap.delete(cacheKey); };
-      readBody(req, res).then(body => {
+      readBody(req, res, readLimit).then(body => {
         if (body == null) { flushInflight(w => failUpstream(w, '请求体读取失败', '上游')); return; }   // 超过上限已回 413
         const fwd = { ...req.headers };
         /* transfer-encoding 必须剥掉：下面强制带上 content-length（上游大多要求），

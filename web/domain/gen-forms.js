@@ -392,6 +392,19 @@ window.AiGen = {
      整段塞进 DOM 会把页面拖死（`Api.snapOf` 也会把它压成摘要 —— 这里先压一次）。 */
   previewTts(prov, o) {
     const tts = (prov && prov.tts) || {};
+    /* 异步音频（拾帧那一族）：预览必须走与 synthTtsAsync 同一批字段，
+       否则「原始请求」显示的是同步模板那条、实发却是 create.body 拼的另一条 ——
+       这个功能唯一的价值（所见即所发）就没了。素材槽用占位说明，不触发上传。 */
+    if (tts.async === true) {
+      return Api.preview(prov, (prov && prov.create && prov.create.endpoint) || 'create', {
+        model: o.model,
+        prompt: o.prompt != null ? o.prompt : (o.mode === 'design' ? (o.style || '') : (o.text || '')),
+        text: o.text || '', style: o.style || '', lyrics: o.lyrics || '',
+        duration: o.duration != null ? o.duration : (o.duration_seconds != null ? o.duration_seconds : ''),
+        language: o.language || '', seed: o.seed != null ? o.seed : '',
+        inputEntries: (o.inputEntries || []).map(en => ({ ...en, placeholder: '（发送时上传的素材）', assetId: '' })),
+      });
+    }
     const clone = o && o.refAudioB64 ? Object.assign({}, o, { refAudioB64: '<参考音频（发送时才上传）>' }) : o;
     const fields = {
       model: clone.model, text: clone.text, style: clone.style || '', voice: clone.voice || '',
@@ -403,6 +416,9 @@ window.AiGen = {
   },
   async synthTts(prov, o) {
     const tts = (prov && prov.tts) || {};
+    /* 异步音频（拾帧那一族，tts.async:true）：建单 → 轮询 → pickup_url → 下载 → 存本机。
+       返回值与下面同步那条同形（assetId/url/format/bytes/usage），页面 synthAudio 不分叉。 */
+    if (tts.async === true) return this.synthTtsAsync(prov, o);
     const res = await Api.create(prov, {
       model: o.model, text: o.text, style: o.style || '', voice: o.voice || '',
       format: o.format || ((tts.formats || [])[0] || ''),
@@ -440,6 +456,91 @@ window.AiGen = {
     }
     return { assetId: saved.assetId || saved.id, url: saved.url || assetSrc(saved.assetId || saved.id),
       format: fmt, bytes: saved.bytes || 0, usage: (res && res.usage) || null };
+  },
+  /* 异步音频（tts.async:true，拾帧那一族）：建单 → 轮询到 done → pickup_url 下载 → 存本机。
+     与同步 synthTts 同入口、同返回形状，页面 synthAudio 不用分叉。
+       o = { model, mode, prompt, text, style, lyrics, duration, language, format,
+             inputEntries:[{role,assetId|url}], name, meta, bools }
+     字段进提交体的位置全由 registry 的 create.body/nest 声明决定，这里只挑「这一档有什么」。 */
+  async synthTtsAsync(prov, o) {
+    const tts = (prov && prov.tts) || {};
+    /* 按模式选字段：design 的 prompt 是声音描述（o.style 或 o.prompt）、text 是试音台词；
+       bgm 的 prompt 是提示词、lyrics 歌词、duration 秒数；dialogue 的 prompt 是台词表、duration 秒数。
+       没声明 modes 的异步平台退回把 o.prompt / o.text 都带上，让 create 声明自己挑。 */
+    const fields = {
+      model: o.model,
+      prompt: o.prompt != null ? o.prompt : (o.mode === 'design' ? (o.style || '') : (o.text || '')),
+      text: o.text || '',
+      style: o.style || '',
+      lyrics: o.lyrics || '',
+      duration: o.duration != null ? o.duration : (o.duration_seconds != null ? o.duration_seconds : ''),
+      duration_seconds: o.duration_seconds || o.duration || '',
+      language: o.language || '',
+      seed: o.seed != null ? o.seed : '',
+      log: false,                       // 归档由页面按自己的任务号做（与同步那条同口径）
+    };
+    /* 参考素材（dialogue 的音色卡）：needsUpload 的槽位先上传字节换 assetId（与视频/图片那一路
+       同一份 AssetTransfer），再交给 create.body 按 inputTemplates 拼进 input_uris。 */
+    const entries = [];
+    for (const en of (o.inputEntries || [])) {
+      const tpl = Api.inputTemplate(prov, en.role);
+      if (tpl && tpl.needsUpload) {
+        const src = en.file || en.blob || en.src || en.url;
+        if (!src) continue;
+        const aid = await window.AssetTransfer.toAsset(prov.id, src, { reg: o.reg || window.REG || undefined, role: en.role,
+          name: en.name, onStage: o.onStage });
+        if (!aid) throw new Error('音色卡上传后没拿到资产号');
+        entries.push({ role: en.role, assetId: aid });
+      } else if (en.assetId || en.url) {
+        entries.push({ role: en.role, assetId: en.assetId || '', url: en.url || '' });
+      }
+    }
+    fields.inputEntries = entries;
+    const res = await Api.create(prov, fields);
+    if (res && res.error) throw new Error((res.error && res.error.message) || res.error);
+    const created = Api.parseItem(prov, res) || {};
+    const genId = created.genId || res.job_id || res.id || res.task_id || '';
+    if (!genId) throw new Error('接口没有返回任务号（异步音频无法轮询）');
+    /* 轮询：只走 Api.pollTask 统一入口（认 registry 的 pollVia / detail 兜底，页面不自己写循环）。
+       拾帧的 retrieve 环节在 Api.pollTask 内部、只在 done 时换 pickup_url（见 api.js 的 pollTask）。 */
+    const INTERVAL = 2000, MAX_MS = 10 * 60 * 1000;
+    const deadline = Date.now() + MAX_MS;
+    let p = null;
+    for (;;) {
+      const r = await Api.pollTask(prov, genId);
+      p = (r && r.p) || null;
+      if (p && p.done) break;
+      if (p && p.failed) throw new Error(p.error || '平台报告这一条音频生成失败');
+      if (Date.now() >= deadline) throw new Error('音频生成超时（超过 10 分钟仍未完成，任务号 ' + genId + '）');
+      await new Promise(r2 => setTimeout(r2, INTERVAL));
+    }
+    /* 产物字节：pickup_url 在 p.url（retrieve 换回的 __url）。下载 → base64 → 存本机。 */
+    const url = p.url || created.url || '';
+    if (!url) throw new Error('任务完成了，但平台没给下载地址（检查 retrieve 声明）');
+    let b64 = '';
+    try {
+      const blob = await window.AssetTransfer.blobOf(url);
+      b64 = await window.AssetTransfer.toB64(blob);
+    } catch (e) { throw new Error('产物下载失败：' + errText(e)); }
+    if (!b64) throw new Error('产物下载下来是空的（地址可能已过期）');
+    const fmt = o.format || ((tts.formats || [])[0] || 'wav');
+    const mime = (tts.mime || {})[fmt] || 'audio/wav';
+    const wantName = String(o.name == null ? '' : o.name).trim();
+    const name = wantName
+      ? (fmt && !/\.[A-Za-z0-9]{1,8}$/.test(wantName) ? wantName + '.' + fmt : wantName)
+      : ('语音-' + String(o.prompt || o.text || '').replace(/\s+/g, ' ').trim().slice(0, 18) + '.' + fmt);
+    const meta = Object.assign({ prompt: o.prompt || o.text || '', model: o.model, provider: prov.id,
+      chars: String(o.prompt || o.text || '').length, genId }, o.meta || {});
+    let saved = null;
+    try {
+      saved = await Api.saveLocalAsset({ name, mime, format: fmt, data: b64, meta });
+    } catch (e) {
+      const key = keepTtsBytes({ name, mime, format: fmt, data: b64, meta });
+      throw Object.assign(new Error('平台已经合成（这一条已经扣费），但产物没能存进本机资产库：'
+        + errText(e)), { afterPaid: true, savedFailed: true, keepKey: key });
+    }
+    return { assetId: saved.assetId || saved.id, url: saved.url || assetSrc(saved.assetId || saved.id),
+      format: fmt, bytes: saved.bytes || 0, usage: p.credits != null ? { credits: p.credits } : null, genId };
   },
   /* PCM16 裸流封成 WAV（语音平台的同步产物要能直接播放/保存） */
   pcm16ToWav(b64, sampleRate) {
@@ -1091,6 +1192,8 @@ window.TtsAdv = {
     if (!way || way.mode === 'none') return (way && way.why) || '这一家没有能直接合成的型号';
     if (way.mode === 'design' && !String(d.design || '').trim()) return '「音色设计」型号要先写一段声音描述';
     if (way.mode === 'clone' && !d.ref) return '「音色复刻」型号要先选一条参考音频';
+    /* 分句配音（拾帧 tts_dialogue）：平台要 1–9 段音色卡，没选就发不出台词表。 */
+    if (way.mode === 'dialogue' && !d.ref) return '「分句配音」型号要先选一条音色卡（参考音频）';
     return '';
   },
 };

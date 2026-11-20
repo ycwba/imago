@@ -301,7 +301,7 @@ function topBoolValue(decl, on) {
   /* 跑着的 proxy.js 比这份页面代码旧 → 一次说清，别让「某个选项没出现」变成猜谜。
      （旧代理的能力声明停在老样子：例如生图的输出格式还被 forceOptions 锁成 png，
        界面就整块不显示，看着像功能坏了，其实重启一次就好了。每个标签页只提醒一次。） */
-  const PROXY_VERSION_MIN = 25;
+  const PROXY_VERSION_MIN = 26;
   /* 文案单独做成纯函数：好单测（页面里那条提示本身没什么分支，值不值得测的是这句话写没写清楚）。
       newest 的那一条排在最前面 —— 用户撞上的永远是这一版新加的那些声明没生效，
      从最老的说起等于让他先去找一个和他无关的原因。 */
@@ -981,11 +981,23 @@ function topBoolValue(decl, on) {
            没有去重保证时重试会重复建任务、重复扣费（见 ui.js 的 Net.fetch 重试策略）。 */
       const wantIdem = !((prov && prov.create && prov.create.idempotencyKey) === false);
       if (method === 'POST') {
-        if (wantIdem && !headers['Idempotency-Key'] && !headers['idempotency-key']) {
-          headers['Idempotency-Key'] = (window.crypto && crypto.randomUUID)
+        let idem = headers['Idempotency-Key'] || headers['idempotency-key'] || '';
+        if (wantIdem && !idem) {
+          idem = (window.crypto && crypto.randomUUID)
             ? crypto.randomUUID()
             : 'k-' + Date.now() + '-' + Math.random().toString(16).slice(2);
-        } else if (!wantIdem) {
+        }
+        if (wantIdem) {
+          if (!headers['Idempotency-Key'] && !headers['idempotency-key']) headers['Idempotency-Key'] = idem;
+          /* 幂等键进请求体：拾帧把键放在 body 的 idempotency_key（不是请求头）。
+             声明 create.idempotencyBody 点名这个字段时，把**同一个键**同时写进头与体 ——
+             上游按体里的键去重，头只是给 Net 层「带键 POST 可重试」那个判据看的。
+             预览走 buildBody、不经过 request，天生不带这个键（符合「预览剥掉幂等键」）。 */
+          const idemField = (prov && prov.create && prov.create.idempotencyBody) || '';
+          if (idemField && idem && opts.body && typeof opts.body === 'object' && !Array.isArray(opts.body)) {
+            opts.body[idemField] = idem;
+          }
+        } else {
           delete headers['Idempotency-Key']; delete headers['idempotency-key'];
         }
       }
@@ -1257,8 +1269,13 @@ function topBoolValue(decl, on) {
             } else if (Object.prototype.hasOwnProperty.call(shps, k)) {
               /* 顶层非布尔字段同样按声明过滤：`only.when` 不成立（动作起点发到普通生成 = 422）、
                  或 `from:'caps.xxx'` 那一行没给这个值，都一个字不发。
-                 值本身不转换 —— 页面按 kind 交过来的就是数或字符串，这里再兜一份等于第二份口径。 */
-              if (window.Capabilities.shapeFieldState(shps[k], sctx.caps, sctx).shown) body[k] = f.params[k];
+                 值本身不转换 —— 页面按 kind 交过来的就是数或字符串，这里再兜一份等于第二份口径。
+                 `to`（拾帧 seed → params）：声明了落点的写进那个嵌套对象里，没声明才落 body 顶层。 */
+              if (window.Capabilities.shapeFieldState(shps[k], sctx.caps, sctx).shown) {
+                const dest = shps[k].to;
+                if (dest) body[dest] = { ...(body[dest] || {}), [k]: f.params[k] };
+                else body[k] = f.params[k];
+              }
             } else rest.push(k);
           });
           if (rest.length) {
@@ -1275,7 +1292,16 @@ function topBoolValue(decl, on) {
       if (Array.isArray(f.inputEntries) && f.inputEntries.length) {
         const tpls = (spec.inputTemplates) || null;
         const groups = new Map();     // to → { many, tmpl, items:[] }
-        f.inputEntries.forEach(en => {
+        /* `inputOrder`：平台按素材**种类**先后编号（拾帧 input_uris：图 → 视频 → 音频），
+           而工作台槽位的自然次序是 图/视频/音频/首帧/尾帧 —— 首尾帧会排在音频之后。
+           同一落点（input_uris）的 items 顺序就是这里的遍历顺序，所以按声明的种类序重排一遍；
+           没声明就维持页面递来的原序（其它平台一字不变）。同类内部保持页面次序（稳定）。 */
+        const inputOrder = Array.isArray(spec.inputOrder) ? spec.inputOrder : null;
+        const entries = inputOrder ? f.inputEntries.slice().sort((a, b) => {
+          const ia = inputOrder.indexOf(a.role), ib = inputOrder.indexOf(b.role);
+          return (ia < 0 ? inputOrder.length : ia) - (ib < 0 ? inputOrder.length : ib);
+        }) : f.inputEntries;
+        entries.forEach(en => {
           const t = (tpls && (tpls[en.role] || tpls.__default)) || null;
           if (!t) return;
           /* **占位项**（`en.placeholder`）：发送前的预览用。
@@ -1317,6 +1343,20 @@ function topBoolValue(decl, on) {
       if (f.note && spec.acceptsNote) body.note = String(f.note).slice(0, 200);
       if (Array.isArray(f.inputs) && f.inputs.length) body.inputs = f.inputs;
       if (f.extra && typeof f.extra === 'object') Object.assign(body, f.extra);   // 平台特有的输入字段（参考图/首尾帧等）
+      /* 尺寸预设落点（create.sizeFields + model.options.sizePresets，拾帧 h3image_* 那一族）：
+         界面选的是「2K + 9:16」这样的档，平台收 width/height。查表换算只走 Api.sizePreset 一份
+         （报价那一支也调它），这里把结果写进声明点名的 parent（默认 params）；
+         没命中预设或没声明就不写 —— 自由宽高那族（zimage）用 sizes 原值，不进这一段。 */
+      const sizeFields = spec.sizeFields;
+      if (sizeFields && mdl) {
+        const px = this.sizePreset(mdl, f[sizeFields.tierFrom || 'tier'], f[sizeFields.arFrom || 'ar']);
+        if (px) {
+          const parent = sizeFields.parent || '';
+          const wf = sizeFields.widthField || 'width', hf = sizeFields.heightField || 'height';
+          if (parent) body[parent] = { ...(body[parent] || {}), [wf]: px.width, [hf]: px.height };
+          else { body[wf] = px.width; body[hf] = px.height; }
+        }
+      }
       return body;
     },
     /* 某个 role 的输入模板（registry 的 create.inputTemplates 声明）：
@@ -1325,6 +1365,18 @@ function topBoolValue(decl, on) {
       const t = (prov && prov.create && prov.create.inputTemplates) || null;
       if (!t) return null;
       return t[role] || t.__default || null;
+    },
+    /* 尺寸预设：档(tier) × 比例(ar) → 像素（拾帧 h3image_* 那一族）。
+       表声明在 model.options.sizePresets（[{tier,ar,width,height}, …]），create.sizeFields 说落点。
+       页面给用户的是「2K + 9:16」这种档位，平台收的是 width/height —— 换算只在这一处，
+       提交体（createBody）与报价（AssetLib.estimateCost 的 quote 分支）共用同一份，
+       两边各算一次迟早漂（报价按一套尺寸、下单按另一套）。找不到就返回 null，不猜像素。 */
+    sizePreset(model, tier, ar) {
+      const list = (model && model.options && model.options.sizePresets) || [];
+      if (!Array.isArray(list) || !list.length) return null;
+      const hit = list.find(x => x && String(x.tier) === String(tier) && String(x.ar) === String(ar))
+        || list.find(x => x && !x.tier && String(x.ar) === String(ar));
+      return hit && hit.width && hit.height ? { width: hit.width, height: hit.height } : null;
     },
 
     /* 请求体模板：把 {{字段}} 替换成实际值；值为空则整项省略（如没有风格描述就不发那条 message） */
@@ -1528,11 +1580,16 @@ function topBoolValue(decl, on) {
        换回来的地址写进条目的 __url，parseItem / normalize 读不到产物地址时兜底用它。
        声明了 idFrom 却没声明 endpoints.retrieve（或者平台压根没这一族）时一律返回 null，
        调用方按「没换到地址」处理，不猜字段、不按平台 id 补判据。 */
-    async retrieveItem(prov, raw) {
+    async retrieveItem(prov, raw, taskId) {
       const cfg = (prov && prov.retrieve) || null;
       if (!cfg || !raw || typeof raw !== 'object') return null;
       if (!(prov.endpoints && prov.endpoints.retrieve)) return null;
-      const fid = this.pickPath(raw, cfg.idFrom || 'file_id');
+      let fid = this.pickPath(raw, cfg.idFrom || 'file_id');
+      /* taskFallback：回包里没有任务号时用轮询的任务号（拾帧的 /result 只给 pickup_url，
+         换地址却要用 job_id —— 轮到这一条时任务号就在手上，从 pollTask 一路递下来）。 */
+      if ((fid == null || fid === '' || typeof fid === 'object') && cfg.taskFallback && taskId != null && taskId !== '') {
+        fid = taskId;
+      }
       if (fid == null || fid === '' || typeof fid === 'object') return null;
       const key = (prov.id || prov.relay || '?') + '|' + fid;
       const hit = RETRIEVED.get(key);
@@ -1544,7 +1601,12 @@ function topBoolValue(decl, on) {
       const promise = this.request(prov, 'retrieve', { id: String(fid), noCache: true })
         .then(d => {
           const u = this.pickPath(d, cfg.urlFrom || 'file.download_url');
-          if (u == null || typeof u === 'object') return null;      // 没换到 / 形状不对：如实当没有
+          if (u == null || typeof u === 'object') {
+            /* 没换到地址不缓存：拾帧排队中 /result 回 ready:false、没有 pickup_url。
+               缓存一个 null 六十秒会让「刚完成那一刻」也读这个空值，白等一轮 TTL。 */
+            RETRIEVED.delete(key);
+            return null;
+          }
           const s = String(u);
           RETRIEVED.set(key, { at: Date.now(), url: s });
           return s;
@@ -1554,13 +1616,14 @@ function topBoolValue(decl, on) {
       return promise;
     },
     /* 把一条轮询/列表响应里的文件号换成真实地址（就地写 raw.__url）。
-       已经能从 list.map 直接取到产物地址的条目不额外问一次（省一轮请求）。 */
-    async resolveItem(prov, raw) {
+       已经能从 list.map 直接取到产物地址的条目不额外问一次（省一轮请求）。
+       taskId：回包没有任务号时给 retrieveItem 兜底（见 retrieve.taskFallback）。 */
+    async resolveItem(prov, raw, taskId) {
       if (!raw || typeof raw !== 'object' || raw.__url) return raw;
       if (!(prov && prov.retrieve)) return raw;
       const mapped = this.pick(raw, ((prov.list || {}).map || {}).outputUrl);
       if (mapped) return raw;                        // 平台这次直接给了地址：不用再换
-      const url = await this.retrieveItem(prov, raw);
+      const url = await this.retrieveItem(prov, raw, taskId);
       if (url) raw.__url = url;
       return raw;
     },
@@ -1588,7 +1651,14 @@ function topBoolValue(decl, on) {
       let firstErr = null;
       if (!viaList) {
         try {
-          const raw = await this.resolveItem(prov, await this.detail(prov, id));
+          const detail = await this.detail(prov, id);
+          /* retrieve 换地址只在 done 时做：拾帧的 /result 在未完成时回 ready:false、没有 pickup_url，
+             排队中就去换只会白打一轮（且换不到）。用 classifyStatus 读状态（纯函数、无副作用）——
+             不能先 parseItem 一遍再看 done，那会让 done 那一条在换地址之前就按空地址 offer 一次下载。
+             taskId 递下去，供回包里没有任务号的平台（taskFallback）兜底。 */
+          const lspec = (prov && prov.list) || {};
+          const st = classifyStatus(lspec, this.pick(detail, ((lspec.map || {}).status) || ''));
+          const raw = st === 'done' ? await this.resolveItem(prov, detail, id) : detail;
           const p = this.parseItem(prov, raw);
           if (p && p.status) return { raw: raw, p: p };
           // 响应里没有状态字段（平台没实现详情接口）→ 落到下面的列表兜底
@@ -1694,8 +1764,9 @@ function topBoolValue(decl, on) {
             if (want.includes(id) && !found.has(id)) found.set(id, x);
           }));
         }
-        /* 走列表拿状态的这族平台，产物也可能只给文件号：统一换一次再解析 */
-        await Promise.all([...found.values()].map(r => A.resolveItem(prov, r)));
+        /* 走列表拿状态的这族平台，产物也可能只给文件号：统一换一次再解析。
+           任务号一并递下去，回包没号时（taskFallback）拿它兜底。 */
+        await Promise.all([...found.entries()].map(([id, r]) => A.resolveItem(prov, r, id)));
         want.forEach(id => { const raw = found.get(id); if (raw) out.set(id, { raw, p: A.parseItem(prov, raw) }); });
         return out;      // 没找到的就不进 Map —— 页面据此判断「列表里查不到这条任务」
       }
@@ -1740,6 +1811,16 @@ function topBoolValue(decl, on) {
     },
     balance(prov, raw) {
       const style = (prov && prov.balance && prov.balance.style) || 'micros';
+      if (style === 'field') {
+        /* GET /v1/account → { balance_cny: 27.103 }：金额直接是人民币元（不是 micros），
+           字段名与单位都由 registry 的 balance.field / balance.unit 声明，页面不按平台 id 分支。
+           `field` 支持点路径（响应嵌在 data 里时用 data.balance_cny）。 */
+        const field = (prov && prov.balance && prov.balance.field) || 'balance';
+        const v = Number(this.pickPath(raw, field));
+        const ok = Number.isFinite(v);
+        return { unit: ((prov && prov.balance && prov.balance.unit) || ''), available: ok ? v : '?', frozen: 0,
+          ok: ok, err: ok ? '' : ('平台没返回 ' + field) };
+      }
       if (style === 'wallet-credits') {
         const entry = Array.isArray(raw) ? raw[0] : ((raw && raw.data ? raw.data[0] : raw) || {});
         return { unit: '积分', available: entry.available ?? '?', frozen: entry.reserved ?? 0,

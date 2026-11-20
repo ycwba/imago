@@ -11,6 +11,7 @@ const KINDS = new Set(['image', 'video', 'audio', 'text']);
 const EXTRA_CAPS = new Set(['asr', 'search']);
 const ASR_STYLES = new Set(['openai', 'chat-audio']);
 const SEARCH_STYLES = new Set(['api', 'chat']);
+const UPLOAD_STYLES = new Set(['raw']);
 const ID_RE = /^[a-z0-9][a-z0-9-]*$/i;
 
 function validateExtraCaps(p, errs) {
@@ -53,6 +54,49 @@ function hasModelSource(p) {
   if (Array.isArray(p.models) || Array.isArray(p.modelDocs)) return true;
   if (p.newModelDefaults && typeof p.newModelDefaults === 'object') return true;
   return !!(p.endpoints && p.endpoints.models);
+}
+
+/* S1 声明字段的形状校验：写错了不会当场抛，但机制会静默不生效（幂等键没进体、
+   上传走错三段式、报价按 micros 而不是元读成 ¥0）—— 这些坏声明的表现都是
+   「功能像没接上，又没有任何报错」，所以启动时按白名单查形状，拼错当场红。
+   每条只校验「声明了的那字段」，没声明一律放过（别家平台不需要这些机制）。 */
+function validateDeclFields(p, errs) {
+  const c = p.create || {};
+  if (c.idempotencyBody != null && (typeof c.idempotencyBody !== 'string' || !c.idempotencyBody)) {
+    errs.push('create.idempotencyBody 必须是非空字符串（请求体里放幂等键的字段名）');
+  }
+  if (c.upload != null) {
+    if (!c.upload || typeof c.upload !== 'object' || Array.isArray(c.upload)) errs.push('create.upload 必须是对象');
+    else {
+      const st = c.upload.style;
+      if (st != null && !UPLOAD_STYLES.has(st)) errs.push('create.upload.style 只能是 raw：' + st);
+      if (st === 'raw') {
+        if (c.upload.filenameHeader != null && typeof c.upload.filenameHeader !== 'string') errs.push('create.upload.filenameHeader 必须是字符串');
+        if (c.upload.uriFrom != null && typeof c.upload.uriFrom !== 'string') errs.push('create.upload.uriFrom 必须是字符串');
+        /* raw 上传按声明读体上限，端点必须存在且形状对（否则浏览器 PUT 到 undefined）。 */
+        if (!(p.endpoints && p.endpoints.uploads)) errs.push('create.upload.style=raw 要求 endpoints.uploads 已声明');
+      }
+    }
+  }
+  if (c.inputOrder != null && (!Array.isArray(c.inputOrder) || c.inputOrder.some(x => typeof x !== 'string'))) {
+    errs.push('create.inputOrder 必须是角色名字符串数组');
+  }
+  if (c.sizeFields != null) {
+    if (!c.sizeFields || typeof c.sizeFields !== 'object' || Array.isArray(c.sizeFields)) errs.push('create.sizeFields 必须是对象');
+    else if (c.sizeFields.parent != null && typeof c.sizeFields.parent !== 'string') errs.push('create.sizeFields.parent 必须是字符串');
+  }
+  if (p.retrieve && p.retrieve.taskFallback != null && typeof p.retrieve.taskFallback !== 'boolean') {
+    errs.push('retrieve.taskFallback 必须是布尔');
+  }
+  if (p.pricing) {
+    const pr = p.pricing;
+    if (pr.amountField != null && (typeof pr.amountField !== 'string' || !pr.amountField)) errs.push('pricing.amountField 必须是非空字符串（金额字段，按元计）');
+    if (pr.needDuration != null && typeof pr.needDuration !== 'boolean') errs.push('pricing.needDuration 必须是布尔');
+    if (pr.nest != null && (!pr.nest || typeof pr.nest !== 'object' || Array.isArray(pr.nest))) errs.push('pricing.nest 必须是对象');
+  }
+  if (p.balance && p.balance.style === 'field' && (typeof p.balance.field !== 'string' || !p.balance.field)) {
+    errs.push('balance.style=field 要求 balance.field 是非空字符串（余额字段）');
+  }
 }
 
 /* assetStore 声明（顶层一条）：/asset/<id>、渲染素材解析、本机补存三处都靠它知道「去问哪一家、
@@ -113,6 +157,7 @@ function validateProviders(providers) {
       }
     }
     if (p) validateExtraCaps(p, errs);
+    if (p) validateDeclFields(p, errs);
     /* refSyntax：素材引用语法（H3 那一族用 <Picture {n}> / <Video {n}> / <Audio {n}>）。
        少了 {n} 的模板会把每一张素材都写成同一个标签，编号只在正文里、平台那边全指第一项。 */
     if (p && p.refSyntax != null) {

@@ -3,6 +3,20 @@
 版本号以 `package.json` 的 `version` 为唯一真相；本文件按批次记「改了什么 / 影响什么 / 要不要重打基线」。
 提交历史里的 C / S / F / B / G 是批次代号，不是版本号。
 
+## 0.4.0 — 2026-11-20（接入拾帧：视频 / 图片 / 音频三档）
+
+三张 provider 共用一把 `SHIZHEN_API_KEY`（`keyId:'shizhen'`，各一段独立 relay）：视频 4 型号、
+图片 5 型号、音频 3 型号，覆盖上传 → 下单 → 轮询 → `pickup_url` → 落本机的全链路。
+
+- 公共层按声明扩展（别家零改动）：幂等键进请求体（`create.idempotencyBody`）、原始字节上传
+  （`create.upload.style:'raw'` + relay 读体上限）、`retrieve.taskFallback` 与只在 done 换地址、
+  报价金额字段（元）/ 尺寸预设换算 / 素材种类排序、`balance.style:'field'`。
+- 语音工作台新增两种「音频方式」（背景音乐、分句配音）与异步音频通道，全部由 `tts.modes` /
+  `tts.async` 声明驱动；没声明这些的平台（MiMo/MiniMax）界面与行为一字不变。
+- 无任务列表接口，历史由本机资产库承担；REGISTRY v25 → v26，`PROXY_VERSION_MIN` 同步。
+- 判断据：`node tests/providers-validate.cjs`、`npm run check`、`npm run static`、`npm run test:fast`
+  全绿。首屏字节判据按惯例追加两段登记（S1 +7.2KB / S4 +6.8KB，实跑 911555 / 上限 913000）。
+
 ## 0.4.0 — 2026-11-20（跟随系统图标换监视器）
 
 左下角那颗主题按钮的「跟随系统」档换了图标：半边实的圆（◐）换成**一台显示器、

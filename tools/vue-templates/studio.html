@@ -61,6 +61,20 @@
                   <button class="ghost" data-r="stylePick">取一位素材的音色描述</button>
                 </div>
               </div>
+              <!-- 背景音乐 / 分句配音的附加输入（音频方式由 tts.modes 声明驱动，按 mode 显隐）。
+                   歌词给 bgm、时长给 bgm 与 dialogue、剧本说明给 dialogue（正文按行拆句）。
+                   没声明这些模式的平台（MiMo/MiniMax）这几行永远 hidden，界面一字不变。 -->
+              <div class="style-row" data-r="lyricsRow" hidden>
+                <label>歌词（可选，留空 = 纯音乐）</label>
+                <textarea data-r="lyrics" class="ui-inp" rows="3" placeholder="一行一句，例：\n春风拂过山岗\n吹散了昨日的霜"></textarea>
+              </div>
+              <div class="style-row" data-r="audioDurRow" hidden>
+                <label>时长（秒）</label>
+                <input data-r="audioDur" class="ui-inp" type="number" min="1" max="1000" step="1" placeholder="例：30">
+              </div>
+              <div class="hint" data-r="scriptHint" hidden style="font-size:var(--fs-12);color:var(--sub);margin-top:var(--sp-8)">
+                正文每行一句，按顺序自动分配音色卡；时长填这一段的秒数。
+              </div>
               <div class="mode-row" data-r="modeRow" hidden></div>
               <div class="ed-label" data-r="slotHead" hidden><span>参考素材</span><span class="cnt" data-r="slotHeadNote"></span></div>
               <div class="slot-wrap" data-r="inputArea"></div>

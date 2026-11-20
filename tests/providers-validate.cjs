@@ -75,6 +75,33 @@ const ttsClone = { id: 't1', name: 'T1', kind: 'audio', relay: '/t1', endpoints:
   modelDocs: [{ id: 'm', ttsMode: 'clone', inputRoles: { reference_audio: { max: 1, min: 1 } } }],
   create: { endpoint: 'create', template: { model: '{{model}}', audio: { voice: '{{voice}}' } } } };
 assert.equal(validateProviders([ttsClone]).ok, true, 'TTS 模板族的复刻槽位按约定走 {{voice}}，不该红');
+
+/* S1 新声明字段：写错了机制会静默不生效（幂等键没进体 / 上传走错路 / 报价按 micros 读成 ¥0），
+   所以每类字段的坏形状都要当场红，合法声明要认。 */
+const declBase = { id: 'shz', name: '拾帧', kind: 'video', relay: '/shz', models: [{ id: 'm' }],
+  endpoints: { create: '/web-api/jobs', uploads: '/v1/uploads' } };
+const declGood = { ...declBase, create: {
+  idempotencyBody: 'idempotency_key',
+  upload: { style: 'raw', filenameHeader: 'X-Daipao-Filename', uriFrom: 'uri' },
+  inputOrder: ['reference_image', 'reference_video', 'reference_audio'],
+  sizeFields: { parent: 'params' },
+}, retrieve: { idFrom: 'job_id', urlFrom: 'pickup_url', taskFallback: true },
+  pricing: { type: 'quote', amountField: 'estimated_cost_cny', needDuration: false, nest: { parent: 'params' } },
+  balance: { style: 'field', field: 'balance_cny' } };
+assert.equal(validateProviders([declGood]).ok, true, '完整的 S1 声明要认');
+const declBad = patch => validateProviders([{ ...declGood, ...patch }]);
+assert.equal(declBad({ create: { ...declGood.create, idempotencyBody: 1 } }).ok, false, 'idempotencyBody 非字符串要红');
+assert.equal(declBad({ create: { ...declGood.create, upload: { style: 'multipart' } } }).ok, false, '未知 upload.style 要红');
+assert.equal(validateProviders([{ ...declGood, endpoints: { create: '/web-api/jobs' } }]).ok, false, 'raw 上传缺 endpoints.uploads 要红');
+assert.equal(declBad({ create: { ...declGood.create, inputOrder: 'image' } }).ok, false, 'inputOrder 非数组要红');
+assert.equal(declBad({ create: { ...declGood.create, sizeFields: { parent: 9 } } }).ok, false, 'sizeFields.parent 非字符串要红');
+assert.equal(declBad({ retrieve: { taskFallback: 'yes' } }).ok, false, 'taskFallback 非布尔要红');
+assert.equal(declBad({ pricing: { ...declGood.pricing, amountField: 9 } }).ok, false, 'amountField 非字符串要红');
+assert.equal(declBad({ pricing: { ...declGood.pricing, needDuration: 'false' } }).ok, false, 'needDuration 非布尔要红');
+assert.equal(declBad({ balance: { style: 'field' } }).ok, false, 'balance.field 缺失要红');
+/* 声明了 raw 上传但端点确实在的那一条（declGood 的 baseline 已覆盖）——这里只确认没声明这些字段的普通平台照旧合法 */
+assert.equal(validateProviders([{ ...declBase, create: { body: { model: 'model' } } }]).ok, true,
+  '没声明 S1 字段的普通平台一字不变');
 console.log('✓ provider 声明校验通过');
 
 /* 真实注册表也要过同一套（这张判据以前只测 fixture，

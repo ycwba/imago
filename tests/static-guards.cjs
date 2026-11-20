@@ -40,6 +40,7 @@ const G2_CREATE_NO_GUARD = [
   { id: 'web/domain/gen-forms.js#create', max: 1, why: 'AiGen.create 只把 Api.create 的错误往上透传；「结果未知」的判据在 Api.maybeSubmitted（api.js）与调用方，本层不重复判' },
   { id: 'web/domain/assetlib.js#retry', max: 1, why: '重试的调用方 pages/assets.js:583 在外面判 uncertain；本层只透传错误' },
   { id: 'web/domain/gen-forms.js#synthTts', max: 1, why: '语音合成的调用方（pages/studio.js:1629 AiGen.synthTts）在上一层处理；本层只透传（拆文件后随 AiGen 进 gen-forms.js）' },
+  { id: 'web/domain/gen-forms.js#synthTtsAsync', max: 1, why: '异步音频（拾帧）走同一条 AiGen.synthTts 入口，调用方 pages/studio.js 的 synthAudio→submitAudio 用 maybeSubmitErr 兜「结果未知」；本层只透传，与同步 synthTts 同口径' },
   { id: 'web/domain/chars.js#ttsOnce', max: 1, why: '角色配音两条出口（chars.js:1564/1659）的调用方在外面收错误；本层只透传' },
   { id: 'web/features/chat-tools.js#runGenerate', max: 1, why: '助手生成动作的另一个出口（会话里 3588 行那一路有 Api.maybeSubmitted 判据）；拆文件后随动作表进 chat-tools.js，待并到同一收口' },
 ];

@@ -133,6 +133,42 @@ class: "ghost",
 }, "取一位素材的音色描述")
 ])
 ]),
+_createCommentVNode(" 背景音乐 / 分句配音的附加输入（音频方式由 tts.modes 声明驱动，按 mode 显隐）。\n                   歌词给 bgm、时长给 bgm 与 dialogue、剧本说明给 dialogue（正文按行拆句）。\n                   没声明这些模式的平台（MiMo/MiniMax）这几行永远 hidden，界面一字不变。 "),
+_createElementVNode("div", {
+class: "style-row",
+"data-r": "lyricsRow",
+hidden: ""
+}, [
+_createElementVNode("label", null, "歌词（可选，留空 = 纯音乐）"),
+_createElementVNode("textarea", {
+"data-r": "lyrics",
+class: "ui-inp",
+rows: "3",
+placeholder: "一行一句，例：\\n春风拂过山岗\\n吹散了昨日的霜"
+})
+]),
+_createElementVNode("div", {
+class: "style-row",
+"data-r": "audioDurRow",
+hidden: ""
+}, [
+_createElementVNode("label", null, "时长（秒）"),
+_createElementVNode("input", {
+"data-r": "audioDur",
+class: "ui-inp",
+type: "number",
+min: "1",
+max: "1000",
+step: "1",
+placeholder: "例：30"
+})
+]),
+_createElementVNode("div", {
+class: "hint",
+"data-r": "scriptHint",
+hidden: "",
+style: {"font-size":"var(--fs-12)","color":"var(--sub)","margin-top":"var(--sp-8)"}
+}, " 正文每行一句，按顺序自动分配音色卡；时长填这一段的秒数。 "),
 _createElementVNode("div", {
 class: "mode-row",
 "data-r": "modeRow",

@@ -54,6 +54,16 @@
     if (name && /\.[a-z0-9]{2,5}$/i.test(name)) return name;
     return 'asset-' + Date.now() + '.' + window.blobExtOf(blob);
   }
+  /* 原始字节上传（create.upload.style='raw'，拾帧那一族）用的文件名必须是纯 ASCII ——
+     HTTP 头（X-Daipao-Filename）里带中文，Node 出站会直接报 ERR_INVALID_CHAR，
+     整条上传在连上平台之前就失败。主体是 ASCII 就洗干净保留可读性，
+     否则退回一个时间戳名（这一族只拿它当上传标识，不进界面、不进本机文件名）。 */
+  function asciiUploadName(name, blob) {
+    const ext = window.blobExtOf(blob);
+    const base = String(name || '').replace(/\.[^.]+$/, '');
+    const asciiBase = /^[\x20-\x7e]+$/.test(base) ? base.replace(/[^A-Za-z0-9._ -]+/g, '_').trim() : '';
+    return (asciiBase || ('asset-' + Date.now())) + '.' + ext;
+  }
   /* 读代理的 NDJSON 进度流（见 proxy.js 的 s3putStream）：
      progress 帧回调 onProgress(sent, total, pct)，返回最后一帧（done / error）。
      响应不是 NDJSON（代理还是旧版）时返回 null，调用方按老的「只看 HTTP 状态」处理。 */
@@ -196,6 +206,30 @@
       }
       const mime = blob.type || opts.contentType || 'application/octet-stream';
       const filename = opts.name || fileNameOf(blob, name);
+
+      /* 原始字节上传（create.upload.style='raw'，拾帧那一族）：整份文件就是请求体，
+         文件名走一个 ASCII 请求头，平台直接回资产 uri（dpupload://…）。
+         与下面「意图→PUT→确认」三段式是两条互斥的路，声明驱动、不按平台 id 分支。
+         filenameHeader / uriFrom 都从声明读，没写就用这一族的缺省名。 */
+      const UPL = (prov && prov.create && prov.create.upload) || null;
+      if (UPL && UPL.style === 'raw') {
+        const fname = asciiUploadName(opts.name || name || filename, blob);
+        const rawHeaders = Api.headers(prov);
+        rawHeaders[UPL.filenameHeader || 'X-Filename'] = fname;
+        if (mime) rawHeaders['Content-Type'] = mime;
+        if (opts.onStage) { opts.onStage('put', fname); opts.onStage('progress', { sent: 0, total: blob.size, pct: 0 }); }
+        const rr = await netFetch(prov.relay + up, {
+          method: 'POST', headers: rawHeaders, body: blob, timeout: 600000, retry: 0,
+        });
+        if (!rr.ok) throw new Error('素材上传失败 HTTP ' + rr.status + '（' + (prov.displayName || prov.name) + ' 的上传接口）');
+        const jr = await rr.json().catch(() => null);
+        if (jr && jr.error) throw new Error((jr.error.message || jr.error) + '（上传接口）');
+        const uri = jr && (jr[UPL.uriFrom || 'uri']);
+        if (!uri) throw new Error('上传接口没回资产地址（缺 ' + (UPL.uriFrom || 'uri') + '）');
+        if (opts.onStage) opts.onStage('progress', { sent: blob.size, total: blob.size, pct: 100 });
+        return String(uri);
+      }
+
       const headers = Api.headers(prov, { 'Content-Type': 'application/json' });
 
       /* 上传意图的字段命名由 registry 声明（SparkCine 是 filename/content_type/byte_length，

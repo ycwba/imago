@@ -410,8 +410,20 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        的 pics 多图栏长出拖图文件进弹窗（dragover 高亮 + drop 落图）与 `onFile` 字节钩子（调用方
        在这里做压缩；粘贴 / 拖入同走它）、空态文案与「按这句再改」的 note 通道 / 空底稿拦截 /
        面板滚进视野。这只公共弹窗全站处处在用，按需拆载没有落点。
-       实跑 30 枚 / 896821 字节（登记上限 897500）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 897500;
+       实跑 30 枚 / 896821 字节（登记上限 897500）。
+     ·  +7.2KB（2026-11-20，接入拾帧 S1 公共层扩展）：`web/domain/api.js` 长出幂等键进体、
+       retrieve.taskFallback + 只在 done 换地址、balance field 金额档、sizePreset 尺寸换算与
+       createBody 的 sizeFields / shapeFields.to / inputOrder；`web/domain/asset-transfer.js`
+       的 raw 字节上传；`web/domain/assetlib.js` 的报价 amountField / nest / needDuration。
+       三枚都是首屏取数与提交底座（创建、报价、上传只在这一处拼装），没有按需拆载的落点。
+       实跑 30 枚 / 904650 字节（登记上限 906000）。
+     ·  +6.8KB（2026-11-20，接入拾帧 S4 音频异步通道与语音台新档位）：`web/domain/gen-forms.js` 的
+       synthTtsAsync（建单→轮询→pickup_url→下载→存本机，与同步同入口同返回形状）、previewTts 的
+       异步分支、wayWhy 的分句配音就绪；`web/pages/studio.js` 的 tts.modes 模式驱动（背景音乐 / 分句配音
+       两种新档位、字段快照、台词表按行拆、音色卡上传）。异步通道与同步合成共用 AiGen.synthTts 一份入口、
+       三型字段组装与预览共用同一份，语音那一栏是全站唯一实现，没有按需拆载的落点。
+       实跑 30 枚 / 911555 字节（登记上限 913000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 913000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

@@ -1053,6 +1053,19 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
            用户提示词不足 5 字、或超过 30000 字，报价就问不成了。
            所以占位串写在注册表里（`consts`），调用方真给了值也盖得住它。 */
         Object.assign(qbody, pr.consts || {});
+        /* 尺寸预设现算（拾帧图片报价）：档(tier) × 比例(ar) → width/height，换算只走
+           Api.sizePreset 一份（与 createBody 共用）。声明 create.sizeFields 给出字段名与落点，
+           pricing.nest 给出「报价体里嵌到哪个对象」（如 params）。没有声明就一字不加。 */
+        const sf = (prov && prov.create && prov.create.sizeFields) || null;
+        if (sf && model && model.options && Array.isArray(model.options.sizePresets)) {
+          const px = window.Api.sizePreset(model, p[sf.tierFrom || 'tier'], p[sf.arFrom || 'ar']);
+          if (px) {
+            const nestParent = (pr.nest && pr.nest.parent) || '';
+            const wf = sf.widthField || 'width', hf = sf.heightField || 'height';
+            if (nestParent) qbody[nestParent] = { ...(qbody[nestParent] || {}), [wf]: px.width, [hf]: px.height };
+            else { qbody[wf] = px.width; qbody[hf] = px.height; }
+          }
+        }
         for (const [remote, local] of Object.entries(pr.body || {})) {
           const v = src[local];
           if (v != null && v !== '') qbody[remote] = v;
@@ -1074,8 +1087,9 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
       if (pr.noQuote && window.Capabilities.whenMatches(pr.noQuote.when, qctx)) {
         return { ok: false, skip: true, reason: String(pr.noQuote.why || '这一档平台不提供询价') };
       }
-      /* 与 per_second_table 同一口径：没时长不编一个 5 秒去问价（那是替平台编规格）。 */
-      if (!(Number(p.duration) > 0)) return { ok: false, reason: '没有时长，无法询价' };
+      /* 与 per_second_table 同一口径：没时长不编一个 5 秒去问价（那是替平台编规格）。
+         图片按张计价、根本没有时长这一档，`pricing.needDuration:false` 声明后跳过这道闸。 */
+      if (pr.needDuration !== false && !(Number(p.duration) > 0)) return { ok: false, reason: '没有时长，无法询价' };
       const q = '?duration=' + Number(p.duration) + '&resolution=' + (p.res || '') + '&tier=' + (p.tier || '') + '&aspect_ratio=' + (p.ar || '');
       const full = Api.url(prov, ep) + (method === 'GET' ? q : '');
       /* 同参数的并发只发一趟：导演台一次重排会给每个分镜估一次价，参数常常一模一样，
@@ -1110,6 +1124,18 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         }
         if (!r0.ok) return { ok: false, reason: '报价接口 HTTP ' + r0.status };
         const d = await r0.json();
+        /* 金额字段由声明点名（pricing.amountField）：拾帧回 estimated_cost_cny，**单位是元**，
+           不是别家的 amount_micros（除以 1e6 才是元）—— 按错字段会把 ¥0.20 读成 ¥0。
+           走点路径读，嵌在 data 里也能取。没声明就维持原来的 micros 口径（别家一字不变）。 */
+        const af = pr.amountField;
+        if (af) {
+          const v = Number(Api.pickPath(d, af));
+          if (Number.isFinite(v) && v >= 0) {
+            const cur = pr.currency || '¥';
+            return { ok: true, amount: v * n, text: '约 ' + cur + (v * n).toFixed(2), detail: cur + v.toFixed(2) + '/条 × ' + n + ' 条' };
+          }
+          return { ok: false, reason: d.message || ('报价接口没返回 ' + af) };
+        }
         const micros = (d.price && d.price.amount_micros) ?? d.amount_micros ?? (d.data && d.data.price && d.data.price.amount_micros);
         if (micros) {
           const each = Number(micros) / 1e6;

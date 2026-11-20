@@ -956,7 +956,8 @@ const StudioView = {
         if (!v) return '';
         return /^\d+\s*[x×*]\s*\d+$/.test(v) ? v.replace(/\s*[x*]\s*/g, '×') : v;
       }
-      const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻' };
+      const MODE_ZH = { preset: '预设音色', design: '音色设计', clone: '音色复刻',
+        bgm: '背景音乐', dialogue: '分句配音' };
       function fillSel(sel, values, fmt, defKey, id, opts) {
         if (!sel || !values || !values.length) return;
         const o = opts || {};
@@ -1158,11 +1159,56 @@ const StudioView = {
       }
       function curTtsMode() {
         const m = curAudioModel();
+        const prov = currentModel().prov;
+        const tts = (prov && prov.tts) || {};
+        /* tts.modes 声明驱动（拾帧那种）：型号自己的 ttsMode 若在声明的模式表里，直接用它
+           （bgm / design / dialogue 三档各发不同字段）。没声明 modes 的平台（MiMo/MiniMax）
+           一字不改，仍按 modes 标志或 ttsMode 走老三档。 */
+        const declared = Array.isArray(tts.modes) ? tts.modes.map(x => x && x.id) : [];
+        if (m.ttsMode && declared.includes(m.ttsMode)) return m.ttsMode;
         const modes = (m.options && m.options.modes) || m.modes || [];
         if (modes.includes('voice_clone')) return 'clone';
         if (modes.includes('voice_design')) return 'design';
         if (modes.includes('text_to_speech')) return 'preset';
         return m.ttsMode || 'preset';
+      }
+      /* 当前模式在 tts.modes 声明里的那一项（没有声明就 null）—— 控件显隐与字段清单都读它。 */
+      function curTtsModeDecl() {
+        const prov = currentModel().prov;
+        const tts = (prov && prov.tts) || {};
+        return (Array.isArray(tts.modes) ? tts.modes : []).find(x => x && x.id === curTtsMode()) || null;
+      }
+      /* 语音「这一次要发什么」——预览与实发共用这一份字段组装（与三型生成同一口径）。
+         design: 声音描述=style、试音台词=text；bgm: 提示词=prompt、歌词=lyrics、时长；
+         dialogue: 正文按行拆成台词表 JSON、时长、音色卡（音频槽 → inputEntries）。 */
+      function audioTtsFields(model, prompt) {
+        const mode = curTtsMode();
+        const base = { model: (model && model.id) || '', mode,
+          format: val('formatA') || '', reg: REG };
+        if (mode === 'design') {
+          return { ...base, prompt: (val('style') || ''), text: prompt };
+        }
+        if (mode === 'bgm') {
+          return { ...base, prompt, lyrics: (val('lyrics') || ''),
+            duration: Number(val('audioDur')) || 0 };
+        }
+        if (mode === 'dialogue') {
+          /* 正文按行拆句：speakers[].ref_text 留空（音色卡的声音由参考音频给），
+             lines[].at 按时长均分（平台按这一段戏的秒数排每句的起点）。 */
+          const lines = String(prompt || '').split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+          const dur = Number(val('audioDur')) || 0;
+          const step = lines.length ? (dur / lines.length) : 0;
+          const script = { speakers: lines.map((_, i) => ({ id: 's' + (i + 1), ref_text: '' })),
+            lines: lines.map((s, i) => ({ speaker: 's' + (i + 1), text: s, at: Math.round(step * i * 100) / 100 })) };
+          const entries = slotItems('audio').map((x, i) => ({
+            role: 'reference_audio', file: x.file || x.blob || null,
+            src: String(x.src || x.url || ''), name: x.name || ('音色卡' + (i + 1)),
+          }));
+          return { ...base, prompt: JSON.stringify(script), duration: dur,
+            inputEntries: entries };
+        }
+        /* 老三档（preset / clone）：沿用原来的 text + style，公共层 synthTts 同步那条要用。 */
+        return { ...base, text: prompt, style: (val('style') || '') };
       }
       function renderAudioParams() {
         const prov = currentModel().prov;
@@ -1179,16 +1225,27 @@ const StudioView = {
         applyAudioCaps();
       }
       function syncStyleRow() {
-        const row = $('styleRow');
-        if (!row) return;
-        row.hidden = !(TYPE === 'audio' && curTtsMode() === 'design');
+        const on = TYPE === 'audio';
+        const decl = curTtsModeDecl();
+        /* 有 tts.modes 声明的平台按 fields 表显隐；没声明的老平台沿用 mode id 判断（一字不变）。 */
+        const fields = decl ? (decl.fields || []) : null;
+        const has = f => fields ? fields.includes(f) : false;
+        const mode = curTtsMode();
+        const showStyle = on && (fields ? has('style') : mode === 'design');
+        const showLyrics = on && (fields ? has('lyrics') : mode === 'bgm');
+        const showDur = on && (fields ? has('duration') : (mode === 'bgm' || mode === 'dialogue'));
+        const showScript = on && (fields ? has('script') : mode === 'dialogue');
+        const row = $('styleRow'); if (row) row.hidden = !showStyle;
+        const lyr = $('lyricsRow'); if (lyr) lyr.hidden = !showLyrics;
+        const dur = $('audioDurRow'); if (dur) dur.hidden = !showDur;
+        const sc = $('scriptHint'); if (sc) sc.hidden = !showScript;
       }
       function applyAudioCaps() {
         const mode = curTtsMode();
         show('voiceCol', mode === 'preset');
         syncStyleRow();
         paintPromptHint();
-        $('advSum').textContent = [($('model').value.split('::').pop()), mode === 'preset' ? val('voice') : MODE_ZH[mode], val('formatA')].filter(Boolean).join(' · ');
+        $('advSum').textContent = [($('model').value.split('::').pop()), mode === 'preset' ? val('voice') : (MODE_ZH[mode] || mode), val('formatA')].filter(Boolean).join(' · ');
       }
       function readAudioBools() {
         return window.TtsAdv.read(currentModel().prov, topBoolCtx(), cur().topBools || {}).topBools;
@@ -2023,8 +2080,9 @@ const StudioView = {
         const m = curAudioModel();
         if (!m || !m.id) return null;
         const ex = advExtras();
+        const audioFields = audioTtsFields(m, prompt);
         return window.AiGen && AiGen.previewTts ? AiGen.previewTts(prov, {
-          model: m.id, text: prompt, style: (val('style') || ''), voice: (val('voice') || ''),
+          ...audioFields, voice: (val('voice') || ''),
           format: val('formatA') || '', bools: ex.topBools || {},
         }) : null;
       }
@@ -2103,7 +2161,10 @@ const StudioView = {
         const sync = Api.syncMedia(prov, d);
         if (sync) return { sync, priceText: '' };
         const p = Api.parseItem(prov, d) || {};
-        return { taskId: d.id || p.assetId, priceText: Api.priceText(prov, p) };
+        /* 任务号优先取 parseItem 按 list.map 解析出的 genId（拾帧回包把 id 嵌在 job_id 里，
+           裸 d.id 拿不到；视频那一路 2070 早已这么写）—— 漏了它，拾帧图片会永远报
+           「接口没有返回任务号」，明明已建单扣费。 */
+        return { taskId: p.genId || d.id || d.task_id || d.job_id || p.assetId, priceText: Api.priceText(prov, p) };
       }
       async function saveSyncImages(prov, model, prompt, items, fmtChoice) {
         const out = [];
@@ -2151,6 +2212,19 @@ const StudioView = {
       }
       async function synthAudio(t) {
         const prov = currentModel().prov;
+        /* 异步音频（拾帧三型）：字段组装走 audioTtsFields（与预览同一份），
+           t 里带着提交那一刻快照的 mode / lyrics / duration / script / entries，不回头读 DOM。 */
+        if (prov && prov.tts && prov.tts.async === true) {
+          const r = await AiGen.synthTts(prov, {
+            model: t.model, mode: t.voiceMode, prompt: t.prompt, text: t.text,
+            style: t.style || '', lyrics: t.lyrics || '', duration: t.duration,
+            inputEntries: t.audioEntries || [], format: t.format, reg: REG,
+            name: (t.text || t.prompt || '语音').slice(0, 16),
+            onStage: t.onStage, bools: t.bools || {}, meta: { 音频方式: MODE_ZH[t.voiceMode] || t.voiceMode },
+          });
+          return { assetId: r.assetId, url: r.url, format: r.format, bytes: r.bytes,
+            usageText: r.genId ? ('任务 ' + r.genId) : '', priceText: '', transcript: '' };
+        }
         const mode = t.voiceMode || 'preset';
         const useRef = mode === 'clone';
         const voiceValue = useRef ? (await audioRefBase64()) : (mode === 'design' ? '' : t.voice);
@@ -2299,6 +2373,14 @@ const StudioView = {
           format: val('formatA'), voice: mode === 'preset' ? val('voice') : (mode === 'clone' ? '参考音频复刻' : '音色设计'),
           voiceMode: mode, bools: readAudioBools(), status: 'creating', ts: Date.now(),
           mtype: '音频', provider: (currentModel().prov || {}).id || '', local: true };
+        /* 异步音频：提交那一刻把这一档的字段（含台词表 / 歌词 / 时长 / 音色卡）快照进 t，
+           synthAudio 只读 t、不回头读 DOM —— 换型号或改输入不影响已经发出去的这一条。 */
+        if ((currentModel().prov || {}).tts && currentModel().prov.tts.async === true) {
+          const af = audioTtsFields(curAudioModel(), text);
+          t.prompt = af.prompt; t.lyrics = af.lyrics || ''; t.duration = af.duration;
+          t.audioEntries = af.inputEntries || [];
+          if (mode === 'design') t.style = af.prompt;
+        }
         if (mode === 'clone') {
           const it = slotItems('audio')[0];
           const blob = it && (it.file || null);

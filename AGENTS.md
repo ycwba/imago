@@ -552,6 +552,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - SparkCine：上传下划线字段 + `sha256` 必填；详情 `outputs[].asset_id`；创建要求 `Idempotency-Key`；润色是顶层 `optimize_prompt`。
 - MiMo：文字与 TTS 共用 `MIMO_API_KEY`；`/v1/models` 同时列 TTS，文字档用 `modelsExclude:'-tts'`；TTS 同步、`hex` 返回按十六进制解码。
 - MiniMax：`t2a_v2` 的 `data.audio` 是十六进制；字数区间见 `tts.minChars/maxChars`。
+- 拾帧（shizhenvideo.com）：视频下单 `POST /web-api/jobs`（顶层 `duration_seconds`/`quality`/`aspect_ratio`），图片/音频 `POST /v1/jobs`（`tier:'A'`）；幂等键在**请求体** `idempotency_key`；素材 `/v1/uploads` 原始字节上传（文件名走 ASCII 头）；取产物 `/v1/jobs/{id}/result` 的 `pickup_url`（排队中 `ready:false` 无地址，只在 done 时换）；无任务列表接口，历史走本机资产库；报价 `estimated_cost_cny`（元）、余额 `balance_cny`；三档共用 `SHIZHEN_API_KEY`。
 - 幂等：没有幂等键的 POST 不自动重试；`PROMPT_COMPILER_UPSTREAM_ERROR` 可安全重试。
 - 缩略图缓存键先剥签名。
 
