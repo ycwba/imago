@@ -18,7 +18,7 @@ const fs = require('fs');
 const path = require('path');
 const { openDir } = require('../open-dir.js');
 const { FCPXML_PROJECT_DIR } = require('../user-dirs.js');
-const { createZip } = require('../zip.js');
+const { createZipToFile } = require('../zip.js');
 const { renameWithRetry } = require('../data-hub.js');
 const { sendJson, noStore } = require('./http');
 
@@ -56,12 +56,6 @@ function dirHint(needZip) {
    只免掉 spawn，路径校验、目录检查、返回形状都照旧，所以「打开目录」这条链仍是被测的。 */
 const noSpawn = () => String(process.env.WB_FCPXML_DRY || '') === '1';
 
-/* 非 JSON 的写出（zip）也走同一份缓存头口径：no-store 由 ./http 补。 */
-function send(res, code, type, body, extra = {}) {
-  noStore(res);
-  res.writeHead(code, { 'Content-Type': type, ...extra });
-  res.end(body);
-}
 function httpError(status, message) {
   const e = new Error(message);
   e.status = status;
@@ -142,8 +136,8 @@ async function writeBundle(ctx, spec) {
     throw httpError(500, '导出目录写不下去（' + (e && e.code ? e.code + ' ' : '') + ((e && e.message) || e) + '）：'
       + parent + ' 所在磁盘满或被占用，' + dirHint(needZip));
   }
-  /* files 只给 createZip 用。工程目录不打包，就不该把每份素材的 Buffer 全攒在内存里等函数返回
-     （media/ 已经落盘，再攒一份等于「不写 zip 却照样吃两份内存」）。
+  /* files 是打包清单：小条目（XML / 字幕 / missing）交 data，media 的素材交 file（盘上路径）——
+     createZipToFile 对 file 条目流式读盘，整包不再进堆（工程目录不打包，files 恒空）。
      素材数单独计，不靠 files 反推 —— 否则不打包时回执会谎报「0 份进包」。 */
   const files = needZip ? [{ name: 'project.fcpxml', data: Buffer.from(xml) }] : [];
   let assetsInBundle = 0;
@@ -187,7 +181,6 @@ async function writeBundle(ctx, spec) {
     }
     let tmp = '';
     try {
-      let data = null;
       let size = 0;
       let srcPath = '';
       const m = /^\/asset\/([A-Za-z0-9_-]+)/.exec(String(a.src || ''));
@@ -196,12 +189,10 @@ async function writeBundle(ctx, spec) {
         const st = fs.statSync(srcPath);
         if (!st.isFile()) throw new Error('本机素材不是一个普通文件');
         const why = overBudget(st.size); if (why) throw new Error(why);
-        const dest = path.join(mediaDir, name);
-        size = st.size;
-        /* 只有要打 zip 时才把整份素材读进内存；否则直接拷盘，
+        /* 素材只拷盘、不读进内存：打包那一步（createZipToFile）会从 media/ 流式读，
            一条 500 MB 的片段不该让代理进程白吃 500 MB。 */
-        if (needZip) { data = fs.readFileSync(srcPath); fs.writeFileSync(dest, data); }
-        else fs.copyFileSync(srcPath, dest);
+        fs.copyFileSync(srcPath, path.join(mediaDir, name));
+        size = st.size;
       } else {
         const url = await ctx.resolveSrc(a.src || '');
         tmp = path.join(mediaDir, name + '.part-' + process.pid);
@@ -212,11 +203,10 @@ async function writeBundle(ctx, spec) {
         renameWithRetry(tmp, dest);   // 刚下完的文件正被杀软扫着时 EPERM 一次，重试就好（与 fs-atomic 同一份脾气）
         tmp = '';
         size = fs.statSync(dest).size;   // 以盘上真实字节数记账，不以上游报的数为准
-        if (needZip) data = fs.readFileSync(dest);
       }
       packed += size;
       assetsInBundle++;
-      if (needZip) files.push({ name: 'media/' + name, data });
+      if (needZip) files.push({ name: 'media/' + name, file: path.join(mediaDir, name) });
     } catch (e) {
       if (tmp) { try { fs.unlinkSync(tmp); } catch {} }   // 半截 .part 不留在包里
       missing.push(name + '\t' + (a.src || '') + '\t' + ((e && e.message) || e));
@@ -239,15 +229,16 @@ async function writeBundle(ctx, spec) {
     }
     if (needZip) files.push({ name: 'missing.txt', data: missingBuf });
   }
-  /* 打包与落盘也是一次可能失败的写入：createZip 全在内存里拼，
-     ENOENT/ENOSPC/EPERM 抛出去只会变成最外层那句泛泛的 500，
-     而这儿知道是哪个目录、包已经吃进多少字节 —— 报错要说得出「少勾几条」这句话。
-     工程目录那一档 needZip=false：不生成 zip，也就没有这一次全量内存拷贝与双倍落盘。 */
-  let zip = null;
+  /* 打包与落盘也是一次可能失败的写入：createZipToFile 流式写（deflate 在 libuv 池、
+     素材从 media/ 流式读，整包不进堆），ENOENT/ENOSPC/EPERM 抛出去只给这一单自己的
+     错误话 —— 这儿知道是哪个目录、包已经吃进多少字节，报错要说得出「少勾几条」这句话。
+     工程目录那一档 needZip=false：不生成 zip，也就没有这一次打包。 */
+  let zipPath = '', zipSize = 0;
   if (needZip) {
+    zipPath = path.join(dir, 'bundle.zip');
     try {
-      zip = createZip(files);
-      fs.writeFileSync(path.join(dir, 'bundle.zip'), zip);
+      const made = await createZipToFile(files, zipPath);
+      zipSize = made.size;
     } catch (e) {
       try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
       log('[fcpxml] 打包失败：' + ((e && e.message) || e));
@@ -262,7 +253,7 @@ async function writeBundle(ctx, spec) {
     + fmtMb(packed) + ' / 上限 ' + fmtMb(maxTotalBytes)
     + (srtUsed ? '，字幕 ' + srtBytes + ' 字节' : '，无字幕') + '）');
   return {
-    dir, id: path.basename(dir), zip, files,
+    dir, id: path.basename(dir), zipPath, zipSize, files,
     assetsInBundle, missingCount: missing.length, packed,
   };
 }
@@ -302,8 +293,18 @@ async function handleBundle(req, res, ctx) {
   const parsed = parsePayload(ctx, await ctx.readJson(req, 32 * 1024 * 1024));
   const out = await writeBundle(ctx, { ...parsed, parent: ctx.renderDir, needZip: true });
   pruneBundles(ctx);
-  send(res, 200, 'application/zip', out.zip,
-    { 'Content-Disposition': 'attachment; filename="' + out.id + '.zip"' });
+  /* zip 是流式写上盘的：响应也直接从盘上流出去 —— 打完包再整份读进堆就白改了。
+     头字段与原 send 同一口径（no-store 由 ./http 的 noStore 补）。 */
+  const st = fs.statSync(out.zipPath);
+  noStore(res);
+  res.writeHead(200, {
+    'Content-Type': 'application/zip',
+    'Content-Length': String(st.size),
+    'Content-Disposition': 'attachment; filename="' + out.id + '.zip"',
+  });
+  const rs = fs.createReadStream(out.zipPath);
+  rs.on('error', () => { try { res.destroy(); } catch {} });   // 半路断了就掐连接，客户端立刻拿到网络错误
+  rs.pipe(res);
 }
 
 /* 持久工程目录：与 bundle 同一份 writeBundle，落到本机资产库下的 FCPXML工程/ 并回目录信息，
