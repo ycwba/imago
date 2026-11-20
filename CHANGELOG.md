@@ -3,6 +3,26 @@
 版本号以 `package.json` 的 `version` 为唯一真相；本文件按批次记「改了什么 / 影响什么 / 要不要重打基线」。
 提交历史里的 C / S / F / B / G 是批次代号，不是版本号。
 
+## 0.5.0 — 2026-11-21（后端热点优化：四个批次，技术栈不动）
+
+四个真实瓶颈逐批落地（`docs/实施-2026-11-21-Node后端热点优化-已完成.md`），对外接口 / 路由 / 数据形状一个都没变。
+
+- **盘对账走树挪进 worker 线程**：新增 `server/scan-worker.js`（走树与 fid 算法唯一实现），
+  大库每 30 秒一次的 100~300ms 主线程阻塞归零，一批落空只翻一趟整库（epoch 单飞）；
+  `localSigOf` 改异步读头尾。读取路径（`localFileFromEntry` / `localAdopt` / `localAliases` 等十余枚）异步化，
+  调用面逐处补 await；`/getv` `/fetch` 的本机命中改请求开头预取一次。
+- **FCPXML 打包流式化**：`zip.js` 新增 `createZipToFile`（旁挂临时文件两段式，deflate 走 libuv 池），
+  media 只拷盘不进堆；`handleBundle` 响应改从盘上流式回。导出大包不再冻结整个代理，
+  内存峰值从「整包」降到「管道几块 chunk」，产物与旧实现逐字节一致。
+- **state.json 写路径减负**：逐键序列化碎片缓存（每次写只重转义变更键，输出与 `JSON.stringify`
+  逐字节一致，checksum 兼容旧格式与云同步指纹）；同内容写跳过整包落盘、不顶新 mtime。
+- **relay 大请求体流式直通**：超 2MB 的 POST/PUT 请求体 req → 上游管道，128MB 级上传的堆峰值归零；
+  上游提前回话停泵、响应发出后不受请求体断流影响；GET 与小体保持缓冲路径（重试要重放整份）。
+- 零散：静态预热并发 4→5（预算仍 4 秒）；会话比对改 `crypto.timingSafeEqual`。
+- 判断据：新增 `tests/scan-worker.cjs`（签名两把尺子逐字一致 / worker 往返）、`tests/relay-stream.cjs`
+  （直通 / 断开 / 提前回话）；`zip.cjs` 加流式与字节对照、`data-hub.cjs` 加序列化对照与跳写判据；
+  `npm run check` + `npm run test` 每批全绿。数据基线无变化，不用重打。
+
 ## 0.4.0 — 2026-11-20（接入拾帧：视频 / 图片 / 音频三档）
 
 三张 provider 共用一把 `SHIZHEN_API_KEY`（`keyId:'shizhen'`，各一段独立 relay）：视频 4 型号、

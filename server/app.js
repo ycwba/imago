@@ -7,6 +7,7 @@ const BOOT_T0 = typeof globalThis.__bootT0 === 'number' ? globalThis.__bootT0 : 
 const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const ROOT = path.resolve(__dirname, '..');
 /* 产品版本的唯一真相是 package.json：/sys-status 与 CHANGELOG 都从它派生，不另抄一份。
    `代理.版本` 是供应商注册表版本（REGISTRY.version），两码事，不要混用。 */
@@ -437,7 +438,13 @@ function cookieValue(req, name) {
   }
   return '';
 }
-const hasSession = req => cookieValue(req, SESSION_COOKIE) === SESSION_TOKEN;
+/* 会话比对走恒时比较：回环环路上主要是纵深防御，一行级的成本。
+   长度对不上时 timingSafeEqual 会抛 —— 先比长度（token 是 48 个 hex，长度不是机密）再比内容。 */
+const hasSession = req => {
+  const got = cookieValue(req, SESSION_COOKIE);
+  return typeof got === 'string' && got.length === SESSION_TOKEN.length
+    && crypto.timingSafeEqual(Buffer.from(got, 'utf8'), Buffer.from(SESSION_TOKEN, 'utf8'));
+};
 function ensureSession(req, res) {
   if (hasSession(req)) return;
   res.setHeader('Set-Cookie', SESSION_COOKIE + '=' + SESSION_TOKEN + '; Path=/; HttpOnly; SameSite=Strict');
@@ -1254,7 +1261,7 @@ server.listen(PORT, BIND.hosts[0], () => {
   /* 预热在监听这一刻就开跑：走线程池压字节，不占事件循环 —— 用户打开页面时
      那批静态文本已经在算了。只热 br（浏览器实际都发它）、只热文本，预算 4 秒，
      超了剩下的按需压 —— 它是抢在用户前面做的，不是把 CPU 占住不放。 */
-  warmStatic(frontendWarmList(), { budgetMs: 4000, concurrency: 4 })
+  warmStatic(frontendWarmList(), { budgetMs: 4000, concurrency: 5 })
     .then(r => { if (r && r.warmed) log(`[静态] 预热 ${r.warmed} 份文本资源（brotli ${r.ms} ms）`); })
     .catch(() => {});
   /* 清扫 / 重建 / 对账三段同步重活排在 afterFirstResponse：首个请求（通常是启动器的
