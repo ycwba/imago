@@ -29,8 +29,13 @@
   合法与非法 fixture；`tests/assetlib-cache.cjs` 补 voiceDub 折算三条（真 api.js 看实际体）；
   `tests/spa.cjs` 首屏字节登记 +1.7KB（capabilities 归一化 + 润色面板扩展，原因已写）。
   `REGISTRY.version` 26 → 27；数据基线无变化。
+- 真跑验收（用户确认金额，实扣 ¥0.34）：`zimage_first_frame` 出图（PNG）、`tts_voice_design` 音色卡（WAV）、
+  `h3_ref2v` 配音单 480p/5s（`params.steps:8` + `voice_audio:[1]` + `voice_texts` 平台全收，实扣 ¥0.20 + ¥0.02 配音费，
+  产物 MP4）；`ledger` lines 与面板字段逐条对上。两处只有真跑/真开页面才暴露的缺陷：
+  `paintAiBtns` 漏登记 `R.h3PolishBtn`（工作台接线 null 崩、整段初始化断链）与 `needs` 补载缺
+  `NEED_GLOBAL` 登记（脚本根本不发，`PromptTools` 永远缺席）。
 - 未做（有意）：`GET /healthz`（不在文档接口表）；catalog 里 `width/height` 自由画幅（与
-  quality × aspect_ratio 体系重叠，语义未实测）；配音真跑（花钱动作，需先确认金额）。
+  quality × aspect_ratio 体系重叠，语义未实测）。
 
 ## 0.5.0 — 2026-11-21（后端热点优化：四个批次，技术栈不动）
 

@@ -120,6 +120,7 @@ const StudioView = {
       if (hh) {
         hh.innerHTML = window.aiBtnHTML({ id: 'h3PolishBtn', label: 'H3 规范优化', busy: '优化中…',
           title: '按 H3 官方提示词规范改写（平台接口，不扣费）' });
+        R.h3PolishBtn = hh.firstElementChild;
       }
     }
     /* 「拆分片段生成」那一排选项（张数 / 拆分维度 / 自定义 + 两颗按钮）由公共层 SplitPlan 画 ——

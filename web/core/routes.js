@@ -123,6 +123,7 @@
     'web/domain/asset-picker.js': 'AssetPicker',
     'web/ui/datasync.js': 'DataSync',
     'web/domain/search.js': 'Search',
+    'web/domain/prompt-tools.js': 'PromptTools',
   };
   window.__spaNeeds = function (list) {
     return Promise.all((list || []).map(src => {
