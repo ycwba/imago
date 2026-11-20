@@ -12,7 +12,12 @@
    界面上是「刚在设置里改了型号，工作台那一栏空了」，看不出跟缓存有关系。
 
    第二条守的是「全军覆没那一轮不许当成功缓 30 秒」：`byId` 是 `{}`，真值。
-   上游整体坏掉时按成功缓存，表现是「重试一次要等 30 秒」。 */
+   上游整体坏掉时按成功缓存，表现是「重试一次要等 30 秒」。
+
+   第三条守的是「共用一份混合 /models 的两条 provider 必须按声明前缀切分干净」
+   （SparkCine：生图与视频两条 provider 问同一个上游，清单里 img-* 与视频型号混在一起）：
+   切分判据只有 `skipMedia` 按 `list.media` 前缀分家那一道 —— 工作台的型号下拉逐字列
+   `prov.models`，切分漏了谁，谁就直接出现在不该出现的档位里。 */
 let bad = 0, n = 0;
 function ok(name, cond, detail) {
   n++;
@@ -32,13 +37,28 @@ const CAPS = {
   },
 };
 
+/* 共用清单那一节（⑧）的桩答复：一份混合清单，仿上游实况 —— 图片 img-* 与视频
+   h3-* / video-* 混在一起；video-cleanup 是工具型型号，modes 是空的（导演台按
+   text_to_image 二次过滤时天然看不见它，切分只能靠前缀那一道）。 */
+const MIX = {
+  source: 'api',
+  models: {
+    'img-2': { parameters: { quality: { allowedValues: ['standard', 'high'] } },
+      modes: { text_to_image: { inputs: [] } } },
+    'h3-video': { parameters: { duration: { minimum: 3, maximum: 10 } },
+      modes: { text_to_video: { inputs: [] } } },
+    'video-cleanup': { modes: {}, parameters: {} },
+  },
+};
+
 const calls = [];
 const events = [];
 let mode = 'ok';               // ok | slow | fail
 let slowMs = 0;
+let payload = CAPS;            // ⑧ 那一节临时换成 MIX（混合清单）
 const response = () => (mode === 'fail'
   ? { ok: false, status: 500, json: async () => ({}) }
-  : { ok: true, status: 200, json: async () => CAPS });
+  : { ok: true, status: 200, json: async () => payload });
 
 const stub = {
   Net: {
@@ -139,6 +159,26 @@ try {
   await Cap.load(REG7);
   ok('空的那一轮不算成功，下一轮马上重问', calls.length > seventh, 'got +' + (calls.length - seventh));
   mode = 'ok';
+  /* ⑧ 共用混合清单的媒体切分：两条 provider 问同一个上游，各自只要 `modelMedia` 点名的那一类。
+     前缀判据漏认哪一族（现在的 video- / 未来的其它），那一族就会在两条 provider 上同时长出来，
+     工作台对应档位的下拉里混进别类的型号。 */
+  payload = MIX;
+  const mkPair = () => ({ providers: [
+    { id: 'p-img', keyId: 'p-img', name: '生图条', modelMedia: '图片',
+      endpoints: { models: '/api/open/v1/models' },
+      list: { media: { by: 'model', videoPrefix: ['h3-', 'video-'], imagePrefix: ['img-'], fallback: '图片' } } },
+    { id: 'p-vid', keyId: 'p-vid', name: '视频条', modelMedia: '视频',
+      endpoints: { models: '/api/open/v1/models' },
+      list: { media: { by: 'model', videoPrefix: ['h3-', 'video-'], imagePrefix: ['img-'], fallback: '视频' } } },
+  ] });
+  const REGM = mkPair();
+  await Cap.load(REGM);
+  const idsOf = id => ((REGM.providers.find(p => p.id === id).models || []).map(m => m.id).sort());
+  ok('生图条只长图片型号', JSON.stringify(idsOf('p-img')) === JSON.stringify(['img-2']),
+    'got ' + JSON.stringify(idsOf('p-img')));
+  ok('视频条收齐两类视频型号', JSON.stringify(idsOf('p-vid')) === JSON.stringify(['h3-video', 'video-cleanup']),
+    'got ' + JSON.stringify(idsOf('p-vid')));
+  payload = CAPS;
 } catch (e) {
   bad++; console.log('  ✗ 判据本身抛出：' + ((e && e.message) || e));
 }

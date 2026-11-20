@@ -268,7 +268,7 @@ const REGISTRY = {
       // 同一个上游的列表里既有图也有视频：按媒体类型落到各自的 provider id（路由/取消/轮询用）
       mediaProviders: { '图片': 'sparkcine', '视频': 'sparkcine-video' },
       /* 这一条与 sparkcine-video 共用同一个上游与同一个 /models —— 返回的是**一份混合清单**
-         （img-* 与 h3-video-* 全在一起）。`modelMedia` 点名这一条只要图片那类，
+         （img-* 与 h3-video-*、video-* 全在一起）。`modelMedia` 点名这一条只要图片那类，
          能力层据此切分，否则视频台会列出图片模型、图片台会列出视频模型。 */
       modelMedia: '图片',
       pricing: { type: 'per_image_table', currency: '积分' },
@@ -297,7 +297,9 @@ const REGISTRY = {
           error: 'error.message',
         },
         statusMap: { succeeded: 'done' },
-        media: { by: 'model', videoPrefix: ['h3-'], imagePrefix: ['img-'], fallback: '图片' },
+        /* video- 前缀是 video-cleanup / video-upscale 这类工具型视频型号 —— 同一份清单里
+           不带 h3- 的那一族，不认的话前缀判据判不出，图片台会把它们当图片型号长出来。 */
+        media: { by: 'model', videoPrefix: ['h3-', 'video-'], imagePrefix: ['img-'], fallback: '图片' },
         priceStyle: 'credits',
       },
       create: {
@@ -608,7 +610,8 @@ const REGISTRY = {
           error: 'error.message',
         },
         statusMap: { succeeded: 'done' },
-        media: { by: 'model', videoPrefix: ['h3-'], imagePrefix: ['img-'], fallback: '视频' },
+        /* 与 sparkcine 同一份判据（见那边）：video- 前缀的工具型视频型号也归这一条。 */
+        media: { by: 'model', videoPrefix: ['h3-', 'video-'], imagePrefix: ['img-'], fallback: '视频' },
         priceStyle: 'credits',
       },
       create: {
