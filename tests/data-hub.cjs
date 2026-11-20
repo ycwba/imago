@@ -325,6 +325,57 @@ const write = (p, body) => { fs.mkdirSync(path.dirname(p), { recursive: true });
     keys.forEach((k, i) => { if (saved[i] === undefined) delete process.env[k]; else process.env[k] = saved[i]; });
   }
 
+  /* ---------- 序列化逐字节对照 + 同内容写跳过落盘 ----------
+     碎片缓存拼出来的整包必须与 JSON.stringify 逐字节一致（checksum 兼容旧 state.json、
+     快照恢复与云同步指纹都按老公式比对）；同内容再写不落盘、不顶新 mtime。 */
+  {
+    const dir = mkDir('serialize');
+    const hub = hubOf(dir).hub;
+    const statePath = path.join(dir, '.data', 'state.json');
+    /* 老实现的公式：就照它算「这份盘上文件应该长什么样」。 */
+    const legacyChecksum = keys => require('crypto').createHash('sha256')
+      .update(JSON.stringify(Object.keys(keys).sort().map(k => [k, keys[k].body]))).digest('hex');
+    const legacyText = keys => JSON.stringify({
+      version: 2,
+      updatedAt: JSON.parse(fs.readFileSync(statePath, 'utf8')).updatedAt,
+      checksum: legacyChecksum(keys),
+      keys,
+    });
+    /* 棘手键值都来一遍。键名只许 [A-Za-z0-9_-]（DATA_KEY_RE 那道闸），花活全在 body 里：
+       引号 / 反斜杠 / 换行 / 制表 / \u2028 \u2029（JS 与 JSON 的边界）/ unicode / 长体；
+       键名里放一枚整数样的（stringify 会把它排在最前，枚举序必须跟老公式一致）。 */
+    const tricky = [
+      ['123', '整数样的键名排前头'],
+      ['abc', '普通一格'],
+      ['quote_and_slash', 'a"b\\c\n中文\t制表'],
+      ['separators', 'line1line2line3'],
+      ['sk_key_big', '长身体'.repeat(400)],
+    ];
+    for (const [k, v] of tricky) hub.writeKey(k, v);
+    {
+      const raw = fs.readFileSync(statePath, 'utf8');
+      const parsed = JSON.parse(raw);
+      ok(raw === legacyText(parsed.keys), '碎片缓存拼的整包与 JSON.stringify 逐字节一致');
+      ok(parsed.checksum === legacyChecksum(parsed.keys), 'checksum 与老公式一致（旧实现可读、云同步指纹不漂）');
+      ok(parsed.keys['123'].body === '整数样的键名排前头' && parsed.keys['separators'].body.includes('line1'),
+        '整数样键与带分隔符的体都原样落了盘');
+    }
+    /* 同内容再写：盘上一个字节都不动（state.json 连重写都没有），回执交回旧 mtime。 */
+    const mt0 = hub.dataList().find(x => x.key === '123').mtime;
+    const raw0 = fs.readFileSync(statePath, 'utf8');
+    const st0 = fs.statSync(statePath).mtimeMs;
+    const again = hub.writeKey('123', '整数样的键名排前头');
+    ok(again.mtime === mt0 && again.size === Buffer.byteLength('整数样的键名排前头'),
+      '同内容再写交回旧 mtime 与真实体积（不是「刚刚那一刻」）');
+    ok(fs.readFileSync(statePath, 'utf8') === raw0 && fs.statSync(statePath).mtimeMs === st0,
+      '同内容再写：state.json 一个字节都没重写');
+    /* 真变更照常落盘，checksum 跟着翻新。 */
+    hub.writeKey('123', '变了的内容');
+    const after = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    ok(after.keys['123'].body === '变了的内容' && after.checksum === legacyChecksum(after.keys),
+      '真变更照常落盘，checksum 与老公式仍然一致');
+  }
+
   /* 收尾：还原环境变量、删掉整棵探针目录 */
   for (const [k, v] of Object.entries(savedEnv)) {
     if (v === undefined) delete process.env[k]; else process.env[k] = v;

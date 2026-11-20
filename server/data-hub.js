@@ -122,7 +122,39 @@ const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
 const absent = e => Boolean(e && ABSENT_CODES.has(e.code));
 const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 const emptyState = () => ({ version: STATE_VERSION, updatedAt: Date.now(), checksum: '', keys: {} });
-const checksumOf = keys => sha256(JSON.stringify(Object.keys(keys).sort().map(k => [k, keys[k].body])));
+/* ---------- 序列化碎片缓存 ----------
+   state.json 是「改内存表 → 整包原子重写」：全包 stringify 把**每一个键的 body**都重新转义一遍，
+   sha256 再全量算一遍 —— 键越多、体越大，每次写越贵（ASR 任务账、skills、云状态都挂在这一条上）。
+   body 绝大多数写一次读很多次：把「转义好的 body 片段」按键缓存，这次写过的那一枚才重新转义。
+   两串输出必须与 JSON.stringify 逐字节一致（checksum 兼容旧 state.json / 快照恢复 / 云同步指纹）；
+   键的枚举序（整数样键在前、其余按插入序）由 Object.keys / entries 与 stringify 共用的那套规则保证。
+   缓存有界：超了整表清空，下一次写回填 —— 只是退回老开销，不出错。 */
+const fragCache = new Map();
+const FRAG_CACHE_MAX = 256;
+function bodyFragsOf(k, body) {
+  let hit = fragCache.get(k);
+  if (!hit || hit.body !== body) {
+    hit = { body, keyFrag: JSON.stringify(k), bodyFrag: JSON.stringify(body) };
+    if (fragCache.size >= FRAG_CACHE_MAX) fragCache.clear();
+    fragCache.set(k, hit);
+  }
+  return hit;
+}
+const checksumOf = keys => sha256('[' + Object.keys(keys).sort().map(k => {
+  const f = bodyFragsOf(k, keys[k].body);
+  return '[' + f.keyFrag + ',' + f.bodyFrag + ']';
+}).join(',') + ']');
+/* 整包文本的唯一拼装口（persist / restoreKeys / migrate 三处共用）：
+   输出与 JSON.stringify({ version, updatedAt, checksum, keys }) 逐字节一致。 */
+const serializeState = next => '{"version":' + JSON.stringify(next.version)
+  + ',"updatedAt":' + JSON.stringify(next.updatedAt)
+  + ',"checksum":' + JSON.stringify(next.checksum)
+  + ',"keys":{' + Object.entries(next.keys).map(([k, v]) => {
+    const f = bodyFragsOf(k, v.body);
+    return f.keyFrag + ':{"body":' + f.bodyFrag
+      + ',"size":' + JSON.stringify(v.size)
+      + ',"mtime":' + JSON.stringify(v.mtime) + '}';
+  }).join(',') + '}}';
 
 function createStateStore(opts) {
   const root = opts.root;
@@ -163,7 +195,7 @@ function createStateStore(opts) {
   function persist() {
     if (degraded) throw new Error(degraded);
     const next = { version: STATE_VERSION, updatedAt: Date.now(), checksum: checksumOf(state.keys), keys: state.keys };
-    const { fsyncWhy } = atomicWrite(statePath(), JSON.stringify(next));
+    const { fsyncWhy } = atomicWrite(statePath(), serializeState(next));
     state = next;
     if (fsyncWhy) { fsyncDegraded = fsyncWhy; log('[data] state.json 落盘同步退化：' + fsyncWhy); }
     return next;
@@ -197,7 +229,14 @@ function createStateStore(opts) {
     if (!text.length) throw new Error('内容是空的');
     if (text.includes(String.fromCharCode(0))) throw new Error('内容含 NUL 字节，拒绝写入');
     const old = s.keys[k];
-    if (!old || old.body !== text) noteSnapshot('before-overwrite', { key: k });
+    if (old && old.body === text) {
+      /* 同内容再写 = 什么都没发生：写前快照本来就不留底（body 没变），
+         这里连整包落盘也一并跳过 —— 省一次白吃的原子写四步（tmp + fsync + rename + fsync）。
+         mtime 也不顶新：这一条内容「什么时候有的」仍是上次真写那一刻，
+         /data 清单（datasync 拿它判谁更新）不会收到一次假的新信号。 */
+      return { key: k, size: old.size, mtime: old.mtime };
+    }
+    noteSnapshot('before-overwrite', { key: k });
     s.keys[k] = { body: text, size: Buffer.byteLength(text), mtime: Date.now() };
     persist();
     return { key: k, size: s.keys[k].size, mtime: s.keys[k].mtime };
@@ -226,7 +265,7 @@ function createStateStore(opts) {
       written++;
     }
     state = { version: STATE_VERSION, updatedAt: Date.now(), checksum: checksumOf(keys), keys };
-    const { fsyncWhy } = atomicWrite(statePath(), JSON.stringify(state));
+    const { fsyncWhy } = atomicWrite(statePath(), serializeState(state));
     if (fsyncWhy) { fsyncDegraded = fsyncWhy; log('[data] 恢复落盘同步退化：' + fsyncWhy); }
     return written;
   }
@@ -259,7 +298,7 @@ function createStateStore(opts) {
       toMove.push(f);
     }
     state = { version: STATE_VERSION, updatedAt: Date.now(), checksum: checksumOf(keys), keys };
-    atomicWrite(statePath(), JSON.stringify(state));
+    atomicWrite(statePath(), serializeState(state));
     let back;
     try { back = JSON.parse(fs.readFileSync(statePath(), 'utf8')); }
     catch (e) { throw new Error('迁移回读 state.json 失败：' + e.message); }
