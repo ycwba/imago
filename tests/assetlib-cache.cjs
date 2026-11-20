@@ -46,6 +46,7 @@ function boot() {
     isAudioType: t => /音频|语音|audio/.test(String(t)),
     errText: e => String((e && e.message) || e || ''),
     esc: s => String(s == null ? '' : s),
+    LS: { get: () => '', set() {}, del() {} },
   };
   ctx.window = ctx; ctx.globalThis = ctx; ctx.self = ctx;
   ctx.addEventListener = () => {}; ctx.removeEventListener = () => {}; ctx.dispatchEvent = () => {};
@@ -159,6 +160,26 @@ function boot() {
   const again = await Lib.estimateCost(priceProv('pC', 7), mdl, { quality: 'standard', count: 3 });
   ok('取不到的那一家也记进 60 秒：不拿一个正在挂的接口反复重问',
     priceHits === 3 && again.ok === true, 'priceHits=' + priceHits);
+
+  /* 报价体的嵌套字段：拾帧音频的 duration_seconds 只在 params 里认，顶层带上去平台 422。
+     这一条装的是真 assetlib.js，只把最外层的 Net.fetch 换成探针，看实际发出去的体。 */
+  const quoteProv = {
+    id: 'quote-nest-probe', name: '报价嵌套探针', relay: '/shizhen-audio',
+    endpoints: { quote: '/web-api/quote' },
+    pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
+      body: { endpoint: 'model', duration_seconds: 'duration' },
+      consts: { params: { prompt: '报价预估（不创建任务）' } },
+      nest: { parent: 'params', fields: ['duration_seconds'] }, amountField: 'estimated_cost_cny' },
+  };
+  let sent = null;
+  ctx.Net = { fetch: async (url, opt) => {
+    sent = { url, body: JSON.parse(opt.body) };
+    return { ok: true, status: 200, json: async () => ({ estimated_cost_cny: 0.02 }) };
+  } };
+  const qres = await Lib.estimateCost(quoteProv, { id: 'acestep_bgm', options: {} }, { duration: 10 });
+  ok('报价时长按 nest.fields 嵌进 params，顶层一个字段都不多',
+    qres.ok && sent && sent.body.params.duration_seconds === 10 && !('duration_seconds' in sent.body),
+    JSON.stringify(qres) + ' | ' + JSON.stringify(sent && sent.body));
 
   ok('全程没有漏出去一条没接住的拒绝（并发共用的那条失败 Promise 也不能漏）',
     unhandled.length === 0, unhandled.join(' | '));

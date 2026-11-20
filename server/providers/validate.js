@@ -93,6 +93,9 @@ function validateDeclFields(p, errs) {
     if (pr.amountField != null && (typeof pr.amountField !== 'string' || !pr.amountField)) errs.push('pricing.amountField 必须是非空字符串（金额字段，按元计）');
     if (pr.needDuration != null && typeof pr.needDuration !== 'boolean') errs.push('pricing.needDuration 必须是布尔');
     if (pr.nest != null && (!pr.nest || typeof pr.nest !== 'object' || Array.isArray(pr.nest))) errs.push('pricing.nest 必须是对象');
+    else if (pr.nest && pr.nest.fields != null && (!Array.isArray(pr.nest.fields) || pr.nest.fields.some(x => typeof x !== 'string' || !x))) {
+      errs.push('pricing.nest.fields 必须是非空字段名字符串数组');
+    }
   }
   if (p.balance && p.balance.style === 'field' && (typeof p.balance.field !== 'string' || !p.balance.field)) {
     errs.push('balance.style=field 要求 balance.field 是非空字符串（余额字段）');

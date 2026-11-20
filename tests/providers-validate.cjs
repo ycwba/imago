@@ -98,6 +98,9 @@ assert.equal(declBad({ create: { ...declGood.create, sizeFields: { parent: 9 } }
 assert.equal(declBad({ retrieve: { taskFallback: 'yes' } }).ok, false, 'taskFallback 非布尔要红');
 assert.equal(declBad({ pricing: { ...declGood.pricing, amountField: 9 } }).ok, false, 'amountField 非字符串要红');
 assert.equal(declBad({ pricing: { ...declGood.pricing, needDuration: 'false' } }).ok, false, 'needDuration 非布尔要红');
+assert.equal(declBad({ pricing: { ...declGood.pricing, nest: { parent: 'params', fields: 'duration_seconds' } } }).ok, false, 'pricing.nest.fields 非数组要红');
+assert.equal(validateProviders([{ ...declGood, pricing: { ...declGood.pricing, nest: { parent: 'params', fields: ['duration_seconds'] } } }]).ok, true,
+  'pricing.nest.fields 合法声明要认');
 assert.equal(declBad({ balance: { style: 'field' } }).ok, false, 'balance.field 缺失要红');
 /* 声明了 raw 上传但端点确实在的那一条（declGood 的 baseline 已覆盖）——这里只确认没声明这些字段的普通平台照旧合法 */
 assert.equal(validateProviders([{ ...declBase, create: { body: { model: 'model' } } }]).ok, true,

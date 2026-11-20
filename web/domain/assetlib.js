@@ -1053,6 +1053,11 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
            用户提示词不足 5 字、或超过 30000 字，报价就问不成了。
            所以占位串写在注册表里（`consts`），调用方真给了值也盖得住它。 */
         Object.assign(qbody, pr.consts || {});
+        /* pricing.nest.parent：报价体里要嵌进哪个对象（如 params），没有声明就一字不动。
+           nest.fields 点名哪些 body 字段必须嵌进去 —— 拾帧音频的 duration_seconds 只在
+           params 里认，放顶层会被平台 422 拒（顶层那个字段只留给 grid 视频）。 */
+        const qParent = (pr.nest && pr.nest.parent) || '';
+        const qNested = (pr.nest && Array.isArray(pr.nest.fields)) ? pr.nest.fields : [];
         /* 尺寸预设现算（拾帧图片报价）：档(tier) × 比例(ar) → width/height，换算只走
            Api.sizePreset 一份（与 createBody 共用）。声明 create.sizeFields 给出字段名与落点，
            pricing.nest 给出「报价体里嵌到哪个对象」（如 params）。没有声明就一字不加。 */
@@ -1060,15 +1065,16 @@ window.AssetLib.estimateCost = async function (prov, model, p = {}, opts = {}) {
         if (sf && model && model.options && Array.isArray(model.options.sizePresets)) {
           const px = window.Api.sizePreset(model, p[sf.tierFrom || 'tier'], p[sf.arFrom || 'ar']);
           if (px) {
-            const nestParent = (pr.nest && pr.nest.parent) || '';
             const wf = sf.widthField || 'width', hf = sf.heightField || 'height';
-            if (nestParent) qbody[nestParent] = { ...(qbody[nestParent] || {}), [wf]: px.width, [hf]: px.height };
+            if (qParent) qbody[qParent] = { ...(qbody[qParent] || {}), [wf]: px.width, [hf]: px.height };
             else { qbody[wf] = px.width; qbody[hf] = px.height; }
           }
         }
         for (const [remote, local] of Object.entries(pr.body || {})) {
           const v = src[local];
-          if (v != null && v !== '') qbody[remote] = v;
+          if (v == null || v === '') continue;
+          if (qParent && qNested.includes(remote)) qbody[qParent] = { ...(qbody[qParent] || {}), [remote]: v };
+          else qbody[remote] = v;
         }
         qctx.intent = qbody.creation_intent || '';
         /* 顶层开关也带上：文档说报价「使用**创建接口的相同参数**」——

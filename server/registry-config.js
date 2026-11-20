@@ -1449,7 +1449,9 @@ const REGISTRY = {
       pricing: { type: 'quote', currency: '¥', endpoint: 'quote', method: 'POST', needDuration: false,
         body: { endpoint: 'model', duration_seconds: 'duration' },
         consts: { params: { prompt: '报价预估（不创建任务）' } },
-        nest: { parent: 'params' }, amountField: 'estimated_cost_cny' },
+        /* 音频时长只在 params.duration_seconds：顶层那个只给 grid 视频，带上去平台 422。
+           nest.fields 点名哪些报价字段要落进 parent（尺寸预设仍走同一处）。 */
+        nest: { parent: 'params', fields: ['duration_seconds'] }, amountField: 'estimated_cost_cny' },
       endpoints: {
         create: '/v1/jobs', poll: '/v1/jobs/{id}', retrieve: '/v1/jobs/{id}/result',
         quote: '/web-api/quote', credits: '/v1/account', uploads: '/v1/uploads',
