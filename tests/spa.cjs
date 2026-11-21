@@ -428,8 +428,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        InlinePolish.show 面板标题与参照稿块（平台改写工具的对照稿同一块面板，不开第二个面板族）；
        `web/styles/ui.css` 的 .pinl-ref 两行样式。都是常驻公共层的面（能力归一化没有第二份，
        润色面板全站一份），没有按需拆载的落点。
-       实跑 30 枚 / 913140 字节（登记上限 915000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 915000;
+       实跑 30 枚 / 913140 字节（登记上限 915000）。
+     ·  +5.4KB（2026-11-21，润色双稿与双语存显批 1）：`web/domain/gen-forms.js` 的 AiStream.bi
+       （双稿切分与面板落点的组装，工作台 / 导演台单镜 / 配音 / 批量四条润色链共用一份）；
+       `web/ui/forms.js` 的 show 参照块 setRef（follow / 重跑跟换、缺块当场补）与
+       PromptReview.openList 条目对照稿展开钮；`web/core/routes.js` 的 PolishBi 装载登记。
+       润色面板与流式底座全站一份，没有按需拆载的落点。
+       实跑 30 枚 / 918552 字节（登记上限 920000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 920000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

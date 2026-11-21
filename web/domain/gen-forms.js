@@ -1463,4 +1463,39 @@ window.AiStream = {
       throw e;
     }
   },
+  /* 双稿的一轮（主稿 + 【对照稿】）：切分器（TextAI.biStream）与面板落点的组装只有这一份。
+     o.ctl 有就流式灌它的 push（结果面板里的重跑 / follow 那条路），没有就自摆一块流式面板
+     （与 AiStream.text 同一套收尾）。是否真出对照稿由 Skill 正文决定：不出标记就整份回主稿。
+     返回 { main, ref }，ref 为空就是单稿 —— 流式面板从头到尾只见过主稿，对照稿只进
+     结果面板的参照块。`o.onZh` 在标记出现时叫一声（批量那一路拿它改行状态）；
+     没给就用 ctl.note 提示一句「主稿已出，对照稿生成中…」。 */
+  async bi(REG, sys, user, o) {
+    const opt = o || {};
+    const ctl = opt.ctl || null;
+    if (ctl) {
+      const bi = window.TextAI.biStream(ctl.push, () => {
+        if (opt.onZh) opt.onZh();
+        else if (ctl.note) ctl.note('主稿已出，对照稿生成中…');
+      });
+      const txt = await window.TextAI.chatStream(REG, sys, user,
+        { images: opt.images, media: opt.media, signal: ctl.signal }, bi.feed, opt.prov);
+      return bi.result(txt);
+    }
+    const ab = new AbortController();
+    const live = this.panel(opt.host || null, { title: opt.title || 'AI 正在写…', onStop: () => ab.abort() });
+    const bi = window.TextAI.biStream((piece, kind) => live.push(piece, kind),
+      () => { try { live.note('主稿已出，对照稿生成中…'); } catch (e) { /* 面板已不在：不影响收稿 */ } });
+    try {
+      const txt = await window.TextAI.chatStream(REG, sys, user,
+        { images: opt.images, media: opt.media, signal: ab.signal }, bi.feed, opt.prov);
+      live.done();
+      return bi.result(txt);
+    } catch (e) {
+      /* 按「停止」：面板留着（已写出的字是用户唯一拿到的结果），底部换「已停止」—— 停止是主动收尾不是失败；
+         AbortError 名字由 Net.fetch / chatStream 那层保留。中断 / 报错同样面板留着，只把底部换成原因。 */
+      if (e && e.name === 'AbortError') { try { live.note('已停止'); } catch (e2) { /* 面板已不在：不影响收尾 */ } throw e; }
+      live.fail(errText(e));
+      throw e;
+    }
+  },
 };

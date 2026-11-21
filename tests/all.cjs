@@ -307,6 +307,8 @@ run('tests/director-slice-pack.mjs', process.execPath, ['tests/director-slice-pa
 run('tests/director-style-scope.mjs', process.execPath, ['tests/director-style-scope.mjs']);
 /* 拖素材的引用载荷：字段白名单、两个 MIME、标签拼装；老载荷与本机号都只按号走。 */
 run('tests/asset-ref.mjs', process.execPath, ['tests/asset-ref.mjs']);
+/* 润色双稿切分：标记约定（主稿 → 【对照稿】）、单稿回退、流式不漏半截标记；单稿 Skill 靠回退零改动兼容。 */
+run('tests/polish-bi.mjs', process.execPath, ['tests/polish-bi.mjs']);
 /* 任务详情：号反查 / 六种原因码 / 批量共用一轮；平台用桩替，不发一个真请求。 */
 run('tests/task-detail.mjs', process.execPath, ['tests/task-detail.mjs']);
 /* 候选镜头语义：一镜 = 一组候选镜头，每条自带描述与拍摄配置；克隆、批量口径与旧形状的一次性转换。 */

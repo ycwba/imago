@@ -1452,26 +1452,34 @@ async function polishVoiceText(col) {
     + '不要带引号或表情符号，只返回这一句本身。';
   const taskWord = '配音稿（画面上一句台词）';
   /* 与镜头提示词润色同一套：有 ctl 就把片段灌进 InlinePolish 的面板（流式），
-     没有 ctl 就用 AiStream 自己摆一块；只有反问那一轮仍是短 JSON 一次性调用。 */
-  const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(REGOf(), sys, user, { signal: ctl.signal }, ctl.push)
-    : AiStream.text(REGOf(), sys, user, { host: host, title: 'AI 正在润色这一句配音…' });
-  const run = async (answers, ctl) => ({
-    after: await call(
-      TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ answers })),
-      TextAI.polishUser(taskWord, original), ctl),
-    note: '',
+     没有 ctl 就用 AiStream 自己摆一块；只有反问那一轮仍是短 JSON 一次性调用。
+     双稿切分（主稿 + 【对照稿】）同样走公共的 `AiStream.bi`：Skill 正文按内容决定 ——
+     纯朗读稿不出标记，整份回主稿（单稿行为不变）；带风格 / 背景描述才出对照稿。 */
+  let lastRefLang = '';
+  const call = (sys, user, ctl) => AiStream.bi(REGOf(), sys, user, {
+    ctl: ctl, host: host, title: 'AI 正在润色这一句配音…',
   });
+  const run = async (answers, ctl) => {
+    const r = await call(
+      TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ answers })),
+      TextAI.polishUser(taskWord, original), ctl);
+    lastRefLang = r.ref ? '英文' : '';
+    return { after: r.main, reference: r.ref, note: '' };
+  };
   const ask = () => TextAI.askPolish(REGOf(),
     TextAI.polishSys(sysBase + ' ' + hint, TextAI.polishExtra({ stage: 'ask' })),
     TextAI.askUser(taskWord, original, { count: '2–3', tail: '这一句没有随消息附图，别问画面之外的' }), {});
-  /* 出结果之后接着说：拿屏幕上这一版（用户可能刚改过）按那一句再改，仍然只改字、不合成。 */
+  /* 出结果之后接着说：拿屏幕上这一版（用户可能刚改过）按那一句再改，仍然只改字、不合成。
+     上一轮出了对照稿就照两段式重写（refLang 交代）；纯朗读稿那一路照旧单稿。 */
   const follow = async (askText, current, ctl, ctx) => {
     const p = TextAI.followPrompt({
       what: taskWord, ask: askText, current,
       extra: [hint, TextAI.answersNote(ctx && ctx.answers)],
+      refLang: lastRefLang,
     });
-    return { after: await call(p.sys, p.user, ctl), note: '' };
+    const r = await call(p.sys, p.user, ctl);
+    lastRefLang = r.ref ? '英文' : '';
+    return { after: r.main, reference: r.ref, note: '' };
   };
   /* 忙与闲只切状态：那一行字与图标各归哪一格都由公共层管（`aiBtnState` 只换 `.tx`，
      不重写整副 innerHTML —— 那样图标一会儿包在 .ic 里、一会儿裸着，颜色跟着漂）。 */

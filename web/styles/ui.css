@@ -956,6 +956,12 @@ button.armed { min-width: 4.6em; }
   border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2);
   color: var(--sub); font-size: var(--fs-12); line-height: var(--lh-1-5);
   white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow-y: auto; }
+/* 参照稿进审阅弹窗的那一份（润色全部文案：每条结果带自己的对照稿，默认收起） */
+.pr-ref { margin-top: var(--sp-4); font-size: var(--fs-12); }
+.pr-refbody { margin-top: var(--sp-4); padding: var(--sp-8) var(--sp-12);
+  border: var(--hair) solid var(--line); border-radius: var(--radius-6); background: var(--panel2);
+  color: var(--sub); font-size: var(--fs-12); line-height: var(--lh-1-5);
+  white-space: pre-wrap; word-break: break-word; max-height: 180px; overflow-y: auto; }
 
 /* ---------- 「拆成 N 张图」那一排选项（SplitPlan.html 画） ----------
    工作台图像栏的「拆分片段生成」与导演台右栏的「画面切片规划」共用这一排，所以排布与密度都在这层。

@@ -171,7 +171,7 @@ function keepBodyScroll(el, fn) {
           <span class="pinl-note">${esc(o.note || '')}</span>
         </div>
         <textarea class="pinl-ta" spellcheck="false" placeholder="润色结果"></textarea>
-        ${o.reference != null ? `<div class="pinl-ref"><button type="button" class="ui-linkbtn" data-act="ref">${esc(o.referenceLabel || '参照稿')}</button><div class="pinl-refbody" hidden></div></div>` : ''}
+        ${o.reference ? `<div class="pinl-ref"><button type="button" class="ui-linkbtn" data-act="ref">${esc(o.referenceLabel || '参照稿')}</button><div class="pinl-refbody" hidden></div></div>` : ''}
         <div class="pinl-talk" hidden></div>
         ${o.onFollow ? `<div class="pinl-chat">
           <input class="pinl-chatin" type="text" spellcheck="false" placeholder="${esc(o.followPlaceholder || '还要怎么改？')}">
@@ -225,13 +225,31 @@ function keepBodyScroll(el, fn) {
         talk.innerHTML = rounds.map((t, i) => `<div class="pinl-turn">第 ${i + 1} 轮 · 你说：${esc(t)}</div>`).join('');
       };
       paintTalk();
-      /* 参照稿（平台改写工具的中文稿给人看，英文稿才是写进提示词的那份）：默认收起，
-         点一下展开 —— 长文本不该替用户决定「永远摊在面板里」。 */
-      const refBody = el.querySelector('.pinl-refbody');
-      if (refBody) {
-        refBody.textContent = String(o.reference || '');
-        el.querySelector('[data-act="ref"]').onclick = () => { refBody.hidden = !refBody.hidden; };
-      }
+      /* 参照稿（对照稿那一路：主稿进框、对照稿给人对照）：默认收起，点一下展开 ——
+         长文本不该替用户决定「永远摊在面板里」。follow / 重新润色出了新对照稿也跟着换；
+         块不在而新稿非空时当场补一块（首轮没出、下一轮才出的那条路），新稿为空就整块收掉。 */
+      let refWrap = el.querySelector('.pinl-ref');
+      const setRef = txt => {
+        const t = String(txt == null ? '' : txt).trim();
+        if (!refWrap) {
+          if (!t) return;
+          const at = el.querySelector('.pinl-talk') || el.querySelector('.pinl-chat') || el.querySelector('.pinl-ft');
+          refWrap = document.createElement('div');
+          refWrap.className = 'pinl-ref';
+          refWrap.innerHTML = '<button type="button" class="ui-linkbtn" data-act="ref">' + esc(o.referenceLabel || '参照稿')
+            + '</button><div class="pinl-refbody" hidden></div>';
+          at.parentNode.insertBefore(refWrap, at);
+          refWrap.querySelector('[data-act="ref"]').onclick = () => {
+            const b = refWrap.querySelector('.pinl-refbody');
+            b.hidden = !b.hidden;
+          };
+        }
+        const body = refWrap.querySelector('.pinl-refbody');
+        body.textContent = t;
+        body.hidden = !t;
+        refWrap.hidden = !t;
+      };
+      setRef(o.reference);
       function apply() {
         const v = ta.value.trim();
         if (!v) return;
@@ -263,6 +281,7 @@ function keepBodyScroll(el, fn) {
           const r = await o.onRetry(ctl);
           const next = (r && typeof r === 'object') ? r : { after: r };
           ta.value = next.after || '';
+          if (next && next.reference !== undefined) setRef(next.reference);
           noteEl.textContent = next.note || keepNote;
           paintLen(); grow();
           if (o.onEdit) o.onEdit(ta.value);
@@ -315,6 +334,7 @@ function keepBodyScroll(el, fn) {
           }
           const next = (r && typeof r === 'object') ? r : { after: r };
           if (next.after) { ta.value = next.after; if (o.onEdit) o.onEdit(ta.value); }
+          if (next.reference !== undefined) setRef(next.reference);
           rounds.push(askTxt); paintTalk();
           noteEl.textContent = [next.note, '已按这句再改一版']
             .filter(Boolean).join(' · ');
@@ -504,6 +524,7 @@ function keepBodyScroll(el, fn) {
         const note = [o.note, next.note, answers ? '已按你的回答润色' : (noAskNote || '')].filter(Boolean).join(' · ');
         const el = self.show(host, {
           after: next.after, note, before: o.before, applyLabel: o.applyLabel,
+          reference: next.reference, referenceLabel: o.referenceLabel || '对照稿',
           onEdit: o.onEdit, onApply: o.onApply,
           /* 「重新润色」用同一份回答重跑；问答在前面（「改回答」按钮），所以不会把回答问丢。
              ctl 也一并递给页面：它拿 ctl.push 就能把这一轮边收边灌进结果框，
@@ -1203,12 +1224,19 @@ function keepBodyScroll(el, fn) {
             body.innerHTML = items.length ? items.map((it, i) => `<div class="pr-row" data-i="${i}">
                 <span class="tt">${esc(it.label)}${it.sub ? `<span class="psub">${esc(it.sub)}</span>` : ''}</span>
                 <textarea data-i="${i}">${esc(it.text || '')}</textarea>
+                ${it.ref ? `<div class="pr-ref"><button type="button" class="ui-linkbtn" data-refbtn="${i}">对照稿</button><div class="pr-refbody" hidden></div></div>` : ''}
                 <button type="button" class="x iconbtn" data-del="${i}" title="删掉这一条">${window.icon('close', 11)}</button>
               </div>`).join('') : `<div class="pr-loading">${esc(o.empty || '没有可用的画面')}</div>`;
           });
           okBtn.disabled = !items.length;
           body.querySelectorAll('textarea').forEach(ta => ta.oninput = () => { items[+ta.dataset.i].text = ta.value; });
           body.querySelectorAll('[data-del]').forEach(b => b.onclick = () => { items.splice(+b.dataset.del, 1); paint(); });
+          /* 条目自带的对照稿（润色全部文案那一路）：默认收起，点一颗展开看那一条的中文版。 */
+          body.querySelectorAll('[data-refbtn]').forEach(b => {
+            const fb = b.parentElement.querySelector('.pr-refbody');
+            fb.textContent = String((items[+b.dataset.refbtn] || {}).ref || '');
+            b.onclick = () => { fb.hidden = !fb.hidden; };
+          });
         };
         paint();
         /* 空正文的条目默认丢掉（「这一张没写出任何东西」= 不生成它）；`keep` 是给

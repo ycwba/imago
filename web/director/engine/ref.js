@@ -65,13 +65,18 @@ function polishMediaList(sh) {
   return out;
 }
 /* 润色结果的就地状态：编辑器会被反复重渲染，面板内容存这里才不会丢
-   { shotId, text, note, loading, run, follow, answersText, talk }
+   { shotId, text, ref, refLang, note, loading, run, follow, answersText, talk }
    `answersText` = 这一版是按哪些回答润的（「重新润色」要照同一份回答重跑，不能重跑成没回答）；
+   `ref` / `refLang` = 对照稿与它的语言（对照稿进面板的参照块，主稿才是写回候选的那份；
+   没出对照稿就是空 —— 纯单稿的 Skill 或模型没按两段式来时都落在这里）；
    `talk` = 结果出来之后用户接着说过的那几句（数组存在这里，整栏重画后还能画回来）。 */
 let polishUI = null;
 /* 这一处润的是「镜头提示词」：那句话的名字只在这一处点一次名，
    发给模型的正文、反问那句、以及输入框的提示语都从它派生（见 TextAI.polishUser / askUser / followPrompt）。 */
 const POLISH_SHOT_WORD = '镜头提示词';
+/* 视频润色的主稿是英文（H3 规范），对照稿按 Skill 约定用用户的原话语言 —— 原话是中文时
+   对照稿就是中文。这枚词只给「按这句再改」那轮的交代（照两段式重写对照稿）用。 */
+const POLISH_REF_LANG = '中文';
 /* 按当前状态在 #polishInline 里画润色面板（renderEditor 每次重渲染后都会调）
    两个阶段都从这里画，状态全在 polishUI 里：切镜头再切回来不能丢内容。 */
 function renderPolishPanel(sh) {
@@ -95,6 +100,7 @@ function renderPolishPanel(sh) {
   const ta = $('edPrompt');
   InlinePolish.show(host, {
     after: polishUI.text, note: polishUI.note, before: ta ? ta.value : '',
+    reference: polishUI.ref || '', referenceLabel: '对照稿',
     onEdit: v => { polishUI.text = v; },                       // 用户改过的版本也存住，重渲染不丢
     onApply: v => {
       /* 按开始润色时记下的 vid 找候选：找不到（被删掉 / 换了工程）就不写 ——
@@ -121,8 +127,10 @@ function renderPolishPanel(sh) {
       /* 那一句note 重拼一遍，不能只留 `picked.note`：重跑用的还是同一份回答，
          而 picked.note 只有「有没有带上图」那一句 —— 直接盖掉就把「已按你的回答润色」说丢了。 */
       const note = [polishUI.note0, r.note, polishUI.answersText ? '已按你的回答润色' : ''].filter(Boolean).join(' · ');
-      polishUI.text = r.after; polishUI.note = note;
-      return { after: r.after, note: note };
+      polishUI.text = r.after; polishUI.ref = r.reference || '';
+      polishUI.refLang = r.reference ? POLISH_REF_LANG : '';
+      polishUI.note = note;
+      return { after: r.after, reference: r.reference, note: note };
     },
     /* 「按这句再改」：结果出来之后接着和 AI 说，改的是屏幕上这一版（用户可能刚手改过）。
        第 4 个参数里的 answers 是先前那几题的回答 —— 这一处问答是页面自己画的（不是
@@ -151,7 +159,10 @@ async function polishRun(answers) {
     polishUI.loading = false;
     polishUI.phase = 'result';
     polishUI.answersText = answers || '';
-    polishUI.text = r.after; polishUI.note = [polishUI.note0, r.note, answers ? '已按你的回答润色' : ''].filter(Boolean).join(' · ');
+    polishUI.text = r.after;
+    polishUI.ref = r.reference || '';
+    polishUI.refLang = r.reference ? POLISH_REF_LANG : '';
+    polishUI.note = [polishUI.note0, r.note, answers ? '已按你的回答润色' : ''].filter(Boolean).join(' · ');
   } catch (e) {
     polishUI = null;
     InlinePolish.clear($('polishInline'));
@@ -217,8 +228,10 @@ function shotPolishOf(sh, original) {
   };
   /* 一轮润色的完整出口：准备素材 → 组系统提示词 → 调用文字 AI。
      单镜与批量润色各挑自己的流式落点，但 sys / user / 素材准备只走这一份：
-     `text` 是这一轮要润的那一句（批量时每条候选各一句）；`ctl` 有就流式灌进它的 push，
-     没有就把流式面板摆在 host 里。 */
+     `text` 是这一轮要润的那一句（批量时每条候选各一句）。
+     双稿切分（主稿 + 【对照稿】）走公共的 `AiStream.bi`：是否真出对照稿由 Skill 正文决定，
+     不出标记就整份回主稿（单稿行为不变）；流式只把主稿灌进面板，对照稿阶段用 opt.onZh
+     说一声（批量那一路拿它改行状态），主稿与对照稿收尾一起返回。 */
   const callFor = async (text, opt = {}) => {
     const answers = opt.answers || '';
     const ctl = opt.ctl || null;
@@ -229,13 +242,11 @@ function shotPolishOf(sh, original) {
       media: media, text: text, answers: answers, note: opt.note,
     }));
     const user = TextAI.polishUser(POLISH_SHOT_WORD, text);
-    const after = ctl
-      ? await TextAI.chatStream(regOf(), sys, user, { media: media, signal: ctl.signal }, ctl.push)
-      : await AiStream.text(regOf(), sys, user, {
-          media: media, host: opt.host || $('polishInline'),
-          title: opt.title || 'AI 正在润色这一镜的提示词…',
-        });
-    return { after: after, note: picked.note };
+    const parts = await AiStream.bi(regOf(), sys, user, {
+      media: media, ctl: ctl, host: opt.host || $('polishInline'),
+      title: opt.title || 'AI 正在润色这一镜的提示词…', onZh: opt.onZh,
+    });
+    return { after: parts.main, reference: parts.ref, note: picked.note };
   };
   return { word: POLISH_SHOT_WORD, media: () => media, materials, shotSysNow, prep, callFor };
 }
@@ -251,12 +262,10 @@ async function polishPrompt() {
   const P = shotPolishOf(sh, original);
   /* 「按这句再改」的调用：带着 ctl（结果面板此刻就在屏幕上）就把片段灌进 ctl.push，
      边写边显示在结果框里，不能再往 `#polishInline` 摆流式面板 —— 那块宿主就是结果面板本身；
-     没有 ctl 时退回 AiStream 面板。 */
-  const call = (sys, user, ctl) => ctl
-    ? TextAI.chatStream(regOf(), sys, user, { media: P.media(), signal: ctl.signal }, ctl.push)
-    : AiStream.text(regOf(), sys, user, {
-        media: P.media(), host: $('polishInline'), title: 'AI 正在润色这一镜的提示词…',
-      });
+     没有 ctl 时退回自摆面板那一路。同样走双稿切分（follow 的系统提示词按 refLang 交代两段式）。 */
+  const call = (sys, user, ctl) => AiStream.bi(regOf(), sys, user, {
+    media: P.media(), ctl: ctl, host: $('polishInline'), title: 'AI 正在按这句话再改…',
+  });
   /* 这一轮润的是输入框里那句（当前查看候选的有效描述）；素材准备、系统提示词与流式落点
      都在 callFor 里，单镜与批量只有这一份构造。answers 是用户对追问的回答（没有时是空串）。 */
   const run = (answers, ctl) => P.callFor(original, {
@@ -274,8 +283,11 @@ async function polishPrompt() {
       extra: TextAI.polishExtra({
         media: P.media(), text: current, materials: P.materials(), answers: (ctx && ctx.answers) || '',
       }),
+      refLang: polishUI ? polishUI.refLang : '',
     });
-    return { after: await call(p.sys, p.user, ctl), note: picked.note };
+    const r = await call(p.sys, p.user, ctl);
+    if (polishUI) { polishUI.ref = r.ref || ''; polishUI.refLang = r.ref ? POLISH_REF_LANG : ''; }
+    return { after: r.main, reference: r.ref, note: picked.note };
   };
   const btn = $('polishBtn');
   const wantAsk = TextAI.shouldAsk();        // 设置选「从不问」时不发起这一轮
@@ -283,7 +295,8 @@ async function polishPrompt() {
      用户点「替换」时指的一定是发起那一刻看着的那条。 */
   const c0 = (sh.candidates || [])[projOf().curCand] || null;
   polishUI = { shotId: sh.id, candVid: c0 ? c0.vid : '', phase: 'ask', loading: true, loadingText: '正在读这一镜，想想到底要先问什么…',
-    run: run, follow: follow, answersText: '', talk: [], note0: '', questions: [], answers: [] };
+    run: run, follow: follow, answersText: '', talk: [], note0: '', questions: [], answers: [],
+    ref: '', refLang: '' };
   window.aiBtnState(btn, true);
   /* 先反问：**由 AI 自己判断**值不值得问（need=false 就直接润色）。这一轮同样带素材图与清单 ——
      看过画面再问，问出来的才是画面相关的问题。 */

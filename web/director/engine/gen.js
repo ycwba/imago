@@ -1185,7 +1185,9 @@ async function runPolishAll() {
           note() { /* 素材附带的说明只进单镜面板，这一栏只看正文 */ },
           get signal() { return ab.signal; },
         };
-        const r = await P.callFor(t.text, { ctl, answers: batchAnswers, note: batchNote });
+        const r = await P.callFor(t.text, { ctl, answers: batchAnswers, note: batchNote,
+          /* 主稿先出、对照稿还在写的那几秒说一声，行状态别停在「润色中…」让人以为卡了。 */
+          onZh: () => setRowState(i, '对照稿生成中…') });
         if (ab.signal.aborted) { setRowState(i, '已停止'); continue; }
         const after = String((r && r.after) || bufs[i]).trim();
         if (!after) {
@@ -1195,8 +1197,9 @@ async function runPolishAll() {
         }
         bufs[i] = after;
         flushRows();
+        const ref = String((r && r.reference) || '').trim();
         run.results.push({ key: t.key, kind: t.kind, shotId: t.shot.id, vid: t.vid,
-          label: t.label, text: after, seq: t.seq });
+          label: t.label, text: after, ref: ref, seq: t.seq });
         setRowState(i, '完成');
       } catch (e) {
         if (ab.signal.aborted) { setRowState(i, '已停止'); continue; }
@@ -1235,7 +1238,7 @@ async function runPolishAll() {
     sub: (ab.signal.aborted ? '已停止 · ' : '') + '完成 ' + run.results.length + ' 条'
       + (run.failed.length ? ' · 失败 ' + run.failed.length + ' 条' : ''),
     items: run.results.map(r => ({ key: r.key, kind: r.kind, shotId: r.shotId, vid: r.vid,
-      label: r.label, text: r.text })),
+      label: r.label, text: r.text, ref: r.ref || '' })),
     applyLabel: '写入文案',
     hint: run.failed.map(f => f.label + '：' + f.why).join('；'),
   });

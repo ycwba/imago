@@ -16,7 +16,7 @@
      （engine.js 那一层）—— 不点名它就是三段串（needs → 页面 → 引擎）。 */
   const C = 'web/domain/capabilities.js', T = 'web/domain/text-ai.js',
     P = 'web/domain/asset-picker.js', D = 'web/ui/datasync.js', S = 'web/domain/search.js',
-    PT = 'web/domain/prompt-tools.js';
+    PT = 'web/domain/prompt-tools.js', PB = 'web/domain/polish-bi.cjs';
   /* `short`：窄形态（56px）下压在图标下面的**两字短标签**。
      窄形态里也要认得出每一项，所以短标签常驻、不靠悬停才知道这一项是什么。
      它必须和 `label` 放在同一张表里 —— 侧栏不许另抄一份（改了页面名忘了改短标签，
@@ -25,25 +25,25 @@
   const pages = [
     { file: 'director.html', id: 'director', label: '导演台', short: '导演', ic: 'film', title: '导演台', src: './director/index.js', root: '.director-page',
       chunk: ['./director/engine.js'],
-      needs: [C, T, P, D, S] },
+      needs: [C, T, P, D, S, PB] },
     { file: 'studio.html', id: 'studio', label: '工作台', short: '工作', ic: 'sparkles', title: '工作台', aiLabel: '工作台（视频 / 图像 / 音频）', src: './pages/studio.js', root: '.studio-page',
       css: 'web/styles/spa-studio.css',
-      needs: [C, T, P, D, S, PT] },
+      needs: [C, T, P, D, S, PT, PB] },
     { file: 'chars.html', id: 'chars', label: '素材库', short: '素材', ic: 'users', title: '素材库', src: './pages/chars.js', root: '.chars-page',
       css: 'web/styles/spa-chars.css',
-      needs: [C, T, P, D, S] },
+      needs: [C, T, P, D, S, PB] },
     { file: 'favorites.html', id: 'favorites', label: '我的收藏', short: '收藏', ic: 'star', title: '我的收藏', src: './pages/favorites.js', root: '.fav-page',
       css: 'web/styles/spa-pages.css',
       needs: [D] },
     { file: 'assets.html', id: 'assets', label: '资产库', short: '资产', ic: 'box', title: '资产库', src: './pages/assets.js', root: '.assets-page',
       css: 'web/styles/spa-assets.css',
-      needs: [T, D] },
+      needs: [T, D, PB] },
     { file: 'usage.html', id: 'usage', label: '用量与余额', short: '用量', ic: 'chart', title: '用量与余额', src: './pages/usage.js', root: '.usage-page',
       css: 'web/styles/spa-usage.css',
-      needs: [T, D] },
+      needs: [T, D, PB] },
     { file: 'settings.html', id: 'settings', label: '设置', ic: 'gear', title: '设置', nav: false, src: './pages/settings.js', root: '.settings-page',
       css: 'web/styles/spa-settings.css',
-      needs: [C, T, P, D] }
+      needs: [C, T, P, D, PB] }
   ];
 
   /* 旧地址 / 别名。值可以是带查询的地址（剧集工作台合并成 studio 后的三类入口）。
@@ -124,6 +124,7 @@
     'web/ui/datasync.js': 'DataSync',
     'web/domain/search.js': 'Search',
     'web/domain/prompt-tools.js': 'PromptTools',
+    'web/domain/polish-bi.cjs': 'PolishBi',
   };
   window.__spaNeeds = function (list) {
     return Promise.all((list || []).map(src => {

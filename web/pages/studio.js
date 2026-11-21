@@ -1884,10 +1884,14 @@ const StudioView = {
         /* 润色那一发也留原始请求快照（掩码随图附上，只有这一路带）——tag 单独一段，
            面板在生成预览下面单列一块，两份不打架。 */
 
-        const call = (sys, user, ctl) => ctl
-          ? TextAI.chatStream(REG, sys, user,
-            { media, signal: ctl.signal }, ctl.push)
-          : TextAI.chat(REG, sys, user, { media });
+        /* 双稿切分（主稿 + 【对照稿】）：三档都走公共的 `AiStream.bi` —— 是否真的出对照稿
+           由 Skill 正文决定，纯朗读稿那一路不出标记，切分器整份回主稿，行为与单稿版一致。
+           流式时只把主稿灌进面板；对照稿不进面板，收尾随 run 的返回进结果面板的参照块。 */
+        const refLangWord = TYPE === 'video' ? '中文' : '英文';
+        let lastRefLang = '';
+        const call = async (sys, user, ctl) => ctl
+          ? AiStream.bi(REG, sys, user, { media, ctl })
+          : TextAI.splitBi(await TextAI.chat(REG, sys, user, { media }));
         const prep = async () => { const p = await TextAI.prepareMedia(REG, mediaList()); media = p.media; return p; };
         const taskWord = TYPE === 'audio' ? '朗读稿' : TYPE === 'image' ? '生图提示词' : '视频提示词';
         /* Skill 正文里的 {duration} / {mode} / {model} / {ar} / {assets}：
@@ -1920,7 +1924,11 @@ const StudioView = {
           const picked = await prep();
           if (ctl && ctl.note && picked.note) ctl.note(picked.note);
           const sys = TextAI.polishSys(studioSysNow(), TextAI.polishExtra({ media, materials: extraMaterials(), answers, text: original }));
-          return { after: await call(sys, TextAI.polishUser(taskWord, original), ctl), note: picked.note };
+          const r = await call(sys, TextAI.polishUser(taskWord, original), ctl);
+          /* 对照稿记下语言（「按这句再改」要照它交代两段式）；没出对照稿就空着，
+             follow 轮照空交代「不要写标记行」（纯朗读稿那一路）。 */
+          lastRefLang = r.ref ? refLangWord : '';
+          return { after: r.main, reference: r.ref, note: picked.note };
         };
         const ask = async () => {
           const picked = await prep();
@@ -1932,8 +1940,10 @@ const StudioView = {
           const picked = await prep();
           if (ctl && ctl.note && picked.note) ctl.note(picked.note);
           const extra = TextAI.polishExtra({ media, materials: materials(), answers: (ctx && ctx.answers) || '' });
-          const p = TextAI.followPrompt({ what: taskWord, ask: askText, current, extra });
-          return { after: await call(p.sys, p.user, ctl), note: picked.note };
+          const p = TextAI.followPrompt({ what: taskWord, ask: askText, current, extra, refLang: lastRefLang });
+          const r = await call(p.sys, p.user, ctl);
+          lastRefLang = r.ref ? refLangWord : '';
+          return { after: r.main, reference: r.ref, note: picked.note };
         };
         try {
           await InlinePolish.interactive(host, {
