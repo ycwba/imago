@@ -490,6 +490,8 @@ run('tests/static-encoding.cjs', process.execPath, ['tests/static-encoding.cjs',
   /* 资产库筛选 / 翻页链：平台下拉生效 · 改条件回第 1 页 · 搜索重画每档条数 ·
      翻页滚回列表顶（Wb.pageHead.scrollToList）· 多选条粘顶时贴着页头下缘。 */
   run('tests/e2e/assets-filters.cjs', process.execPath, ['tests/e2e/assets-filters.cjs'], { tier: 'browser' });
+  /* 本机账的平台归属：provider 注记缺失按 upstream 域名 + 媒体档认平台（拾帧三档共用一个 base、地址带非默认端口）。 */
+  run('tests/e2e/local-attrib.cjs', process.execPath, ['tests/e2e/local-attrib.cjs'], { tier: 'browser' });
   run('tests/e2e/favorites-pager.cjs', process.execPath, ['tests/e2e/favorites-pager.cjs'], { tier: 'browser' });
   /* 翻页行在四页都得**画出来**（用户报过「翻页组件不显示」：工作台那一处是宿主从未登记，
      整行从未填过）。这一条盯「宿主登记 + 行可见 + 上一/下一页在」；翻页之后的行为

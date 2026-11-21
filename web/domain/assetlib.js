@@ -101,7 +101,8 @@
     const providerId = routedId
       || (selfKnown ? selfRaw : '')
       || (spec.selfAsset && window.Api && window.Api.providerByUpstream
-        ? window.Api.providerByUpstream(raw && raw.upstream) : '')
+        ? window.Api.providerByUpstream(raw && raw.upstream,
+            window.mediaKindOf ? window.mediaKindOf(media) : '') : '')
       || (spec.selfAsset ? 'local' : prov.id);
     const ownProv = (providerId && providerId !== prov.id && providerId !== routedId && window.Api)
       ? (window.Api.prov(providerId) || null) : null;

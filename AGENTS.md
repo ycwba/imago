@@ -278,7 +278,8 @@ frame-ancestors 'none'; worker-src 'self' blob:
 - 磁盘对账共用 `dirScan`（30 秒 TTL）；只扫当前库根，跳过 `提示词/` `FCPXML工程/` `.trash/`；盘上有账里没有的由 `localAdopt` 补建一次；同内容并成一条账（`altPaths`）。
 - 重复下载并成一张卡：按同一上游产物号或同一 `sig`；删一张卡 = 收掉背后每条账与每份字节。
 - 本机资产账是多家共用的一条列表（`local:/local-assets`，按端点去重、由注册表第一家读）：卡片平台归属只认账行 `provider` 注记；
-  缺失 / `'local'` / `'本机'` 时按条目 `upstream` 域名认平台（`Api.providerByUpstream`），认不出显示「本机」——不挂给读表第一家。
+  缺失 / `'local'` / `'本机'` 时按条目 `upstream` 域名认平台（`Api.providerByUpstream`，同域多档按条目媒体档挑那一家——
+  拾帧三档共用一个 base；比对只看 hostname，拾帧取产物地址带 :9443 端口），认不出显示「本机」——不挂给读表第一家。
 - 云端说成功却没有产物地址：宽限期 30 分钟内按「生成中」，过期判 `expired`；本机有唯一一份视频时当场当本机资产。
 - 自动镜像由 `wb:asset-done` 触发；字节经 `POST /local-assets/from-url` 流式落盘。导演台候选 / 关键帧是 `mustSave`，不看 `sk_media_local`；历史补扫不带 `mustSave`。
 - 浏览器只留当前会话别名表；账以代理为准（`/local-assets/aliases` / `/local-assets/locate`）。
