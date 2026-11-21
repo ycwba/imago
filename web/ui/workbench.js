@@ -2704,19 +2704,53 @@
       return n + ' 条已加载（搜索只筛已加载的）';
     },
 
-    /* ---------- 列表「部分来源没取回来」的提示条 ----------
+    /* ---------- 列表「部分来源没取回来」的悬浮提示卡 ----------
        平台列表接口一慢/一挂，右栏最容易的表现是「静默变空」或「只剩一半卡片」，
-       用户不知道是没数据还是没取到。errs 是 { 来源: 错误文字 }，没有失败时返回 ''。
-       配合 Wb.cards 的 notesHTML 用（约定容器带 .list-note 类，才能被原地替换/移除）；
-       重试按钮的 id 由页面自己事件委托去接（列表是重建出来的，绑不上一次性监听）。 */
-    loadNote(errs, retryId) {
+       用户不知道是没数据还是没取到。errs 是 { 来源: 错误文字 }，没有失败时收卡。
+       这张卡**悬浮**（固定挂在页头下方，不占列表的布局位——以前插在列表头顶，
+       一条提示把整列卡片往下顶一大截）且**可关闭**（× 收掉；同一批错误关掉后不再打扰，
+       错误变化——新挂了一家 / 换了原因——才再浮出来；错误清零自动消失）。
+       卡片自己管理自己：调用方照旧每轮渲染把当前 errs 递进来（返回值恒为空串，
+       不再借调用方的容器占布局），`onRetry` 直接绑在重试钮上（悬浮卡不随列表重建，
+       以前那套「页面事件委托按 id 接」的回路整个撤掉）。 */
+    _loadNote: null,
+    loadNote(errs, retryId, onRetry) {
       const ks = Object.keys(errs || {});
-      if (!ks.length) return '';
+      const st = this._loadNote || (this._loadNote = { el: null, sig: '', gone: '', onRetry: null });
+      if (!ks.length) {
+        if (st.el) { st.el.remove(); st.el = null; }
+        st.sig = ''; st.gone = '';
+        return '';
+      }
+      const sig = ks.sort().map(k => k + '\u0001' + String(errs[k] || '')).join('\u0001');
+      if (st.el && st.sig === sig) { st.onRetry = onRetry || null; return ''; }   // 同一批错误还挂着：不动
+      if (st.gone === sig) { st.onRetry = onRetry || null; return ''; }           // 用户刚关掉这一批：不再打扰
       const detail = ks.slice(0, 3).map(k => esc(k) + '：' + esc(String(errs[k] || '读取失败'))).join('；')
         + (ks.length > 3 ? ' 等 ' + ks.length + ' 个平台' : '');
-      return '<div class="list-note"><span class="txt">有 ' + ks.length + ' 个平台的任务这次没取回来（'
-        + detail + '）。下面只列已取到的。</span>'
-        + '<button type="button" class="ghost mini" id="' + (retryId || 'listRetry') + '">重试</button></div>';
+      if (!st.el) {
+        const el = document.createElement('div');
+        el.className = 'list-note';
+        el.setAttribute('role', 'status');
+        el.innerHTML = '<span class="txt"></span>'
+          + '<button type="button" class="ghost mini" id="' + esc(retryId || 'listRetry') + '">重试</button>'
+          + '<button type="button" class="bx" title="关闭">' + icon('close', 11) + '</button>';
+        el.querySelector('.bx').onclick = () => {
+          st.gone = st.sig;
+          el.remove(); st.el = null; st.sig = '';
+        };
+        el.querySelector('.ghost').onclick = () => {
+          if (st.onRetry) { try { st.onRetry(); } catch (e) { /* 重试回调自己报错，这里不拦 */ } }
+        };
+        document.body.appendChild(el);
+        st.el = el;
+      }
+      st.el.querySelector('.txt').innerHTML = '<b>有 ' + ks.length + ' 个平台的任务这次没取回来</b>（'
+        + detail + '）。下面只列已取到的。';
+      const rb = st.el.querySelector('.ghost');
+      if (rb && retryId && rb.id !== retryId) rb.id = retryId;
+      st.onRetry = onRetry || null;
+      st.sig = sig;
+      return '';
     },
 
     /* ---------- 任务卡片列表（右栏）：按键复用 DOM、指纹变了才重绘 ----------

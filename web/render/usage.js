@@ -119,37 +119,36 @@ const _hoisted_66 = { class: "ddwrap" }
 const _hoisted_67 = ["onUpdate:modelValue", "onChange"]
 const _hoisted_68 = ["onUpdate:modelValue", "onInput"]
 const _hoisted_69 = ["onClick"]
-const _hoisted_70 = ["onClick", "innerHTML"]
-const _hoisted_71 = {
+const _hoisted_70 = {
 class: "upd",
 id: "billCnt",
 style: {"margin-bottom":"var(--sp-8)"}
 }
-const _hoisted_72 = { id: "bills" }
-const _hoisted_73 = ["innerHTML"]
-const _hoisted_74 = {
+const _hoisted_71 = { id: "bills" }
+const _hoisted_72 = ["innerHTML"]
+const _hoisted_73 = {
 key: 1,
 class: "empty"
 }
-const _hoisted_75 = {
+const _hoisted_74 = {
 key: 2,
 class: "empty"
 }
-const _hoisted_76 = { key: 3 }
-const _hoisted_77 = ["title"]
-const _hoisted_78 = { class: "t" }
-const _hoisted_79 = { class: "p" }
-const _hoisted_80 = { class: "w t-sub" }
-const _hoisted_81 = {
+const _hoisted_75 = { key: 3 }
+const _hoisted_76 = ["title"]
+const _hoisted_77 = { class: "t" }
+const _hoisted_78 = { class: "p" }
+const _hoisted_79 = { class: "w t-sub" }
+const _hoisted_80 = {
 key: 1,
 style: {"font-size":"var(--fs-11)"}
 }
-const _hoisted_82 = {
+const _hoisted_81 = {
 key: 2,
 class: "t-err"
 }
-const _hoisted_83 = { class: "num" }
-const _hoisted_84 = {
+const _hoisted_82 = { class: "num" }
+const _hoisted_83 = {
 key: 1,
 title: "平台这次没返回价格，不是 0"
 }
@@ -550,22 +549,18 @@ class: "ic",
 }, null, -1 /* CACHED */),
 _createTextVNode(" 导出 CSV", -1 /* CACHED */)
 ]))], 8 /* PROPS */, _hoisted_69),
-_createElementVNode("div", {
-onClick: _ctx.onBillNoteClick,
-innerHTML: _ctx.billNoteHtml
-}, null, 8 /* PROPS */, _hoisted_70),
-_createElementVNode("div", _hoisted_71, _toDisplayString(_ctx.billCntText), 1 /* TEXT */),
-_createElementVNode("div", _hoisted_72, [
+_createElementVNode("div", _hoisted_70, _toDisplayString(_ctx.billCntText), 1 /* TEXT */),
+_createElementVNode("div", _hoisted_71, [
 (_ctx.billDownHtml)
 ? (_openBlock(), _createElementBlock("div", {
 key: 0,
 innerHTML: _ctx.billDownHtml
-}, null, 8 /* PROPS */, _hoisted_73))
+}, null, 8 /* PROPS */, _hoisted_72))
 : (_ctx.billLoading)
-? (_openBlock(), _createElementBlock("div", _hoisted_74, "加载中…"))
+? (_openBlock(), _createElementBlock("div", _hoisted_73, "加载中…"))
 : (!_ctx.billRows.length)
-? (_openBlock(), _createElementBlock("div", _hoisted_75, "没有账单"))
-: (_openBlock(), _createElementBlock("table", _hoisted_76, [
+? (_openBlock(), _createElementBlock("div", _hoisted_74, "没有账单"))
+: (_openBlock(), _createElementBlock("table", _hoisted_75, [
 _cache[28] || (_cache[28] = _createElementVNode("thead", null, [
 _createElementVNode("tr", null, [
 _createElementVNode("th", null, "时间"),
@@ -580,9 +575,9 @@ return (_openBlock(), _createElementBlock("tr", {
 key: i,
 title: _ctx.billRowTitle(b)
 }, [
-_createElementVNode("td", _hoisted_78, _toDisplayString(_ctx.fmtWhen(b.ts) || '—'), 1 /* TEXT */),
-_createElementVNode("td", _hoisted_79, _toDisplayString(b.platform || ''), 1 /* TEXT */),
-_createElementVNode("td", _hoisted_80, [
+_createElementVNode("td", _hoisted_77, _toDisplayString(_ctx.fmtWhen(b.ts) || '—'), 1 /* TEXT */),
+_createElementVNode("td", _hoisted_78, _toDisplayString(b.platform || ''), 1 /* TEXT */),
+_createElementVNode("td", _hoisted_79, [
 _createTextVNode(_toDisplayString(b.what), 1 /* TEXT */),
 (b.desc)
 ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
@@ -590,19 +585,19 @@ _createTextVNode(" · " + _toDisplayString(b.descShort), 1 /* TEXT */)
 ], 64 /* STABLE_FRAGMENT */))
 : _createCommentVNode("v-if", true),
 (b.genId)
-? (_openBlock(), _createElementBlock("code", _hoisted_81, _toDisplayString(b.genShort), 1 /* TEXT */))
+? (_openBlock(), _createElementBlock("code", _hoisted_80, _toDisplayString(b.genShort), 1 /* TEXT */))
 : _createCommentVNode("v-if", true),
 (b.status && b.status !== 'succeeded')
-? (_openBlock(), _createElementBlock("span", _hoisted_82, _toDisplayString(b.status), 1 /* TEXT */))
+? (_openBlock(), _createElementBlock("span", _hoisted_81, _toDisplayString(b.status), 1 /* TEXT */))
 : _createCommentVNode("v-if", true)
 ]),
-_createElementVNode("td", _hoisted_83, [
+_createElementVNode("td", _hoisted_82, [
 (b.tokens != null)
 ? (_openBlock(), _createElementBlock(_Fragment, { key: 0 }, [
 _createTextVNode(_toDisplayString(b.tokens.toLocaleString()) + " tokens", 1 /* TEXT */)
 ], 64 /* STABLE_FRAGMENT */))
 : (b.cost == null)
-? (_openBlock(), _createElementBlock("span", _hoisted_84, "平台未提供价格"))
+? (_openBlock(), _createElementBlock("span", _hoisted_83, "平台未提供价格"))
 : (b.unit === '元')
 ? (_openBlock(), _createElementBlock(_Fragment, { key: 2 }, [
 _createTextVNode("¥" + _toDisplayString(Number(b.cost).toFixed(4)), 1 /* TEXT */)
@@ -611,7 +606,7 @@ _createTextVNode("¥" + _toDisplayString(Number(b.cost).toFixed(4)), 1 /* TEXT *
 _createTextVNode(_toDisplayString(b.cost) + " " + _toDisplayString(b.unit), 1 /* TEXT */)
 ], 64 /* STABLE_FRAGMENT */))
 ])
-], 8 /* PROPS */, _hoisted_77))
+], 8 /* PROPS */, _hoisted_76))
 }), 128 /* KEYED_FRAGMENT */))
 ])
 ]))

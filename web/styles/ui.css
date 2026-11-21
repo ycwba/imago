@@ -115,11 +115,15 @@ body.wb-splitting-y * { user-select: none !important; }
 .viewtoggle button svg { display: block; }
 .pginfo { font-size: var(--fs-12); color: var(--sub); min-width: 90px; text-align: center; align-self: center; }
 .pager-row { display: flex; align-items: center; gap: var(--sp-8); justify-content: center; margin: var(--sp-16) 0 var(--sp-4); flex-wrap: wrap; }
-/* 列表上方的提示条（Wb.cards 的 notesHTML 约定带 .list-note 类，便于原地替换/移除）：
-   用来把「某个平台的列表这次没取回来」这类部分失败说出来，而不是让右栏静默变空。 */
-.list-note { font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--warn);
+/* 列表「部分来源没取回来」的悬浮提示卡（Wb.loadNote 自管一张，挂 body）：
+   固定在页头下方悬浮，不占列表的布局位（以前插在列表头顶，一条提示把整列卡片往下顶）；
+   × 关闭，同批错误关掉后不再打扰，错误变化才再浮出来。关闭钮与 #banner .bx 同一族。 */
+.list-note { position: fixed; top: calc(var(--sz-head) + var(--sp-8)); left: 50%; transform: translateX(-50%);
+  z-index: 190; max-width: min(760px, calc(100vw - var(--sp-32)));
+  font-size: var(--fs-12); line-height: var(--lh-1-5); color: var(--warn);
   background: var(--warn-tint); border: var(--hair) solid color-mix(in srgb, var(--warn) var(--a-28), transparent);
-  border-radius: var(--radius-6); padding: var(--sp-8) var(--sp-12); margin-bottom: var(--sp-8); display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap; }
+  border-radius: var(--radius-10); padding: var(--sp-8) var(--sp-12); display: flex; align-items: center; gap: var(--sp-8); flex-wrap: wrap;
+  box-shadow: var(--shadow-2); }
 .list-note .txt { flex: 1 1 200px; min-width: 0; }
 .list-note b { color: var(--txt); }
 
@@ -1389,12 +1393,12 @@ dialog.ui-dlg:has(.pl-scope) .pr-foot { justify-content: flex-end; }
    权重也比这里低，加了不生效只会两套规则并存。内容是 icon('close') 的 SVG，
    尺寸按正方形给（原来的 font-size:14px + padding 是给「×」字符准备的，
    换成 SVG 后 font-size 对它无效，14px 宽的扁盒子套一颗 11px 的叉会歪）。 */
-#banner .bx { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex;
+#banner .bx, .list-note .bx { flex: 0 0 auto; width: 22px; height: 22px; display: inline-flex;
   align-items: center; justify-content: center;
   border: var(--hair) solid currentColor; background: none; color: inherit;
   line-height: 0; cursor: pointer; opacity: .85; padding: 0; border-radius: var(--radius-6);
   font-family: inherit; }
-#banner .bx:hover { opacity: 1; background: color-mix(in srgb, var(--pal-gray) var(--a-14), transparent); }
+#banner .bx:hover, .list-note .bx:hover { opacity: 1; background: color-mix(in srgb, var(--pal-gray) var(--a-14), transparent); }
 #banner.warn { background: var(--warn-tint); color: var(--warn); border-color: color-mix(in srgb, var(--warn) var(--a-26), transparent); }
 #banner.err { background: var(--err-tint); color: var(--err); border-color: color-mix(in srgb, var(--err) var(--a-30), transparent); }
 

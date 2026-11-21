@@ -166,7 +166,6 @@
               <input id="fQ" class="ui-inp" v-model="fQ" @input="onQInput" placeholder="搜索提示词 / 型号 / ID…">
             </div>
             <button class="ghost" @click="exportBills"><span class="ic" data-icon="download" data-size="13"></span> 导出 CSV</button>
-            <div @click="onBillNoteClick" v-html="billNoteHtml"></div>
             <div class="upd" id="billCnt" style="margin-bottom:var(--sp-8)">{{ billCntText }}</div>
             <div id="bills">
               <div v-if="billDownHtml" v-html="billDownHtml"></div>

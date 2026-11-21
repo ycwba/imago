@@ -88,7 +88,6 @@ export default {
     const billErr = ref('');
     const billLoading = ref(true);
     const billDownHtml = ref('');
-    const billNoteHtml = ref('');
     const billCntText = ref('');
     const billRows = ref([]);
     const curBillRows = ref([]);
@@ -410,8 +409,8 @@ export default {
       const noPrice = rows.filter(r => r.cost == null && r.tokens == null).length;
       const LIMIT = 300;
       const shown = rows.slice(0, LIMIT);
-      /* 失败来源单独一条，样式与「重试」按钮都走公共层 `Wb.loadNote` */
-      billNoteHtml.value = window.Wb ? window.Wb.loadNote(billErrs.value, 'billRetry') : '';
+      /* 失败来源走公共层 `Wb.loadNote` 的悬浮卡（自管、可关闭）；这里每轮把当前 errs 递进去当驱动 */
+      if (window.Wb) Wb.loadNote(billErrs.value, 'billRetry', reloadAll);
       // 计数写清楚「只显示了前 N 条」「还有几页没读」
       billCntText.value = `${rows.length} 条`
         + (rows.length > LIMIT ? `（表格只列出前 ${LIMIT} 条）` : '')
@@ -660,11 +659,6 @@ export default {
       window.Toast.receipt('已导出 ' + curBillRows.value.length + ' 条账单');
     }
 
-    function onBillNoteClick(e) {
-      const t = e.target && e.target.closest ? e.target.closest('#billRetry') : null;
-      if (t) { e.preventDefault(); reloadAll(); }
-    }
-
     /* 筛选件的值在事件里当场落进 ref 再重算：v-model 的指令监听与模板上的 @input / @change
        谁先挂上没有保证，只读 ref 会慢一拍（打一个字才筛上一个字）。 */
     function onPlatformChange(e) { fPlatform.value = e.target.value; renderBills(); }
@@ -708,9 +702,9 @@ export default {
       chartHtml,
       voiceStat, voiceEmpty, voiceModelRows, voiceRecentRows,
       aiLoaded, aiStat, aiPriceNote, aiModelRows, aiDailyRows,
-      billLoading, billDownHtml, billNoteHtml, billCntText, billRows,
+      billLoading, billDownHtml, billCntText, billRows,
       platformOptions, fPlatform, fRange, fQ,
-      reloadAll, exportBills, onBillNoteClick, onPlatformChange, onRangeChange, onQInput, billRowTitle,
+      reloadAll, exportBills, onPlatformChange, onRangeChange, onQInput, billRowTitle,
       ledProvs, ledKid, ledFrom, ledTo, ledLoading, ledErr, ledView, ledTotalsText, ledAt,
       loadLedger, onLedKidChange, onLedFrom, onLedTo, exportLedger,
       fmtWhen: window.fmtWhen, refreshIcon,

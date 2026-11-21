@@ -3421,7 +3421,8 @@ const StudioView = {
           : hiddenCloud
             ? Wb.emptyHTML(hiddenCloud + ' 条已按设置隐藏')
             : Wb.emptyHTML('还没有历史素材')),
-        notesHTML: () => Wb.loadNote(serverErrs, 'histRetry'),
+        /* 悬浮提示卡由 Wb.loadNote 自管（挂 body、可关闭）；这里每轮把当前 errs 递进去当驱动 */
+        notesHTML: () => Wb.loadNote(serverErrs, 'histRetry', () => loadServer(1, true)),
         /* 新卡片入场：走公共的 .card-enter（时长与位移在 ui.css 里，都取令牌），
            不在 JS 里另抄一份 6px / 280ms。 */
         onNew: el => { try { el.classList.add('card-enter'); } catch (e) {} },
@@ -3519,13 +3520,6 @@ const StudioView = {
         /* 多选时点卡片是**勾选**，不是展开详情（与资产库同一套手感） */
         if (multiMode) { taskMulti().toggle(card._item); return; }
         band.toggle(card, card._item);
-      });
-      $('result').addEventListener('click', e => {
-        const b = e.target.closest('#histRetry');
-        if (!b) return;
-        e.stopPropagation();
-        b.disabled = true;
-        loadServer(1, true);
       });
 
       /* ---------- 详情 / 灯箱 ----------

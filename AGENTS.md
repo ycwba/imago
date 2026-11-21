@@ -172,6 +172,9 @@ frame-ancestors 'none'; worker-src 'self' blob:
 
 ### 交互
 - 所有可交互元素必须覆盖 hover / focus-visible / active / disabled / busy。
+- 提示弹窗一律**悬浮**（不挤占内容布局）且**可手动关闭**：轻提示走 Toast、全局错误走 ErrBanner、
+  列表的部分失败走 Wb.loadNote 悬浮卡——同一族三份，都住在悬浮层；持续性提示靠关闭钮收，
+  不在内容区插条占位。
 - 程序性 focus 走 `window.focusQuiet(el)`；要让某处进视野另走 `scrollIntoView({ block: 'nearest' })`。
 - 搜索三条出口：回车 / 失焦 = 普通搜索；清空 = 取消筛选；AI 搜索入口与输入框同壳。
 - **加按钮五步**：

@@ -124,7 +124,6 @@
 .studio-page.wb .col-right #result .task .acts,
 .studio-page.wb .col-right #result .task .timg video,
 .studio-page.wb .col-right #result .task .timg audio { cursor: auto; }
-.studio-page.wb .col-right #result > .list-note,
 .studio-page.wb .col-right #result > .empty { grid-column: 1 / -1; }
 
 @media (max-width: 760px) {
