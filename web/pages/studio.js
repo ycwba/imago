@@ -1953,7 +1953,9 @@ const StudioView = {
             followPlaceholder: TYPE === 'audio'
               ? '还要怎么改？例：再口语一点 / 压到两句 / 数字写成中文读法'
               : '还要怎么改？例：运镜写具体动作 / 光线改成正午 / 只留一句',
-            onApply: v => {
+            onApply: (v, extra) => {
+              /* 对照稿随「采用」进草稿（提交时随任务进归档）；这一轮没出对照稿就清掉旧的。 */
+              setDraftAlt(extra && extra.reference);
               ta.value = v;
               /* 走手打同一条链：草稿 / 闸门 / 估价 / **原始请求预览**都跟着刷新 ——
                  只写 value 的话，右侧「原始请求」会停在润色前那一句。 */
@@ -1987,7 +1989,9 @@ const StudioView = {
             title: 'H3 规范优化',
             note: (r.skill ? r.skill + ' · ' : '') + '英文稿写进提示词，中文稿供对照',
             after: r.en, before: original, reference: r.zh, referenceLabel: '中文稿',
-            onApply: v => {
+            onApply: (v, extra) => {
+              /* 英文稿进提示词、中文稿随「采用」进草稿 —— 与 AI 润色同一份存显（两稿都落本地） */
+              setDraftAlt(extra && extra.reference);
               const ta = $('prompt');
               ta.value = v;
               /* 走手打同一条链（与 AI 润色同一份写回）：草稿 / 闸门 / 估价 / 原始请求都跟着刷新 */
@@ -2349,7 +2353,10 @@ const StudioView = {
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
 
-          log: { type: '视频生成', meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
+          log: { type: '视频生成',
+            /* 双稿：润色 / H3 优化采用过的对照稿随任务进归档（英中两稿都落本地） */
+            promptLang: draftAltNow().lang, promptAlt: draftAltNow().alt, promptAltLang: draftAltNow().altLang,
+            meta: { 模型档位: t.tier, 分辨率: t.res, 画幅: t.ar || t.size, 时长: t.dur ? t.dur + 's' : '',
             输入模式: cb ? comboLabel(cb) : '',
             顶层参数: ex.summary,
             参考素材: entries.length ? entries.length + ' 个' : '',
@@ -2388,7 +2395,10 @@ const StudioView = {
         const d = await Api.request(prov, 'create', {
           method: 'POST', headers: idemHeader(prov),
 
-          log: { type: '图片生成', meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
+          log: { type: '图片生成',
+            /* 双稿：润色采用过的对照稿随任务进归档 */
+            promptLang: draftAltNow().lang, promptAlt: draftAltNow().alt, promptAltLang: draftAltNow().altLang,
+            meta: { 画质: ap.quality || '', 画幅: ap.ar || '', 格式: ap.format || '',
             本批张数: n > 1 ? n + ' 张' : '', 参考图: refList.length ? refList.length + ' 张' : '',
             顶层参数: ex.summary } },
           body: Api.createBody(prov, std),
@@ -2526,8 +2536,12 @@ const StudioView = {
           const p = trackSubmit(rec, async () => {
             const r = await withCreateRetry(() => createVideoOnce(prov, model, prompt, entries), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
             const dur0 = Number(val('dur')) || 0;
-            if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id, prompt,
-              extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: dur0, model: (model && model.id) || '' } });
+            if (r && r.taskId) {
+              const da = draftAltNow();
+              created.push({ id: r.taskId, provider: prov.id, prompt,
+                extra: { tier: val('tier'), res: val('res'), ar: val('ar'), dur: dur0, model: (model && model.id) || '',
+                  promptAlt: da.alt, promptLang: da.lang, promptAltLang: da.altLang } });
+            }
             tally.run(true);
             return r;
           });
@@ -2572,8 +2586,12 @@ const StudioView = {
           const n = Math.min(perReq, left);
           const p = trackSubmit(rec, async () => {
             const r = await withCreateRetry(() => createImageOnce(prov, model, prompt, assetIds, n), '平台的提示词编译服务这次出错（任务未创建、未扣费），');
-            if (r && r.taskId) created.push({ id: r.taskId, provider: prov.id, prompt,
-              extra: { tier: val('tier'), res: val('res'), ar: val('ar'), quality: val('quality'), size: val('size'), model: (model && model.id) || '' } });
+            if (r && r.taskId) {
+              const da = draftAltNow();
+              created.push({ id: r.taskId, provider: prov.id, prompt,
+                extra: { tier: val('tier'), res: val('res'), ar: val('ar'), quality: val('quality'), size: val('size'), model: (model && model.id) || '',
+                  promptAlt: da.alt, promptLang: da.lang, promptAltLang: da.altLang } });
+            }
             else if (r && r.sync) synced.push(...r.sync);
             tally.run(true);
             return r;
@@ -2623,7 +2641,10 @@ const StudioView = {
           if (blob) { try { t.voiceRefKey = await Wb.Blobs.save(blob); t.voiceRefName = it.name || ''; } catch (e) { Toast.warn('参考音频没能存到本机库：重试时需要重新选择'); } }
         }
         if (window.PromptLog) {
+          const da = draftAltNow();
+          if (da.alt) { t.promptAlt = da.alt; t.promptLang = da.lang; t.promptAltLang = da.altLang; }
           PromptLog.save(REG, { type: '语音合成', prompt: t.text, model: t.model, task: t.localId, provider: t.provider,
+            promptLang: da.lang, promptAlt: da.alt, promptAltLang: da.altLang,
             meta: { 音色方式: MODE_ZH[mode] || mode, 音色: mode === 'design' ? '' : t.voice, 风格描述: t.style,
               格式: t.format, 字数: t.text.length + ' 字' } });
         }
@@ -2713,6 +2734,7 @@ const StudioView = {
           prompt: e.prompt || '',
           /* 归档索引只带前 300 字：带上这个标记，详情面板才会去 /prompts 回源取全文 */
           promptLocal: !!e.promptLocal,
+          promptAlt: e.promptAlt || '', promptLang: e.promptLang || '', promptAltLang: e.promptAltLang || '',
           raw: e.src || '', media: isAsset ? mediaOf({ src: e.src }) : (e.src ? mediaOf({ src: e.src }) : ''),
           dl: e.dl || (aid ? Api.assetDl(aid) : ''),
           assetId: aid, taskId: isAsset ? '' : (e.genId || ''),
@@ -2736,6 +2758,7 @@ const StudioView = {
           mtype: '音频', provider: t.provider || '', providerName: (lp && (lp.displayName || lp.name)) || t.provider || '',
           model: t.model || '', status: t.status || 'creating', kind: t.assetId ? 'asset' : 'task',
           prompt: t.text || '', raw: t.url || '', media: t.url || '', dl: t.dl || '',
+          promptAlt: t.promptAlt || '', promptLang: t.promptLang || '', promptAltLang: t.promptAltLang || '',
           assetId: t.assetId || '', taskId: '', localId: t.localId || t.id || '', ts: t.ts || 0,
           format: t.format, voice: t.voice, durationSec: t.duration, size: t.bytes,
           usageText: t.usageText || '', priceText: t.priceText || '', transcript: t.transcript || '',
@@ -2939,10 +2962,16 @@ const StudioView = {
           const prov = provById(one.provider) || null;
           if (!prov) continue;
           const archP = one.prompt ? '' : (Api.promptFor(prov.id, one.id) || '');
+          /* 双稿：提交时带下来的对照稿在 one.extra 里（extra 展开在后、以它为准）；
+             没带的那一路（外部认领）退回归档缓存现问一份。 */
+          const archA = (one.extra && one.extra.promptAlt) ? null
+            : (Api.promptAltFor ? Api.promptAltFor(prov.id, one.id) : null);
           upsertItem(Object.assign({
             mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, {}) : '',
             provider: prov.id, status: 'queued', prompt: one.prompt || archP || '',
             promptLocal: !one.prompt && !!archP,
+            promptAlt: archA ? String(archA.alt || '') : '', promptLang: archA ? String(archA.lang || '') : '',
+            promptAltLang: archA ? String(archA.altLang || '') : '',
             raw: '', media: '', dl: '', assetId: '', taskId: one.id, ts: Date.now(),
             local: false, localAsset: false,
           }, one.extra || {}));
@@ -2996,11 +3025,15 @@ const StudioView = {
         /* 平台不返回提示词时用本机归档索引兜底 —— 索引里只有前 300 字。
            标上 promptLocal，详情面板才知道要回源取全文（不然「完整提示词」只到 300 字）。 */
         const archP = p.prompt ? '' : (Api.promptFor(prov.id, p.id) || '');
+        /* 双稿：对照稿与两边语言随归档缓存一起补（与提示词补显示同一把尺、同一时刻就位）。 */
+        const archA = Api.promptAltFor ? Api.promptAltFor(prov.id, p.id || '') : null;
         return {
           mtype: (window.AssetLib && AssetLib.mediaOf) ? AssetLib.mediaOf(prov, p) : '',
           provider: prov.id, model: p.model || '', status,
           kind: done ? 'asset' : 'task', prompt: p.prompt || archP || '',
           promptLocal: !p.prompt && !!archP,
+          promptAlt: archA ? String(archA.alt || '') : '', promptLang: archA ? String(archA.lang || '') : '',
+          promptAltLang: archA ? String(archA.altLang || '') : '',
           raw: p.url || '', media: done ? (aid ? Api.assetSrc(aid) : Api.mediaSrc(p.url)) : '',
           dl: aid ? Api.assetDl(aid) : (p.url ? '/fetch?url=' + encodeURIComponent(p.url) : ''),
           assetId: aid, taskId: p.id || '', ts: Date.parse(p.created || '') || (p.completed ? Date.parse(p.completed) : 0) || Date.now(),
@@ -3122,7 +3155,7 @@ const StudioView = {
       let multiMode = false;
       const selected = new Set();
       const taskKeyOf = it => itemKey(it);
-      const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.model,
+      const cardSig = it => [it.status, it.media, it.priceText, it.error, it.mtype, it.prompt, it.promptAlt || '', it.model,
         it.tier, it.res, it.ar, it.dur, it.voice, it.format, it.ts, it.progress || 0,
         (window.AssetLocal && AssetLocal.showBadge && AssetLocal.showBadge()) ? 'B' : '-',
         (window.AssetLocal && AssetLocal.stateOf) ? AssetLocal.stateOf(it).state : '-',
@@ -3178,6 +3211,7 @@ const StudioView = {
           mediaHTML: mediaBox(it), type: it.mtype, status: Wb.stText(it.status),
           tone: run ? 'run' : unc ? 'warn' : bad ? 'err' : 'ok',
           badgeHTML: srcBadgeOf(it), date: window.fmtWhen(it.ts), prompt: it.prompt,
+          promptAlt: it.promptAlt || '', promptLang: it.promptLang || '', promptAltLang: it.promptAltLang || '',
           error: (bad || unc) && it.error ? String(it.error) : '', meta,
           actionsHTML: Wb.actsHTML(it, {
             hasMedia: !!it.media, cancel: canCx,
@@ -3331,6 +3365,8 @@ const StudioView = {
           }
           setType('audio', true);
           $('prompt').value = rec.text || ''; $('style').value = rec.style || '';
+          /* 双稿跟着回填：这条本地记录的对照稿（若有）也进草稿，重发时同样随任务归档。 */
+          cur().promptAlt = rec.promptAlt || ''; cur().promptLang = rec.promptLang || ''; cur().promptAltLang = rec.promptAltLang || '';
           syncPromptBack();
           $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
           rec.status = 'creating'; rec.error = ''; rec.noResend = false; saveAudioTasks(); renderAll();
@@ -3351,6 +3387,8 @@ const StudioView = {
         $('model').value = prov.id + '::' + hit.id;
         $('model').dispatchEvent(new Event('change'));
         $('prompt').value = it.prompt || '';
+        /* 双稿跟着回填：这条任务的对照稿（若有）也进草稿，提交时同样随任务归档。 */
+        cur().promptAlt = it.promptAlt || ''; cur().promptLang = it.promptLang || ''; cur().promptAltLang = it.promptAltLang || '';
         syncPromptBack();
         $('prompt').dispatchEvent(new Event('input', { bubbles: true }));   // 原始请求预览跟着刷新
         setStatus('<span class="warn">已填回左栏，确认后点「生成」</span>');
@@ -4117,8 +4155,13 @@ const StudioView = {
         restoreInputs();
         restoreAnnotatedSlots();
         const picks = loadPicks();
-        /* 型号与提示词都按类型各备一份：型号记在 studio_pick，提示词记 studio_prompt_<type>。 */
-        TYPE_LIST.forEach(t => { ST[t].prompt = readLS('studio_prompt_' + t, ''); });
+        /* 型号与提示词都按类型各备一份：型号记在 studio_pick，提示词记 studio_prompt_<type>，
+           对照稿（双稿那一路）记 studio_promptalt_<type>。 */
+        TYPE_LIST.forEach(t => {
+          ST[t].prompt = readLS('studio_prompt_' + t, '');
+          const a = readLS('studio_promptalt_' + t, null);
+          ST[t].promptAlt = (a && a.alt) || ''; ST[t].promptLang = (a && a.lang) || ''; ST[t].promptAltLang = (a && a.altLang) || '';
+        });
         ST[TYPE].model = picks[TYPE] || '';
         $('prompt').value = ST[TYPE].prompt;
         syncPromptBack();
@@ -4183,6 +4226,31 @@ const StudioView = {
         clearTimeout(promptLsTimer);
         promptLsTimer = setTimeout(() => { promptLsTimer = 0; writeLS('studio_prompt_' + TYPE, $('prompt').value); }, 250);
       });
+      /* 双稿草稿：润色 / H3 优化采用的那一版对照稿挂在提示词草稿上（主稿提交用，
+         对照稿只随任务进归档、给任务卡对照显示）。手动再改提示词不清对照稿 ——
+         它是随上一次「采用」一起留下的参考，不是与主稿逐字节绑定的契约。 */
+      let altLsTimer = 0;
+      function draftAltNow() {
+        const st = cur();
+        return { alt: String(st.promptAlt || ''), lang: String(st.promptLang || ''), altLang: String(st.promptAltLang || '') };
+      }
+      function setDraftAlt(alt) {
+        const st = cur();
+        const t = String(alt == null ? '' : alt).trim();
+        if (t) {
+          st.promptAlt = t;
+          st.promptLang = TYPE === 'video' ? 'en' : 'zh';
+          st.promptAltLang = TYPE === 'video' ? 'zh' : 'en';
+        } else {
+          st.promptAlt = ''; st.promptLang = ''; st.promptAltLang = '';
+        }
+        clearTimeout(altLsTimer);
+        altLsTimer = setTimeout(() => {
+          altLsTimer = 0;
+          const a = draftAltNow();
+          writeLS('studio_promptalt_' + TYPE, a.alt ? { alt: a.alt, lang: a.lang, altLang: a.altLang } : null);
+        }, 250);
+      }
       /* 风格 / 歌词 / 时长（音频台三件）都直接进提交体：敲一个字预览就跟着翻
          （RawRequest.schedule 自带 300 ms 防抖，不用再叠一层）。 */
       $('style').addEventListener('input', () => { cur().style = $('style').value; refreshPreview(); });
@@ -4202,7 +4270,10 @@ const StudioView = {
          于是刷新时提示词那 250 ms 里的字直接没了。 */
       const flushPage = () => {
         clearTimeout(promptLsTimer); promptLsTimer = 0;
+        clearTimeout(altLsTimer); altLsTimer = 0;
         writeLS('studio_prompt_' + TYPE, $('prompt').value);
+        const da = draftAltNow();
+        writeLS('studio_promptalt_' + TYPE, da.alt ? { alt: da.alt, lang: da.lang, altLang: da.altLang } : null);
         persistInputsNow();                       // 参考素材清单兜底补写（防抖途中的那一份）
         saveAudioTasks();
       };

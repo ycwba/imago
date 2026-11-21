@@ -605,7 +605,8 @@ export default {
         mediaHTML: media, type: a.type,
         status: a.kind === 'task' ? (lateDone ? '已完成' : window.Wb.stText(a.status)) : '已完成',
         tone: run ? 'run' : unc ? 'warn' : bad ? (CALMED_ST.includes(String(a.status).toLowerCase()) ? '' : 'err') : 'ok',
-        badgeHTML: assetBadge(a), date, prompt: a.prompt || noPromptText(a), meta,
+        badgeHTML: assetBadge(a), date, prompt: a.prompt || noPromptText(a),
+        promptAlt: a.promptAlt || '', promptLang: a.promptLang || '', promptAltLang: a.promptAltLang || '', meta,
         actionsHTML: window.Wb.actsHTML(a, actsOpts(a)),
         detailHTML: '<div class="exp"><div class="exp-in"><div class="exp-body"><div class="cdet"></div>'
           + (extra ? '<div class="exp-acts">' + extra + '</div>' : '') + '</div></div></div>',

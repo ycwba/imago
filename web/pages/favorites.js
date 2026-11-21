@@ -227,7 +227,8 @@ export default {
       });
     }
 
-    const titleOf = it => it.prompt || it.name || '(无描述)';
+    /* 双稿：标题行默认显示中文那份（对照稿优先于主稿的英文），没有第二份就原样 */
+    const titleOf = it => (window.Wb && Wb.promptViews ? Wb.promptViews(it).text : (it.prompt || '')) || it.name || '(无描述)';
     /* 这一页**不显示本机 / 云端 / 只剩外链**：字节在哪是资产库的事，
        收藏页只说「这一条是从哪儿来的、是什么、多大」。 */
     const metaOf = it => [

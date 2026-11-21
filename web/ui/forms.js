@@ -229,8 +229,10 @@ function keepBodyScroll(el, fn) {
          长文本不该替用户决定「永远摊在面板里」。follow / 重新润色出了新对照稿也跟着换；
          块不在而新稿非空时当场补一块（首轮没出、下一轮才出的那条路），新稿为空就整块收掉。 */
       let refWrap = el.querySelector('.pinl-ref');
+      let refTxt = String(o.reference == null ? '' : o.reference).trim();
       const setRef = txt => {
         const t = String(txt == null ? '' : txt).trim();
+        refTxt = t;
         if (!refWrap) {
           if (!t) return;
           const at = el.querySelector('.pinl-talk') || el.querySelector('.pinl-chat') || el.querySelector('.pinl-ft');
@@ -253,7 +255,8 @@ function keepBodyScroll(el, fn) {
       function apply() {
         const v = ta.value.trim();
         if (!v) return;
-        if (o.onApply) o.onApply(v);
+        /* 第二个参数把此刻面板里的对照稿交回页面：双稿那一路拿它随任务归档（英中两稿都落本地）。 */
+        if (o.onApply) o.onApply(v, { reference: refTxt });
         window.InlinePolish.clear(host);
       }
       applyBtn.onclick = apply;

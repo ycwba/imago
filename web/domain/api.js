@@ -1039,7 +1039,10 @@ function topBoolValue(decl, on) {
           if (id) PromptLog.save(_reg, { type: (opts.log && opts.log.type) || PromptLog.ctxType(prov),
             prompt: archPrompt, model: (opts.log && opts.log.model) || (opts.body && opts.body.model),
             provider: prov.id, task: id,
-            title: opts.log && opts.log.title, meta: opts.log && opts.log.meta });
+            title: opts.log && opts.log.title, meta: opts.log && opts.log.meta,
+            promptLang: opts.log && opts.log.promptLang,
+            promptAlt: opts.log && opts.log.promptAlt,
+            promptAltLang: opts.log && opts.log.promptAltLang });
         }
       } catch (e) {}
       /* 建了一条真任务就说一声（判据与发送都在 workbench.js 的总线那一处）：
@@ -1513,6 +1516,20 @@ function topBoolValue(decl, on) {
       const P = window.PromptLog;
       if (!P || !id) return '';
       return P.cached(provId, id) || P.cachedById(id) || '';
+    },
+    /* 对照稿补显示：与 promptFor 同一把尺（PromptLog 的另一半缓存）。有才返回
+       { alt, lang, altLang }，没有返回 null —— 显示层凭它画不带切换钮的那条路。 */
+    promptAltFor(provId, id) {
+      const P = window.PromptLog;
+      if (!P || !id) return null;
+      return P.altCached(provId, id) || P.altCachedById(id) || null;
+    },
+    /* 对照稿的**整份**（详情回源那一路）：findByTask 取全文时对照稿随同一次请求进了
+       PromptLog 的整份缓存，这里只递读取口 —— ui 层读 domain 的公共面都走这一层门面。 */
+    promptAltFullFor(id) {
+      const P = window.PromptLog;
+      if (!P || !id) return null;
+      return P.fullAltOf(id) || null;
     },
     /* 本地生成产物落盘：同步返回的二进制（语音等）存成本机资产，返回 { id, url, ... }
        大类型代理按扩展名 / mime 现算（图片、视频、音频都存得住），media_type 只在两者都认不出时才用。 */

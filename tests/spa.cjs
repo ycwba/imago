@@ -434,8 +434,13 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        `web/ui/forms.js` 的 show 参照块 setRef（follow / 重跑跟换、缺块当场补）与
        PromptReview.openList 条目对照稿展开钮；`web/core/routes.js` 的 PolishBi 装载登记。
        润色面板与流式底座全站一份，没有按需拆载的落点。
-       实跑 30 枚 / 918552 字节（登记上限 920000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 920000;
+       实跑 30 枚 / 918552 字节（登记上限 920000）。
+     ·  +3.4KB（2026-11-21，润色双稿与双语存显批 2）：`web/domain/prompt-log.js` 的对照稿另一半
+       缓存（altCache / altByTask / fullsAlt 与 rememberAlt / fillAlt）与 save / load / findByTask /
+       refill 的双稿字段；`web/domain/api.js` 的 create 归档透传。归档补显示的内存层只有这一份
+       （资产库 / 收藏 / 详情都经它），没有按需拆载的落点。
+       实跑 30 枚 / 922007 字节（登记上限 924000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 924000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

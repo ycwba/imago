@@ -1548,8 +1548,31 @@ function createPromptsStore(opts) {
     try {
       const text = fs.readFileSync(file, 'utf8');
       const i = text.indexOf('## 提示词');
-      return i >= 0 ? text.slice(i + '## 提示词'.length).replace(/\s+/g, ' ').trim().slice(0, 300) : '';
+      if (i < 0) return '';
+      /* 正文段在下一个 `## ` 小节（对照稿）之前：老文件没有小节就到 EOF。 */
+      const seg = text.slice(i + '## 提示词'.length);
+      const stop = seg.indexOf('\n## ');
+      return (stop >= 0 ? seg.slice(0, stop) : seg).replace(/\s+/g, ' ').trim().slice(0, 300);
     } catch { return ''; }
+  }
+  /* 对照稿那一节（双稿归档才有；老文件没有就空）—— 与提示词正文同一套 300 字预览口径。 */
+  function promptAltBodyOf(file) {
+    try {
+      const text = fs.readFileSync(file, 'utf8');
+      const i = text.indexOf('## 对照稿');
+      if (i < 0) return '';
+      const seg = text.slice(i + '## 对照稿'.length);
+      const stop = seg.indexOf('\n## ');
+      return (stop >= 0 ? seg.slice(0, stop) : seg).replace(/\s+/g, ' ').trim().slice(0, 300);
+    } catch { return ''; }
+  }
+  /* 归档文件里某一节的**整份**正文（/find 回源用）：从该小节标题后到下一个 `## ` 或 EOF。 */
+  function promptSectionOf(text, head) {
+    const i = text.indexOf(head);
+    if (i < 0) return '';
+    const seg = text.slice(i + head.length);
+    const stop = seg.indexOf('\n## ');
+    return (stop >= 0 ? seg.slice(0, stop) : seg).trim();
   }
   /* 整目录那一遍（readdir + 逐条读 1KB front matter）缓住，30 秒内同一目录只翻一次：
      索引文件只写 2000 行，比这更老的归档不在索引里，/prompts/find 查不到时必须整目录翻一遍 ——
@@ -1572,7 +1595,8 @@ function createPromptsStore(opts) {
       const o = promptMetaOf(path.join(key, f));
       if (!o) return;
       rows.push({ f, t: o.title || '', k: o.type || '', ts: Number(o.ts) || 0,
-        p: o.provider || '', m: o.model || '', i: o.task || '' });
+        p: o.provider || '', m: o.model || '', i: o.task || '',
+        pl: o.lang || '', pal: o.alt_lang || '' });
     });
     metaScans.set(key, { at: Date.now(), rows });
     return rows;
@@ -1586,7 +1610,7 @@ function createPromptsStore(opts) {
   function rebuildPromptIndex(dir) {
     let meta = [];
     try { meta = readDirMetaRows(dir, true); } catch { return []; }
-    const rows = meta.map(r => ({ ...r, pr: promptBodyOf(path.join(dir, r.f)) }));
+    const rows = meta.map(r => ({ ...r, pr: promptBodyOf(path.join(dir, r.f)), pa: promptAltBodyOf(path.join(dir, r.f)) }));
     rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
     writePromptIndex(dir, rows);
     return rows;
@@ -1607,7 +1631,7 @@ function createPromptsStore(opts) {
     for (const r of meta) {
       if (out.length >= (cap || 50)) break;
       if (r.i !== id) continue;
-      out.push({ ...r, pr: promptBodyOf(path.join(dir, r.f)) });
+      out.push({ ...r, pr: promptBodyOf(path.join(dir, r.f)), pa: promptAltBodyOf(path.join(dir, r.f)) });
     }
     if (!out.length) promptMiss.set(mk, Date.now()); else promptMiss.delete(mk);
     return out;
@@ -1660,12 +1684,8 @@ function createPromptsStore(opts) {
                按 provider 挑那份的分支永远命不中，别留着骗读者：同名任务的归档取最新一份。 */
             const hit = rows[0];
             try {
-              const text = fs.readFileSync(path.join(dir, hit.f), 'utf8');
-              const at = text.indexOf('## 提示词');
-              if (at >= 0) {
-                const full = text.slice(at + '## 提示词'.length).trim();
-                if (full.length > prompt.length) prompt = full;
-              }
+              const full = promptSectionOf(fs.readFileSync(path.join(dir, hit.f), 'utf8'), '## 提示词');
+              if (full.length > prompt.length) prompt = full;
             } catch (e) { /* 归档文件读不出来就用账里那份 */ }
           }
         }
@@ -1678,15 +1698,17 @@ function createPromptsStore(opts) {
       if (!rows.length) { json(200, { ok: true, id, matched: 0, archived: false, prompt: '', all: [] }); return true; }
       rows.sort((a, b) => (b.ts || 0) - (a.ts || 0));
       const hit = (prov && rows.find(r => r.p === prov)) || rows.find(r => !r.p) || rows[0];
-      let prompt = '';
+      let prompt = '', promptAlt = '';
       try {
         const text = fs.readFileSync(path.join(dir, hit.f), 'utf8');
-        const i = text.indexOf('## 提示词');
-        if (i >= 0) prompt = text.slice(i + '## 提示词'.length).trim();
+        prompt = promptSectionOf(text, '## 提示词');
+        promptAlt = promptSectionOf(text, '## 对照稿');
       } catch {}
       json(200, { ok: true, id, matched: rows.length, provider: hit.p || '', file: hit.f,
         path: path.join(dir, hit.f), title: hit.t, type: hit.k, prompt,
-        all: rows.map(r => ({ file: r.f, title: r.t, type: r.k, provider: r.p || '', ts: r.ts || 0, pr: r.pr || '' })) });
+        promptLang: hit.pl || '', promptAlt, promptAltLang: hit.pal || '',
+        all: rows.map(r => ({ file: r.f, title: r.t, type: r.k, provider: r.p || '', ts: r.ts || 0, pr: r.pr || '',
+          pl: r.pl || '', pa: r.pa || '', pal: r.pal || '' })) });
       return true;
     }
     if (req.method === 'POST' && where === 'open') {
@@ -1707,6 +1729,10 @@ function createPromptsStore(opts) {
         if (!f || typeof f !== 'object') return json(400, { error: { message: '请求体不是对象' } });
         const prompt = String(f.prompt == null ? '' : f.prompt);
         if (!prompt.trim()) return json(400, { error: { message: '提示词是空的' } });
+        /* 双稿（主稿 + 对照稿）：都由润色 / 平台改写那条链带上，旧调用方不传就没有这两节。 */
+        const promptAlt = String(f.promptAlt == null ? '' : f.promptAlt).trim();
+        const promptLang = oneLine(f.promptLang).slice(0, 12);
+        const promptAltLang = oneLine(f.promptAltLang).slice(0, 12);
         const now = new Date();
         const rawTitle = oneLine(f.title).slice(0, 80) || oneLine(prompt).slice(0, 10);
         const rawType = oneLine(f.type).slice(0, 40) || '任务';
@@ -1727,13 +1753,17 @@ function createPromptsStore(opts) {
         if (provider) fm.push('provider: ' + provider);
         if (model) fm.push('model: ' + model);
         if (task) fm.push('task: ' + task);
+        if (promptLang) fm.push('lang: ' + promptLang);
+        if (promptAltLang) fm.push('alt_lang: ' + promptAltLang);
         metaKeys.forEach(k => fm.push(fileSafe(k, 24) + ': ' + oneLine(meta[k]).slice(0, 120)));
         fm.push('---');
         const body = ['', '# ' + rawTitle, ''].concat([
           '- 类型：' + rawType, '- 时间：' + timeText(now),
           provider ? '- 平台：' + provider : '', model ? '- 模型：' + model : '', task ? '- 任务号：' + task : '',
         ].filter(Boolean)).concat(metaKeys.map(k => '- ' + k + '：' + oneLine(meta[k])))
-          .concat(['', '## 提示词', '', prompt.trim(), '']).join('\n');
+          .concat(['', '## 提示词', '', prompt.trim()])
+          .concat(promptAlt ? ['', '## 对照稿', '', promptAlt] : [])
+          .concat(['']).join('\n');
         let file = '', wrote = false;
         for (let n = 1; n <= 50 && !wrote; n++) {
           const cand = base + (n === 1 ? '' : '-' + n) + '.md';
@@ -1744,6 +1774,8 @@ function createPromptsStore(opts) {
         forgetDirScan(dir);
         const row = { f: file, t: rawTitle, k: rawType, ts: now.getTime(), p: provider, m: model,
           i: task, pr: oneLine(prompt).slice(0, 300) };
+        if (promptLang) row.pl = promptLang;
+        if (promptAlt) { row.pa = oneLine(promptAlt).slice(0, 300); if (promptAltLang) row.pal = promptAltLang; }
         updateIndex(dir, () => writePromptIndex(dir, [row].concat(promptRows(dir).filter(r => r.f !== file))))
           .catch(e => log('[prompts] 索引更新失败：' + e.message))
           .finally(() => json(200, { ok: true, dir, file, path: path.join(dir, file), title, type }));

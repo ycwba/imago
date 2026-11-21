@@ -175,6 +175,7 @@
     fromEntry(e) {
       const it = { key: this.assetKey(e), kind: 'asset', provider: e.provider, providerName: e.providerName,
         assetId: e.assetId || e.id, genId: e.genId || '', taskId: e.taskId || '', type: e.type, prompt: e.prompt || '',
+        promptAlt: e.promptAlt || '', promptLang: e.promptLang || '', promptAltLang: e.promptAltLang || '',
         src: mediaSrc(e.src || ''), dl: e.dl || '', rawSrc: e.rawSrc || '',
         format: e.format || '', duration: e.duration || null, ts: Date.now() };
       fillFavPrompt(it);

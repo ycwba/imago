@@ -14,6 +14,17 @@
     if (cache.size > 4000) cache.delete(cache.keys().next().value);
     if (byTask.size > 4000) byTask.delete(byTask.keys().next().value);
   };
+  /* 双稿（主稿 + 对照稿）的另一半：对照稿与两边语言随提示词同生同灭，键与主稿同形。
+     只在真的有对照稿时才记（旧归档没有， Display 层凭「有没有 alt」决定画不画切换钮）。 */
+  const altCache = new Map();       // '平台|任务号' → { alt, lang, altLang }
+  const altByTask = new Map();      // 任务号 → 同上（平台名对不上时的兜底，与 byTask 同一家法）
+  const rememberAlt = (provId, id, a) => {
+    if (!id || !a || !a.alt) return;
+    altCache.set(promptKeyOf(provId, id), a);
+    if (!altByTask.has(String(id))) altByTask.set(String(id), a);
+    if (altCache.size > 4000) altCache.delete(altCache.keys().next().value);
+    if (altByTask.size > 4000) altByTask.delete(altByTask.keys().next().value);
+  };
   const titles = new Map();         // 提示词 → 标题（同一次会话里同一个提示词只问一次文字 AI）
   const inflight = new Map();
   let loadedAt = 0, loading = null, warned = false;
@@ -90,21 +101,30 @@
     return t;
   }
 
-  /* 归档一份提示词（不 await 也不抛错：调用方 fire-and-forget 即可，不拖慢创建任务） */
+  /* 归档一份提示词（不 await 也不抛错：调用方 fire-and-forget 即可，不拖慢创建任务）。
+     `info.promptAlt` / `promptLang` / `promptAltLang`：双稿那一路（润色 / 平台改写采用过的）
+     连对照稿与两边语言一起归档；旧调用方不传就归单稿，形状与以前完全一致。 */
   async function save(REG, info) {
     const prompt = String((info && info.prompt) || '').trim();
     if (!prompt) return null;
     try {
       const title = String((info.title || '')).trim() || (await aiTitle(REG, prompt)) || fallbackTitle(prompt);
+      const promptAlt = String((info && info.promptAlt) || '').trim();
       const body = {
         title, type: info.type || '任务', prompt,
+        promptLang: String((info && info.promptLang) || ''),
+        promptAlt, promptAltLang: String((info && info.promptAltLang) || ''),
         provider: info.provider || '', model: info.model || '',
         task: info.task || '', meta: info.meta || null,
       };
       const d = await req('', { method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body), timeout: 20000 });
       // 顺手更新内存索引：刚提交的任务立刻能在资产库里看到提示词，不必等下次刷新
-      if (d && d.ok && info.provider && info.task) remember(info.provider, info.task, prompt.slice(0, 300));
+      if (d && d.ok && info.provider && info.task) {
+        remember(info.provider, info.task, prompt.slice(0, 300));
+        if (promptAlt) rememberAlt(info.provider, info.task,
+          { alt: promptAlt, lang: body.promptLang, altLang: body.promptAltLang });
+      }
       return d;
     } catch (e) { warnOnce(e); return null; }
   }
@@ -117,7 +137,12 @@
       try {
         // limit 默认 300 太少：索引里没有的老任务，卡片就只能显示「（该平台接口不返回提示词）」
         const d = await req('?limit=800', { timeout: 15000 });
-        (d.recent || []).forEach(r => { if (r.p && r.i) remember(r.p, r.i, r.pr || ''); });
+        (d.recent || []).forEach(r => {
+          if (r.p && r.i) {
+            remember(r.p, r.i, r.pr || '');
+            if (r.pa) rememberAlt(r.p, r.i, { alt: r.pa, lang: r.pl || '', altLang: r.pal || '' });
+          }
+        });
         loadedAt = Date.now();
         return cache.size;
       } catch (e) { return cache.size; }
@@ -146,12 +171,19 @@
     }, 300);
   };
   const fulls = new Map();            // 任务号 → 归档里的**全文**（索引只带前 300 字，够卡片用，详情面板要整份）
+  const fullsAlt = new Map();         // 任务号 → 回源拿到的对照稿整份（与 fulls 同一家法、同一道封顶）
   const finding = new Map();          // 任务号 → 进行中的查询：同一任务并发只发一次请求
   const setFull = (id, p) => {
     if (fulls.size > 400) fulls.delete(fulls.keys().next().value);
     fulls.set(String(id), p);
   };
-  /* 按任务号回源取**整份**归档提示词（详情面板、以及索引窗口外的老任务用） */
+  const setFullAlt = (id, a) => {
+    if (fullsAlt.size > 400) fullsAlt.delete(fullsAlt.keys().next().value);
+    fullsAlt.set(String(id), a);
+  };
+  /* 按任务号回源取**整份**归档提示词（详情面板、以及索引窗口外的老任务用）。
+     对照稿随同一次请求一起回来（promptAlt / promptLang / promptAltLang），存进 fullsAlt；
+     取过之后用 fullAltOf(id) 读，调用方不用再发第二个请求。 */
   async function findByTask(provId, id) {
     if (!id) return '';
     const k = String(id);
@@ -173,9 +205,17 @@
         const p = String(d.prompt);
         setFull(id, p);
         remember(provId, id, p.slice(0, 300));
+        if (d.promptAlt) {
+          const a = { alt: String(d.promptAlt), lang: String(d.promptLang || ''), altLang: String(d.promptAltLang || '') };
+          setFullAlt(id, a);
+          rememberAlt(provId, id, a);
+        }
         /* 同一任务号的其它归档（换过平台 id 重复提交的那些）也记下来：
            换 provider 再查时直接命中缓存，省一次请求。 */
-        (d.all || []).forEach(a => { if (a && a.provider && a.pr) remember(a.provider, id, String(a.pr)); });
+        (d.all || []).forEach(a => {
+          if (a && a.provider && a.pr) remember(a.provider, id, String(a.pr));
+          if (a && a.provider && a.pa) rememberAlt(a.provider, id, { alt: String(a.pa), lang: String(a.pl || ''), altLang: String(a.pal || '') });
+        });
         missed.delete(promptKeyOf(provId, id)); missed.delete(promptKeyOf('', id));
         saveMissed();
         return p;
@@ -220,7 +260,11 @@
       const id = askId(r);
       if (!id) continue;
       const hit = cached(r.provider, id) || cachedById(id);
-      if (hit) { r.prompt = hit; r.promptLocal = true; filledNow++; continue; }
+      if (hit) {
+        r.prompt = hit; r.promptLocal = true;
+        fillAlt(r, id);
+        filledNow++; continue;
+      }
       if (missedFor(r.provider, id)) continue;
       if (todo.length >= limit) continue;
       todo.push({ r, id });
@@ -233,7 +277,7 @@
       let n = filledNow;
       todo.forEach(x => {
         const p = cached(x.r.provider, x.id) || cachedById(x.id);
-        if (p) { x.r.prompt = p; x.r.promptLocal = true; n++; }
+        if (p) { x.r.prompt = p; x.r.promptLocal = true; fillAlt(x.r, x.id); n++; }
       });
       /* 查到没查到都要回调：没查到的那一行要从「正在归档里找」改成「两边都没有」 */
       if (opts.onDone) { try { opts.onDone(n, todo.map(x => x.r)); } catch (e) { console.warn('[PromptLog] 补齐后重画出错：', e); } }
@@ -241,6 +285,16 @@
     });
   }
   /* 归档目录信息（设置页展示）：dir 由代理现算，跟着「本机资产库」那个根走 */
+  /* 对照稿的三种读法（与主稿的 cached / cachedById / findByTask 同一家法）：
+     fillAlt 在 refill 的两条填稿路里就地补 r.promptAlt / promptLang / promptAltLang；
+     fullAltOf 给详情面板（回源后读整份对照稿，不再发第二个请求）。 */
+  const fillAlt = (r, id) => {
+    const a = altCached(r.provider, id) || altCachedById(id) || fullsAlt.get(String(id));
+    if (a) { r.promptAlt = a.alt; r.promptLang = a.lang; r.promptAltLang = a.altLang; }
+  };
+  const altCached = (provId, id) => (id ? altCache.get(promptKeyOf(provId, id)) || null : null);
+  const altCachedById = id => (id ? altByTask.get(String(id)) || null : null);
+  const fullAltOf = id => (id ? fullsAlt.get(String(id)) || null : null);
   const list = () => req('');
   const open = () => req('/open', { method: 'POST' });
   /* 平台默认类型：页面没指定时按平台种类给一个（图片 / 视频 / 语音 / 文字）。
@@ -262,5 +316,5 @@
      刚往归档目录里手工补了文件、或换了归档目录时用它，不用刷新页面。 */
   const clearMissed = () => { const n = missed.size; missed.clear(); saveMissed(); loadedAt = 0; return n; };
 
-  window.PromptLog = { save, load, cached, cachedById, findByTask, missedFor, askId, refill, clearMissed, list, open, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
+  window.PromptLog = { save, load, cached, cachedById, altCached, altCachedById, fullAltOf, findByTask, missedFor, askId, refill, clearMissed, list, open, ctxType, fallbackTitle, cleanTitle, aiTitle, exportAll, importAll };
 })()

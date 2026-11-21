@@ -111,10 +111,16 @@
       ? AssetLib.promptOf({ prompt: rawPrompt, taskId: askId, provider: prov.id }, providerId)
       : { prompt: rawPrompt, local: false };
     const localPrompt = pz.prompt;
+    /* 双稿：对照稿与两边语言随归档缓存一起补（与提示词补显示同一把尺、同一时刻就位）。
+       没有归档对照稿的就是空 —— 显示层凭它决定画不画切换钮。 */
+    const altInfo = (askId && window.Api && Api.promptAltFor) ? Api.promptAltFor(prov.id, askId) : null;
     const base = {
       type: media, provider: providerId, providerName, format: fmt,
       prompt: rawPrompt || localPrompt || '',
       promptLocal: !rawPrompt && !!pz.local,
+      promptAlt: altInfo ? String(altInfo.alt || '') : '',
+      promptLang: altInfo ? String(altInfo.lang || '') : '',
+      promptAltLang: altInfo ? String(altInfo.altLang || '') : '',
       ts: g('completed') || g('created') || '',
       genId: g('id'), taskId: askId, gstatus, model: g('model'), mode: g('mode'),
       credits, creditsRaw: g('credits'),

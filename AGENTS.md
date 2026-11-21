@@ -343,6 +343,7 @@ frame-ancestors 'none'; worker-src 'self' blob:
 | ASR 路线 / 文案 | `pickRoute` / `stageText` / `routeLabel` |
 | ASR 模型代下载 | `server/routes/models.js` |
 | 文字 AI | `TextAI` |
+| 润色双稿切分（主稿 + 【对照稿】） | `web/domain/polish-bi.cjs`（`TextAI.splitBi` / `biStream` 与 `AiStream.bi` 只转发组装） |
 | 文字型号输入能力 | `ModelPrefs.mediaOf` / `setMedia` |
 | 提示词归档 / 收藏 | `PromptLog` / `Fav` + `Wb.favBtnHTML` / `bindFavBtn` / `favEntryOf` |
 | 素材库 | `Chars`（`Lib` / `Pipe` / `SET`） |

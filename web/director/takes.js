@@ -60,16 +60,24 @@ export function takePromptOf(sh, c) {
 }
 
 /* 写回只动那一条候选 —— 取消画面层之后没有「auto 改基准、其余改自己」的分流了。
-   c 为空 = 写这一镜的主描述（默认候选那一句）。 */
-export function setTakePrompt(sh, c, text) {
+   c 为空 = 写这一镜的主描述（默认候选那一句）。
+   `alt`：双稿那一路（润色 / 平台改写采用过的）把对照稿与语言标签一起写进候选，
+   提交生成时随任务归档；没传就清掉候选上已有的那一套（写单稿 = 不再带双语）。 */
+export function setTakePrompt(sh, c, text, alt) {
   const v = String(text == null ? '' : text);
+  const a = (alt && String(alt.alt || '').trim()) ? { promptAlt: String(alt.alt), promptLang: String(alt.lang || ''), promptAltLang: String(alt.altLang || '') } : null;
+  const applyTo = x => {
+    x.origin = originOf(x);
+    x.prompt = v;
+    if (a) { x.promptAlt = a.promptAlt; x.promptLang = a.promptLang; x.promptAltLang = a.promptAltLang; }
+    else { delete x.promptAlt; delete x.promptLang; delete x.promptAltLang; }
+  };
   if (!c) {
     const d = defaultTakeOf(sh);
-    if (d) { d.origin = originOf(d); d.prompt = v; }
+    if (d) applyTo(d);
     return v;
   }
-  c.origin = originOf(c);
-  c.prompt = v;
+  applyTo(c);
   return v;
 }
 

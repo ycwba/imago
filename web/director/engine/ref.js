@@ -113,7 +113,8 @@ function renderPolishPanel(sh) {
         setStatus('<span class="err">这条候选已经不在了，润色结果没有写回</span>');
         return;
       }
-      setTakePrompt(sh, c, v);
+      /* 双稿：润色结果的主稿写回候选，对照稿跟着候选走（提交生成时随任务归档）。 */
+      setTakePrompt(sh, c, v, polishUI && polishUI.ref ? { alt: polishUI.ref, lang: 'en', altLang: 'zh' } : null);
       polishUI = null;
       renderEditor(); renderScenes(); scheduleSave();
       setStatus('<span class="ok">✓ 已替换这一镜的提示词</span>');

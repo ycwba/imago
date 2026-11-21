@@ -1678,16 +1678,20 @@
         this._cache.set(key, { ts: Date.now(), ttl: this._isFinished(p && p.status) ? 60000 : 5000, g });
         return g;
       },
-      _promptHTML(prompt) {
+      /* 详情里的提示词格（双稿时带语言切换钮）：显示哪份、切换钮出不出，唯一口径 Wb.promptViews。 */
+      _promptHTML(pv) {
+        const btn = pv.both
+          ? '<button type="button" class="ghost mini" data-langprompt title="在这条提示词的中英文稿之间切换">' + esc(pv.otherLabel) + '</button>'
+          : '';
         return '<div class="det-prompt-hd">完整提示词'
-          + (prompt ? '<button type="button" class="ghost mini" data-copyprompt>复制</button>' : '')
+          + (pv.text ? btn + '<button type="button" class="ghost mini" data-copyprompt>复制</button>' : '')
           + '</div>'
-          + '<div class="det-prompt' + (prompt ? '' : ' t-sub') + '">' + esc(prompt || '（无提示词）') + '</div>';
+          + '<div class="det-prompt' + (pv.text ? '' : ' t-sub') + '">' + esc(pv.text || '（无提示词）') + '</div>';
       },
       /* 提示词那一格固定高度、框内滚动（卡片里还要摆参数与参考图）：**不做展开**，
          超出靠滚动看。 */
-      _shell(prompt) {
-        return this._promptHTML(prompt)
+      _shell(pv) {
+        return this._promptHTML(pv)
           + '<div class="det-sep"></div><div class="det-body">加载中…</div><div class="det-extra"></div>';
       },
       /* 本机归档的提示词在索引里只存了前 300 字（省内存、省流量，够列表卡片用）：
@@ -1703,7 +1707,18 @@
         if (!full || full.length <= String(shown || '').length || !host.isConnected || (seq != null && host._detSeq !== seq)) return;
         const hd = host.querySelector('.det-prompt-hd'), el = host.querySelector('.det-prompt');
         if (!hd || !el) return;
-        hd.outerHTML = this._promptHTML(full);
+        /* 回源拿到的不只是全文：对照稿（随同一次 /find 一起回来）也在这里补上 ——
+           条目上原有的 promptAlt 只有索引里的 300 字，详情这一格要的是整份。 */
+        const item = host._detItem || {};
+        const a = (window.Api && Api.promptAltFullFor) ? Api.promptAltFullFor(id) : null;
+        const pv = Wb.promptViews({
+          prompt: full,
+          promptLang: (a && a.lang) || item.promptLang || '',
+          promptAlt: (a && a.alt) || item.promptAlt || '',
+          promptAltLang: (a && a.altLang) || item.promptAltLang || '',
+        });
+        host._pv = pv;
+        hd.outerHTML = this._promptHTML(pv);
         el.remove();
         this._bindPrompt(host);
       },
@@ -1848,6 +1863,18 @@
           cp.textContent = ok ? '已复制 ✓' : '复制失败';
           setTimeout(() => { cp.textContent = '复制'; }, 1300);
         };
+        /* 双稿切换（详情里的语言钮）：点一下在中文 / 英文两份之间换，复制跟着换。 */
+        const sw = host.querySelector('[data-langprompt]');
+        if (sw) sw.onclick = e => {
+          e.stopPropagation(); e.preventDefault();
+          const v = host._pv;
+          if (!v || !v.both) return;
+          const el = host.querySelector('.det-prompt');
+          const next = sw.dataset.cur === 'en' ? 'zh' : 'en';
+          if (el) el.textContent = next === 'zh' ? v.zh : v.en;
+          sw.dataset.cur = next;
+          sw.textContent = next === 'zh' ? '看中文稿' : '看英文稿';
+        };
       },
       _bind(host, item, g) {
         const c = this.cfg;
@@ -1931,7 +1958,14 @@
         host._detSeq = seq; host._detItem = item;
         const c = this.cfg;
         const prompt = String((c.prompt ? c.prompt(item) : item.prompt) || '');
-        host.innerHTML = this._shell(prompt);
+        const pv = Wb.promptViews({
+          prompt,
+          promptLang: item.promptLang || '',
+          promptAlt: item.promptAlt || '',
+          promptAltLang: item.promptAltLang || '',
+        });
+        host._pv = pv;
+        host.innerHTML = this._shell(pv);
         /* 提示词的按钮不等平台详情：画出来这一刻就接线（详情那一段到了再补参数行）。 */
         this._bindPrompt(host);
         /* 卡上那份可能来自本机归档的 300 字索引（平台接口不返回提示词的家尤其如此）：
@@ -2299,14 +2333,32 @@
         p.then(fillBadge).catch(() => {});
       },
     },
+    /* 双稿提示词的显示口径（唯一一份）：默认显示中文那份，可切另一语言。
+       rec 带 prompt 与可选的 promptLang / promptAlt / promptAltLang —— 两边语言各出得来一份
+       且不相同时才算双稿（给切换钮）；只有一份（旧任务 / 没润过 / 模型没按两段式来）就原样显示。
+       为什么默认中文：对照稿是给人读的那一份，任务卡与详情先让人对着读，要看提交原文再切。 */
+    promptViews(rec) {
+      const p = String((rec && rec.prompt) || '');
+      const alt = String((rec && rec.promptAlt) || '');
+      const lang = String((rec && rec.promptLang) || '');
+      const altLang = String((rec && rec.promptAltLang) || '');
+      const zh = (lang === 'zh' ? p : '') || (altLang === 'zh' ? alt : '');
+      const en = (lang === 'en' ? p : '') || (altLang === 'en' ? alt : '');
+      const both = !!(zh && en && zh !== en);
+      return { zh, en, both, text: both ? zh : (zh || p || alt || ''), other: both ? en : '', otherLabel: '看英文稿' };
+    },
     taskHTML(o) {
       const err = String(o.error || '');
+      const pv = this.promptViews(o);
+      const langBtn = pv.both
+        ? '<button type="button" class="ui-linkbtn tlang" data-langsw="1" data-cur="zh" title="在这条提示词的中英文稿之间切换">' + esc(pv.otherLabel) + '</button>'
+        : '';
       return o.mediaHTML + '<div class="tmain">'
         + '<div class="card-top"><div class="card-badge">'
         + (o.type ? '<span class="task-kind">' + esc(o.type) + '</span>' : '')
         + '<span class="task-status ' + esc(o.tone || '') + '">' + esc(o.status) + '</span>'
         + (o.badgeHTML || '') + '</div><span class="date">' + esc(o.date) + '</span></div>'
-        + '<div class="tprompt" title="' + esc(o.prompt) + '">' + esc(o.prompt || '(无提示词)') + '</div>'
+        + '<div class="tprompt" title="' + esc(pv.text) + '"><span class="tp-tx">' + esc(pv.text || '(无提示词)') + '</span>' + langBtn + '</div>'
         + '<div class="terr"' + (err ? ' title="' + esc(err) + '"' : '') + '>' + esc(err) + '</div>'
         + '<div class="meta2" title="' + esc(o.meta) + '">' + esc(o.meta) + '</div>'
         + '<div class="acts">' + o.actionsHTML + '</div>' + o.detailHTML + '</div>';
@@ -2354,6 +2406,24 @@
     bindActs(el, t, o = {}) {
       const q = s => el.querySelector(s);
       const on = (sel, fn) => { const b = q(sel); if (b) b.onclick = e => { e.stopPropagation(); e.preventDefault(); fn(b); }; };
+
+      /* 双稿切换钮（卡片提示词行）：点一下在中文 / 英文两份之间换。
+         停止冒泡 —— .tprompt 整行点开详情是页面自己的监听，换语言不能把详情也拽开。 */
+      el.querySelectorAll('.tprompt [data-langsw]').forEach(b => {
+        b.onclick = e => {
+          e.stopPropagation(); e.preventDefault();
+          const v = this.promptViews(t);
+          if (!v.both) return;
+          const line = b.closest('.tprompt');
+          const tx = line && line.querySelector('.tp-tx');
+          if (!tx) return;
+          const next = b.dataset.cur === 'en' ? 'zh' : 'en';
+          tx.textContent = next === 'zh' ? v.zh : v.en;
+          line.title = tx.textContent;
+          b.dataset.cur = next;
+          b.textContent = next === 'zh' ? '看中文稿' : '看英文稿';
+        };
+      });
 
       on('.dt', () => o.onDetail && o.onDetail());
       on('.pv', () => o.onPreview && o.onPreview());
@@ -2494,6 +2564,7 @@
         provider: e.provider || '', providerName: e.providerName || '',
         assetId: e.assetId || e.id || '', genId: e.genId || e.taskId || '', taskId: e.taskId || '',
         type: e.type || e.mtype || '', prompt: e.prompt || '',
+        promptAlt: e.promptAlt || '', promptLang: e.promptLang || '', promptAltLang: e.promptAltLang || '',
         src: e.src || e.raw || e.media || '', dl: e.dl || '', rawSrc: e.rawSrc || '',
         format: e.format || '',
         duration: e.duration != null ? e.duration : (e.durationSec != null ? e.durationSec : null),

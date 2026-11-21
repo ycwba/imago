@@ -338,7 +338,11 @@ async function submitCandidate(sh, ph) {
          比平台语法更好复用），镜头名 + 时长/画幅等参数一并记下。见 PromptLog
          「输入模式」也要记：同一句提示词在「智能参考」与「视频换人」下发出去的是两种请求、
          两种价，隔一个月回看这个文件的人（往往就是用户自己）得知道当时按哪一种出的。 */
-      const log2 = { type: '导演台-分镜', prompt: p, meta: {
+      /* 双稿：候选上带着的对照稿（润色 / 润色全部文案采用过的）随任务进归档 ——
+         任务卡默认显示中文那份、可切英文，数据来源就是这一条归档。 */
+      const log2 = { type: '导演台-分镜', prompt: p,
+        promptLang: String(ph.promptLang || ''), promptAlt: String(ph.promptAlt || ''),
+        promptAltLang: String(ph.promptAltLang || ''), meta: {
         镜头: sh.name || '', 模型档位: ph.tier, 分辨率: ph.res, 画幅: ph.ar, 尺寸: ph.size || '',
         时长: ph.dur ? ph.dur + 's' : '',
         输入模式: cbAdv ? comboLabel(cbAdv) : '',
@@ -1257,7 +1261,7 @@ async function runPolishAll() {
     if (!sh) { gone++; return; }
     const c = (sh.candidates || []).find(x => x && x.vid === row.vid);
     if (!c) { gone++; return; }
-    setTakePrompt(sh, c, text);
+    setTakePrompt(sh, c, text, row.ref ? { alt: row.ref, lang: 'en', altLang: 'zh' } : null);
     n++;
   });
   renderAll(); scheduleSave();
