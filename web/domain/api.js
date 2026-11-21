@@ -829,14 +829,15 @@ function topBoolValue(decl, on) {
       catch (e) { return null; }
     },
     /* 本机账行的 provider 注记缺失 / 是 'local' / '本机' 时，按条目的 upstream 域名认平台：
-       文件字节从哪个平台的地址取回来，就是谁家的产物。host 比对不看端口与路径；
+       文件字节从哪个平台的地址取回来，就是谁家的产物。比对只看域名（hostname，忽略端口与路径）——
+       拾帧的取产物地址带非默认端口（shizhenvideo.com:9443），按 host（含端口）比对永远对不上；
        注册表还没就位（setRegistry 没跑过）就认不出——显示层落「本机」，与旧行为一致。 */
     providerByUpstream(url) {
       if (!url || !_reg) return '';
       let h = '';
-      try { h = new URL(/^https?:\/\//i.test(String(url)) ? String(url) : 'https://' + String(url)).host.toLowerCase(); } catch (e) { return ''; }
+      try { h = new URL(/^https?:\/\//i.test(String(url)) ? String(url) : 'https://' + String(url)).hostname.toLowerCase(); } catch (e) { return ''; }
       const hit = (_reg.providers || []).find(p => {
-        try { return p.base && new URL(p.base).host.toLowerCase() === h; } catch (e) { return false; }
+        try { return p.base && new URL(p.base).hostname.toLowerCase() === h; } catch (e) { return false; }
       });
       return (hit && hit.id) || '';
     },
