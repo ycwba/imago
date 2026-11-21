@@ -90,15 +90,23 @@
        同步返回的那几家（语音 / 生图）产物都落在同一个索引里，条目自己记着是谁生成的
        （保存时写进了 provider）。按它归属性 —— 否则先读到的那家会把后面读到的全标成自己，
        卡片「平台」那一行就成了假话（生出来的图写着「MiMo」）。 */
-    const selfProvId = spec.selfAsset ? String((raw && raw.provider) || '') : '';
     const routedId = (prov.mediaProviders && prov.mediaProviders[media]) || '';
-    const providerId = routedId || (selfProvId && selfProvId !== prov.id ? selfProvId : prov.id);
+    const selfRaw = spec.selfAsset ? String((raw && raw.provider) || '').trim() : '';
+    const selfKnown = selfRaw && selfRaw !== 'local' && selfRaw !== '本机'
+      && window.Api && window.Api.provOf(selfRaw);
+    /* 归属要说真话。账行的 provider 注记是唯一真相（保存时写了谁生成的）；
+       注记缺失 / 写的是 'local' / '本机'（盘对账补账、重绑、老数据）时，按条目的 upstream
+       域名认平台 —— 文件字节从哪个平台的地址取回来，就是谁家的产物；认不出才是「本机」。
+       以前缺失时整条挂给「读这张表的第一家」（注册表顺序里的 MiMo），音频档全是假归属。 */
+    const providerId = routedId
+      || (selfKnown ? selfRaw : '')
+      || (spec.selfAsset && window.Api && window.Api.providerByUpstream
+        ? window.Api.providerByUpstream(raw && raw.upstream) : '')
+      || (spec.selfAsset ? 'local' : prov.id);
     const ownProv = (providerId && providerId !== prov.id && providerId !== routedId && window.Api)
       ? (window.Api.prov(providerId) || null) : null;
-    /* 归属要说真话：provider 注记解析不到注册表平台（'local' /「本机」那一批）就写「本机」——
-       以前一律落到来源那家的 displayName，本机 PNG 在卡片上挂着语音平台的名字。 */
     const providerName = (ownProv && (ownProv.displayName || ownProv.name))
-      || ((spec.selfAsset && !routedId && providerId !== prov.id && !ownProv) ? '本机' : '')
+      || (providerId === 'local' ? '本机' : '')
       || prov.displayName || prov.name;
     // 上游没给 prompt 时用本机记录兜底（例如 VGENV 的接口不返回它），并标注来源
     const rawPrompt = g('prompt') || '';

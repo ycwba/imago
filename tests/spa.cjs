@@ -439,8 +439,14 @@ const residentBytes = resident.reduce((a, s) => a + (fs.existsSync(path.join(roo
        缓存（altCache / altByTask / fullsAlt 与 rememberAlt / fillAlt）与 save / load / findByTask /
        refill 的双稿字段；`web/domain/api.js` 的 create 归档透传。归档补显示的内存层只有这一份
        （资产库 / 收藏 / 详情都经它），没有按需拆载的落点。
-       实跑 30 枚 / 922007 字节（登记上限 924000）。 */
-const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 924000;
+       实跑 30 枚 / 922007 字节（登记上限 924000）。
+     ·  +3KB（2026-11-21，拾帧产物归属修正）：`web/domain/assetlib.js` 的归属链改为
+       「provider 注记 → upstream 域名认平台 → 本机」三段（缺失注记不再挂给读表第一家）；
+       `web/domain/api.js` 长出 providerByUpstream（upstream 域名 → 注册表平台 id）；
+       `web/pages/studio.js` 的 provLabelOf 补 local/本机 档与「语音合成」后缀剥离。
+       归属判定全站只有 normalizeRaw 一处，没有按需拆载的落点。
+       实跑 30 枚 / 924940 字节（登记上限 927000）。 */
+const FIRST_SCREEN_MAX_SCRIPTS = 30, FIRST_SCREEN_MAX_BYTES = 927000;
 ok(`首屏同步脚本 ${resident.length} 枚 / ${(residentBytes / 1024).toFixed(0)}KB 不超登记（${FIRST_SCREEN_MAX_SCRIPTS} 枚 / ${(FIRST_SCREEN_MAX_BYTES / 1024).toFixed(0)}KB）`,
   resident.length <= FIRST_SCREEN_MAX_SCRIPTS && residentBytes <= FIRST_SCREEN_MAX_BYTES,
   `${resident.length} 枚 / ${residentBytes} 字节 —— 只许减：新挂一枚脚本要连着写下它为什么不能按需`);

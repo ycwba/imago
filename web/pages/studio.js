@@ -452,9 +452,11 @@ const StudioView = {
       /* ============================ ③ 注册表与型号 ============================ */
       const groups = () => Api.pickable((REG.providers || []).filter(p => p.kind === TYPES[TYPE].provKind));
       function provLabelOf(id) {
+        /* 本机账行（盘对账补账 / 重绑 / 本地上传）没有平台注记：说「本机」，不亮裸 id */
+        if (!id || id === 'local' || id === '本机') return '本机';
         const hit = (REG.providers || []).find(p => p.id === id);
         const name = (hit && hit.name) || id || '';
-        return name.replace(/\s*(生图|视频|图片|音频|音乐)$/, '') || name;
+        return name.replace(/\s*(生图|视频|图片|音频|语音合成|音乐)$/, '') || name;
       }
       function provLabelFor(it) {
         const p = provById(it.provider);

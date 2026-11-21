@@ -828,6 +828,18 @@ function topBoolValue(decl, on) {
       try { return (this.providers() || []).find(p => p.id === id || p.keyId === id) || null; }
       catch (e) { return null; }
     },
+    /* 本机账行的 provider 注记缺失 / 是 'local' / '本机' 时，按条目的 upstream 域名认平台：
+       文件字节从哪个平台的地址取回来，就是谁家的产物。host 比对不看端口与路径；
+       注册表还没就位（setRegistry 没跑过）就认不出——显示层落「本机」，与旧行为一致。 */
+    providerByUpstream(url) {
+      if (!url || !_reg) return '';
+      let h = '';
+      try { h = new URL(/^https?:\/\//i.test(String(url)) ? String(url) : 'https://' + String(url)).host.toLowerCase(); } catch (e) { return ''; }
+      const hit = (_reg.providers || []).find(p => {
+        try { return p.base && new URL(p.base).host.toLowerCase() === h; } catch (e) { return false; }
+      });
+      return (hit && hit.id) || '';
+    },
     keyId(prov) { return (prov && (prov.keyId || prov.id)) || ''; },
     /* 按 keyId 读的 localStorage 开关（sk_key_ / sk_base_ / sk_off_ 都是这一套键名口径）。 */
     _ls(prov, prefix) {
